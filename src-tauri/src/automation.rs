@@ -1737,12 +1737,7 @@ fn required_track(store: &Store, id: &str) -> Result<Track, ToolError> {
 }
 fn safe_track(track: Track) -> Value {
     let mut value = serde_json::to_value(track).unwrap_or_else(|_| json!({}));
-    if let Some(object) = value.as_object_mut() {
-        object.remove("localPath");
-        if let Some(provenance) = object.get_mut("provenance") {
-            strip_file_fields(provenance);
-        }
-    }
+    strip_file_fields(&mut value);
     value
 }
 fn safe_playback_history_entry(entry: crate::playback_history::PlaybackHistoryEntry) -> Value {
@@ -1891,12 +1886,13 @@ fn safe_job(job: DownloadJob) -> Value {
 fn strip_file_fields(value: &mut Value) {
     match value {
         Value::Object(object) => {
-            object.retain(|key, _| {
+            object.retain(|key, value| {
                 let k = key.to_ascii_lowercase();
                 !(k.contains("filename")
                     || k.ends_with("path")
                     || k.ends_with("directory")
                     || k.ends_with("folder"))
+                    && !value.as_str().is_some_and(is_local_resource_url)
             });
             for child in object.values_mut() {
                 strip_file_fields(child);
@@ -1909,6 +1905,11 @@ fn strip_file_fields(value: &mut Value) {
         }
         _ => {}
     }
+}
+fn is_local_resource_url(value: &str) -> bool {
+    url::Url::parse(value)
+        .ok()
+        .is_some_and(|url| matches!(url.scheme(), "file" | "asset"))
 }
 fn origin_allowed(headers: &HeaderMap) -> bool {
     headers.get(axum::http::header::ORIGIN).is_none_or(|o| {
@@ -2335,6 +2336,7 @@ mod tests {
             provider: "local".into(),
             track: Track {
                 id: "recording:stable-id".into(),
+                artwork_url: Some("asset://localhost/%2Fhome%2Flistener%2FMusic%2Fcover.jpg".into()),
                 local_path: Some("/secret/music/file.flac".into()),
                 provenance: json!({"sourcePath":"/secret/music/file.flac","safe":"kept"}),
                 ..Track::default()
@@ -2346,6 +2348,7 @@ mod tests {
         assert_eq!(value["track"]["id"], "recording:stable-id");
         assert_eq!(value["track"]["provenance"]["safe"], "kept");
         assert!(value["track"].get("localPath").is_none());
+        assert!(value["track"].get("artworkUrl").is_none());
         assert!(value["track"]["provenance"].get("sourcePath").is_none());
         assert!(value["chapter"].get("path").is_none());
         let page = crate::playback_history::PlaybackHistoryPage {
@@ -2358,6 +2361,17 @@ mod tests {
             .get("sourcePath")
             .is_none());
         assert!(page["items"][0]["chapter"].get("path").is_none());
+
+        let remote = safe_track(Track {
+            artwork_url: Some("https://cdn.example.test/cover.jpg".into()),
+            ..Track::default()
+        });
+        assert_eq!(remote["artworkUrl"], "https://cdn.example.test/cover.jpg");
+        let file_url = safe_track(Track {
+            artwork_url: Some("file:///secret/music/cover.jpg".into()),
+            ..Track::default()
+        });
+        assert!(file_url.get("artworkUrl").is_none());
     }
     #[test]
     fn release_tracks_tool_requires_release_and_artist_references() {
