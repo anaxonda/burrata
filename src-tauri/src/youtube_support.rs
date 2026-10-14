@@ -642,52 +642,20 @@ impl YouTubeSupportManager {
     }
 
     pub async fn probe_candidate(&self, executable: &Path) -> Result<(), String> {
-        let provider_url = self.ensure_provider().await?;
-        let plugin_dir = self
-            .plugin_dir
-            .as_ref()
-            .ok_or("Trusted BgUtils plugin directory is not packaged")?;
-        let mut command = Command::new(executable);
-        command
-            .args(["--ignore-config", "--no-cache-dir", "--plugin-dirs"])
-            .arg(plugin_dir)
-            .args([
-                "--js-runtimes",
-                &format!(
-                    "node:{}",
-                    self.node_executable
-                        .as_ref()
-                        .ok_or("Bundled Node runtime is not packaged")?
-                        .display()
-                ),
-                "--no-warnings",
-                "--simulate",
-                "--no-playlist",
-                "--dump-single-json",
-                "--extractor-args",
-            ])
-            .arg(format!("youtubepot-bgutilhttp:base_url={provider_url}"))
-            .arg("https://www.youtube.com/watch?v=jNQXAC9IVRw")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let output = run_capped(command, Duration::from_secs(45), 128 * 1024)
-            .await
-            .map_err(|e| format!("Could not complete candidate yt-dlp compatibility probe: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "yt-dlp provider/YouTube probe exited with {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
+        if !self.provider_assets_ready() {
+            return Err("Cannot verify candidate without the packaged Node, BgUtils server, and trusted plugin assets.".into());
         }
-        let body: Value = serde_json::from_slice(&output.stdout)
-            .map_err(|_| "yt-dlp probe returned no valid video metadata")?;
-        if body["id"].as_str().is_none() || body["extractor"].as_str().is_none() {
-            return Err("yt-dlp probe response did not identify an extracted video".into());
+        let result = self
+            .diagnose_executable(executable, "https://www.youtube.com/watch?v=jNQXAC9IVRw")
+            .await;
+        if candidate_probe_succeeded(&result) {
+            Ok(())
+        } else {
+            Err(format!(
+                "YouTube audio compatibility probe failed ({:?}): {}",
+                result.category, result.message
+            ))
         }
-        self.provider_verified.store(true, Ordering::Relaxed);
-        Ok(())
     }
 
     /// Run a real public YouTube extraction through the packaged plugin and
@@ -714,8 +682,12 @@ impl YouTubeSupportManager {
                 "Enter an HTTPS YouTube video URL to run this support check.",
             );
         }
-        let executable = self.active_executable();
-        let version = version(&executable).await.ok();
+        self.diagnose_executable(&self.active_executable(), url)
+            .await
+    }
+
+    async fn diagnose_executable(&self, executable: &Path, url: &str) -> SupportDiagnosis {
+        let version = version(executable).await.ok();
         let provider = self.provider_args().await;
         let provider_available =
             !provider.as_ref().is_ok_and(|v| v.is_empty()) && self.provider_assets_ready();
@@ -1121,20 +1093,22 @@ fn diagnosis(
         message: message.to_owned(),
     }
 }
+fn candidate_probe_succeeded(result: &SupportDiagnosis) -> bool {
+    result.ok && result.audio_accessible
+}
 
 async fn version(executable: &Path) -> Result<String, String> {
     if !executable.is_file() {
         return Err("executable missing".into());
     }
-    let output = Command::new(executable)
+    let mut command = Command::new(executable);
+    command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let output = run_capped(command, Duration::from_secs(10), 4096).await?;
     if !output.status.success() {
         return Err("version probe failed".into());
     }
@@ -1563,6 +1537,29 @@ mod tests {
         assert!(!is_supported_youtube_url(
             "https://example.com/watch?v=secret"
         ));
+    }
+
+    #[test]
+    fn candidate_activation_requires_audio_access_not_metadata_only() {
+        let metadata_only = diagnosis(
+            true,
+            DiagnosisCategory::Ready,
+            Some("candidate".into()),
+            true,
+            false,
+            "metadata extracted",
+        );
+        assert!(!candidate_probe_succeeded(&metadata_only));
+
+        let audio_verified = diagnosis(
+            true,
+            DiagnosisCategory::Ready,
+            Some("candidate".into()),
+            true,
+            true,
+            "audio reachable",
+        );
+        assert!(candidate_probe_succeeded(&audio_verified));
     }
 
     #[test]

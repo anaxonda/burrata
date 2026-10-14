@@ -1,0 +1,2578 @@
+{
+  "repository": "https://github.com/BtbN/FFmpeg-Builds",
+  "releaseTag": "autobuild-2026-10-07-13-07",
+  "commit": "9acad4a9ef1583096af7836cc1e9c8cbcb4d3950",
+  "recipeSourceArchive": {
+    "url": "https://github.com/BtbN/FFmpeg-Builds/archive/refs/tags/autobuild-2026-10-07-13-07.tar.gz",
+    "sha256": "e46e2323fddeb8a77395a9da6da28cec85df76c9d2952a97860b7df43aead103",
+    "license": "MIT"
+  },
+  "sourceCache": {
+    "workflowRunId": 37619928982,
+    "artifactId": 11481442646,
+    "artifactSha256": "0fba1773c244060a8d9940b0c42aa192c3275b4ea60b1057da4ea6fc6882998f",
+    "artifactBytes": 2210375760,
+    "variants": {
+      "x86_64-unknown-linux-gnu": {
+        "name": "linux64 gpl 8.1",
+        "sourceEntries": 117
+      },
+      "x86_64-pc-windows-msvc": {
+        "name": "win64 gpl 8.1",
+        "sourceEntries": 98
+      }
+    },
+    "uniqueSourceEntries": 119,
+    "parts": [
+      {
+        "file": "btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part1.zip",
+        "bytes": 1150003368,
+        "sha256": "40d25e1b7b4ac24b768a7ad4672aa1587f87b703ddc5158c4c6444af01744d8c"
+      },
+      {
+        "file": "btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part2.zip",
+        "bytes": 997854858,
+        "sha256": "944d9aca082876880116553c9ee051d3d8cfc5868da6ee1236fef1a8b1cfc812"
+      }
+    ],
+    "entries": {
+      "10-glib_5402d13c8cec3808b3aeedfebf49bf0062a14163059573ff9a30fe5add2b473a.tar.xz": {
+        "bytes": 15763328,
+        "sha256": "9b9cc46ae03431e9cd10995d398ba6150c133a0e2dc2bb9de657551b956f6dec",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSES/AFL-2.0.txt",
+          "./LICENSES/Apache-2.0.txt",
+          "./LICENSES/CC-BY-SA-3.0.txt",
+          "./LICENSES/CC0-1.0.txt",
+          "./LICENSES/GPL-2.0-or-later.txt",
+          "./LICENSES/LGPL-2.1-only.txt",
+          "./LICENSES/LGPL-2.1-or-later.txt",
+          "./LICENSES/LLVM-exception.txt",
+          "./LICENSES/LicenseRef-old-glib-tests.txt",
+          "./LICENSES/MIT.txt",
+          "./LICENSES/MPL-1.1.txt",
+          "./docs/reference/COPYING",
+          "./subprojects/gvdb/COPYING",
+          "./subprojects/gvdb/LICENSES/LGPL-2.1-or-later.txt",
+          "./subprojects/proxy-libintl-0.5/COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "10-mingw-std-threads_f6fe5dc5a067e90cd8b37a748b33962ac2eb09f3b486b287265803070dbf02d2.tar.xz": {
+        "bytes": 86260,
+        "sha256": "ba58f654321fbe6ddf3f5a5cf15e2ebb3131d1e94d52d387bb6586c1e6244f10",
+        "targets": [
+          "x86_64-pc-windows-msvc"
+        ],
+        "licenseFiles": [
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "10-mingw_4a5947515b3202347fc7a8634b92a4da4c0981c56f574cc19d1b5ae025802126.tar.xz": {
+        "bytes": 65948944,
+        "sha256": "7d9c586abc8469f3c5be3ace47f8c3d36fc72ed09935996407895ca90a49f471",
+        "targets": [
+          "x86_64-pc-windows-msvc"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt",
+          "./COPYING.MinGW-w64/COPYING.MinGW-w64.txt",
+          "./mingw-w64-crt/profile/COPYING",
+          "./mingw-w64-libraries/libmangle/COPYING",
+          "./mingw-w64-libraries/pseh/COPYING",
+          "./mingw-w64-libraries/winpthreads/COPYING",
+          "./mingw-w64-libraries/winstorecompat/COPYING",
+          "./mingw-w64-tools/gendef/COPYING",
+          "./mingw-w64-tools/genidl/COPYING",
+          "./mingw-w64-tools/genpeimg/COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "10-xcbproto_aecb3156bc10c1a8bae6c1bb11f21b8d7f768876cddde7302804c9e8ffba7484.tar.xz": {
+        "bytes": 322248,
+        "sha256": "d91e97413a811b144441c92f3d505966888ff525cf0488a6ec761f331b988dee",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "10-xorg-macros_4cc4d5b80fc71eb608dd47d9a2e05d5d724e1d7f93cb06a56141d73e90108378.tar.xz": {
+        "bytes": 67632,
+        "sha256": "ece2e82946f07e3f04cae0851baec20735e6654f99b6cc401433520addcbf226",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "10-xproto_eda019c71417e4c5134f404b0c4b3c70aa0f7133926f80480ec4bb98cf9c3d56.tar.xz": {
+        "bytes": 1833140,
+        "sha256": "8e6e77afce186c2353b516ba94c79c6ad6e6c248d7834abffe6e35220e4c9e44",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING-applewmproto",
+          "./COPYING-bigreqsproto",
+          "./COPYING-compositeproto",
+          "./COPYING-damageproto",
+          "./COPYING-dmxproto",
+          "./COPYING-dri2proto",
+          "./COPYING-dri3proto",
+          "./COPYING-evieproto",
+          "./COPYING-fixesproto",
+          "./COPYING-fontcacheproto",
+          "./COPYING-fontsproto",
+          "./COPYING-glproto",
+          "./COPYING-inputproto",
+          "./COPYING-kbproto",
+          "./COPYING-lg3dproto",
+          "./COPYING-pmproto",
+          "./COPYING-presentproto",
+          "./COPYING-printproto",
+          "./COPYING-randrproto",
+          "./COPYING-recordproto",
+          "./COPYING-renderproto",
+          "./COPYING-resourceproto",
+          "./COPYING-scrnsaverproto",
+          "./COPYING-trapproto",
+          "./COPYING-videoproto",
+          "./COPYING-windowswmproto",
+          "./COPYING-x11proto",
+          "./COPYING-xcmiscproto",
+          "./COPYING-xextproto",
+          "./COPYING-xf86bigfontproto",
+          "./COPYING-xf86dgaproto",
+          "./COPYING-xf86driproto",
+          "./COPYING-xf86miscproto",
+          "./COPYING-xf86rushproto",
+          "./COPYING-xf86vidmodeproto",
+          "./COPYING-xineramaproto",
+          "./COPYING-xwaylandproto"
+        ],
+        "embeddedLicenses": []
+      },
+      "10-xtrans_b41af1c6913f15c4007f45375796b3cfe701cce8003bc6a1682f8f6952fea4c2.tar.xz": {
+        "bytes": 131236,
+        "sha256": "f42254a84ea6cf8f1ca40c772de366c651795231372381b2afce23eb00e7ec6f",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "20-cairo_b460be039dc49e1a252ad8a1ed08863785f51cdb1156ceb585ca590d4f98beea.tar.xz": {
+        "bytes": 76579072,
+        "sha256": "f566a12563eeb6ad54d9382c725cbfc6a6d636375b4731a187590510a3258fa6",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./COPYING-LGPL-2.1",
+          "./COPYING-MPL-1.1",
+          "./perf/COPYING",
+          "./test/COPYING",
+          "./util/COPYING",
+          "./util/cairo-script/COPYING",
+          "./util/cairo-trace/COPYING",
+          "./util/cairo-trace/COPYING-GPL-3"
+        ],
+        "embeddedLicenses": []
+      },
+      "20-libiconv_d305d67ced0587cd182ccb111e5b58aa20270faf665afb5444c0fbaed0762844.tar.xz": {
+        "bytes": 15811288,
+        "sha256": "d43e5bf46f8d18acf6364ce3ce2fd85439cda5f7817904e55659fbbece40f808",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./COPYING.LIB",
+          "./gnulib/COPYING",
+          "./gnulib/doc/COPYING.LESSERv2",
+          "./gnulib/doc/COPYING.LESSERv3",
+          "./gnulib/doc/Copyright/conditions.text",
+          "./gnulib/doc/Copyright/request-assign.changes",
+          "./gnulib/doc/Copyright/request-assign.future",
+          "./gnulib/doc/Copyright/request-assign.program",
+          "./gnulib/doc/Copyright/request-disclaim.changes",
+          "./gnulib/doc/licenses-texi.texi",
+          "./gnulib/etc/license-notices/GPLv2+",
+          "./gnulib/etc/license-notices/GPLv3+",
+          "./gnulib/etc/license-notices/LGPLv2+",
+          "./gnulib/etc/license-notices/LGPLv3+",
+          "./gnulib/etc/license-notices/LGPLv3+_or_GPLv2+",
+          "./gnulib/etc/license-notices/README",
+          "./gnulib/etc/license-notices/public_domain",
+          "./gnulib/etc/license-notices/unlimited",
+          "./gnulib/modules/COPYING",
+          "./libcharset/COPYING.LIB"
+        ],
+        "embeddedLicenses": []
+      },
+      "20-libxau_8144e82dbddb1c5a8ac1ef670f5a78a7474aaf2dd418aebb50e572e40dbc5244.tar.xz": {
+        "bytes": 57976,
+        "sha256": "882d697ea6b0a2cc6072d1bb64fdb22944eecd84cdc879bebb261ef4397e4265",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "20-zlib_bf2e5201ff9a94837b6910b9c13a9cdd9d2d5934f12ac9f32eda1538d1fcde49.tar.xz": {
+        "bytes": 2856596,
+        "sha256": "dcf1d9dc413c827d07ef86a23f017a508654a762dd5c61f692d5310467c43f28",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./contrib/dotzlib/LICENSE_1_0.txt",
+          "./contrib/minizip/LICENSE.Info-Zip"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-fftw3_f590d55efb2139d10bea09f7f3542f648290d35fc2ecb3122d6896bf2af049e3.tar.xz": {
+        "bytes": 1155644,
+        "sha256": "7160dbfd917fd6711306cff3aac1e3d5ccc76585be0ec063cd97b2aff6f61fa3",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./COPYRIGHT",
+          "./doc/license.texi"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-freetype_839dfebde0a38da3f7515004bed2270140526899f2f9b5f77298b7daac9ba42b.tar.xz": {
+        "bytes": 4596076,
+        "sha256": "e48190bc165f90bb6f9a7420d937c5218d9351e27f83fd105417358d12f7aa0a",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.TXT"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-fribidi_a9c156a32e2270c78ca34f8bfd98b17b8669e2d809cc9a9c5f6d1c063c644f1e.tar.xz": {
+        "bytes": 2682748,
+        "sha256": "8fa912e0805498d43fa5c2c8402716b1ee4557355ad1154cb23b3c7536c03e22",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-gmp_db2c1ce62ef8c1b88dcc4d27b07bfb6e847e740125923386ccf9967cd05dc93f.tar.xz": {
+        "bytes": 5582040,
+        "sha256": "93ff34accb0a0cf7707cce8fcc3b7ca30072d86f4a9585ccedffec582fc636dc",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING.LESSERv3"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-libogg_bdea5ee518d129340be457dcc11c2cef63053ac3c827e71311caff1dd3c43339.tar.xz": {
+        "bytes": 502596,
+        "sha256": "74d4ccca9000f449f02d1b5254425656a7d1843e356218b7d1e84cb1cbb79547",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-libpng_b948a48a853c9c7e1727e7244e4f21554dae18b83ce7f00e8a5421c0e907b73b.tar.xz": {
+        "bytes": 2026396,
+        "sha256": "2ce0d0625c4e4a73615dfbdae121ef415c1fbb4d6defcc63935ff3773c8e8804",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.md",
+          "./LICENSES/MIT-0.txt",
+          "./LICENSES/MIT.txt",
+          "./contrib/gregbook/COPYING",
+          "./contrib/gregbook/LICENSE",
+          "./contrib/pngexif/LICENSE_MIT.txt",
+          "./contrib/pngminus/LICENSE.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-libxml2_dddeb5d5d186abb11e5f3a0c2d05938fcdb6348804e56c03a7f06263620cdc83.tar.xz": {
+        "bytes": 4852832,
+        "sha256": "703f4794160d359cfaffedba83728f78a50ce2f7cc07a9d43fa05bd5a7c83535",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./Copyright",
+          "./result/html-tokenizer/NOTICE",
+          "./test/html-tokenizer/NOTICE"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-openssl_6f695916f5dbd6cd60d7719032826032a028d9b83164ebea7a13c72254f690a5.tar.xz": {
+        "bytes": 442090608,
+        "sha256": "421e825eeabe5ebdd113f84c55e27378db4d6644783117b2119203cc7b532cda",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.txt",
+          "./cloudflare-quiche/COPYING",
+          "./cloudflare-quiche/quiche/deps/boringssl/LICENSE",
+          "./cloudflare-quiche/quiche/deps/boringssl/src/third_party/fiat/LICENSE",
+          "./cloudflare-quiche/quiche/deps/boringssl/src/third_party/googletest/LICENSE",
+          "./cloudflare-quiche/quiche/deps/boringssl/src/third_party/wycheproof_testvectors/LICENSE",
+          "./external/perl/Text-Template-1.56/LICENSE",
+          "./fuzz/corpora/LICENSE.txt",
+          "./gost-engine/LICENSE",
+          "./gost-engine/libprov/LICENSE",
+          "./krb5/NOTICE",
+          "./krb5/doc/copyright.rst",
+          "./krb5/doc/notice.rst",
+          "./krb5/src/include/copyright.h",
+          "./krb5/src/lib/gssapi/LICENSE",
+          "./krb5/src/util/ss/copyright.h",
+          "./krb5/src/windows/installer/wix/lang/license.rtf",
+          "./oqs-provider/LICENSE.txt",
+          "./pkcs11-provider/COPYING",
+          "./pkcs11-provider/LICENSES/Apache-2.0.txt",
+          "./pkcs11-provider/LICENSES/LicenseRef-Public-Domain-PKCS11-Headers.txt",
+          "./pkcs11-provider/python-ecdsa/LICENSE",
+          "./pkcs11-provider/tlsfuzzer/LICENSE",
+          "./pkcs11-provider/tlslite-ng/LICENSE",
+          "./pkcs11-provider/tlslite-ng/tlslite/utils/brotlidecpy/LICENCE",
+          "./pyca-cryptography/LICENSE",
+          "./pyca-cryptography/LICENSE.APACHE",
+          "./pyca-cryptography/LICENSE.BSD",
+          "./pyca-cryptography/vectors/LICENSE",
+          "./pyca-cryptography/vectors/LICENSE.APACHE",
+          "./pyca-cryptography/vectors/LICENSE.BSD",
+          "./python-ecdsa/LICENSE",
+          "./tlsfuzzer/LICENSE",
+          "./tlslite-ng/LICENSE",
+          "./util/perl/OpenSSL/copyright.pm",
+          "./wycheproof/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "25-xz_b47aea19d87bc74ee9a1ba179e240b0c2998eed272c980ba9065827d8cfb0276.tar.xz": {
+        "bytes": 2540500,
+        "sha256": "dd3db9e55d9d1ef9a60b241317c5a5b2d3df2836032e00a24f7edb3ea9a59c8b",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./COPYING.0BSD",
+          "./COPYING.GPLv2",
+          "./COPYING.GPLv3",
+          "./COPYING.LGPLv2.1",
+          "./build-aux/license-check.sh"
+        ],
+        "embeddedLicenses": []
+      },
+      "30-libdvdcss_8e6c469595eeef1d2ca7962b68faabe5531518009472d449f700665a616bc66c.tar.xz": {
+        "bytes": 233016,
+        "sha256": "1575ad0395411414e0368f55047993059a4b77c441d3fd5179fdc2529af9905a",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "30-libpciaccess_7e6e74a7ea243214bf8b5e16e9bdfe5b22f577c4daba8ee93b59b3e5dfa8c1ad.tar.xz": {
+        "bytes": 201208,
+        "sha256": "eb43b7ecc416f53c1a52a8b6b160f3ba26095cc7c34784ec807b018a361f53b4",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "30-libxcb_e78cc0b6487fa3ecc322f0597baffacca986ff88601f35dce32807d12d845013.tar.xz": {
+        "bytes": 338888,
+        "sha256": "fdb3afb854bb4d5f84648c5acd531e12dd56beab9d6fcb5fa3d0aae57361ad54",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "30-pango_fa28105e276f1fc77de3a3231765da71db0cf4b93c57adba61921bcb240e30d7.tar.xz": {
+        "bytes": 4635456,
+        "sha256": "994296c8eb4e9163d9d225e93555944ff7b94dbbeb3f746805dd23656490be47",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "35-fontconfig_ce2e0916ca408e9567ab57c27be06a7166a9f9a3da902c751fef1bbb969f6a1a.tar.xz": {
+        "bytes": 1271872,
+        "sha256": "b63f2bb45b8c5d859c62b07b83d35048bb1405a1c9e9e0833b90e6780d3975e4",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "40-libdrm_8704cddf087daeac8ce3e20f4802cf55e5a3484345df1107c0d3a8c92495176e.tar.xz": {
+        "bytes": 1123804,
+        "sha256": "520b6889b78240a552a218d1eb535ece7e139ced27ca31f5edcb9fabbc4da77e",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSES/MIT.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "40-libdvdread_05480a48c37dea2502d831aa7dd0b71c28c6d32cfabf95e0cbb16512fe45d8f0.tar.xz": {
+        "bytes": 295624,
+        "sha256": "1e296c018e59fabadf2e316821ce2bf3a1fdc68e925789072aa07c1116f26069",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "40-libx11_8833a2f9698260b0e9390e02dfb8a910020ba5755dd49efaa8df94eb514e6f36.tar.xz": {
+        "bytes": 4208936,
+        "sha256": "d21fa1f5cf01bd96a86830b66193766de5bfb6adb0558493a60e1061d3076b21",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./src/xlibi18n/lcUniConv/COPYRIGHT"
+        ],
+        "embeddedLicenses": []
+      },
+      "40-mbedtls_8dd146455b388b9a7236d83bb2904ff89bba41fa28da9af8a310fc01f4ff1b53.tar.xz": {
+        "bytes": 14060020,
+        "sha256": "98d678a055d0316aa28ae96a4994c237ca6b0ea39ca5258d921490cd8070714a",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./framework/LICENSE",
+          "./tf-psa-crypto/LICENSE",
+          "./tf-psa-crypto/drivers/pqcp/mldsa-native/LICENSE",
+          "./tf-psa-crypto/drivers/pqcp/mldsa-native/examples/custom_backend/mldsa_native/src/fips202/native/custom/src/LICENSE",
+          "./tf-psa-crypto/framework/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "40-vulkan-headers_3d08793cac3f0e3cac071b802aae1634fe925048f94a56d388c4c618a1ea8482.tar.xz": {
+        "bytes": 5440756,
+        "sha256": "dacdde8e0221202763ec3106c89d47c4614ecf14f856494b831cd0ed053c6b9e",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.md",
+          "./LICENSES/Apache-2.0.txt",
+          "./LICENSES/MIT.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-brotli_5b1766c0a935049ea5bf0b54743ec092ee5bf45fd169a8e1bab2b0263b676105.tar.xz": {
+        "bytes": 57220036,
+        "sha256": "5d72dd60c98d88392761a8b7c3df592d46590d797c62b6d7dafd6a836934716c",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-harfbuzz_23f9e500f00621c247219aacc18850d66d1ac0e974cb33a1423055284aceb5e3.tar.xz": {
+        "bytes": 49762892,
+        "sha256": "85abd7b05b4fba3f18fc2372de599bad0a8baa9bb187ceb7e5f8b012b6c22410",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./perf/texts/COPYING",
+          "./src/ms-use/COPYING",
+          "./test/COPYING",
+          "./test/shape/data/aots/COPYING",
+          "./test/shape/data/text-rendering-tests/COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-lcms2_b9d421bd54de499208c092b61240854de0e2d9f0c3080c61d533026fa237d379.tar.xz": {
+        "bytes": 9873428,
+        "sha256": "3ee0603b359e34a1576fc684aaff871ef8489ff2ec1f461a6037383a33ceae53",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./plugins/fast_float/COPYING.GPL3",
+          "./plugins/threaded/COPYING.GPL3",
+          "./utils/jpgicc/LICENSE_iccjpeg"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-libffi_4926a5ddb533e7af1ceb6847462394f09f68adb6ad0e7ec5408d79e5ab3fe73a.tar.xz": {
+        "bytes": 1378328,
+        "sha256": "e5beca75362318679a22849603afc68909f1c9b828b24e35ba2317dd5fb8a566",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./LICENSE-BUILDTOOLS"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-libsamplerate_0810498d6a2fa7146ea7d224b33501c0e4ea37740e12902f1ffa9ab432f4213c.tar.xz": {
+        "bytes": 7078008,
+        "sha256": "7b866e406bd5038c87da4303914ca8eaf820dc7dfa9eb5e38987555e0f591ba6",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./docs/license.md"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-libudfread_fd3762aa44b177492e9294237da9af64f7c2a22b97658e6e2a5395d1ae3a13c0.tar.xz": {
+        "bytes": 267400,
+        "sha256": "6475a47042d4112a7af2b83a7c3806f50354f1bf6fdcbec2e419be5c5bcbf0fa",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-libunibreak_e861a261ce25cfd0ba5db1e70cbdc0c0eb8ea42a4e1bb3443c928e9604315d37.tar.xz": {
+        "bytes": 677968,
+        "sha256": "8f9a24b75c6c2f6b76401f9a857c2d8edb479baabe902ef7317726d66e1597fb",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENCE"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-libvorbis_0ab43e5711b2585b0c19dd71023f5852d755c633bda0215caad53dc63c62a644.tar.xz": {
+        "bytes": 2314604,
+        "sha256": "2c53453d993477e5f42cea0507e8bea3d69229028050bfde19b273c1d80af975",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./debian/copyright"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-opencl_060b32b588efb8a3dfd71f4ff90e2247d753cd22ecf2713cf7ad2814ef23c71a.tar.xz": {
+        "bytes": 439740,
+        "sha256": "e2278a2e0dfd40e46be99c98d42cc5e0930e90242d5330d829678c533c0667b1",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./headers/LICENSE",
+          "./loader/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-pcre2_8f18f3d355cedfce208fb5a70fbe344e39dc7f54fc1825128dc862c6d97be0e7.tar.xz": {
+        "bytes": 5258128,
+        "sha256": "35ca4d9c80a13e1b9ec5e4689d7e95deaabbe2feb1bdf843c448cfafc282d31d",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENCE.md",
+          "./cmake/COPYING-CMAKE-SCRIPTS"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-pixman_ffb8f7552f1012347d02eb8fe976cbc9c3bc79e42df005f8c7389b8379ce581c.tar.xz": {
+        "bytes": 1311168,
+        "sha256": "ed9ce4bdf15bbf4146a2ca23d9834568a6d6bbab613d0dd9f0009730bf357b61",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-pulseaudio_75fc5468c2f6f4d4b273e1e1ee3e15bfeca5d31f131e21e4724c56b5484089c9.tar.xz": {
+        "bytes": 10700884,
+        "sha256": "caca4b16fd0687f3fb5ff0ef568018e4217e41c9432a9fb8c752f3aa95ec7707",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./src/pulsecore/filter/LICENSE.WEBKIT"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-vmaf_aaf0bdf34f8f3d15cc4ef5b243507514c911ea8730cd37a98b2f8a3ecf123af7.tar.xz": {
+        "bytes": 34972296,
+        "sha256": "c2dc12ec56e4acd7cb30c9a4d47902f55a020f74dbf34a25afbe0d884f61d1b4",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-vulkan-loader_ab4a5b2a493729e8ea13712813acbf64e333ec5f23ab04320f11cadc2755079f.tar.xz": {
+        "bytes": 5447188,
+        "sha256": "3034f86482e17dfb4cf2f176a05fbca8dacea6322ca9baaf993b9d6f0ddb5fb9",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./Vulkan-Headers/LICENSE.md",
+          "./Vulkan-Headers/LICENSES/Apache-2.0.txt",
+          "./Vulkan-Headers/LICENSES/MIT.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "45-xxhash_90443f50c5c918c094cb124be955f12ad18dc2724f27908d13c1a37ac35a3a60.tar.xz": {
+        "bytes": 1822348,
+        "sha256": "f1c482ff6470ab1549dfd13a4fadfdaa9cc17dbeaf55f9e5b9860d2688e87351",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./cli/COPYING",
+          "./tests/bench/LICENSE",
+          "./tests/collisions/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-amf_7c25b9629d2f3a45b07d6701c869180793da062cf1cedbda5d281768afdb6cf0.tar.xz": {
+        "bytes": 4126764,
+        "sha256": "cb9bdbd3ede59e22dc1db61cc510a2d0fd8ada42f70663cdbb014cebf7fa7b92",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-aom_354b34b41392cdc88ea61b139b54314d146a8b324ed77c148ece5418cffd761b.tar.xz": {
+        "bytes": 12017064,
+        "sha256": "1f1b23d4adb63cf8a5be0c59981fe7f22946828db95bc026b7bba6534ba23747",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./PATENTS",
+          "./third_party/fastfeat/LICENSE",
+          "./third_party/googletest/src/LICENSE",
+          "./third_party/highway/LICENSE-BSD3",
+          "./third_party/libwebm/LICENSE.TXT",
+          "./third_party/libwebm/PATENTS.TXT",
+          "./third_party/libyuv/LICENSE",
+          "./third_party/vector/LICENSE",
+          "./third_party/x86inc/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-avisynth_8ab1bb9093ff4aa59410b5463256de23838ef94867b7cc6a3a525892fddc9b85.tar.xz": {
+        "bytes": 20775220,
+        "sha256": "334735ddc60d552bc3d529c836197cdd1949324421591b616870b6f98f7dc0fc",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./distrib/docs/english/source/avisynthdoc/license.rst"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-chromaprint_fd1913f99597fe11aa0a070aaaee173d271d06a2578bd240a1e6f9d7e5d9e344.tar.xz": {
+        "bytes": 2988336,
+        "sha256": "c680025c6e3f4450d5f3236ca62adb9f10c184204d38de21b5d5679710e1db62",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.md",
+          "./src/3rdparty/googletest/LICENSE",
+          "./src/3rdparty/kissfft/COPYING",
+          "./src/3rdparty/kissfft/LICENSES/BSD-3-Clause",
+          "./src/3rdparty/kissfft/LICENSES/Unlicense"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-dav1d_289ebd1742c2ee56189cd4064c2a059c9289918f8a99c32140e72aa47d2ab690.tar.xz": {
+        "bytes": 2961692,
+        "sha256": "af4b9b07734238bebfe2b9a113c323f2bc78037df77dcb927ed1227d648a3c31",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./doc/PATENTS"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-davs2_a2d3a5d05dbd810e7a33f41ca77f70f1775ab8318ffe3e1b365105e8ad813d7e.tar.xz": {
+        "bytes": 1795708,
+        "sha256": "97f7fbcb6e14ec208d5b8c1c609a460c340fdca6b7ff904f420bcceedbb75426",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-ffnvcodec_ef2a38b483abf36f56dfe74a3ab3909ef01360a01619123b6a4cfac4eece7e28.tar.xz": {
+        "bytes": 375060,
+        "sha256": "2b7515a40ae411440a00480430d62d72bcdafcb66b638eb6752344c99b163ab5",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./ffnvcodec/include/ffnvcodec/dynlink_cuda.h",
+          "./ffnvcodec/include/ffnvcodec/dynlink_cuviddec.h",
+          "./ffnvcodec/include/ffnvcodec/dynlink_loader.h",
+          "./ffnvcodec/include/ffnvcodec/dynlink_nvcuvid.h",
+          "./ffnvcodec/include/ffnvcodec/nvEncodeAPI.h",
+          "./ffnvcodec2/include/ffnvcodec/dynlink_cuda.h",
+          "./ffnvcodec2/include/ffnvcodec/dynlink_cuviddec.h",
+          "./ffnvcodec2/include/ffnvcodec/dynlink_loader.h",
+          "./ffnvcodec2/include/ffnvcodec/dynlink_nvcuvid.h",
+          "./ffnvcodec2/include/ffnvcodec/nvEncodeAPI.h",
+          "./ffnvcodec3/include/ffnvcodec/dynlink_cuda.h",
+          "./ffnvcodec3/include/ffnvcodec/dynlink_cuviddec.h",
+          "./ffnvcodec3/include/ffnvcodec/dynlink_loader.h",
+          "./ffnvcodec3/include/ffnvcodec/dynlink_nvcuvid.h",
+          "./ffnvcodec3/include/ffnvcodec/nvEncodeAPI.h"
+        ],
+        "embeddedLicenses": [
+          {
+            "path": "./ffnvcodec/include/ffnvcodec/dynlink_cuda.h",
+            "license": "MIT",
+            "licenseTextSha256": "110a2b9eee4fd6baf15be75cbd1ca4a27d043ed11d72d2cc76ba36d11dccaabc",
+            "fileSha256": "c970d5817120ea481ba29b9c603bdc9a386985d9fc98a47f6588030dcdba87c1"
+          },
+          {
+            "path": "./ffnvcodec/include/ffnvcodec/dynlink_cuviddec.h",
+            "license": "MIT",
+            "licenseTextSha256": "51d2792aa9e35a59a6eee8f089ddbcfa5840e25d8329572c5852f6eac3e92d45",
+            "fileSha256": "0d9f490e8699a2e000904275d9e380e7ee9945e5717b95f920358013153c6377"
+          },
+          {
+            "path": "./ffnvcodec/include/ffnvcodec/dynlink_loader.h",
+            "license": "MIT",
+            "licenseTextSha256": "110a2b9eee4fd6baf15be75cbd1ca4a27d043ed11d72d2cc76ba36d11dccaabc",
+            "fileSha256": "144c0927b6009d5af34a3a7335b0c8c337eec287b4846dd3ac8519c06956662a"
+          },
+          {
+            "path": "./ffnvcodec/include/ffnvcodec/dynlink_nvcuvid.h",
+            "license": "MIT",
+            "licenseTextSha256": "51d2792aa9e35a59a6eee8f089ddbcfa5840e25d8329572c5852f6eac3e92d45",
+            "fileSha256": "c1290075d5d881e98c8f14dc5a23953a792f56971b172cf84ee0bc7aab6d1aab"
+          },
+          {
+            "path": "./ffnvcodec/include/ffnvcodec/nvEncodeAPI.h",
+            "license": "MIT",
+            "licenseTextSha256": "51d2792aa9e35a59a6eee8f089ddbcfa5840e25d8329572c5852f6eac3e92d45",
+            "fileSha256": "8776fddcb8febc6aec4d73989b1f21831eb30306bc583da55b4bf0c14a1dc228"
+          },
+          {
+            "path": "./ffnvcodec2/include/ffnvcodec/dynlink_cuda.h",
+            "license": "MIT",
+            "licenseTextSha256": "110a2b9eee4fd6baf15be75cbd1ca4a27d043ed11d72d2cc76ba36d11dccaabc",
+            "fileSha256": "c970d5817120ea481ba29b9c603bdc9a386985d9fc98a47f6588030dcdba87c1"
+          },
+          {
+            "path": "./ffnvcodec2/include/ffnvcodec/dynlink_cuviddec.h",
+            "license": "MIT",
+            "licenseTextSha256": "350ab83cfae177dce1f5e7719dfc6e6264722edaede08d43d6f4342ad228bbab",
+            "fileSha256": "1244165ea5521d4be865995eb1c49b8910f755d0ca35004e1c4010ef7f612143"
+          },
+          {
+            "path": "./ffnvcodec2/include/ffnvcodec/dynlink_loader.h",
+            "license": "MIT",
+            "licenseTextSha256": "110a2b9eee4fd6baf15be75cbd1ca4a27d043ed11d72d2cc76ba36d11dccaabc",
+            "fileSha256": "dfbee3396c3fa92bff8a47ca600a698dea9f7bbad84a77343762fea362c35dd0"
+          },
+          {
+            "path": "./ffnvcodec2/include/ffnvcodec/dynlink_nvcuvid.h",
+            "license": "MIT",
+            "licenseTextSha256": "350ab83cfae177dce1f5e7719dfc6e6264722edaede08d43d6f4342ad228bbab",
+            "fileSha256": "2141dade75f3178520092dce2c02df9b47c4b19036b56bb9316bd83a07bf16f1"
+          },
+          {
+            "path": "./ffnvcodec2/include/ffnvcodec/nvEncodeAPI.h",
+            "license": "MIT",
+            "licenseTextSha256": "350ab83cfae177dce1f5e7719dfc6e6264722edaede08d43d6f4342ad228bbab",
+            "fileSha256": "4fe4094541ef0f8a13249d97a8692dc5f835a6e9dd42eeadb3e2f7321d54dc7e"
+          },
+          {
+            "path": "./ffnvcodec3/include/ffnvcodec/dynlink_cuda.h",
+            "license": "MIT",
+            "licenseTextSha256": "110a2b9eee4fd6baf15be75cbd1ca4a27d043ed11d72d2cc76ba36d11dccaabc",
+            "fileSha256": "c970d5817120ea481ba29b9c603bdc9a386985d9fc98a47f6588030dcdba87c1"
+          },
+          {
+            "path": "./ffnvcodec3/include/ffnvcodec/dynlink_cuviddec.h",
+            "license": "MIT",
+            "licenseTextSha256": "a4d41d2ef31414d7a727c723aec83cc171ed80d0c12b4af8ccb6f29c09a2715f",
+            "fileSha256": "242aac704cb3c3f63506c82ec1445f432eb8032307f5a0a9a420d087ae131876"
+          },
+          {
+            "path": "./ffnvcodec3/include/ffnvcodec/dynlink_loader.h",
+            "license": "MIT",
+            "licenseTextSha256": "110a2b9eee4fd6baf15be75cbd1ca4a27d043ed11d72d2cc76ba36d11dccaabc",
+            "fileSha256": "dfbee3396c3fa92bff8a47ca600a698dea9f7bbad84a77343762fea362c35dd0"
+          },
+          {
+            "path": "./ffnvcodec3/include/ffnvcodec/dynlink_nvcuvid.h",
+            "license": "MIT",
+            "licenseTextSha256": "a4d41d2ef31414d7a727c723aec83cc171ed80d0c12b4af8ccb6f29c09a2715f",
+            "fileSha256": "5df13ba2328c5fde63fb41464a358af094360527199cc916666e4bfd7fa60b21"
+          },
+          {
+            "path": "./ffnvcodec3/include/ffnvcodec/nvEncodeAPI.h",
+            "license": "MIT",
+            "licenseTextSha256": "a4d41d2ef31414d7a727c723aec83cc171ed80d0c12b4af8ccb6f29c09a2715f",
+            "fileSha256": "be0c29a41ae3260fd016a9001fd959e747bac93ad21411759736abba4ffdea86"
+          }
+        ]
+      },
+      "50-freetype_839dfebde0a38da3f7515004bed2270140526899f2f9b5f77298b7daac9ba42b.tar.xz": {
+        "bytes": 4595660,
+        "sha256": "334077367e1c65b38060175a7c9e267ab4c76b40ec3b84688c58ff42d89a66e8",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.TXT"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-frei0r_55b6f225efa82d03fca598c78033acf1831f46a37ae8f66567882818b520d1fc.tar.xz": {
+        "bytes": 8262336,
+        "sha256": "42decf49e7e365ca329142c241024951312f74585743d25dd16b501bf6dcb27a",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-gme_a777e130690856e910357309c2a2ece4423a149328c5a5780012b7d4ad3641ff.tar.xz": {
+        "bytes": 661380,
+        "sha256": "8d9367397d5a357faf8c6ce295778c7be3bfd4f9bcf3d5ba367505a133881b18",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./gme/ext/LICENSE",
+          "./license.gpl2.txt",
+          "./license.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-kvazaar_da165ff1fadcc81a1f9d7a5f3d96e8a4e14f630022b723e710efe6bbe54d3d52.tar.xz": {
+        "bytes": 1212236,
+        "sha256": "4aefb3e9f2d8161165af2b87431c9272395f4725de8710cecd4752f67e96ab3c",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./LICENSE.EXT.greatest",
+          "./src/threadwrapper/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-lcevcdec_9610d27cbf57b4db022177a4e8df5b12077765c4e14519ffa2047d330c2b139e.tar.xz": {
+        "bytes": 4733372,
+        "sha256": "fb053a4d516a07dd04fd93091ad33bcc9afd5c366c21ec6129cc41b372dbecd7",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSE.md",
+          "./licenses/FFmpeg/LICENSE.md",
+          "./licenses/conan-center-index/LICENSE.txt",
+          "./licenses/emscripten/licence.txt",
+          "./licenses/fmt/LICENSE",
+          "./licenses/gradle/LICENSE",
+          "./licenses/ios-cmake/license.md",
+          "./licenses/nlohmann_json/LICENSE.MIT",
+          "./licenses/vma/LICENSE.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libaribb24_3dd74ffb861f7ef9133dab074b9845408d84ebc49db9aee5d91829efba6d52ce.tar.xz": {
+        "bytes": 109104,
+        "sha256": "a39f0c4cd4b28cbaecaa8a65d93667525875ffedffba7a6f9f30eeebd542ceda",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libaribcaption_8315a724d2e43047c02fb15f99a6decc2824fd4abd55c795ca1063dca443bf8e.tar.xz": {
+        "bytes": 513932,
+        "sha256": "a2ff9be017b1cc0d8e25d6effcdcb7d8bf25dd5a546468d63e5f7d67085ac1f4",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libass_8d32f6ca9b508226966e8a676c7e47ed5a6ad66bd2caab05a6738c80d45feaab.tar.xz": {
+        "bytes": 703456,
+        "sha256": "4ce9992b2089e1a72998cd288d47bc6b9b776d1913203c125ba3333c7f48fed2",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libbluray_cbdd227c469333ec53b78a1b5c8b26cb3db25c331d9052740a38136bd96b13b0.tar.xz": {
+        "bytes": 1379144,
+        "sha256": "60fae092c05ff31bb634d7bf0ff1472e50dc9e4f4135114a21300a7c12f6df24",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./contrib/asm/LICENSE.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libdvdnav_20088474345356fbabc64ef14250d1f5ed698d04d2facb7d73dddfc9ace7b684.tar.xz": {
+        "bytes": 249264,
+        "sha256": "f122b0bccbd3b4d9cdf7e174b461070e0a449e4eb7dc619d235c58efaef3c383",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libjxl_4e9888f992f7e59816f63ab6d0751f7d2c4c2ccd9f7b376158705b3c7b036b52.tar.xz": {
+        "bytes": 12869276,
+        "sha256": "2ac29e333d7af79bafbf32da2ac4d97d9e9884863b1b04559055146ea42a274c",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./PATENTS",
+          "./debian/copyright",
+          "./lib/extras/LICENSE.apngdis",
+          "./third_party/HEVCSoftware/cfg/LICENSE",
+          "./third_party/highway/LICENSE",
+          "./third_party/highway/LICENSE-BSD3",
+          "./third_party/highway/debian/copyright"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libmp3lame_53b8bea5c8c8e8f4284a83912b2208082e5f7e0abce7f205c02dfea85bc13dd3.tar.xz": {
+        "bytes": 1966840,
+        "sha256": "1f246453377985374175fe05aab6491142c7bd60c7a4f40005c4c2cb2e7d72bc",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSE",
+          "./debian/copyright"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libopus_a188c018d9bc2b808f76091aaf419e1c910d45c8e477f131ff5c25cd614b4252.tar.xz": {
+        "bytes": 268085016,
+        "sha256": "220bbf880ae449948edbd4cbbb1488eca53b45e717ef0026b28331dc932423a0",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSE_PLEASE_READ.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libplacebo_b1173e45f6ca17988eb02814accda180095e8d85a5c1eab7391ec1c6c331f17a.tar.xz": {
+        "bytes": 17087376,
+        "sha256": "35297244890d53ead9f965410ff9a8e28702f43125ce094a8b5847ed505643fb",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./3rdparty/Vulkan-Headers/LICENSE.md",
+          "./3rdparty/Vulkan-Headers/LICENSES/Apache-2.0.txt",
+          "./3rdparty/Vulkan-Headers/LICENSES/MIT.txt",
+          "./3rdparty/fast_float/LICENSE-APACHE",
+          "./3rdparty/fast_float/LICENSE-BOOST",
+          "./3rdparty/fast_float/LICENSE-MIT",
+          "./3rdparty/glad/LICENSE",
+          "./3rdparty/jinja/LICENSE.txt",
+          "./3rdparty/jinja/docs/license.rst",
+          "./3rdparty/markupsafe/LICENSE.txt",
+          "./3rdparty/markupsafe/docs/license.rst",
+          "./LICENSE",
+          "./demos/3rdparty/nuklear/LICENSE",
+          "./demos/3rdparty/nuklear/src/LICENSE",
+          "./demos/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-librist_c44a5e59d58d44b672c8df850ae76b4ad372ebab3a4a63a003ac35d45aa9d1a2.tar.xz": {
+        "bytes": 6334468,
+        "sha256": "fb9dc5398a5064e5d23bb56ac4a0629bb33f7d32949fefad7f360bebbbafd08c",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./contrib/mbedtls/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libssh_ac0a192544cbf9bc9aaf242e5f5ad0fbb279e56d4acfca69960d626fa8f480c9.tar.xz": {
+        "bytes": 2304112,
+        "sha256": "08a6a8f42b8a46174d3334deb82c01d307773aa220569f01267f075f63cd262c",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./cmake/Modules/COPYING-CMAKE-SCRIPTS"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libtheora_c5b1505081f2493a61c94a64ef8eef6de9b851447fab834bd5f9b6e35ee1d008.tar.xz": {
+        "bytes": 1805520,
+        "sha256": "7baf4f2de030b47fb9f80e15b72cdf09246d1b277fedd5334e3c5ce62c5b22cc",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libva_2bc55ab7571e4ab9d59dc473d3dfaebb2cbc6caca5da95e1e680eaae56e62d03.tar.xz": {
+        "bytes": 610712,
+        "sha256": "3f06bd9f7e4241386acc61fc4cb5f3a199d520c743479058898e89dd2eae93ee",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libvpx_66163f7ac0c48afe3d2318e764e53fcf97fff72e44b32a57727302baff6bd899.tar.xz": {
+        "bytes": 10689244,
+        "sha256": "bd569eb103e33319d7a82a4fe6df9f804f0703b5749d9f71f8ad6d2e63f1649d",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./PATENTS",
+          "./third_party/googletest/src/LICENSE",
+          "./third_party/libwebm/LICENSE.TXT",
+          "./third_party/libwebm/PATENTS.TXT",
+          "./third_party/libyuv/LICENSE",
+          "./third_party/nalloc/LICENSE",
+          "./third_party/x86inc/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libwebp_79c6c8cf003854f9dc6cd81c05a1439d21e2a45650669646d1aaa3837370dddf.tar.xz": {
+        "bytes": 3704268,
+        "sha256": "982d91fbbbd13d331d1ee9902545a3955ab570f0b941d3b1a758d5f86d85e15d",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./PATENTS"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libxext_63e9942f10f8639169486c0c50997c583892b495d6aa9608c99f22bec8f9cbb6.tar.xz": {
+        "bytes": 274132,
+        "sha256": "fcc3a87713f29b98b46722a41b1ce08370692c1c172882eb3d6c25b6934f5c2d",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libxfixes_b0399b879cf10da97be556a7d224dc7e04f3caad8b63a46fcc683e8507fb1495.tar.xz": {
+        "bytes": 54328,
+        "sha256": "3a8cc1c884d5e3106827dc08da47eb4899ae523b4b35570360c0ff7a7cf5ac11",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libxi_eee0fb41d36c9b949851a3c1e815e0632ece32d866e0e1d358ac082042c25330.tar.xz": {
+        "bytes": 298640,
+        "sha256": "1eeec4a440f5101285906e88fa266869fc3d39b81acbeea15e00498be9e08856",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libxinerama_ba0cdf4b001e4bcb597ff1724ca04a818f15665b64bf9241c52047031c063f79.tar.xz": {
+        "bytes": 40020,
+        "sha256": "dd7b545b5a78c282cf5f896569977b31220e1bc684877fa02a2b7bb0ddef3961",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libxrender_7d6e7a256b86772c0becc40b1a7b8e980f33a155dd1ae4266480c05406712bf6.tar.xz": {
+        "bytes": 160384,
+        "sha256": "bd1cbf943e6653da08810f056545eb6eecee3172596cf8c04a5b53a138f678f4",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libxscrnsaver_5c9dcd646e93ff51cbd135d4e0985d88853f250ce626ab0889723b8bee770e3d.tar.xz": {
+        "bytes": 48920,
+        "sha256": "a62017f126e823382deff20701e2a6eccba8ed677ab6749e0abbe320bb93cccf",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libxxf86vm_03e86e2ea8e466bee1b235888c6ce6a6239689b2dd3d8f1f2a8c2f1ce5abdadc.tar.xz": {
+        "bytes": 49484,
+        "sha256": "9577bcc5e8a8fab4b0f16609ec61d931e9c60c0fb64d8e139f3697205fcfa4a9",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-libzmq_e68f6ea67cc2e84e0b320f3a4b5538dc90d97142264dc310dd8bbcb5f989d9e2.tar.xz": {
+        "bytes": 1688328,
+        "sha256": "650bcd37905a95f56bc29de27e57c8948382a1de698577075003e07b96711f77",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./external/sha1/license.txt",
+          "./external/unity/license.txt",
+          "./external/wepoll/license.txt",
+          "./packaging/debian/copyright"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-onevpl_c67accd07bdf24795034753f097eec4331f1a1174ce643cf5bcf94cb26ddd5e4.tar.xz": {
+        "bytes": 16127492,
+        "sha256": "e82b05b0feab7b6dc76db2bd781c84e1a73b23ffc11a1bf2c9f4b04c77b23674",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./examples/api1x_core/legacy-decode/License.txt",
+          "./examples/api1x_core/legacy-encode/License.txt",
+          "./examples/api1x_core/legacy-vpp/License.txt",
+          "./examples/api2x/hello-decode/License.txt",
+          "./examples/api2x/hello-decvpp/License.txt",
+          "./examples/api2x/hello-encode-jpeg/License.txt",
+          "./examples/api2x/hello-encode/License.txt",
+          "./examples/api2x/hello-sharing-dx11/License.txt",
+          "./examples/api2x/hello-sharing-ocl/License.txt",
+          "./examples/api2x/hello-sharing-vaapi/License.txt",
+          "./examples/api2x/hello-transcode/License.txt",
+          "./examples/api2x/hello-vpp/License.txt",
+          "./examples/interop/vpl-infer/License.txt",
+          "./examples/tutorials/01_transition/License.txt",
+          "./libvpl/test/ext/googletest/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-openal_0700515d0775bd9b112b23ea3a1d34d3c041a100f4ab32be289061310616a628.tar.xz": {
+        "bytes": 3014064,
+        "sha256": "83a2afaf6612f76214bb011db1732a5fd29e8b847f44c16aa85b6096b7ea8b75",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSE-pffft",
+          "./LICENSE.Apache-2.0.txt",
+          "./LICENSE.BSD-3-Clause.txt",
+          "./fmt-11.2.0/LICENSE",
+          "./gsl/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-openapv_f9089a3b6e8982ec62ef7be45a6b23c21641728fbfdd52aa94a39ffc294800aa.tar.xz": {
+        "bytes": 326892628,
+        "sha256": "207c4a10628ff85dd5dfec72f2fc93927d81a89aaefa15444755911e1b817b71",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-opencore-amr_5d7ec3b8ffdd0f32309a659256916e3286724f08acf0f625a4b4f1f9c17ebf7c.tar.xz": {
+        "bytes": 1065720,
+        "sha256": "73df364d53bbd34f6acb6dbb73839691730142c5393a01a91b40f70de334bfee",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./opencore/NOTICE",
+          "./opencore/codecs_v2/audio/gsm_amr/patent_disclaimer.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-openh264_df57c5a2e7a2f7a6becacd28a386ff00892c36cf873d6ea9a758a95e626a3cee.tar.xz": {
+        "bytes": 119230304,
+        "sha256": "30b74bb92514ede84abfe8a4d3b83a5326086da091613aa48982f75319ee637f",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-openjpeg_b35ab3ef10d52ce49eb8146e05af61e7560bf3b18aa2dd750cb5b083079caac4.tar.xz": {
+        "bytes": 3845868,
+        "sha256": "0a1fe113f8919ec3706ee7cacde3c44fb3d1835b955c8f1337ac698cf6358db5",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./src/bin/wx/OPJViewer/source/license.txt",
+          "./thirdparty/astyle/LICENSE.md",
+          "./thirdparty/liblcms2/COPYING",
+          "./thirdparty/libpng/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-openmpt_fa065e57891ed593a40690197f5c027d148bb241a74dbfb31cef5bce63a9887e.tar.xz": {
+        "bytes": 50676356,
+        "sha256": "d7ea79d9fc7e51c3bcf46efaf6da92633cab25643b0dd9085c6c30beebd2ebfd",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./contrib/libmodplug-0.8.8.5/LICENSE",
+          "./contrib/libmodplug-0.8.9.0/LICENSE",
+          "./include/SignalsmithStretch/SignalsmithStretch/LICENSE.txt",
+          "./include/SignalsmithStretch/signalsmith-linear/LICENSE.txt",
+          "./include/ancient/LICENSE",
+          "./include/ancient/LICENSE.bzip2",
+          "./include/cryptopp/License.txt",
+          "./include/flac/COPYING.Xiph",
+          "./include/lame/COPYING",
+          "./include/lhasa/COPYING.md",
+          "./include/minimp3/LICENSE",
+          "./include/miniz/LICENSE",
+          "./include/mpg123/COPYING",
+          "./include/nlohmann-json/LICENSE.MIT",
+          "./include/ogg/COPYING",
+          "./include/opus/COPYING",
+          "./include/opusenc/COPYING",
+          "./include/opusfile/COPYING",
+          "./include/portaudio/LICENSE.txt",
+          "./include/portaudio/bindings/cpp/COPYING",
+          "./include/premake/LICENSE.txt",
+          "./include/premake/binmodules/luasocket/LICENSE",
+          "./include/premake/contrib/mbedtls/LICENSE",
+          "./include/premake/contrib/zlib/LICENSE",
+          "./include/premake/modules/xcode/LICENSE.TXT",
+          "./include/premake/packages/debian/copyright",
+          "./include/pthread-win32/docs/COPYING.FSF.md",
+          "./include/pthread-win32/docs/COPYING.md",
+          "./include/pugixml/LICENSE.md",
+          "./include/r8brain/LICENSE",
+          "./include/rtaudio/LICENSE",
+          "./include/rtmidi/LICENSE",
+          "./include/unrar/license.txt",
+          "./include/vorbis/COPYING",
+          "./include/zlib/LICENSE",
+          "./include/zlib/contrib/minizip/LICENSE.Info-Zip",
+          "./src/mpt/LICENSE.BSD-3-Clause.txt",
+          "./src/mpt/LICENSE.BSL-1.0.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-rav1e_b2d3a4caec12576416c156eb16b4f83433caf3dc3a8270ed0bfe4fb74098dd54.tar.xz": {
+        "bytes": 5539668,
+        "sha256": "d416ebd4b5d2a9443c5fd7f1888cb402368f91c64a86723b6a07d92d7744d1e6",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./PATENTS",
+          "./ivf/LICENSE",
+          "./license_template.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-rubberband_5d3ca7b4a1f4c07ead3f23ba9c7a3736384a9394a34e41bf70a78075e0ed9593.tar.xz": {
+        "bytes": 586584,
+        "sha256": "77495a8a3119e26efb21d29ad5c38bd8a985756de0966527f59474d7952b10bd",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./src/ext/kissfft/COPYING",
+          "./src/ext/speex/COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-sdl_eee5ab03d781d41488d330d6a245a878eb37f50acea8ea99d6bcc807af794507.tar.xz": {
+        "bytes": 13815500,
+        "sha256": "e9d7c704625f502ac0eca78f4771bf08f157fb4e1bc2733851ca4dd0e7ad17d6",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.txt",
+          "./Xcode-iOS/Demos/data/bitmapfont/license.txt",
+          "./Xcode/SDL/pkg-support/resources/License.txt",
+          "./src/hidapi/LICENSE-bsd.txt",
+          "./src/hidapi/LICENSE-gpl3.txt",
+          "./src/hidapi/LICENSE-orig.txt",
+          "./src/hidapi/LICENSE.txt",
+          "./src/video/yuv2rgb/LICENSE",
+          "./test/COPYING",
+          "./visualtest/COPYING.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-shaderc_9ff3096908159ae870c6a5086e7e01e4e0de535fb9c6d52de76ce7d4cf73b600.tar.xz": {
+        "bytes": 168720564,
+        "sha256": "32d46ea72959be3ad8160b09946f353d5fa8e606dc68f41713950af62bd24e37",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./kokoro/license-check/build.sh",
+          "./kokoro/license-check/continuous.cfg",
+          "./kokoro/license-check/presubmit.cfg",
+          "./license-checker.cfg",
+          "./third_party/LICENSE.glslang",
+          "./third_party/LICENSE.spirv-tools",
+          "./third_party/abseil_cpp/LICENSE",
+          "./third_party/effcee/LICENSE",
+          "./third_party/glslang/LICENSE.txt",
+          "./third_party/glslang/LICENSES/AML-glslang.txt",
+          "./third_party/glslang/LICENSES/Apache-2.0.txt",
+          "./third_party/glslang/LICENSES/BSD-2-Clause.txt",
+          "./third_party/glslang/LICENSES/BSD-3-Clause.txt",
+          "./third_party/glslang/LICENSES/Bison-exception-2.2.txt",
+          "./third_party/glslang/LICENSES/GPL-3.0-or-later.txt",
+          "./third_party/glslang/LICENSES/MIT-Khronos-old.txt",
+          "./third_party/glslang/LICENSES/MIT.txt",
+          "./third_party/glslang/kokoro/license-check/build.sh",
+          "./third_party/glslang/kokoro/license-check/continuous.cfg",
+          "./third_party/glslang/kokoro/license-check/presubmit.cfg",
+          "./third_party/glslang/license-checker.cfg",
+          "./third_party/googletest/LICENSE",
+          "./third_party/re2/LICENSE",
+          "./third_party/spirv-headers/LICENSE",
+          "./third_party/spirv-headers/LICENSES/CC-BY-4.0.txt",
+          "./third_party/spirv-headers/LICENSES/MIT.txt",
+          "./third_party/spirv-tools/LICENSE",
+          "./third_party/spirv-tools/utils/vscode/src/lsp/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-snappy_8e53b9981df8ab90cbd88fd1dd2e976bf99f9b13e069ada011d6fcb5fd4a1dec.tar.xz": {
+        "bytes": 2127092,
+        "sha256": "228d87dfbd488901d3d12d014e6b70fbe49106a0a4d1453be8ae0607d273d41e",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./COPYING.notestdata"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-soxr_d24c000584012b62b406f09325af85575932219b972b87ab3e2b1037bdc97c6a.tar.xz": {
+        "bytes": 308508,
+        "sha256": "f72b77ab2f6d4bfdcd1242d3dcc0579ff20ed03948fdfe5fb2b0380e2dd2d22c",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING.LGPL",
+          "./LICENCE",
+          "./lsr-tests/COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-srt_b47647b4bf2fd74999325f793b3c0968d3513719af9b3008922131e8c465e179.tar.xz": {
+        "bytes": 3440260,
+        "sha256": "1ced95a4c2125def563a93ab75037397d8a0c57ba6c340951888fff77e376b8f",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-svtav1_46a954dc6763b77684fc6cc76317f9eb478ab707091181bb8bf3ccc6f245296f.tar.xz": {
+        "bytes": 88631348,
+        "sha256": "4694cba2ec6d584b9937454c4454e78153b96a4be5665e35e31ebcd806780e37",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE-BSD2.md",
+          "./LICENSE.md",
+          "./PATENTS.md",
+          "./third_party/fastfeat/LICENSE",
+          "./third_party/safestringlib/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-twolame_b034b56f3c8caa730922980b6e8aca15c6f3b46e3fa98d3229c337aeb7858f71.tar.xz": {
+        "bytes": 828424,
+        "sha256": "f49d916cd63bd478beb52baa0fe9fd829527a1bcd3c5fe9ae64f8ec11f1c8001",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-uavs3d_f5c1983f0fc2360d5846298e08a8f89f2f345caa3beb83100ca9b48eff5ded6b.tar.xz": {
+        "bytes": 1442168,
+        "sha256": "cbe10f685faaa0fa276bd1f3797a8a482b9bb6ff55a7a75b9693c8a7012acea1",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-vapoursynth_6754f770821a8db36a57df5e8600263caf20ad3466ea18862102b7b954c25157.tar.xz": {
+        "bytes": 1903124,
+        "sha256": "e427ea7a43074496aed21a8f9bfeb433a0c4be64f6c5d788dc8056e667484d39",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING.LESSER"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-vidstab_4775a069821691e584b2eb878047d58081f140d98fc8d3c759766f099723179e.tar.xz": {
+        "bytes": 645268,
+        "sha256": "c63c6c3774d1252dd59d32ec25a203a68c111403adc180cea3e8a2fc0a780f9a",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING.LESSER",
+          "./LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-vvenc_7f1746781e3f2a5a225448e524e8f8ee11540497871a44a82fa21768f1c82442.tar.xz": {
+        "bytes": 4322628,
+        "sha256": "75082e5967cd90ce3968da7267fdb7fe509e04abe95f58b0a706ed5b111e8003",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE.txt",
+          "./thirdparty/nlohmann_json/LICENSE.MIT",
+          "./thirdparty/simde/COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-x264_7aee4cf46b7c0eff1a5ad3d23ae43a29562065ef2866a4a883d7ad2db0fb755d.tar.xz": {
+        "bytes": 1916864,
+        "sha256": "b7c2bbb51005d101691a69d24edb99ea7ac9b9e448e74a606ecdc6e0357e3026",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-x265_b37b40782670703ea27b2ac7c6b8a4d89f6753cc82f1a6fea29fa60d9fa6b435.tar.xz": {
+        "bytes": 16805236,
+        "sha256": "c1956fae4c299350f447a23a064ea512a3e44e2f148a2de63f739807039c3eec",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./source/dynamicHDR10/LICENSE.txt",
+          "./source/dynamicHDR10/json11/LICENSE.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-xavs2_983aacbab6d33318bf9c4742b41a1ed9d42afc12a0493ba97d07404a99734009.tar.xz": {
+        "bytes": 2048468,
+        "sha256": "f69acaed672671ee460aa898e323a5e7190428be86e6bd4471b080e133cd8296",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-xvid_03619a39e7e15a372b56fc954435c35668ed47258d7e7d3f2e47ba521e3b884f.tar.xz": {
+        "bytes": 598692,
+        "sha256": "21e568c3f51bc5bc56cd564f72a42b730076045f350d6b4fbeef681aafe81bb8",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./debian/copyright",
+          "./vfw/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-zimg_7ac9b5905a13db62bae8b61a2a7b3806f25a5f3e173cc0c6c79edf9f38d8b437.tar.xz": {
+        "bytes": 4555140,
+        "sha256": "3ad00d5b7171714787028a218c47877cd1b38697c0c7cca40d0cdb0082b6a7a7",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./graphengine/COPYING",
+          "./graphengine/test/googletest/LICENSE",
+          "./graphengine/test/googletest/googlemock/scripts/generator/LICENSE",
+          "./test/extra/googletest/LICENSE",
+          "./test/extra/musl-libm/COPYRIGHT"
+        ],
+        "embeddedLicenses": []
+      },
+      "50-zvbi_7369ec5938a995eb4283992070b303e140fc8a3b5f53d80e2a5df0b84794a75b.tar.xz": {
+        "bytes": 1754292,
+        "sha256": "9b7d1c04337aaa79c3b88b3a4f8eeba6ee510020fca1b7784702a93c01c175bf",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING.md"
+        ],
+        "embeddedLicenses": []
+      },
+      "55-spirv-cross_7ee82163958c020ff8f9cfd2a6eff8aefdfc6391d36898ec54a24f09f58479d4.tar.xz": {
+        "bytes": 3509132,
+        "sha256": "c6cdc68df59ae8f4239a97aa7768282bb1ac2def967cd2853b54d3e15c01cffe",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./LICENSES/Apache-2.0.txt",
+          "./LICENSES/CC-BY-4.0.txt",
+          "./LICENSES/LicenseRef-KhronosFreeUse.txt",
+          "./LICENSES/MIT.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "60-libglvnd_b5decd6ef0d35071d5ef435a736000a7c2dfe94707206653267c61e11630c960.tar.xz": {
+        "bytes": 1413728,
+        "sha256": "6f27add0ffd01c1d9073e82a29506b4fd3d9ed38efeb057e6fa378a6fa1ad283",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./src/util/cJSON/LICENSE",
+          "./src/util/uthash/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "60-libxcursor_899caf3541ff1f0fdf3a60cbc483877819b6bc6b8fc6d56ae9863dd95d5b4a45.tar.xz": {
+        "bytes": 105860,
+        "sha256": "e7b623b68080baeafa01e03e98d307caa2a8842986859f1436662dcec5525988",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "60-libxrandr_76ce7ef426d59979a255619444de369567889d5bfe2af130ef77700c096230fc.tar.xz": {
+        "bytes": 93176,
+        "sha256": "84395e4f93af6b1cf79dacc880cc2d17c6c1da9835fd11c5c17b657d8c2fa658",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "60-libxv_cda840dfd0f852c6535789148438618900c0a214b03a010c02ff1364a5499e02.tar.xz": {
+        "bytes": 85836,
+        "sha256": "4b158ed124f60d2ea39cb8f6d252d546441292b412a13461ea3ab112c65c6d63",
+        "targets": [
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING"
+        ],
+        "embeddedLicenses": []
+      },
+      "60-spirv-headers_23fe5e903430db492bfbae8fb0b6124c0169bcc550874b85f068cfe8d8adfffb.tar.xz": {
+        "bytes": 691416,
+        "sha256": "040e655f1abe6c83f213831a3514e4f550d7670448218bddc0c03137f7a1ed86",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./LICENSE",
+          "./LICENSES/CC-BY-4.0.txt",
+          "./LICENSES/MIT.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "96-lv2_1833e554a5a1760aa41062569225bbb9856f09f3c23d37301074d82a17b0624e.tar.xz": {
+        "bytes": 537464,
+        "sha256": "801b068e50832f417e4c7d44c05edeb47b8be3ceda3f677c016a39c91b99cadf",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSES/0BSD.txt",
+          "./LICENSES/Apache-2.0.txt",
+          "./LICENSES/CC-BY-1.0.txt",
+          "./LICENSES/CC-BY-4.0.txt",
+          "./LICENSES/MIT.txt",
+          "./LICENSES/W3C-19980720.txt",
+          "./LICENSES/W3C-20150513.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "96-serd_257c27b8651c05a3b7179f2477bd69ed036feac4eb253312569096821e69a8e7.tar.xz": {
+        "bytes": 508676,
+        "sha256": "f1637573530936ca835c2acb3ff48a5060a4240b0f3ecf92eea726e864eb269f",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSES/0BSD.txt",
+          "./LICENSES/BSD-3-Clause.txt",
+          "./LICENSES/ISC.txt",
+          "./test/w3c/trig/LICENSE",
+          "./test/w3c/turtle/LICENSE"
+        ],
+        "embeddedLicenses": []
+      },
+      "96-zix_21e780c9ab8c0f8067c36bb53b76fcabc2dd828153b3f1ab082ed44281f62d13.tar.xz": {
+        "bytes": 231200,
+        "sha256": "189631500861f0879a37d8df8edacec36a7e79a2383ff37808cf7388e127c6e3",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSES/0BSD.txt",
+          "./LICENSES/ISC.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "97-sord_6ef433b3c59e64a645002e31f929dfec02cbd979f0d70b5373173e1ca217125d.tar.xz": {
+        "bytes": 275684,
+        "sha256": "916791878f0a54483ad13d3eb04d26d36774763db85909bf6c577319cee43a97",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSES/0BSD.txt",
+          "./LICENSES/BSD-3-Clause.txt",
+          "./LICENSES/ISC.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "98-sratom_a7e01a157b247bfecbce4a5c63016fa503ddd5703ffc208af3f81805a7d30535.tar.xz": {
+        "bytes": 72464,
+        "sha256": "4a389e6a8662c7a03b938074a832399eef441af8b3cdaa3b2f86db9bb9d0cf2a",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSES/0BSD.txt",
+          "./LICENSES/ISC.txt"
+        ],
+        "embeddedLicenses": []
+      },
+      "99-librsvg_20412ad6b5a08e06a6b2f15951458980805d4c0f40b762745e4c2575169a8c3c.tar.xz": {
+        "bytes": 37782928,
+        "sha256": "0fac23abf532cbea7e611a1265b7bef052d852d60c49914e8c15f53f0a770736",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING.LIB",
+          "./librsvg-rebind/LICENSE",
+          "./vendor/adler2-2.0.1/LICENSE-0BSD",
+          "./vendor/adler2-2.0.1/LICENSE-APACHE",
+          "./vendor/adler2-2.0.1/LICENSE-MIT",
+          "./vendor/aes-0.9.3/LICENSE-APACHE",
+          "./vendor/aes-0.9.3/LICENSE-MIT",
+          "./vendor/ahash-0.8.12/LICENSE-APACHE",
+          "./vendor/ahash-0.8.12/LICENSE-MIT",
+          "./vendor/aho-corasick-1.1.5/COPYING",
+          "./vendor/aho-corasick-1.1.5/LICENSE-MIT",
+          "./vendor/alloca-0.4.0/LICENSE",
+          "./vendor/android_system_properties-0.1.6/LICENSE-APACHE",
+          "./vendor/android_system_properties-0.1.6/LICENSE-MIT",
+          "./vendor/anstream-1.0.0/LICENSE-APACHE",
+          "./vendor/anstream-1.0.0/LICENSE-MIT",
+          "./vendor/anstyle-1.0.14/LICENSE-APACHE",
+          "./vendor/anstyle-1.0.14/LICENSE-MIT",
+          "./vendor/anstyle-parse-1.0.0/LICENSE-APACHE",
+          "./vendor/anstyle-parse-1.0.0/LICENSE-MIT",
+          "./vendor/anstyle-query-1.1.5/LICENSE-APACHE",
+          "./vendor/anstyle-query-1.1.5/LICENSE-MIT",
+          "./vendor/anstyle-wincon-3.0.11/LICENSE-APACHE",
+          "./vendor/anstyle-wincon-3.0.11/LICENSE-MIT",
+          "./vendor/approx-0.5.1/LICENSE",
+          "./vendor/arbitrary-1.4.2/LICENSE-APACHE",
+          "./vendor/arbitrary-1.4.2/LICENSE-MIT",
+          "./vendor/assert_cmd-2.2.2/LICENSE-APACHE",
+          "./vendor/assert_cmd-2.2.2/LICENSE-MIT",
+          "./vendor/autocfg-1.5.1/LICENSE-APACHE",
+          "./vendor/autocfg-1.5.1/LICENSE-MIT",
+          "./vendor/av-data-0.4.4/LICENSE",
+          "./vendor/bit-set-0.8.0/LICENSE-APACHE",
+          "./vendor/bit-set-0.8.0/LICENSE-MIT",
+          "./vendor/bit-vec-0.8.0/LICENSE-APACHE",
+          "./vendor/bit-vec-0.8.0/LICENSE-MIT",
+          "./vendor/bitflags-1.3.2/LICENSE-APACHE",
+          "./vendor/bitflags-1.3.2/LICENSE-MIT",
+          "./vendor/bitflags-2.13.2/LICENSE-APACHE",
+          "./vendor/bitflags-2.13.2/LICENSE-MIT",
+          "./vendor/bitreader-0.3.11/LICENSE-APACHE",
+          "./vendor/bitreader-0.3.11/LICENSE-MIT",
+          "./vendor/block-buffer-0.12.1/LICENSE-APACHE",
+          "./vendor/block-buffer-0.12.1/LICENSE-MIT",
+          "./vendor/block-padding-0.4.2/LICENSE-APACHE",
+          "./vendor/block-padding-0.4.2/LICENSE-MIT",
+          "./vendor/bstr-1.13.1/COPYING",
+          "./vendor/bstr-1.13.1/LICENSE-APACHE",
+          "./vendor/bstr-1.13.1/LICENSE-MIT",
+          "./vendor/bumpalo-3.20.3/LICENSE-APACHE",
+          "./vendor/bumpalo-3.20.3/LICENSE-MIT",
+          "./vendor/byte-slice-cast-1.2.3/LICENSE",
+          "./vendor/bytemuck-1.25.2/LICENSE-APACHE",
+          "./vendor/bytemuck-1.25.2/LICENSE-MIT",
+          "./vendor/bytemuck-1.25.2/LICENSE-ZLIB",
+          "./vendor/byteorder-1.5.0/COPYING",
+          "./vendor/byteorder-1.5.0/LICENSE-MIT",
+          "./vendor/byteorder-lite-0.1.0/LICENSE-MIT",
+          "./vendor/bytes-1.12.1/LICENSE",
+          "./vendor/cairo-rs-0.22.9/COPYRIGHT",
+          "./vendor/cairo-rs-0.22.9/LICENSE",
+          "./vendor/cairo-sys-rs-0.22.9/LICENSE",
+          "./vendor/cast-0.3.0/LICENSE-APACHE",
+          "./vendor/cast-0.3.0/LICENSE-MIT",
+          "./vendor/cbc-0.2.1/LICENSE-APACHE",
+          "./vendor/cbc-0.2.1/LICENSE-MIT",
+          "./vendor/cc-1.4.7/LICENSE-APACHE",
+          "./vendor/cc-1.4.7/LICENSE-MIT",
+          "./vendor/cfg-expr-0.20.9/LICENSE-APACHE",
+          "./vendor/cfg-expr-0.20.9/LICENSE-MIT",
+          "./vendor/cfg-if-1.0.5/LICENSE-APACHE",
+          "./vendor/cfg-if-1.0.5/LICENSE-MIT",
+          "./vendor/chacha20-0.10.2/LICENSE-APACHE",
+          "./vendor/chacha20-0.10.2/LICENSE-MIT",
+          "./vendor/chrono-0.4.45/LICENSE.txt",
+          "./vendor/ciborium-0.2.2/LICENSE",
+          "./vendor/ciborium-io-0.2.2/LICENSE",
+          "./vendor/ciborium-ll-0.2.2/LICENSE",
+          "./vendor/cipher-0.5.2/LICENSE-APACHE",
+          "./vendor/cipher-0.5.2/LICENSE-MIT",
+          "./vendor/clap-4.6.7/LICENSE-APACHE",
+          "./vendor/clap-4.6.7/LICENSE-MIT",
+          "./vendor/clap_builder-4.6.7/LICENSE-APACHE",
+          "./vendor/clap_builder-4.6.7/LICENSE-MIT",
+          "./vendor/clap_complete-4.6.11/LICENSE-APACHE",
+          "./vendor/clap_complete-4.6.11/LICENSE-MIT",
+          "./vendor/clap_derive-4.6.7/LICENSE-APACHE",
+          "./vendor/clap_derive-4.6.7/LICENSE-MIT",
+          "./vendor/clap_lex-1.1.1/LICENSE-APACHE",
+          "./vendor/clap_lex-1.1.1/LICENSE-MIT",
+          "./vendor/color_quant-1.1.0/LICENSE",
+          "./vendor/colorchoice-1.0.5/LICENSE-APACHE",
+          "./vendor/colorchoice-1.0.5/LICENSE-MIT",
+          "./vendor/const-oid-0.10.2/LICENSE-APACHE",
+          "./vendor/const-oid-0.10.2/LICENSE-MIT",
+          "./vendor/core-foundation-sys-0.8.7/LICENSE-APACHE",
+          "./vendor/core-foundation-sys-0.8.7/LICENSE-MIT",
+          "./vendor/core_detect-1.0.0/LICENSE-APACHE",
+          "./vendor/core_detect-1.0.0/LICENSE-MIT",
+          "./vendor/cpubits-0.1.1/LICENSE-APACHE",
+          "./vendor/cpubits-0.1.1/LICENSE-MIT",
+          "./vendor/cpufeatures-0.3.1/LICENSE-APACHE",
+          "./vendor/cpufeatures-0.3.1/LICENSE-MIT",
+          "./vendor/crc32fast-1.5.2/LICENSE-APACHE",
+          "./vendor/crc32fast-1.5.2/LICENSE-MIT",
+          "./vendor/criterion-0.8.2/LICENSE-APACHE",
+          "./vendor/criterion-0.8.2/LICENSE-MIT",
+          "./vendor/criterion-plot-0.8.2/LICENSE-APACHE",
+          "./vendor/criterion-plot-0.8.2/LICENSE-MIT",
+          "./vendor/crossbeam-deque-0.8.8/LICENSE-APACHE",
+          "./vendor/crossbeam-deque-0.8.8/LICENSE-MIT",
+          "./vendor/crossbeam-epoch-0.9.21/LICENSE-APACHE",
+          "./vendor/crossbeam-epoch-0.9.21/LICENSE-MIT",
+          "./vendor/crossbeam-utils-0.8.23/LICENSE-APACHE",
+          "./vendor/crossbeam-utils-0.8.23/LICENSE-MIT",
+          "./vendor/crunchy-0.2.4/LICENSE",
+          "./vendor/crypto-common-0.2.2/LICENSE-APACHE",
+          "./vendor/crypto-common-0.2.2/LICENSE-MIT",
+          "./vendor/cssparser-0.37.0/LICENSE",
+          "./vendor/cssparser-color-0.5.0/LICENSE",
+          "./vendor/cssparser-macros-0.7.1/LICENSE",
+          "./vendor/data-url-0.3.2/LICENSE-APACHE",
+          "./vendor/data-url-0.3.2/LICENSE-MIT",
+          "./vendor/dav1d-0.11.1/LICENSE",
+          "./vendor/dav1d-sys-0.8.3/LICENSE",
+          "./vendor/defmt-1.1.1/LICENSE-APACHE",
+          "./vendor/defmt-1.1.1/LICENSE-MIT",
+          "./vendor/defmt-macros-1.1.1/LICENSE-APACHE",
+          "./vendor/defmt-macros-1.1.1/LICENSE-MIT",
+          "./vendor/deranged-0.5.8/LICENSE-Apache",
+          "./vendor/deranged-0.5.8/LICENSE-MIT",
+          "./vendor/derive_more-2.1.1/LICENSE",
+          "./vendor/derive_more-impl-2.1.1/LICENSE",
+          "./vendor/diff-0.1.13/LICENSE-APACHE",
+          "./vendor/diff-0.1.13/LICENSE-MIT",
+          "./vendor/digest-0.11.3/LICENSE-APACHE",
+          "./vendor/digest-0.11.3/LICENSE-MIT",
+          "./vendor/displaydoc-0.2.7/LICENSE-APACHE",
+          "./vendor/displaydoc-0.2.7/LICENSE-MIT",
+          "./vendor/dlib-0.5.3/LICENSE.txt",
+          "./vendor/dtoa-1.0.11/LICENSE-APACHE",
+          "./vendor/dtoa-1.0.11/LICENSE-MIT",
+          "./vendor/dtoa-short-0.3.5/LICENSE",
+          "./vendor/ecb-0.2.1/LICENSE-APACHE",
+          "./vendor/ecb-0.2.1/LICENSE-MIT",
+          "./vendor/either-1.18.0/LICENSE-APACHE",
+          "./vendor/either-1.18.0/LICENSE-MIT",
+          "./vendor/encoding_rs-0.8.41/COPYRIGHT",
+          "./vendor/encoding_rs-0.8.41/LICENSE-APACHE",
+          "./vendor/encoding_rs-0.8.41/LICENSE-MIT",
+          "./vendor/encoding_rs-0.8.41/LICENSE-WHATWG",
+          "./vendor/equivalent-1.0.2/LICENSE-APACHE",
+          "./vendor/equivalent-1.0.2/LICENSE-MIT",
+          "./vendor/errno-0.3.14/LICENSE-APACHE",
+          "./vendor/errno-0.3.14/LICENSE-MIT",
+          "./vendor/fallible_collections-0.4.9/LICENSE-APACHE",
+          "./vendor/fallible_collections-0.4.9/LICENSE-MIT",
+          "./vendor/fastrand-2.5.0/LICENSE-APACHE",
+          "./vendor/fastrand-2.5.0/LICENSE-MIT",
+          "./vendor/fdeflate-0.3.7/LICENSE-APACHE",
+          "./vendor/fdeflate-0.3.7/LICENSE-MIT",
+          "./vendor/find-msvc-tools-0.1.13/LICENSE-APACHE",
+          "./vendor/find-msvc-tools-0.1.13/LICENSE-MIT",
+          "./vendor/flate2-1.1.10/LICENSE-APACHE",
+          "./vendor/flate2-1.1.10/LICENSE-MIT",
+          "./vendor/float-cmp-0.10.0/LICENSE",
+          "./vendor/fnv-1.0.7/LICENSE-APACHE",
+          "./vendor/fnv-1.0.7/LICENSE-MIT",
+          "./vendor/form_urlencoded-1.2.2/LICENSE-APACHE",
+          "./vendor/form_urlencoded-1.2.2/LICENSE-MIT",
+          "./vendor/futures-channel-0.3.34/LICENSE-APACHE",
+          "./vendor/futures-channel-0.3.34/LICENSE-MIT",
+          "./vendor/futures-core-0.3.34/LICENSE-APACHE",
+          "./vendor/futures-core-0.3.34/LICENSE-MIT",
+          "./vendor/futures-executor-0.3.34/LICENSE-APACHE",
+          "./vendor/futures-executor-0.3.34/LICENSE-MIT",
+          "./vendor/futures-io-0.3.34/LICENSE-APACHE",
+          "./vendor/futures-io-0.3.34/LICENSE-MIT",
+          "./vendor/futures-macro-0.3.34/LICENSE-APACHE",
+          "./vendor/futures-macro-0.3.34/LICENSE-MIT",
+          "./vendor/futures-task-0.3.34/LICENSE-APACHE",
+          "./vendor/futures-task-0.3.34/LICENSE-MIT",
+          "./vendor/futures-util-0.3.34/LICENSE-APACHE",
+          "./vendor/futures-util-0.3.34/LICENSE-MIT",
+          "./vendor/gdk-pixbuf-0.22.0/COPYRIGHT",
+          "./vendor/gdk-pixbuf-0.22.0/LICENSE",
+          "./vendor/gdk-pixbuf-sys-0.22.9/LICENSE",
+          "./vendor/getrandom-0.3.4/LICENSE-APACHE",
+          "./vendor/getrandom-0.3.4/LICENSE-MIT",
+          "./vendor/getrandom-0.4.3/LICENSE-APACHE",
+          "./vendor/getrandom-0.4.3/LICENSE-MIT",
+          "./vendor/gif-0.14.2/LICENSE-APACHE",
+          "./vendor/gif-0.14.2/LICENSE-MIT",
+          "./vendor/gio-0.22.9/COPYRIGHT",
+          "./vendor/gio-0.22.9/LICENSE",
+          "./vendor/gio-sys-0.22.9/LICENSE",
+          "./vendor/gio-unix-0.22.8/COPYRIGHT",
+          "./vendor/gio-unix-0.22.8/LICENSE",
+          "./vendor/gio-unix-sys-0.22.9/COPYRIGHT",
+          "./vendor/gio-unix-sys-0.22.9/LICENSE",
+          "./vendor/gio-win32-0.22.8/COPYRIGHT",
+          "./vendor/gio-win32-0.22.8/LICENSE",
+          "./vendor/gio-win32-sys-0.22.9/COPYRIGHT",
+          "./vendor/gio-win32-sys-0.22.9/LICENSE",
+          "./vendor/glam-0.30.10/LICENSE-APACHE",
+          "./vendor/glam-0.30.10/LICENSE-MIT",
+          "./vendor/glam-0.31.1/LICENSE-APACHE",
+          "./vendor/glam-0.31.1/LICENSE-MIT",
+          "./vendor/glam-0.32.1/LICENSE-APACHE",
+          "./vendor/glam-0.32.1/LICENSE-MIT",
+          "./vendor/glam-0.33.7/LICENSE-APACHE",
+          "./vendor/glam-0.33.7/LICENSE-MIT",
+          "./vendor/glib-0.22.9/COPYRIGHT",
+          "./vendor/glib-0.22.9/LICENSE",
+          "./vendor/glib-macros-0.22.9/COPYRIGHT",
+          "./vendor/glib-macros-0.22.9/LICENSE",
+          "./vendor/glib-sys-0.22.9/LICENSE",
+          "./vendor/gobject-sys-0.22.9/LICENSE",
+          "./vendor/half-2.7.1/LICENSE-APACHE",
+          "./vendor/half-2.7.1/LICENSE-MIT",
+          "./vendor/hashbrown-0.13.2/LICENSE-APACHE",
+          "./vendor/hashbrown-0.13.2/LICENSE-MIT",
+          "./vendor/hashbrown-0.17.1/LICENSE-APACHE",
+          "./vendor/hashbrown-0.17.1/LICENSE-MIT",
+          "./vendor/heck-0.5.0/LICENSE-APACHE",
+          "./vendor/heck-0.5.0/LICENSE-MIT",
+          "./vendor/hybrid-array-0.4.15/LICENSE-APACHE",
+          "./vendor/hybrid-array-0.4.15/LICENSE-MIT",
+          "./vendor/iana-time-zone-0.1.65/LICENSE-APACHE",
+          "./vendor/iana-time-zone-0.1.65/LICENSE-MIT",
+          "./vendor/iana-time-zone-haiku-0.1.2/LICENSE-APACHE",
+          "./vendor/iana-time-zone-haiku-0.1.2/LICENSE-MIT",
+          "./vendor/icu_collections-2.3.0/LICENSE",
+          "./vendor/icu_locale_core-2.3.0/LICENSE",
+          "./vendor/icu_normalizer-2.3.0/LICENSE",
+          "./vendor/icu_normalizer_data-2.3.0/LICENSE",
+          "./vendor/icu_properties-2.3.0/LICENSE",
+          "./vendor/icu_properties_data-2.3.0/LICENSE",
+          "./vendor/icu_provider-2.3.1/LICENSE",
+          "./vendor/idna-1.1.0/LICENSE-APACHE",
+          "./vendor/idna-1.1.0/LICENSE-MIT",
+          "./vendor/idna_adapter-1.2.2/LICENSE-APACHE",
+          "./vendor/idna_adapter-1.2.2/LICENSE-MIT",
+          "./vendor/image-0.25.10/LICENSE-APACHE",
+          "./vendor/image-0.25.10/LICENSE-MIT",
+          "./vendor/image-webp-0.2.4/LICENSE-APACHE",
+          "./vendor/image-webp-0.2.4/LICENSE-MIT",
+          "./vendor/indexmap-2.14.2/LICENSE-APACHE",
+          "./vendor/indexmap-2.14.2/LICENSE-MIT",
+          "./vendor/inout-0.2.2/LICENSE-APACHE",
+          "./vendor/inout-0.2.2/LICENSE-MIT",
+          "./vendor/is_terminal_polyfill-1.70.2/LICENSE-APACHE",
+          "./vendor/is_terminal_polyfill-1.70.2/LICENSE-MIT",
+          "./vendor/itertools-0.13.0/LICENSE-APACHE",
+          "./vendor/itertools-0.13.0/LICENSE-MIT",
+          "./vendor/itertools-0.15.0/LICENSE-APACHE",
+          "./vendor/itertools-0.15.0/LICENSE-MIT",
+          "./vendor/itoa-1.0.18/LICENSE-APACHE",
+          "./vendor/itoa-1.0.18/LICENSE-MIT",
+          "./vendor/jiff-0.2.37/COPYING",
+          "./vendor/jiff-0.2.37/LICENSE-MIT",
+          "./vendor/jiff-core-0.1.1/COPYING",
+          "./vendor/jiff-core-0.1.1/LICENSE-MIT",
+          "./vendor/jiff-static-0.2.37/COPYING",
+          "./vendor/jiff-static-0.2.37/LICENSE-MIT",
+          "./vendor/jiff-tzdb-0.1.8/COPYING",
+          "./vendor/jiff-tzdb-0.1.8/LICENSE-MIT",
+          "./vendor/jiff-tzdb-platform-0.1.3/COPYING",
+          "./vendor/jiff-tzdb-platform-0.1.3/LICENSE-MIT",
+          "./vendor/jobserver-0.1.35/LICENSE-APACHE",
+          "./vendor/jobserver-0.1.35/LICENSE-MIT",
+          "./vendor/js-sys-0.3.105/LICENSE-APACHE",
+          "./vendor/js-sys-0.3.105/LICENSE-MIT",
+          "./vendor/language-tags-0.3.2/LICENSE",
+          "./vendor/lazy_static-1.5.0/LICENSE-APACHE",
+          "./vendor/lazy_static-1.5.0/LICENSE-MIT",
+          "./vendor/libc-0.2.189/LICENSE-APACHE",
+          "./vendor/libc-0.2.189/LICENSE-MIT",
+          "./vendor/libfuzzer-sys-0.4.13/LICENSE-APACHE",
+          "./vendor/libfuzzer-sys-0.4.13/LICENSE-MIT",
+          "./vendor/libloading-0.8.9/LICENSE",
+          "./vendor/linux-raw-sys-0.12.1/COPYRIGHT",
+          "./vendor/linux-raw-sys-0.12.1/LICENSE-APACHE",
+          "./vendor/linux-raw-sys-0.12.1/LICENSE-Apache-2.0_WITH_LLVM-exception",
+          "./vendor/linux-raw-sys-0.12.1/LICENSE-MIT",
+          "./vendor/litemap-0.8.3/LICENSE",
+          "./vendor/locale_config-0.3.0/LICENSE",
+          "./vendor/lock_api-0.4.14/LICENSE-APACHE",
+          "./vendor/lock_api-0.4.14/LICENSE-MIT",
+          "./vendor/log-0.4.34/LICENSE-APACHE",
+          "./vendor/log-0.4.34/LICENSE-MIT",
+          "./vendor/lopdf-0.44.0/LICENSE",
+          "./vendor/markup5ever-0.39.0/LICENSE-APACHE",
+          "./vendor/markup5ever-0.39.0/LICENSE-MIT",
+          "./vendor/matches-0.1.10/LICENSE",
+          "./vendor/matrixmultiply-0.3.11/LICENSE-APACHE",
+          "./vendor/matrixmultiply-0.3.11/LICENSE-MIT",
+          "./vendor/md-5-0.11.0/LICENSE-APACHE",
+          "./vendor/md-5-0.11.0/LICENSE-MIT",
+          "./vendor/memchr-2.8.3/COPYING",
+          "./vendor/memchr-2.8.3/LICENSE-MIT",
+          "./vendor/miniz_oxide-0.8.9/LICENSE",
+          "./vendor/miniz_oxide-0.8.9/LICENSE-APACHE.md",
+          "./vendor/miniz_oxide-0.8.9/LICENSE-MIT.md",
+          "./vendor/miniz_oxide-0.8.9/LICENSE-ZLIB.md",
+          "./vendor/miniz_oxide-0.9.1/LICENSE",
+          "./vendor/miniz_oxide-0.9.1/LICENSE-APACHE.md",
+          "./vendor/miniz_oxide-0.9.1/LICENSE-MIT.md",
+          "./vendor/miniz_oxide-0.9.1/LICENSE-ZLIB.md",
+          "./vendor/moxcms-0.8.1/LICENSE-APACHE.md",
+          "./vendor/moxcms-0.8.1/LICENSE.md",
+          "./vendor/mp4parse-0.17.0/LICENSE",
+          "./vendor/multiversion-0.9.0/LICENSE-APACHE",
+          "./vendor/multiversion-0.9.0/LICENSE-MIT",
+          "./vendor/multiversion-macros-0.9.0/LICENSE-APACHE",
+          "./vendor/multiversion-macros-0.9.0/LICENSE-MIT",
+          "./vendor/multiversion_no_op-1.0.0/COPYRIGHT",
+          "./vendor/multiversion_no_op-1.0.0/LICENSE-APACHE",
+          "./vendor/multiversion_no_op-1.0.0/LICENSE-MIT",
+          "./vendor/nalgebra-0.35.0/LICENSE",
+          "./vendor/nalgebra-macros-0.3.0/LICENSE",
+          "./vendor/new_debug_unreachable-1.0.6/LICENSE-MIT",
+          "./vendor/nom-8.0.0/LICENSE",
+          "./vendor/normalize-line-endings-0.3.0/LICENSE",
+          "./vendor/num-bigint-0.4.8/LICENSE-APACHE",
+          "./vendor/num-bigint-0.4.8/LICENSE-MIT",
+          "./vendor/num-complex-0.4.6/LICENSE-APACHE",
+          "./vendor/num-complex-0.4.6/LICENSE-MIT",
+          "./vendor/num-conv-0.2.2/LICENSE-Apache",
+          "./vendor/num-conv-0.2.2/LICENSE-MIT",
+          "./vendor/num-derive-0.4.2/LICENSE-APACHE",
+          "./vendor/num-derive-0.4.2/LICENSE-MIT",
+          "./vendor/num-integer-0.1.47/LICENSE-APACHE",
+          "./vendor/num-integer-0.1.47/LICENSE-MIT",
+          "./vendor/num-rational-0.4.2/LICENSE-APACHE",
+          "./vendor/num-rational-0.4.2/LICENSE-MIT",
+          "./vendor/num-traits-0.2.19/LICENSE-APACHE",
+          "./vendor/num-traits-0.2.19/LICENSE-MIT",
+          "./vendor/objc-0.2.7/LICENSE.txt",
+          "./vendor/once_cell-1.21.4/LICENSE-APACHE",
+          "./vendor/once_cell-1.21.4/LICENSE-MIT",
+          "./vendor/once_cell_polyfill-1.70.2/LICENSE-APACHE",
+          "./vendor/once_cell_polyfill-1.70.2/LICENSE-MIT",
+          "./vendor/oorandom-11.1.5/LICENSE-MIT",
+          "./vendor/page_size-0.6.0/LICENSE-APACHE",
+          "./vendor/page_size-0.6.0/LICENSE-MIT",
+          "./vendor/pango-0.22.9/COPYRIGHT",
+          "./vendor/pango-0.22.9/LICENSE",
+          "./vendor/pango-sys-0.22.9/LICENSE",
+          "./vendor/pangocairo-0.22.9/COPYRIGHT",
+          "./vendor/pangocairo-0.22.9/LICENSE",
+          "./vendor/pangocairo-sys-0.22.9/LICENSE",
+          "./vendor/parking_lot-0.12.5/LICENSE-APACHE",
+          "./vendor/parking_lot-0.12.5/LICENSE-MIT",
+          "./vendor/parking_lot_core-0.9.12/LICENSE-APACHE",
+          "./vendor/parking_lot_core-0.9.12/LICENSE-MIT",
+          "./vendor/percent-encoding-2.3.2/LICENSE-APACHE",
+          "./vendor/percent-encoding-2.3.2/LICENSE-MIT",
+          "./vendor/phf-0.13.1/LICENSE",
+          "./vendor/phf_codegen-0.13.1/LICENSE",
+          "./vendor/phf_generator-0.13.1/LICENSE",
+          "./vendor/phf_macros-0.13.1/LICENSE",
+          "./vendor/phf_shared-0.13.1/LICENSE",
+          "./vendor/phf_shared-0.14.0/LICENSE",
+          "./vendor/pin-project-lite-0.2.17/LICENSE-APACHE",
+          "./vendor/pin-project-lite-0.2.17/LICENSE-MIT",
+          "./vendor/pkg-config-0.3.34/LICENSE-APACHE",
+          "./vendor/pkg-config-0.3.34/LICENSE-MIT",
+          "./vendor/plotters-0.3.7/LICENSE",
+          "./vendor/plotters-backend-0.3.7/LICENSE",
+          "./vendor/plotters-svg-0.3.7/LICENSE",
+          "./vendor/png-0.18.1/LICENSE-APACHE",
+          "./vendor/png-0.18.1/LICENSE-MIT",
+          "./vendor/portable-atomic-1.15.0/LICENSE-APACHE",
+          "./vendor/portable-atomic-1.15.0/LICENSE-MIT",
+          "./vendor/portable-atomic-util-0.2.8/LICENSE-APACHE",
+          "./vendor/portable-atomic-util-0.2.8/LICENSE-MIT",
+          "./vendor/potential_utf-0.1.6/LICENSE",
+          "./vendor/powerfmt-0.2.0/LICENSE-Apache",
+          "./vendor/powerfmt-0.2.0/LICENSE-MIT",
+          "./vendor/ppv-lite86-0.2.21/LICENSE-APACHE",
+          "./vendor/ppv-lite86-0.2.21/LICENSE-MIT",
+          "./vendor/precomputed-hash-0.1.1/LICENSE",
+          "./vendor/predicates-3.1.4/LICENSE-APACHE",
+          "./vendor/predicates-3.1.4/LICENSE-MIT",
+          "./vendor/predicates-core-1.0.10/LICENSE-APACHE",
+          "./vendor/predicates-core-1.0.10/LICENSE-MIT",
+          "./vendor/predicates-tree-1.0.13/LICENSE-APACHE",
+          "./vendor/predicates-tree-1.0.13/LICENSE-MIT",
+          "./vendor/pretty_assertions-1.4.1/LICENSE-APACHE",
+          "./vendor/pretty_assertions-1.4.1/LICENSE-MIT",
+          "./vendor/proc-macro2-1.0.107/LICENSE-APACHE",
+          "./vendor/proc-macro2-1.0.107/LICENSE-MIT",
+          "./vendor/proptest-1.11.0/LICENSE-APACHE",
+          "./vendor/proptest-1.11.0/LICENSE-MIT",
+          "./vendor/pxfm-0.1.30/LICENSE-APACHE.md",
+          "./vendor/pxfm-0.1.30/LICENSE.md",
+          "./vendor/quick-error-1.2.3/LICENSE-APACHE",
+          "./vendor/quick-error-1.2.3/LICENSE-MIT",
+          "./vendor/quick-error-2.0.1/LICENSE-APACHE",
+          "./vendor/quick-error-2.0.1/LICENSE-MIT",
+          "./vendor/quote-1.0.47/LICENSE-APACHE",
+          "./vendor/quote-1.0.47/LICENSE-MIT",
+          "./vendor/rand-0.10.2/COPYRIGHT",
+          "./vendor/rand-0.10.2/LICENSE-APACHE",
+          "./vendor/rand-0.10.2/LICENSE-MIT",
+          "./vendor/rand-0.9.5/COPYRIGHT",
+          "./vendor/rand-0.9.5/LICENSE-APACHE",
+          "./vendor/rand-0.9.5/LICENSE-MIT",
+          "./vendor/rand_chacha-0.9.0/COPYRIGHT",
+          "./vendor/rand_chacha-0.9.0/LICENSE-APACHE",
+          "./vendor/rand_chacha-0.9.0/LICENSE-MIT",
+          "./vendor/rand_core-0.10.1/COPYRIGHT",
+          "./vendor/rand_core-0.10.1/LICENSE-APACHE",
+          "./vendor/rand_core-0.10.1/LICENSE-MIT",
+          "./vendor/rand_core-0.9.5/COPYRIGHT",
+          "./vendor/rand_core-0.9.5/LICENSE-APACHE",
+          "./vendor/rand_core-0.9.5/LICENSE-MIT",
+          "./vendor/rand_xorshift-0.4.0/COPYRIGHT",
+          "./vendor/rand_xorshift-0.4.0/LICENSE-APACHE",
+          "./vendor/rand_xorshift-0.4.0/LICENSE-MIT",
+          "./vendor/rangemap-1.8.0/LICENSE-APACHE",
+          "./vendor/rangemap-1.8.0/LICENSE-MIT",
+          "./vendor/rawpointer-0.2.1/LICENSE-APACHE",
+          "./vendor/rawpointer-0.2.1/LICENSE-MIT",
+          "./vendor/rayon-1.12.0/LICENSE-APACHE",
+          "./vendor/rayon-1.12.0/LICENSE-MIT",
+          "./vendor/rayon-core-1.13.0/LICENSE-APACHE",
+          "./vendor/rayon-core-1.13.0/LICENSE-MIT",
+          "./vendor/rctree-0.6.0/LICENSE",
+          "./vendor/redox_syscall-0.5.18/LICENSE",
+          "./vendor/regex-1.13.1/LICENSE-APACHE",
+          "./vendor/regex-1.13.1/LICENSE-MIT",
+          "./vendor/regex-automata-0.4.18/LICENSE-APACHE",
+          "./vendor/regex-automata-0.4.18/LICENSE-MIT",
+          "./vendor/regex-syntax-0.8.11/LICENSE-APACHE",
+          "./vendor/regex-syntax-0.8.11/LICENSE-MIT",
+          "./vendor/regex-syntax-0.8.11/src/unicode_tables/LICENSE-UNICODE",
+          "./vendor/rgb-0.8.53/LICENSE",
+          "./vendor/rustc-hash-2.1.3/LICENSE-APACHE",
+          "./vendor/rustc-hash-2.1.3/LICENSE-MIT",
+          "./vendor/rustc_version-0.4.1/LICENSE-APACHE",
+          "./vendor/rustc_version-0.4.1/LICENSE-MIT",
+          "./vendor/rustix-1.1.5/COPYRIGHT",
+          "./vendor/rustix-1.1.5/LICENSE-APACHE",
+          "./vendor/rustix-1.1.5/LICENSE-Apache-2.0_WITH_LLVM-exception",
+          "./vendor/rustix-1.1.5/LICENSE-MIT",
+          "./vendor/rustversion-1.0.23/LICENSE-APACHE",
+          "./vendor/rustversion-1.0.23/LICENSE-MIT",
+          "./vendor/rusty-fork-0.3.1/LICENSE-APACHE",
+          "./vendor/rusty-fork-0.3.1/LICENSE-MIT",
+          "./vendor/safe_arch-1.2.0/LICENSE-APACHE.md",
+          "./vendor/safe_arch-1.2.0/LICENSE-MIT.md",
+          "./vendor/safe_arch-1.2.0/LICENSE-ZLIB.md",
+          "./vendor/same-file-1.0.6/COPYING",
+          "./vendor/same-file-1.0.6/LICENSE-MIT",
+          "./vendor/scopeguard-1.2.0/LICENSE-APACHE",
+          "./vendor/scopeguard-1.2.0/LICENSE-MIT",
+          "./vendor/semver-1.0.28/LICENSE-APACHE",
+          "./vendor/semver-1.0.28/LICENSE-MIT",
+          "./vendor/serde-1.0.229/LICENSE-APACHE",
+          "./vendor/serde-1.0.229/LICENSE-MIT",
+          "./vendor/serde_core-1.0.229/LICENSE-APACHE",
+          "./vendor/serde_core-1.0.229/LICENSE-MIT",
+          "./vendor/serde_derive-1.0.229/LICENSE-APACHE",
+          "./vendor/serde_derive-1.0.229/LICENSE-MIT",
+          "./vendor/serde_json-1.0.151/LICENSE-APACHE",
+          "./vendor/serde_json-1.0.151/LICENSE-MIT",
+          "./vendor/serde_spanned-1.1.1/LICENSE-APACHE",
+          "./vendor/serde_spanned-1.1.1/LICENSE-MIT",
+          "./vendor/servo_arc-0.4.3/LICENSE-APACHE",
+          "./vendor/servo_arc-0.4.3/LICENSE-MIT",
+          "./vendor/sha2-0.11.0/LICENSE-APACHE",
+          "./vendor/sha2-0.11.0/LICENSE-MIT",
+          "./vendor/shell-words-1.1.1/LICENSE-APACHE",
+          "./vendor/shell-words-1.1.1/LICENSE-MIT",
+          "./vendor/shlex-2.0.1/LICENSE-APACHE",
+          "./vendor/shlex-2.0.1/LICENSE-MIT",
+          "./vendor/simba-0.10.2/LICENSE",
+          "./vendor/simd-adler32-0.3.10/LICENSE.md",
+          "./vendor/simdutf8-0.1.5/LICENSE-Apache",
+          "./vendor/simdutf8-0.1.5/LICENSE-MIT",
+          "./vendor/siphasher-1.0.3/COPYING",
+          "./vendor/slab-0.4.12/LICENSE",
+          "./vendor/smallvec-1.16.1/LICENSE-APACHE",
+          "./vendor/smallvec-1.16.1/LICENSE-MIT",
+          "./vendor/stable_deref_trait-1.2.1/LICENSE-APACHE",
+          "./vendor/stable_deref_trait-1.2.1/LICENSE-MIT",
+          "./vendor/static_assertions-1.1.0/LICENSE-APACHE",
+          "./vendor/static_assertions-1.1.0/LICENSE-MIT",
+          "./vendor/string_cache-0.10.0/LICENSE-APACHE",
+          "./vendor/string_cache-0.10.0/LICENSE-MIT",
+          "./vendor/string_cache-0.9.0/LICENSE-APACHE",
+          "./vendor/string_cache-0.9.0/LICENSE-MIT",
+          "./vendor/string_cache_codegen-0.6.1/LICENSE-APACHE",
+          "./vendor/string_cache_codegen-0.6.1/LICENSE-MIT",
+          "./vendor/stringprep-0.1.5/LICENSE-APACHE",
+          "./vendor/stringprep-0.1.5/LICENSE-MIT",
+          "./vendor/strsim-0.11.1/LICENSE",
+          "./vendor/syn-2.0.119/LICENSE-APACHE",
+          "./vendor/syn-2.0.119/LICENSE-MIT",
+          "./vendor/syn-3.0.6/LICENSE-APACHE",
+          "./vendor/syn-3.0.6/LICENSE-MIT",
+          "./vendor/synstructure-0.14.0/LICENSE",
+          "./vendor/system-deps-7.0.8/LICENSE-APACHE",
+          "./vendor/system-deps-7.0.8/LICENSE-MIT",
+          "./vendor/system-deps-9.0.0/LICENSE-APACHE",
+          "./vendor/system-deps-9.0.0/LICENSE-MIT",
+          "./vendor/target-lexicon-0.13.5/LICENSE",
+          "./vendor/tempfile-3.27.0/LICENSE-APACHE",
+          "./vendor/tempfile-3.27.0/LICENSE-MIT",
+          "./vendor/tendril-0.5.1/LICENSE-APACHE",
+          "./vendor/tendril-0.5.1/LICENSE-MIT",
+          "./vendor/termtree-0.5.1/LICENSE-MIT",
+          "./vendor/thiserror-2.0.20/LICENSE-APACHE",
+          "./vendor/thiserror-2.0.20/LICENSE-MIT",
+          "./vendor/thiserror-impl-2.0.20/LICENSE-APACHE",
+          "./vendor/thiserror-impl-2.0.20/LICENSE-MIT",
+          "./vendor/time-0.3.55/LICENSE-Apache",
+          "./vendor/time-0.3.55/LICENSE-MIT",
+          "./vendor/time-core-0.1.9/LICENSE-Apache",
+          "./vendor/time-core-0.1.9/LICENSE-MIT",
+          "./vendor/time-macros-0.2.32/LICENSE-Apache",
+          "./vendor/time-macros-0.2.32/LICENSE-MIT",
+          "./vendor/tinystr-0.8.4/LICENSE",
+          "./vendor/tinytemplate-1.2.1/LICENSE-APACHE",
+          "./vendor/tinytemplate-1.2.1/LICENSE-MIT",
+          "./vendor/tinyvec-1.13.3/LICENSE-APACHE.md",
+          "./vendor/tinyvec-1.13.3/LICENSE-MIT.md",
+          "./vendor/tinyvec-1.13.3/LICENSE-ZLIB.md",
+          "./vendor/toml-1.1.6+spec-1.1.0/LICENSE-APACHE",
+          "./vendor/toml-1.1.6+spec-1.1.0/LICENSE-MIT",
+          "./vendor/toml_datetime-1.1.1+spec-1.1.0/LICENSE-APACHE",
+          "./vendor/toml_datetime-1.1.1+spec-1.1.0/LICENSE-MIT",
+          "./vendor/toml_parser-1.1.3+spec-1.1.0/LICENSE-APACHE",
+          "./vendor/toml_parser-1.1.3+spec-1.1.0/LICENSE-MIT",
+          "./vendor/toml_writer-1.1.2+spec-1.1.0/LICENSE-APACHE",
+          "./vendor/toml_writer-1.1.2+spec-1.1.0/LICENSE-MIT",
+          "./vendor/typenum-1.20.1/LICENSE",
+          "./vendor/typenum-1.20.1/LICENSE-APACHE",
+          "./vendor/typenum-1.20.1/LICENSE-MIT",
+          "./vendor/unarray-0.1.4/LICENSE-APACHE",
+          "./vendor/unarray-0.1.4/LICENSE-MIT",
+          "./vendor/unicode-bidi-0.3.18/COPYRIGHT",
+          "./vendor/unicode-bidi-0.3.18/LICENSE-APACHE",
+          "./vendor/unicode-bidi-0.3.18/LICENSE-MIT",
+          "./vendor/unicode-ident-1.0.26/LICENSE-APACHE",
+          "./vendor/unicode-ident-1.0.26/LICENSE-MIT",
+          "./vendor/unicode-ident-1.0.26/LICENSE-UNICODE",
+          "./vendor/unicode-normalization-0.1.25/COPYRIGHT",
+          "./vendor/unicode-normalization-0.1.25/LICENSE-APACHE",
+          "./vendor/unicode-normalization-0.1.25/LICENSE-MIT",
+          "./vendor/unicode-properties-0.1.4/COPYRIGHT",
+          "./vendor/unicode-properties-0.1.4/LICENSE-APACHE",
+          "./vendor/unicode-properties-0.1.4/LICENSE-MIT",
+          "./vendor/url-2.5.8/LICENSE-APACHE",
+          "./vendor/url-2.5.8/LICENSE-MIT",
+          "./vendor/utf8_iter-1.0.4/COPYRIGHT",
+          "./vendor/utf8_iter-1.0.4/LICENSE-APACHE",
+          "./vendor/utf8_iter-1.0.4/LICENSE-MIT",
+          "./vendor/utf8parse-0.2.2/LICENSE-APACHE",
+          "./vendor/utf8parse-0.2.2/LICENSE-MIT",
+          "./vendor/version-compare-0.2.1/LICENSE",
+          "./vendor/version_check-0.9.5/LICENSE-APACHE",
+          "./vendor/version_check-0.9.5/LICENSE-MIT",
+          "./vendor/wait-timeout-0.2.1/LICENSE-APACHE",
+          "./vendor/wait-timeout-0.2.1/LICENSE-MIT",
+          "./vendor/walkdir-2.5.0/COPYING",
+          "./vendor/walkdir-2.5.0/LICENSE-MIT",
+          "./vendor/wasip2-1.0.4+wasi-0.2.12/LICENSE-APACHE",
+          "./vendor/wasip2-1.0.4+wasi-0.2.12/LICENSE-Apache-2.0_WITH_LLVM-exception",
+          "./vendor/wasip2-1.0.4+wasi-0.2.12/LICENSE-MIT",
+          "./vendor/wasm-bindgen-0.2.128/LICENSE-APACHE",
+          "./vendor/wasm-bindgen-0.2.128/LICENSE-MIT",
+          "./vendor/wasm-bindgen-macro-0.2.128/LICENSE-APACHE",
+          "./vendor/wasm-bindgen-macro-0.2.128/LICENSE-MIT",
+          "./vendor/wasm-bindgen-macro-support-0.2.128/LICENSE-APACHE",
+          "./vendor/wasm-bindgen-macro-support-0.2.128/LICENSE-MIT",
+          "./vendor/wasm-bindgen-shared-0.2.128/LICENSE-APACHE",
+          "./vendor/wasm-bindgen-shared-0.2.128/LICENSE-MIT",
+          "./vendor/web-sys-0.3.105/LICENSE-APACHE",
+          "./vendor/web-sys-0.3.105/LICENSE-MIT",
+          "./vendor/web_atoms-0.2.6/LICENSE-APACHE",
+          "./vendor/web_atoms-0.2.6/LICENSE-MIT",
+          "./vendor/weezl-0.1.12/LICENSE-APACHE",
+          "./vendor/weezl-0.1.12/LICENSE-MIT",
+          "./vendor/weezl-0.2.1/LICENSE-APACHE",
+          "./vendor/weezl-0.2.1/LICENSE-MIT",
+          "./vendor/wide-1.7.1/LICENSE-APACHE.txt",
+          "./vendor/wide-1.7.1/LICENSE-MIT.txt",
+          "./vendor/wide-1.7.1/LICENSE-ZLIB.txt",
+          "./vendor/winapi-0.3.9/LICENSE-APACHE",
+          "./vendor/winapi-0.3.9/LICENSE-MIT",
+          "./vendor/winapi-util-0.1.11/COPYING",
+          "./vendor/winapi-util-0.1.11/LICENSE-MIT",
+          "./vendor/windows-core-0.62.2/license-apache-2.0",
+          "./vendor/windows-core-0.62.2/license-mit",
+          "./vendor/windows-implement-0.60.2/license-apache-2.0",
+          "./vendor/windows-implement-0.60.2/license-mit",
+          "./vendor/windows-interface-0.59.3/license-apache-2.0",
+          "./vendor/windows-interface-0.59.3/license-mit",
+          "./vendor/windows-link-0.2.1/license-apache-2.0",
+          "./vendor/windows-link-0.2.1/license-mit",
+          "./vendor/windows-result-0.4.1/license-apache-2.0",
+          "./vendor/windows-result-0.4.1/license-mit",
+          "./vendor/windows-strings-0.5.1/license-apache-2.0",
+          "./vendor/windows-strings-0.5.1/license-mit",
+          "./vendor/windows-sys-0.61.2/license-apache-2.0",
+          "./vendor/windows-sys-0.61.2/license-mit",
+          "./vendor/winnow-1.0.4/LICENSE-MIT",
+          "./vendor/wit-bindgen-0.57.1/LICENSE-APACHE",
+          "./vendor/wit-bindgen-0.57.1/LICENSE-Apache-2.0_WITH_LLVM-exception",
+          "./vendor/wit-bindgen-0.57.1/LICENSE-MIT",
+          "./vendor/writeable-0.6.4/LICENSE",
+          "./vendor/xml5ever-0.39.0/LICENSE-APACHE",
+          "./vendor/xml5ever-0.39.0/LICENSE-MIT",
+          "./vendor/yansi-1.0.1/LICENSE-APACHE",
+          "./vendor/yansi-1.0.1/LICENSE-MIT",
+          "./vendor/yeslogic-fontconfig-sys-6.0.1/LICENSE",
+          "./vendor/yoke-0.8.3/LICENSE",
+          "./vendor/yoke-derive-0.8.3/LICENSE",
+          "./vendor/zerocopy-0.8.57/LICENSE-APACHE",
+          "./vendor/zerocopy-0.8.57/LICENSE-BSD",
+          "./vendor/zerocopy-0.8.57/LICENSE-MIT",
+          "./vendor/zerocopy-derive-0.8.57/LICENSE-APACHE",
+          "./vendor/zerocopy-derive-0.8.57/LICENSE-BSD",
+          "./vendor/zerocopy-derive-0.8.57/LICENSE-MIT",
+          "./vendor/zerofrom-0.1.8/LICENSE",
+          "./vendor/zerofrom-derive-0.1.8/LICENSE",
+          "./vendor/zerotrie-0.2.5/LICENSE",
+          "./vendor/zerovec-0.11.8/LICENSE",
+          "./vendor/zerovec-derive-0.11.6/LICENSE",
+          "./vendor/zlib-rs-0.6.8/LICENSE",
+          "./vendor/zmij-1.0.23/LICENSE-MIT",
+          "./vendor/zune-core-0.5.3/LICENSE-APACHE",
+          "./vendor/zune-core-0.5.3/LICENSE-MIT",
+          "./vendor/zune-core-0.5.3/LICENSE-ZLIB",
+          "./vendor/zune-jpeg-0.5.15/LICENSE-APACHE",
+          "./vendor/zune-jpeg-0.5.15/LICENSE-MIT",
+          "./vendor/zune-jpeg-0.5.15/LICENSE-ZLIB"
+        ],
+        "embeddedLicenses": []
+      },
+      "99-lilv_0543a3c15e7971c2371260e51aad5ead6ffbc7a539de39540a906ebf944d829d.tar.xz": {
+        "bytes": 325436,
+        "sha256": "c376edca722630a84f70aa9a7635b293a289f47d7edf6c05b5d7761acdf4e49f",
+        "targets": [
+          "x86_64-pc-windows-msvc",
+          "x86_64-unknown-linux-gnu"
+        ],
+        "licenseFiles": [
+          "./COPYING",
+          "./LICENSES/0BSD.txt"
+        ],
+        "embeddedLicenses": []
+      }
+    }
+  }
+}

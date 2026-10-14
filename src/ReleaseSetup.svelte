@@ -145,7 +145,7 @@
       <details><summary>Install the browser extension</summary>
         <p>For Chromium browsers, open Extensions, enable developer mode, then choose “Load unpacked” and select the Burrata extension folder. For Firefox, install the signed XPI from Burrata releases.</p>
         {#if setup?.toolPaths.length}<ul class="paths">{#each setup.toolPaths as tool (tool.name)}<li><strong>{tool.name}</strong><code>{tool.path}</code><small>{tool.origin}</small></li>{/each}</ul>{/if}
-        <button onclick={() => void openUrl("https://github.com/anaxonda/burrata/releases/latest")}>Open Burrata releases ↗</button>
+        <button onclick={() => void openUrl("https://github.com/anaxonda/burrata/releases")}>Open Burrata releases ↗</button>
       </details>
       {#if setup?.mcpCommand?.length}<details><summary>MCP command</summary><p>Use this command to connect Burrata tools to an MCP-compatible client.</p><code class="command">{setup.mcpCommand.join(" ")}</code></details>{/if}
     </section>

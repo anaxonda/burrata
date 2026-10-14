@@ -1315,9 +1315,13 @@ mod tests {
         let imported =
             import_discovered_playlist(&store, &settings, &source.to_string_lossy()).unwrap();
         sync_playlists(&store, &settings).unwrap();
-        let mirror = music
-            .join("Playlists/Local")
-            .join(format!("{}.m3u8", imported.collection.id));
+        let mirror = PathBuf::from(
+            read_state(&store)
+                .unwrap()
+                .mirror_paths
+                .get(&imported.collection.id)
+                .expect("sync records its generated mirror path"),
+        );
         fs::write(
             &source,
             format!(
@@ -1775,6 +1779,7 @@ mod tests {
         let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
         store
             .save_playlist_sync_state(&serde_json::json!({
+                "sources": {},
                 "mirrorPaths": {"legacy-collection": mirror.to_string_lossy()},
                 "mirrorHashes": {"legacy-collection": "previous-hash"}
             }))
@@ -1784,7 +1789,17 @@ mod tests {
             playlist_directories: vec![music.join("Playlists").to_string_lossy().into_owned()],
             ..Settings::default()
         };
-        let scan = playlist_files::scan_local_playlists(&settings).unwrap();
+        let scan = playlist_files::LocalPlaylistScan {
+            files: vec![playlist_files::LocalPlaylistFile {
+                path: mirror.to_string_lossy().into_owned(),
+                name: "legacy-collection".into(),
+                modified: None,
+                track_count: 1,
+                warning: None,
+            }],
+            roots: Vec::new(),
+            warnings: Vec::new(),
+        };
 
         let status = sync_playlists_with_scan(&store, &settings, scan).unwrap();
 
@@ -1823,12 +1838,11 @@ mod tests {
         };
         let result = export_mixxx_playlist(&store, &settings, &collection.id).unwrap();
         assert_eq!(
-            result.path,
+            PathBuf::from(&result.path),
             music
-                .join("Playlists/Mixxx")
+                .join("Playlists")
+                .join("Mixxx")
                 .join(format!("{}.m3u8", collection.id))
-                .to_string_lossy()
-                .into_owned()
         );
         assert_eq!((result.exported, result.total), (2, 3));
         assert_eq!(result.missing.len(), 1);

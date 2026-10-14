@@ -74,7 +74,31 @@
         "artifactSha256": "0fba1773c244060a8d9940b0c42aa192c3275b4ea60b1057da4ea6fc6882998f",
         "artifactBytes": 2210375760,
         "cacheMember": "cache.tar.gz",
-        "inputList": "scripts/release/btbn-source-cache-targets.json"
+        "inputList": "scripts/release/btbn-source-cache-targets.json",
+        "sourceBundle": {
+          "repository": "https://github.com/anaxonda/burrata",
+          "releaseTag": "runtime-sources-2026-10-07",
+          "manifest": {
+            "asset": "btbn-ffmpeg-source-manifest.json",
+            "localPath": "scripts/release/btbn-ffmpeg-source-manifest.json",
+            "url": "https://github.com/anaxonda/burrata/releases/download/runtime-sources-2026-10-07/btbn-ffmpeg-source-manifest.json",
+            "sha256": "0f39485c0b1464b8352400d314831f382b155ece61808b3ba3b64cd7377cb343"
+          },
+          "parts": [
+            {
+              "asset": "btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part1.zip",
+              "url": "https://github.com/anaxonda/burrata/releases/download/runtime-sources-2026-10-07/btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part1.zip",
+              "bytes": 1150003368,
+              "sha256": "40d25e1b7b4ac24b768a7ad4672aa1587f87b703ddc5158c4c6444af01744d8c"
+            },
+            {
+              "asset": "btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part2.zip",
+              "url": "https://github.com/anaxonda/burrata/releases/download/runtime-sources-2026-10-07/btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part2.zip",
+              "bytes": 997854858,
+              "sha256": "944d9aca082876880116553c9ee051d3d8cfc5868da6ee1236fef1a8b1cfc812"
+            }
+          ]
+        }
       }
     }
   },

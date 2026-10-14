@@ -16,7 +16,7 @@ LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text(encodin
 RECIPE = LOCK["ffmpeg"]["btbnBuildRecipe"]
 CACHE = RECIPE["sourceCache"]
 TARGETS = json.loads((ROOT / CACHE["inputList"]).read_text(encoding="utf-8"))["variants"]
-LICENSE_NAME = re.compile(r"(?i)(?:^|/)(?:licen[cs]e(?:s)?|copying|copyright|notice|patents?)(?:[._-].*)?$")
+LICENSE_NAME = re.compile(r"(?i)(?:^|/)(?:licen[cs]e(?:s)?|copying|copyright|notice|patents?)(?:[._-][^/]*)?(?:/|$)")
 CHUNK = 1024 * 1024
 
 
@@ -35,6 +35,29 @@ def scan_license_files(archive: zipfile.ZipFile, filename: str) -> list[str]:
             if member.isfile() and LICENSE_NAME.search(member.name):
                 licenses.append(member.name)
     return sorted(set(licenses))
+
+
+def scan_embedded_mit_headers(archive: zipfile.ZipFile, filename: str) -> list[dict[str, str]]:
+    licenses = []
+    with archive.open(filename) as raw, lzma.LZMAFile(raw) as xz, tarfile.open(fileobj=xz, mode="r|") as source:
+        for member in source:
+            if not member.isfile() or not member.name.endswith((".h", ".c")):
+                continue
+            extracted = source.extractfile(member)
+            if extracted is None:
+                continue
+            content = extracted.read()
+            end = content.find(b"*/")
+            block = content[:end + 2] if content.startswith(b"/*") and end >= 0 else b""
+            if (b"Permission is hereby granted, free of charge" in block
+                    and b"IN THE SOFTWARE." in block):
+                licenses.append({
+                    "path": member.name,
+                    "license": "MIT",
+                    "licenseTextSha256": hashlib.sha256(block).hexdigest(),
+                    "fileSha256": hashlib.sha256(content).hexdigest(),
+                })
+    return sorted(licenses, key=lambda item: item["path"])
 
 
 def main() -> None:
@@ -97,6 +120,7 @@ def main() -> None:
                             "sha256": digest.hexdigest(),
                             "targets": sorted(targets_by_entry[name]),
                             "licenseFiles": [],
+                            "embeddedLicenses": [],
                         }
     finally:
         for part in parts:
@@ -114,7 +138,11 @@ def main() -> None:
     for part_name in part_names:
         with zipfile.ZipFile(output / part_name) as source_part:
             for name in source_part.namelist():
-                source_records[name]["licenseFiles"] = scan_license_files(source_part, name)
+                embedded = scan_embedded_mit_headers(source_part, name)
+                source_records[name]["embeddedLicenses"] = embedded
+                source_records[name]["licenseFiles"] = sorted(set(
+                    scan_license_files(source_part, name) + [item["path"] for item in embedded]
+                ))
 
     manifest = {
         "repository": RECIPE["repository"],
@@ -158,7 +186,7 @@ This source bundle contains the BtbN download-cache source archives used by the 
 
 The two ZIP parts contain all unique source-cache archives referenced by the generated upstream target Dockerfiles. Verify each part against the manifest, then extract both ZIPs into one directory. Restore the entries to `.cache/downloads/` in a checkout of the recipe source, then use its `generate.sh`/`build.sh` workflow for the matching targets and variants. `FFMPEG_BUILD_INFO.txt` in each Burrata tool bundle records the final FFmpeg configure flags and build toolchain.
 
-Each source cache archive contains the corresponding upstream source tree. The manifest lists paths matching LICENSE, COPYING, COPYRIGHT, NOTICE, or PATENTS inside every source archive so notices can be located without ambiguity.
+Each source cache archive contains the corresponding upstream source tree. The manifest lists paths matching LICENSE, COPYING, COPYRIGHT, NOTICE, or PATENTS and hashes full MIT grants embedded in source headers, so notices can be located without ambiguity.
 """
     (output / "README-BtbN-FFmpeg-Sources.md").write_text(readme, encoding="utf-8")
     print(json.dumps({"parts": manifest["sourceCache"]["parts"], "sourceEntries": len(found)}, indent=2))

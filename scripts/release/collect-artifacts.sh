@@ -5,6 +5,8 @@ set -euo pipefail
 : "${TARGET:?missing Rust target}"
 : "${LABEL:?missing artifact label}"
 
+python3 scripts/release/verify-source-release.py
+
 bundle_dir="src-tauri/target/$TARGET/release/bundle"
 out="release-artifacts"
 rm -rf "$out"
@@ -33,6 +35,9 @@ if source:
 recipe = tools.get("ffmpegBuildRecipe")
 if recipe:
     lines.append(f"| BtbN FFmpeg-Builds recipe source archive | {recipe['commit']} ({recipe['url']}) | {recipe['sha256']} | MIT; contains the exact release build scripts and dependency source pins |")
+    bundle = recipe.get("sourceBundle")
+    if bundle:
+        lines.append(f"| BtbN FFmpeg corresponding-source manifest | {bundle['releaseTag']} ({bundle['manifest']}) | {bundle['manifestSha256']} | Full source archives are in the separate [runtime source release](https://github.com/anaxonda/burrata/releases/tag/{bundle['releaseTag']}); the installer carries this compact manifest, not the large archives |")
 fpcalc_record = out / f"LOCKED_FPCALC-{label}.json"
 if fpcalc_record.is_file():
     fpcalc = json.loads(fpcalc_record.read_text(encoding="utf-8"))

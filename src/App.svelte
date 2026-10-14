@@ -2358,6 +2358,15 @@
       await finishBrowserImport(result); importText = "";
     });
   }
+  async function chooseMusicDirectory() {
+    await run(async () => {
+      const directory = await call<string | null>("choose_music_directory");
+      if (!directory) return;
+      settings = { ...settings, musicDirectory: directory };
+      persistedMusicDirectory = directory;
+      notice = "Music folder saved.";
+    });
+  }
   async function saveSettingsFields(keys: (keyof Settings)[], message: string) {
     const changes = Object.fromEntries(keys.map(key=>[key,settings[key]]));
     await run(async()=>{
@@ -2696,6 +2705,7 @@
         <section class="settings-basic-card" aria-labelledby="library-settings-title">
           <h2 id="library-settings-title">Music folder</h2><p>Completed downloads are saved here after validation and tagging.</p>
           <label>Download destination<input bind:value={settings.musicDirectory} placeholder="/home/you/Music/DJ" /></label>
+          <button disabled={busy>0} onclick={()=>void chooseMusicDirectory()}>Choose music folder…</button>
           <button onclick={()=>void saveSettingsFields(["musicDirectory"],"Music folder saved.")}>Save music folder</button>
         </section>
         <LocalPlaylistFiles mode="settings" {settings} onChange={(value) => (settings = value)} onSave={() => void saveSettingsFields(["playlistDirectories"],"Playlist folders saved.")} />
@@ -2712,7 +2722,7 @@
           <ToolSetup {settings} {dependencies} onChange={(value)=>(settings=value)} onCheck={()=>void run(async()=>(dependencies=await call<Dependency[]>("check_dependencies")))} onSave={()=>void saveSettingsFields(["ytDlpPath","ffmpegPath","ffprobePath","jsRuntimePath"],"Tool paths saved.")} checking={busy>0} />
         </details>
         <details class="settings-advanced"><summary><strong>AI control</strong><span>Local MCP connections and permissions</span></summary>
-          <section class="automation-settings"><p>Allow a connected assistant to use the player and library.</p><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.control} onchange={()=>void saveAutomationPermissions()} /><span>Allow playback and playlist changes</span></label><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.manage} onchange={()=>void saveAutomationPermissions()} /><span>Allow downloads and audio analysis</span></label><details><summary>Connection instructions</summary><p>Start the local MCP bridge with <span>Use the installed MCP command shown in YouTube & integrations above.</span>.</p></details></section>
+          <section class="automation-settings"><p>Allow a connected assistant to use the player and library.</p><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.control} onchange={()=>void saveAutomationPermissions()} /><span>Allow playback and playlist changes</span></label><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.manage} onchange={()=>void saveAutomationPermissions()} /><span>Allow downloads and audio analysis</span></label><details><summary>Connection instructions</summary><p>Use the installed MCP command shown in YouTube &amp; integrations above.</p></details></section>
         </details>
       </section>
     {:else if view === "search"}

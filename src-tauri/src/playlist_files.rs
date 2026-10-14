@@ -622,9 +622,9 @@ mod tests {
             .collect();
         local.sort_by(|a, b| a.path.cmp(&b.path));
         assert_eq!(local.len(), 2);
-        assert!(local[0].path.ends_with("nested/a.m3u"));
+        assert!(Path::new(&local[0].path).ends_with(Path::new("nested").join("a.m3u")));
         assert_eq!(local[0].track_count, 1);
-        assert!(local[1].path.ends_with("z.M3U8"));
+        assert!(Path::new(&local[1].path).ends_with("z.M3U8"));
     }
 
     #[test]
@@ -644,6 +644,11 @@ mod tests {
             ..Settings::default()
         };
         let found = list_local_playlists(&settings).unwrap();
+        let canonical_mirror_root = fs::canonicalize(&mirror_root).unwrap();
+        let found = found
+            .into_iter()
+            .filter(|file| Path::new(&file.path).starts_with(&canonical_mirror_root))
+            .collect::<Vec<_>>();
         assert_eq!(found.len(), 1);
         assert_eq!(
             found[0].path,

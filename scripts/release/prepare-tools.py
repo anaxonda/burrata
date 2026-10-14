@@ -143,6 +143,40 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
             "sha256": recipe_digest, "url": recipe["sourceArchive"],
             "license": recipe["license"], "variants": recipe["variants"],
         }
+        source_bundle = recipe["sourceCache"]["sourceBundle"]
+        source_manifest_path = ROOT / source_bundle["manifest"]["localPath"]
+        source_manifest_sha = sha256(source_manifest_path)
+        if source_manifest_sha != source_bundle["manifest"]["sha256"]:
+            raise RuntimeError(
+                "Pinned BtbN corresponding-source manifest SHA-256 mismatch: "
+                f"expected {source_bundle['manifest']['sha256']}, got {source_manifest_sha}"
+            )
+        source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        source_cache = source_manifest.get("sourceCache", {})
+        if (source_manifest.get("commit") != recipe["commit"]
+                or source_manifest.get("releaseTag") != recipe["releaseTag"]
+                or source_cache.get("workflowRunId") != recipe["sourceCache"]["workflowRunId"]
+                or source_cache.get("artifactSha256") != recipe["sourceCache"]["artifactSha256"]):
+            raise RuntimeError("BtbN corresponding-source manifest provenance does not match the pinned build")
+        expected_parts = [
+            {"file": item["asset"], "bytes": item["bytes"], "sha256": item["sha256"]}
+            for item in source_bundle["parts"]
+        ]
+        if source_cache.get("parts") != expected_parts:
+            raise RuntimeError("BtbN corresponding-source manifest parts differ from locked source assets")
+        variant_entries = source_cache.get("variants", {}).get(TARGET, {}).get("sourceEntries")
+        target_entry_count = len(json.loads((ROOT / recipe["sourceCache"]["inputList"]).read_text(encoding="utf-8"))["variants"][TARGET]["cacheEntries"])
+        if variant_entries != target_entry_count or source_cache.get("uniqueSourceEntries") != 119:
+            raise RuntimeError("BtbN corresponding-source manifest does not cover the locked target source archives")
+        shutil.copy2(source_manifest_path, sources / source_bundle["manifest"]["asset"])
+        recipe_record["sourceBundle"] = {
+            "releaseTag": source_bundle["releaseTag"],
+            "manifest": source_bundle["manifest"]["asset"],
+            "manifestSha256": source_manifest_sha,
+            "parts": expected_parts,
+            "uniqueSourceEntries": source_cache["uniqueSourceEntries"],
+            "targetSourceEntries": variant_entries,
+        }
     elif TARGET == "aarch64-apple-darwin":
         ffmpeg_name = "ffmpeg-8.1.3.tar.xz (source-built)"
         subprocess.run([sys.executable, str(ROOT / "scripts/release/build-macos-media-tools.py"), str(DEST)], check=True)

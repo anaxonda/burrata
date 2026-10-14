@@ -1359,6 +1359,16 @@ fn hash_file(path: &Path) -> Result<String, String> {
     }
     Ok(format!("{:x}", digest.finalize()))
 }
+fn flush_staged_audio(path: &Path) -> std::io::Result<()> {
+    // Windows requires a write-capable handle for FlushFileBuffers, which is
+    // what File::sync_all uses. Staged audio is owned by this process, so open
+    // it read/write before linking it into the library.
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?
+        .sync_all()
+}
 #[cfg(test)]
 fn publish(
     path: &Path,
@@ -1367,9 +1377,7 @@ fn publish(
     extension: &str,
     hash: &str,
 ) -> Result<PathBuf, String> {
-    File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|e| format!("Cannot flush staged audio: {e}"))?;
+    flush_staged_audio(path).map_err(|e| format!("Cannot flush staged audio: {e}"))?;
     for index in 0..1000 {
         let suffix = if index == 0 {
             String::new()
@@ -1410,9 +1418,7 @@ fn journaled_publish(
 ) -> Result<(), String> {
     let stage = staging(settings, job_id)?;
     let library = fs::canonicalize(&settings.music_directory).map_err(|e| e.to_string())?;
-    File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|e| format!("Cannot flush staged audio: {e}"))?;
+    flush_staged_audio(path).map_err(|e| format!("Cannot flush staged audio: {e}"))?;
     for index in 0..1000 {
         let suffix = if index == 0 {
             String::new()

@@ -210,7 +210,7 @@ jobs:
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
           test -n "$WEB_EXT_API_KEY" && test -n "$WEB_EXT_API_SECRET"
-          npx --yes web-ext@8.4.0 sign --source-dir extension --artifacts-dir release-artifacts --channel unlisted --api-key "$WEB_EXT_API_KEY" --api-secret "$WEB_EXT_API_SECRET"
+          npx --yes web-ext@8.4.0 sign --source-dir extension --artifacts-dir release-artifacts --channel unlisted --ignore-files 'tests/**' 'README.md' 'manifest.chromium.json' --api-key "$WEB_EXT_API_KEY" --api-secret "$WEB_EXT_API_SECRET"
       - name: Package extension provenance
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}

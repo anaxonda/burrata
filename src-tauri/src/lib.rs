@@ -318,14 +318,22 @@ async fn import_onetagger_discogs(
     .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn list_local_playlists(
+async fn list_local_playlists(
     state: State<'_, AppState>,
 ) -> Result<Vec<playlist_files::LocalPlaylistFile>> {
-    playlist_files::list_local_playlists(&state.store.settings()?)
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || playlist_files::list_local_playlists(&store.settings()?))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn scan_local_playlists(state: State<'_, AppState>) -> Result<playlist_files::LocalPlaylistScan> {
-    playlist_files::scan_local_playlists(&state.store.settings()?)
+async fn scan_local_playlists(
+    state: State<'_, AppState>,
+) -> Result<playlist_files::LocalPlaylistScan> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || playlist_files::scan_local_playlists(&store.settings()?))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn sync_playlists(state: State<'_, AppState>) -> Result<playlist_sync::PlaylistSyncStatus> {
