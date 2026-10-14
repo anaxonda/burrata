@@ -41,6 +41,8 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ffmpeg --no-progress --yes
       - run: npm ci
+      - name: Check installed-smoke path handling
+        run: python scripts/release/test_smoke_installed.py
       - name: Audit source for common secrets
         run: python3 scripts/audit_secrets.py
         if: runner.os != 'Windows'

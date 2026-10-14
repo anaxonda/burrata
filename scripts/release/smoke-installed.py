@@ -29,6 +29,11 @@ class SmokeFailure(RuntimeError):
         self.stage = stage
 
 
+def canonical_temp_root(path: pathlib.Path) -> pathlib.Path:
+    """Return a canonical temp root before launching Tauri from it."""
+    return path.resolve(strict=True)
+
+
 def run(args: list[str | os.PathLike[str]], *, timeout: int = 60,
         env: dict[str, str] | None = None, input_bytes: bytes | None = None,
         check: bool = True) -> subprocess.CompletedProcess:
@@ -312,7 +317,7 @@ def main() -> int:
     mount = None
     installed_path = None
     temp_obj = tempfile.TemporaryDirectory(prefix="burrata-install-smoke-", ignore_cleanup_errors=True)
-    temp = pathlib.Path(temp_obj.name)
+    temp = canonical_temp_root(pathlib.Path(temp_obj.name))
     mount = temp / "dmg" if sys.platform == "darwin" else None
     home = temp / "home"
     if sys.platform == "linux":
