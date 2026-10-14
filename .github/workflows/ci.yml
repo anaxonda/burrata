@@ -90,21 +90,43 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - name: Cache verified Linux tool runtime
-        uses: actions/cache@v4
+      - name: Restore verified Linux tool runtime
+        id: prepared-tools-cache
+        uses: actions/cache/restore@v4
         with:
           path: .cache/prepared-tool-resources/x86_64-unknown-linux-gnu
           key: prepared-tools-v1-x86_64-unknown-linux-gnu-${{ hashFiles('scripts/release/locked-tools.json', 'scripts/release/prepare-tools.py', 'scripts/release/verify-media-tool-build.py', 'scripts/release/build-*-media-tools.py', 'scripts/release/build-media-tools-common.py', 'scripts/release/test-media-tools.py') }}
-      - name: Cache hash-locked Linux media sources
-        uses: actions/cache@v4
+      - name: Restore hash-locked Linux media sources
+        id: media-sources-cache
+        uses: actions/cache/restore@v4
         with:
           path: .cache/media-tool-sources
           key: media-source-v1-x86_64-unknown-linux-gnu-${{ hashFiles('scripts/release/locked-tools.json') }}
-      - name: Prepare the same locked Linux runtime resources used by releases
+      - name: Prepare the same locked Linux tool runtime used by releases
+        env:
+          TARGET: x86_64-unknown-linux-gnu
+        run: python3 scripts/release/prepare-tools.py
+      - name: Reverify prepared Linux media runtime before caching
+        id: verify-media-tools
+        env:
+          TARGET: x86_64-unknown-linux-gnu
+        run: python3 scripts/release/verify-media-tool-build.py "$TARGET"
+      - name: Save verified Linux tool runtime
+        if: success() && steps.verify-media-tools.outcome == 'success' && steps.prepared-tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/prepared-tool-resources/x86_64-unknown-linux-gnu
+          key: prepared-tools-v1-x86_64-unknown-linux-gnu-${{ hashFiles('scripts/release/locked-tools.json', 'scripts/release/prepare-tools.py', 'scripts/release/verify-media-tool-build.py', 'scripts/release/build-*-media-tools.py', 'scripts/release/build-media-tools-common.py', 'scripts/release/test-media-tools.py') }}
+      - name: Save hash-locked Linux media source archives
+        if: success() && steps.verify-media-tools.outcome == 'success' && steps.media-sources-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/media-tool-sources
+          key: media-source-v1-x86_64-unknown-linux-gnu-${{ hashFiles('scripts/release/locked-tools.json') }}
+      - name: Stage the remaining locked Linux runtime resources
         env:
           TARGET: x86_64-unknown-linux-gnu
         run: |
-          python3 scripts/release/prepare-tools.py
           python3 scripts/release/prepare-fpcalc.py
           NODE_BIN="src-tauri/resources/tools/$TARGET/node" bash scripts/youtube-support/prepare-bgutil.sh src-tauri/resources
       - name: Build native helpers and complete packaged resources

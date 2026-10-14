@@ -4191,8 +4191,14 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("fake-yt-dlp");
-        std::fs::write(&executable, format!("#!/bin/sh\n{script}\n")).unwrap();
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // Publish the executable only after its contents are fully written and
+        // its writable handle has closed. This avoids a transient ETXTBSY when
+        // parallel tests start the fake tool on filesystems that observe the
+        // create/write/execute sequence more strictly.
+        let staging = directory.path().join("fake-yt-dlp.staging");
+        std::fs::write(&staging, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::rename(staging, &executable).unwrap();
         let settings = Settings {
             yt_dlp_path: executable.to_string_lossy().into(),
             ..Default::default()
