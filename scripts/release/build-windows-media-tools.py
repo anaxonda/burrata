@@ -30,17 +30,20 @@ with tempfile.TemporaryDirectory(prefix="burrata-windows-media-") as temp:
     env["PKG_CONFIG_LIBDIR"] = env["PKG_CONFIG_PATH"]
     env["PKG_CONFIG_ALLOW_SYSTEM_CFLAGS"] = "1"
     env["PKG_CONFIG_ALLOW_SYSTEM_LIBS"] = "1"
-    env["CC"] = "x86_64-w64-mingw32-gcc"
-    env["AR"] = "x86_64-w64-mingw32-ar"
-    env["RANLIB"] = "x86_64-w64-mingw32-ranlib"
-    env["WINDRES"] = "x86_64-w64-mingw32-windres"
+    env["CC"] = "gcc"
+    env["AR"] = "ar"
+    env["RANLIB"] = "ranlib"
+    env["WINDRES"] = "windres"
+    compiler_target = subprocess.check_output([env["CC"], "-dumpmachine"], text=True).strip()
+    if compiler_target != "x86_64-w64-mingw32":
+        raise RuntimeError(f"MSYS2 MINGW64 gcc targets {compiler_target}, expected x86_64-w64-mingw32")
     COMMON.build_libs(prefix, source, jobs, env, windows=True)
 
     ffmpeg = source["ffmpeg"]
     profile = LOCK["ffmpeg"]
     configure = [
         "sh", "./configure", "--target-os=mingw32", "--arch=x86_64",
-        "--cross-prefix=x86_64-w64-mingw32-", f"--prefix={prefix_posix}",
+        "--cc=gcc", "--ar=ar", "--ranlib=ranlib", "--windres=windres", f"--prefix={prefix_posix}",
         *profile["configureCommon"], profile["tlsBackends"][TARGET]["flag"],
         "--pkg-config-flags=--static",
         f"--extra-cflags=-I{prefix_posix}/include",

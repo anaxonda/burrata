@@ -178,7 +178,12 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
     tool_record["mediaSourceInventory"] = json.loads(media_inventory.read_text(encoding="utf-8"))
     tool_record["ffmpegBuildConfiguration"] = json.loads(build_configuration.read_text(encoding="utf-8"))
     if TARGET == "aarch64-apple-darwin":
-        tool_record["fpcalc"] = {"version": LOCK["fpcalc"]["version"], "sha256": LOCK["fpcalc"]["sha256"], "license": LOCK["fpcalc"]["license"]}
+        tool_record["fpcalc"] = {
+            "version": LOCK["fpcalc"]["version"],
+            "sourceSha256": LOCK["fpcalc"]["sha256"],
+            "executableSha256": sha256(DEST / "fpcalc"),
+            "license": LOCK["fpcalc"]["license"],
+        }
     readme.write_text(json.dumps(tool_record, indent=2) + "\n", encoding="utf-8")
 subprocess.run([sys.executable, str(ROOT / "scripts/release/verify-media-tool-build.py"), TARGET], check=True)
 shutil.rmtree(PREPARED_CACHE, ignore_errors=True)

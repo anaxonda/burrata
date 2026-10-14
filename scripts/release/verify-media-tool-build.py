@@ -36,6 +36,14 @@ for name, executable in (("node", "node.exe" if TARGET == "x86_64-pc-windows-msv
     actual_version = subprocess.check_output([str(binary), "--version"], text=True).strip().lstrip("v")
     if actual_version != expected_version:
         raise SystemExit(f"Unexpected {name} version: {actual_version}")
+if TARGET == "aarch64-apple-darwin":
+    fpcalc = DEST / "fpcalc"
+    metadata = record.get("fpcalc", {})
+    if not fpcalc.is_file() or sha256(fpcalc) != metadata.get("executableSha256"):
+        raise SystemExit("fpcalc executable checksum differs from LOCKED_TOOLS.json")
+    actual = subprocess.check_output([str(fpcalc), "-version"], text=True).strip()
+    if not actual.startswith(f"fpcalc version {LOCK['fpcalc']['version']} "):
+        raise SystemExit(f"Unexpected fpcalc version: {actual}")
 media = json.loads((DEST / "MEDIA_SOURCE_INVENTORY.json").read_text(encoding="utf-8"))
 configuration = json.loads((DEST / "FFMPEG_BUILD_CONFIGURATION.json").read_text(encoding="utf-8"))
 if media.get("target", TARGET) != TARGET or configuration.get("target") != TARGET:

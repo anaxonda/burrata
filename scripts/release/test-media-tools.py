@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix="burrata-ffmpeg-smoke-") as tmp:
     metadata_path = root / "chapters.ffmeta"
     metadata_path.write_text(
         """;FFMETADATA1
- title=Burrata media fixture
+title=Burrata media fixture
 [CHAPTER]
 TIMEBASE=1/1
 START=0
