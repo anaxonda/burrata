@@ -465,10 +465,23 @@
   async function syncMirrors() {
     if (!desktop()) return;
     try {
-      const result = await call<{ synchronized: number; warnings: string[]; mirrorsDirectory?: string; pausedMirrors?: string[]; sources?: {collectionId?: string | null}[] }>("sync_playlists");
+      const result = await call<{ synchronized: number; repairedTrackMetadata?: number; warnings: string[]; mirrorsDirectory?: string; pausedMirrors?: string[]; sources?: {collectionId?: string | null}[] }>("sync_playlists");
       mirrorStatus = result.warnings?.join(" · ") ?? "";
       pausedMirrors = result.pausedMirrors ?? []; localPlaylistIds = result.sources?.map((source) => source.collectionId).filter((id): id is string => Boolean(id)) ?? [];
       collections = await call<Collection[]>("list_collections");
+      if ((result.repairedTrackMetadata ?? 0) > 0 && ["library", "collections", "favorites"].includes(view)) {
+        const currentView = view, currentCollection = collectionId, currentContext = activeContext;
+        const refreshed = await call<Track[]>("list_tracks", { view: currentView, collectionId: currentView === "collections" ? currentCollection : null });
+        const byId = new Map(refreshed.map((track) => [track.id, track]));
+        if (view === currentView && collectionId === currentCollection && activeContext === currentContext) {
+          tracks = refreshed;
+          if (selected) selected = byId.get(selected.id) ?? selected;
+        }
+        if (playingTrack) playingTrack = byId.get(playingTrack.id) ?? playingTrack;
+        const snapshot = playbackQueue.snapshot();
+        playbackQueue.restore({ ...snapshot, tracks: snapshot.tracks.map((track) => byId.get(track.id) ?? track) });
+        refreshQueue();
+      }
     } catch (failure) { mirrorStatus = String(failure); }
   }
   function refreshQueue() { queueIndex = playbackQueue.currentIndex; queueTracks = [...playbackQueue.tracks]; repeatMode = playbackQueue.repeat; savePlaybackQueue(playbackQueue); }

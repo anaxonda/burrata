@@ -368,7 +368,7 @@ pub(crate) fn preview_playlist_tracks(
     let base = canonical_file
         .parent()
         .ok_or("Playlist has no parent directory")?;
-    for (entry, metadata_track) in playlist_entries_with_metadata(text) {
+    for (entry, metadata_track, is_extinf) in playlist_entries_with_metadata(text) {
         let matched = resolve_entry(base, entry)
             .and_then(|candidate| fs::canonicalize(candidate).ok())
             .and_then(|real| by_path.get(&real));
@@ -376,10 +376,20 @@ pub(crate) fn preview_playlist_tracks(
             tracks.push(track.clone());
         } else {
             unmatched += 1;
-            if let Some(mut track) = metadata_track
-                .or_else(|| filename_track(entry))
-                .or_else(|| unverified_url_track(entry))
-            {
+            if let Some(mut track) = if is_uri_entry(entry) && !is_extinf {
+                // URL identity is stable on the exact source URL. Playlist comments
+                // supply display metadata without changing that identity.
+                unverified_url_track(entry).map(|mut url_track| {
+                    if let Some(comment) = metadata_track.as_ref() {
+                        apply_playlist_comment(&mut url_track, comment);
+                    }
+                    url_track
+                })
+            } else {
+                metadata_track
+                    .or_else(|| filename_track(entry))
+                    .or_else(|| unverified_url_track(entry))
+            } {
                 if is_uri_entry(entry) {
                     track.source_url = entry.to_owned();
                     track.provenance["playlistEntry"] = serde_json::json!(entry);
@@ -436,25 +446,142 @@ fn playlist_name(path: &Path) -> String {
     }
 }
 
-fn playlist_entries_with_metadata(text: &str) -> Vec<(&str, Option<Track>)> {
+fn playlist_entries_with_metadata(text: &str) -> Vec<(&str, Option<Track>, bool)> {
     let mut result = Vec::new();
     let mut extinf: Option<&str> = None;
+    let mut comment: Option<Track> = None;
     for line in text.lines().map(str::trim) {
         if line.starts_with("#EXTINF:") {
             extinf = Some(line);
+        } else if let Some(value) = line.strip_prefix('#') {
+            // Ordinary comments may carry an explicit “Artist - Title” hint.
+            // Ignore all M3U directives and require the same conservative
+            // separators as the app's tracklist import format.
+            if !value.trim_start().starts_with("EXT") {
+                comment = parse_playlist_comment(value);
+            }
         } else if line.is_empty() || line.starts_with('#') {
             continue;
         } else {
-            let metadata = extinf.take().and_then(|info| {
-                let snippet = format!("#EXTM3U\n{info}\n{line}");
-                crate::imports::parse(&snippet, "m3u")
-                    .ok()
-                    .and_then(|mut tracks| tracks.pop())
-            });
-            result.push((line, metadata));
+            let from_extinf = extinf.is_some();
+            let metadata = extinf
+                .take()
+                .and_then(|info| {
+                    let snippet = format!("#EXTM3U\n{info}\n{line}");
+                    crate::imports::parse(&snippet, "m3u")
+                        .ok()
+                        .and_then(|mut tracks| tracks.pop())
+                })
+                .or_else(|| comment.take());
+            comment = None;
+            result.push((line, metadata, from_extinf));
         }
     }
     result
+}
+
+fn parse_playlist_comment(value: &str) -> Option<Track> {
+    let value = value.trim();
+    let upper = value.to_ascii_uppercase();
+    if value.is_empty()
+        || value.contains("://")
+        || upper.starts_with("EXT")
+        || upper.starts_with("PLAYLIST:")
+        || upper.starts_with("BURRATA-")
+        || upper.starts_with("KODIPROP:")
+        || upper.starts_with("VLCOPT:")
+    {
+        return None;
+    }
+    crate::imports::parse(value, "tracklist")
+        .ok()?
+        .into_iter()
+        .next()
+}
+
+fn apply_playlist_comment(track: &mut Track, comment: &Track) {
+    track.artist = comment.artist.clone();
+    track.title = comment.title.clone();
+    track.version = comment.version.clone();
+    if !track.provenance.is_object() {
+        track.provenance = serde_json::json!({});
+    }
+    track.provenance["identity"] = serde_json::json!("unverified playlist comment");
+    track.provenance["playlistComment"] = serde_json::json!({
+        "artist": comment.artist,
+        "title": comment.title,
+        "version": comment.version,
+        "catalogVerified": false
+    });
+}
+
+/// Repair only URL-only placeholder metadata from an unchanged playlist source.
+/// This updates track metadata in place, preserving stable URL IDs and all playlist
+/// memberships/occurrences. User-edited fields are protected by the manualFields overlay.
+pub(crate) fn repair_placeholder_url_metadata(
+    store: &Store,
+    collection_id: &str,
+    text: &str,
+) -> Result<usize> {
+    let comments = playlist_entries_with_metadata(text)
+        .into_iter()
+        .filter_map(|(entry, comment, is_extinf)| {
+            if is_extinf || !is_uri_entry(entry) {
+                return None;
+            }
+            let mut track = unverified_url_track(entry)?;
+            apply_playlist_comment(&mut track, comment.as_ref()?);
+            Some((entry.to_owned(), track))
+        })
+        .collect::<HashMap<_, _>>();
+    if comments.is_empty() {
+        return Ok(0);
+    }
+    let collection_tracks = store.list_tracks("collection", Some(collection_id))?;
+    // Require the bound collection to still contain the stable URL-only placeholder
+    // before propagating the same source comment to duplicate catalog rows created
+    // by earlier generated-mirror imports.
+    let bound_urls = collection_tracks
+        .iter()
+        .filter(|track| {
+            track.provider == "import"
+                && track.artist == "Unknown artist"
+                && track.title == track.source_url
+                && comments
+                    .get(&track.source_url)
+                    .is_some_and(|comment| track.id == comment.id)
+        })
+        .map(|track| track.source_url.clone())
+        .collect::<std::collections::HashSet<_>>();
+    if bound_urls.is_empty() {
+        return Ok(0);
+    }
+    let tracks = store.list_tracks("library", None)?;
+    let mut repaired = 0;
+    let mut updated_ids = std::collections::HashSet::new();
+    for mut track in tracks {
+        if !bound_urls.contains(&track.source_url) {
+            continue;
+        }
+        let Some(comment_track) = comments.get(&track.source_url) else {
+            continue;
+        };
+        if track.provider != "import"
+            || track.artist != "Unknown artist"
+            || track.title != track.source_url
+            || track.provenance["manualFields"]["artist"] == true
+            || track.provenance["manualFields"]["title"] == true
+            || !updated_ids.insert(track.id.clone())
+        {
+            continue;
+        }
+        apply_playlist_comment(&mut track, comment_track);
+        // Retain the audio candidate and source evidence already attached at import.
+        track.provenance["playlistEntry"] = serde_json::json!(track.source_url);
+        store.save_track(&track)?;
+        repaired += 1;
+    }
+    Ok(repaired)
 }
 
 /// Existing audio files referenced by a playlist, restricted to approved local roots.
@@ -482,7 +609,7 @@ pub fn referenced_local_files(settings: &Settings, requested_path: &str) -> Resu
     }
     let roots = approved_audio_roots(settings);
     let mut files = Vec::new();
-    for (entry, _) in playlist_entries_with_metadata(&text) {
+    for (entry, _, _) in playlist_entries_with_metadata(&text) {
         if entry.contains("://") {
             continue;
         }
@@ -545,7 +672,7 @@ fn is_uri_entry(entry: &str) -> bool {
         .is_some_and(|url| url.scheme() != "file")
 }
 
-fn unverified_url_track(entry: &str) -> Option<Track> {
+pub(crate) fn unverified_url_track(entry: &str) -> Option<Track> {
     if !is_uri_entry(entry) {
         return None;
     }
@@ -643,7 +770,9 @@ pub(crate) fn attach_playlist_audio_candidate(track: &mut Track, raw: &str) -> b
         track.provenance = serde_json::json!({});
     }
     track.provenance["sourceKind"] = serde_json::json!("audioSearch");
-    track.provenance["identity"] = serde_json::json!("unverified playlist audio source");
+    if track.provenance["playlistComment"].is_null() {
+        track.provenance["identity"] = serde_json::json!("unverified playlist audio source");
+    }
     track.provenance["audioCandidate"] =
         serde_json::to_value(candidate).unwrap_or(serde_json::Value::Null);
     track.provenance["candidateUrl"] = serde_json::json!(candidate_url);
@@ -901,6 +1030,163 @@ mod tests {
         assert_eq!(tracks[4].source_url, "ytdl://https://youtu.be/ABCDEF12345");
         assert!(tracks[5].provenance.get("audioCandidate").is_none());
         assert!(tracks[6].provenance.get("audioCandidate").is_none());
+    }
+
+    #[test]
+    fn plain_artist_title_comments_enrich_url_tracks_without_changing_url_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("playlists");
+        fs::create_dir_all(&root).unwrap();
+        let playlist = root.join("Comments.m3u");
+        let url = "https://www.youtube.com/watch?v=ABCDEF12345";
+        fs::write(
+            &playlist,
+            format!("#EXTM3U\n# Mercedes Sosa - Alfonsina y el Mar (Audio)\n{url}\n"),
+        )
+        .unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+
+        let imported =
+            import_local_playlist(&settings(&root), &store, &playlist.to_string_lossy()).unwrap();
+        let track = store
+            .list_tracks("collection", Some(&imported.collection.id))
+            .unwrap()
+            .remove(0);
+        let expected_id = format!("import:{:x}", Sha256::digest(url.as_bytes()));
+
+        assert_eq!(track.id, expected_id);
+        assert_eq!(track.provider, "import");
+        assert_eq!(track.source_url, url);
+        assert_eq!(track.artist, "Mercedes Sosa");
+        assert_eq!(track.title, "Alfonsina y el Mar (Audio)");
+        assert_eq!(track.version, None);
+        assert_eq!(track.provenance["identity"], "unverified playlist comment");
+        assert_eq!(
+            track.provenance["playlistComment"]["catalogVerified"],
+            false
+        );
+        assert_eq!(track.provenance["audioCandidate"]["provider"], "youtube");
+    }
+
+    #[test]
+    fn later_bare_url_playlist_reuses_metadata_from_earlier_annotated_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("playlists");
+        fs::create_dir_all(&root).unwrap();
+        let url = "https://www.youtube.com/watch?v=ABCDEF12345";
+        let annotated = root.join("Annotated.m3u");
+        let bare = root.join("Bare.m3u");
+        fs::write(
+            &annotated,
+            format!("#EXTM3U\n# Mercedes Sosa - Alfonsina y el Mar\n{url}\n"),
+        )
+        .unwrap();
+        fs::write(&bare, format!("#EXTM3U\n{url}\n")).unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+
+        let first =
+            import_local_playlist(&settings(&root), &store, &annotated.to_string_lossy()).unwrap();
+        let second =
+            import_local_playlist(&settings(&root), &store, &bare.to_string_lossy()).unwrap();
+        let first_track = store
+            .list_tracks("collection", Some(&first.collection.id))
+            .unwrap()
+            .remove(0);
+        let second_track = store
+            .list_tracks("collection", Some(&second.collection.id))
+            .unwrap()
+            .remove(0);
+
+        assert_eq!(first_track.id, second_track.id);
+        assert_eq!(first_track.artist, "Mercedes Sosa");
+        assert_eq!(second_track.artist, first_track.artist);
+        assert_eq!(second_track.title, first_track.title);
+        assert_eq!(second_track.source_url, url);
+        assert_eq!(
+            first_track.provenance["playlistComment"]["catalogVerified"],
+            false
+        );
+    }
+
+    #[test]
+    fn extinf_metadata_takes_precedence_over_plain_comment() {
+        let entries = playlist_entries_with_metadata(
+            "#EXTM3U\n# Comment Artist - Comment Title\n#EXTINF:180,EXTINF Artist - EXTINF Title\nhttps://example.com/track\n",
+        );
+        let (_, metadata, is_extinf) = &entries[0];
+        assert!(is_extinf);
+        assert_eq!(metadata.as_ref().unwrap().artist, "EXTINF Artist");
+        assert_eq!(metadata.as_ref().unwrap().title, "EXTINF Title");
+    }
+
+    #[test]
+    fn playlist_header_with_artist_separator_is_not_attached_to_first_url() {
+        let entries = playlist_entries_with_metadata(
+            "#EXTM3U\n#PLAYLIST: Artist - Album\nhttps://example.com/track\n",
+        );
+        assert!(entries[0].1.is_none());
+    }
+
+    #[test]
+    fn unchanged_comment_repair_preserves_url_ids_memberships_and_manual_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+        let first_url = "https://youtu.be/ABCDEF12345";
+        let second_url = "https://youtu.be/ZYXWV987654";
+        let text = format!(
+            "#EXTM3U\n# Manual Artist - Manual Title\n{first_url}\n# Béla Fleck - Drive\n{second_url}\n"
+        );
+        let first = unverified_url_track(first_url).unwrap();
+        let second = unverified_url_track(second_url).unwrap();
+        let archive_copy = Track {
+            id: "import:archive-copy".into(),
+            provider: "import".into(),
+            provider_id: "archive-copy".into(),
+            source_url: second_url.into(),
+            artist: "Unknown artist".into(),
+            title: second_url.into(),
+            provenance: serde_json::json!({"importFormat":"m3u-url", "playlistEntry":second_url}),
+            ..Track::default()
+        };
+        store.save_track(&first).unwrap();
+        store.save_track(&second).unwrap();
+        store.save_track(&archive_copy).unwrap();
+        let collection = store.create_collection("Comment repair").unwrap();
+        store
+            .replace_playlist_entries(&collection.id, &[first.clone(), second.clone()])
+            .unwrap();
+        let archive_collection = store.create_collection("Generated archive copy").unwrap();
+        store
+            .replace_playlist_entries(&archive_collection.id, &[archive_copy.clone()])
+            .unwrap();
+        store.delete_collection(&archive_collection.id).unwrap();
+
+        // Even a manual override whose visible value is still the placeholder is
+        // protected; repair should only change the untouched second record.
+        let mut manually_edited = store.get_track(&first.id).unwrap().unwrap();
+        manually_edited.artist = "Temporary edit".into();
+        store.update_track(&manually_edited).unwrap();
+        manually_edited = store.get_track(&first.id).unwrap().unwrap();
+        manually_edited.artist = "Unknown artist".into();
+        store.update_track(&manually_edited).unwrap();
+        let repaired = repair_placeholder_url_metadata(&store, &collection.id, &text).unwrap();
+
+        let members = store
+            .list_tracks("collection", Some(&collection.id))
+            .unwrap();
+        assert_eq!(repaired, 2);
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].id, first.id);
+        assert_eq!(members[0].artist, "Unknown artist");
+        assert_eq!(members[1].id, second.id);
+        assert_eq!(members[1].artist, "Béla Fleck");
+        assert_eq!(members[1].title, "Drive");
+        assert_eq!(members[1].source_url, second_url);
+        let archive_copy = store.get_track(&archive_copy.id).unwrap().unwrap();
+        assert_eq!(archive_copy.artist, "Béla Fleck");
+        assert_eq!(archive_copy.title, "Drive");
+        assert_eq!(store.list_deleted_collections().unwrap()[0].track_count, 1);
+        assert_eq!(store.list_collections().unwrap()[0].track_count, 2);
     }
 
     #[test]

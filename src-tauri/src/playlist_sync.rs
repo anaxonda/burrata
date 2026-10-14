@@ -30,6 +30,8 @@ pub struct PlaylistSyncStatus {
     pub synchronized: usize,
     #[serde(default)]
     pub migrated_generated_imports: usize,
+    #[serde(default)]
+    pub repaired_track_metadata: usize,
     pub warnings: Vec<String>,
     pub mirrors_directory: Option<String>,
     pub sources: Vec<PlaylistSourceStatus>,
@@ -184,7 +186,7 @@ fn sync_playlists_with_scan(
                             snapshots: vec![SourceSnapshot {
                                 revision: hash.clone(),
                                 captured_at: chrono::Utc::now().to_rfc3339(),
-                                contents,
+                                contents: contents.clone(),
                             }],
                         },
                     );
@@ -212,6 +214,24 @@ fn sync_playlists_with_scan(
                         Err(error) => {
                             import_warning = Some(format!("Automatic import failed: {error}"));
                         }
+                    }
+                }
+                // A same-revision M3U may already be bound to placeholder URL
+                // tracks imported before plain artist/title comments were parsed.
+                // Repair those records in place; changed source revisions remain
+                // archived for review and never mutate the bound collection here.
+                if !source_changed {
+                    if let Some(collection_id) = state
+                        .sources
+                        .get(&key)
+                        .and_then(|source| source.collection_id.as_deref())
+                    {
+                        status.repaired_track_metadata +=
+                            playlist_files::repair_placeholder_url_metadata(
+                                store,
+                                collection_id,
+                                &contents,
+                            )?;
                     }
                 }
                 let bound_id = state
@@ -1913,6 +1933,78 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+    }
+
+    #[test]
+    fn same_revision_sync_repairs_legacy_url_placeholder_from_source_comment() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("Music");
+        let sources = dir.path().join("source-playlists");
+        fs::create_dir_all(&music).unwrap();
+        fs::create_dir_all(&sources).unwrap();
+        let source = sources.join("Omará.m3u");
+        let url = "https://www.youtube.com/watch?v=ABCDEF12345";
+        let contents = format!("#EXTM3U\n# Bebo Valdés - Lágrimas Negras\n{url}\n");
+        fs::write(&source, &contents).unwrap();
+        let canonical = fs::canonicalize(&source).unwrap();
+        let key = canonical.to_string_lossy().into_owned();
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            playlist_directories: vec![sources.to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+        let hash = format!("{:x}", Sha256::digest(contents.as_bytes()));
+        let placeholder = playlist_files::unverified_url_track(url).unwrap();
+        store.save_track(&placeholder).unwrap();
+        let collection = store.create_collection("Omará").unwrap();
+        store
+            .replace_playlist_entries(&collection.id, &[placeholder.clone()])
+            .unwrap();
+        let mut state = SyncState::default();
+        state.sources.insert(
+            key.clone(),
+            SourceState {
+                collection_id: Some(collection.id.clone()),
+                original_name: Some("Omará".into()),
+                last_source_hash: Some(hash.clone()),
+                snapshots: vec![SourceSnapshot {
+                    revision: hash,
+                    captured_at: "2026-10-14T00:00:00Z".into(),
+                    contents: contents.clone(),
+                }],
+                ..SourceState::default()
+            },
+        );
+        persist_state(&store, &state).unwrap();
+        let scan = playlist_files::LocalPlaylistScan {
+            files: vec![playlist_files::LocalPlaylistFile {
+                path: key.clone(),
+                name: "Omará".into(),
+                modified: None,
+                track_count: 1,
+                warning: None,
+            }],
+            roots: Vec::new(),
+            warnings: Vec::new(),
+        };
+
+        let status = sync_playlists_with_scan(&store, &settings, scan).unwrap();
+        let entries = store
+            .list_tracks("collection", Some(&collection.id))
+            .unwrap();
+
+        assert_eq!(status.sources[0].state, "bound");
+        assert_eq!(status.repaired_track_metadata, 1);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, placeholder.id);
+        assert_eq!(entries[0].source_url, url);
+        assert_eq!(entries[0].artist, "Bebo Valdés");
+        assert_eq!(entries[0].title, "Lágrimas Negras");
+        assert_eq!(
+            entries[0].provenance["playlistComment"]["catalogVerified"],
+            false
         );
     }
 

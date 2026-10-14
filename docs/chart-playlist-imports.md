@@ -607,6 +607,13 @@ repeats and exact validated YouTube/SoundCloud URIs. The actual four ~/Music/pla
 files are present with 3, 37, 14 and 25 entries. Optional provider failures no longer
 hide successful artist results; live Big Thief searches and album links work.
 
+Local M3U discovery also reads ordinary `# Artist - Title` comments immediately
+before an entry, with standard `#EXTINF` metadata taking precedence. These labels
+remain unverified playlist metadata. An unchanged source can repair existing
+URL-only placeholders offline without changing their IDs, memberships or order;
+manual edits and already enriched metadata are retained. A later bare-URL import
+does not erase known metadata for the same URL.
+
 The local Opus player uses authenticated loopback HTTP instead of relying on
 WebKit's custom asset-scheme media handling. Live MCP checks played all four local
 recordings directly; single-run start times were 551–872 ms. Playback recovery
