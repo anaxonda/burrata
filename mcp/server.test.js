@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer as createHttpServer } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, posix, resolve, win32 } from 'node:path';
 import { once } from 'node:events';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -120,9 +120,10 @@ test('stdio proxy registers app tools and forwards authenticated calls using the
 });
 
 test('automation discovery defaults to the Tauri app data directory', () => {
-  assert.equal(defaultDiscoveryPath({}, 'linux', '/home/tester'), '/home/tester/.local/share/org.burrata.discovery/automation.json');
-  assert.equal(defaultDiscoveryPath({ XDG_DATA_HOME: '/data/tester' }, 'linux', '/home/tester'), '/data/tester/org.burrata.discovery/automation.json');
-  assert.equal(defaultDiscoveryPath({ APPDATA: 'C:\\Users\\tester\\AppData\\Roaming' }, 'win32', 'C:\\Users\\tester'), join('C:\\Users\\tester\\AppData\\Roaming', 'org.burrata.discovery', 'automation.json'));
+  assert.equal(defaultDiscoveryPath({}, 'linux', '/home/tester'), posix.join('/home/tester', '.local', 'share', 'org.burrata.discovery', 'automation.json'));
+  assert.equal(defaultDiscoveryPath({ XDG_DATA_HOME: '/data/tester' }, 'linux', '/home/tester'), posix.join('/data/tester', 'org.burrata.discovery', 'automation.json'));
+  assert.equal(defaultDiscoveryPath({}, 'darwin', '/Users/tester'), posix.join('/Users/tester', 'Library', 'Application Support', 'org.burrata.discovery', 'automation.json'));
+  assert.equal(defaultDiscoveryPath({ APPDATA: 'C:\\Users\\tester\\AppData\\Roaming' }, 'win32', 'C:\\Users\\tester'), win32.join('C:\\Users\\tester\\AppData\\Roaming', 'org.burrata.discovery', 'automation.json'));
 });
 
 test('timeouts and unavailable app errors stay distinct without waiting for the production deadline', async () => {

@@ -30,6 +30,9 @@ for name, record in tools.get("sha256", {}).items():
 source = tools.get("ffmpegSource")
 if source:
     lines.append(f"| FFmpeg source archive | {source['commit']} ({source['url']}) | {source['sha256']} | GPL-2.0-or-later source; GPL binary build |")
+recipe = tools.get("ffmpegBuildRecipe")
+if recipe:
+    lines.append(f"| BtbN FFmpeg-Builds recipe source archive | {recipe['commit']} ({recipe['url']}) | {recipe['sha256']} | MIT; contains the exact release build scripts and dependency source pins |")
 fpcalc_record = out / f"LOCKED_FPCALC-{label}.json"
 if fpcalc_record.is_file():
     fpcalc = json.loads(fpcalc_record.read_text(encoding="utf-8"))
@@ -49,6 +52,9 @@ lines.extend(["", "BgUtils POT Provider 2.0.2 source commit: `26475e9d3665b972c4
 with (out / "THIRD_PARTY_SOURCES.md").open("a", encoding="utf-8", newline="\n") as stream:
     stream.write("\n".join(lines))
 PY
+if [[ -d "src-tauri/resources/tools/$TARGET/sources" ]]; then
+  cp -v "src-tauri/resources/tools/$TARGET/sources/"* "$out/"
+fi
 cp ".cache/release-assets/burrata-yt-dlp-$TARGET"* "$out/"
 cp ".cache/release-assets/bgutil-plugin-2.0.2-$TARGET.zip" "$out/"
 cp ".cache/release-assets/youtube-support-target.json" "$out/"

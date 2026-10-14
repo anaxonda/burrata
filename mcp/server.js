@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { posix, win32 } from 'node:path';
 import { basename } from 'node:path';
 import { isIP } from 'node:net';
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
@@ -16,12 +16,13 @@ export const MAX_RESULT_TEXT_CHARS = 16_000;
 
 export function defaultDiscoveryPath(env = process.env, platform = process.platform, home = homedir()) {
   if (env.BURRATA_AUTOMATION_FILE) return env.BURRATA_AUTOMATION_FILE;
+  const path = platform === 'win32' ? win32 : posix;
   const appData = platform === 'win32'
-    ? (env.APPDATA || join(home, 'AppData', 'Roaming'))
+    ? (env.APPDATA || path.join(home, 'AppData', 'Roaming'))
     : platform === 'darwin'
-      ? join(home, 'Library', 'Application Support')
-      : (env.XDG_DATA_HOME || join(home, '.local', 'share'));
-  return join(appData, 'org.burrata.discovery', 'automation.json');
+      ? path.join(home, 'Library', 'Application Support')
+      : (env.XDG_DATA_HOME || path.join(home, '.local', 'share'));
+  return path.join(appData, 'org.burrata.discovery', 'automation.json');
 }
 
 function validateDiscovery(value) {

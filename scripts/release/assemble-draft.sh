@@ -58,6 +58,11 @@ while IFS= read -r -d '' file; do
     *) relative="${relative//\//-}" ;;
   esac
   case "$relative" in SHA256SUMS.txt|*-SHA256SUMS.txt) continue ;; esac
+  if [[ -e "release-artifacts/$relative" ]]; then
+    if cmp -s "$file" "release-artifacts/$relative"; then continue; fi
+    echo "Conflicting release assets have the same flattened name: $relative" >&2
+    exit 1
+  fi
   cp "$file" "release-artifacts/$relative"
 done < <(find incoming -type f -print0)
 cp youtube-support.json release-artifacts/youtube-support.json
