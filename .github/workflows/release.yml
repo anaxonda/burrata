@@ -10,6 +10,11 @@ on:
         type: string
         required: false
         default: ''
+      extensions_only:
+        description: Run Firefox/Chromium extension qualification only (no desktop builds or draft)
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -22,6 +27,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       commit: ${{ steps.meta.outputs.commit }}
       publish_draft: ${{ steps.meta.outputs.publish_draft }}
+      extensions_only: ${{ steps.meta.outputs.extensions_only }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -33,6 +39,7 @@ jobs:
         env:
           REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || (github.event_name == 'push' && github.ref_name || '') }}
           WORKFLOW_EVENT: ${{ github.event_name }}
+          EXTENSIONS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.extensions_only || false }}
         run: |
           set -euo pipefail
           head_commit="$(git rev-parse HEAD)"
@@ -41,6 +48,13 @@ jobs:
           cargo_version="$(sed -n 's/^version = \"\([^\"]*\)\"/\1/p' src-tauri/Cargo.toml | head -1)"
           test "$package_version" = "$tauri_version"
           test "$package_version" = "$cargo_version"
+          if [[ "$EXTENSIONS_ONLY" == "true" ]]; then
+            test "$WORKFLOW_EVENT" = workflow_dispatch
+            if [[ -n "$REQUESTED_TAG" ]]; then
+              echo "extensions_only cannot be combined with a release tag" >&2
+              exit 1
+            fi
+          fi
           if [[ -z "$REQUESTED_TAG" ]]; then
             test "$WORKFLOW_EVENT" = workflow_dispatch
             main_commit="$(git rev-parse refs/remotes/origin/main^{commit})"
@@ -61,9 +75,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "commit=$head_commit" >> "$GITHUB_OUTPUT"
           echo "publish_draft=$publish_draft" >> "$GITHUB_OUTPUT"
+          echo "extensions_only=$EXTENSIONS_ONLY" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
+    if: needs.prepare.outputs.extensions_only != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -237,7 +253,7 @@ jobs:
 
   extension:
     needs: prepare
-    if: needs.prepare.outputs.publish_draft == 'true'
+    if: needs.prepare.outputs.publish_draft == 'true' || needs.prepare.outputs.extensions_only == 'true'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -253,13 +269,13 @@ jobs:
           mkdir -p release-artifacts
           cd .cache/browser-companion-chromium
           zip -qr ../../release-artifacts/burrata-chromium.zip .
+      - name: Test Firefox signing reuse guards
+        run: python3 scripts/release/test_sign_firefox.py
       - name: Build and sign Firefox extension (AMO unlisted)
         env:
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-        run: |
-          test -n "$WEB_EXT_API_KEY" && test -n "$WEB_EXT_API_SECRET"
-          npx --yes web-ext@8.4.0 sign --source-dir extension --artifacts-dir release-artifacts --channel unlisted --ignore-files 'tests/**' 'README.md' 'manifest.chromium.json' --api-key "$WEB_EXT_API_KEY" --api-secret "$WEB_EXT_API_SECRET"
+        run: python3 scripts/release/sign-firefox.py --source-dir extension --artifacts-dir release-artifacts
       - name: Package extension provenance
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
