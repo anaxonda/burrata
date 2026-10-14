@@ -664,7 +664,7 @@ impl YouTubeSupportManager {
                 "--extractor-args",
             ])
             .arg(format!("youtubepot-bgutilhttp:base_url={provider_url}"))
-            .arg("https://www.youtube.com/watch?v=BaW_jenozKc")
+            .arg("https://www.youtube.com/watch?v=jNQXAC9IVRw")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
@@ -699,7 +699,7 @@ impl YouTubeSupportManager {
     /// request to the selected audio stream. Never returns the URL or raw
     /// yt-dlp output because both may contain short-lived query tokens.
     pub async fn diagnose_url(&self, url: Option<&str>) -> SupportDiagnosis {
-        let sample = "https://www.youtube.com/watch?v=BaW_jenozKc";
+        let sample = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         let url = url.unwrap_or(sample);
         if !is_supported_youtube_url(url) {
             return diagnosis(
