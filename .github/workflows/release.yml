@@ -175,6 +175,8 @@ jobs:
           PYTHON_PATH: ${{ steps.python.outputs.python-path }}
         run: |
           python_exe="$(cygpath -u "$PYTHON_PATH")"
+          export BURRATA_MSYS2_BASH="$(cygpath -w /usr/bin/bash.exe)"
+          test -f "$(cygpath -u "$BURRATA_MSYS2_BASH")"
           "$python_exe" scripts/release/prepare-tools.py
       - name: Add prepared media tools to PATH for native tests
         shell: bash

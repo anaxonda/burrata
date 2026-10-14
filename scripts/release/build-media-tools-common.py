@@ -49,10 +49,13 @@ def extract(archive: pathlib.Path, directory: pathlib.Path) -> pathlib.Path:
 
 def run(args: list[str], cwd: pathlib.Path, env: dict[str, str], *, windows: bool = False) -> None:
     if windows:
+        bash = env.get("BURRATA_MSYS2_BASH")
+        if not bash or not pathlib.Path(bash).is_file():
+            raise RuntimeError("Windows media builds require BURRATA_MSYS2_BASH to name the active MSYS2 bash.exe")
         command = " ".join(shlex.quote(item) for item in args)
         shell_cwd = posix_path(cwd)
         command = f"cd {shlex.quote(shell_cwd)} && {command}"
-        subprocess.run(["bash", "-lc", command], cwd=ROOT, env=env, check=True)
+        subprocess.run([bash, "-lc", command], cwd=ROOT, env=env, check=True)
     else:
         subprocess.run(args, cwd=cwd, env=env, check=True)
 
