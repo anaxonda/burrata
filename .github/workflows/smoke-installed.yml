@@ -1,0 +1,92 @@
+name: Rerun installed smoke from a prior installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: GitHub Actions run ID containing a debug-installer artifact
+        type: string
+        required: true
+      platform:
+        description: Installer target to download and test
+        type: choice
+        required: true
+        options:
+          - macos-arm64
+          - windows-x64
+          - linux-x64
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ${{ inputs.platform == 'macos-arm64' && 'macos-15' || inputs.platform == 'windows-x64' && 'windows-2022' || 'ubuntu-22.04' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Linux smoke dependencies
+        if: inputs.platform == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libayatana-appindicator3-1 libdbus-1-3 libgtk-3-0 libwebkit2gtk-4.1-0 libxdo3 pulseaudio xvfb
+      - run: npm ci
+      - name: Resolve the source run commit
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          commit="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq .head_sha)"
+          test "${#commit}" -eq 40
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - name: Download the selected platform installer from the source run
+        uses: actions/download-artifact@v5
+        with:
+          pattern: debug-installer-${{ inputs.platform }}-*
+          path: .cache/debug-installers
+          merge-multiple: true
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run current smoke checks against the preserved installer
+        shell: bash
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          case "$PLATFORM" in
+            macos-arm64) pattern='*.dmg' ;;
+            windows-x64) pattern='*.exe' ;;
+            linux-x64) pattern='*.deb' ;;
+            *) echo "Unsupported platform: $PLATFORM" >&2; exit 1 ;;
+          esac
+          shopt -s nullglob
+          installers=(.cache/debug-installers/$pattern)
+          test "${#installers[@]}" -eq 1 || { echo "Expected one $pattern installer, found ${#installers[@]}" >&2; exit 1; }
+          python scripts/release/smoke-installed.py \
+            --installer "${installers[0]}" \
+            --evidence .cache/release-smoke-evidence.json \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-commit "$SOURCE_COMMIT"
+      - uses: actions/upload-artifact@v7
+        if: always() && hashFiles('.cache/release-smoke-evidence.json') != ''
+        with:
+          name: smoke-rerun-evidence-${{ inputs.platform }}-${{ inputs.source_run_id }}
+          path: .cache/release-smoke-evidence.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

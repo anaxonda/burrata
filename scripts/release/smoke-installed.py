@@ -294,6 +294,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--installer", type=pathlib.Path, required=True)
     parser.add_argument("--evidence", type=pathlib.Path, required=True)
+    parser.add_argument("--source-run-id")
+    parser.add_argument("--source-commit")
     args = parser.parse_args()
     installer = args.installer.resolve()
     evidence_path = args.evidence.resolve()
@@ -301,6 +303,10 @@ def main() -> int:
                       "target": TARGETS.get(sys.platform, "unknown"),
                       "installer": installer.name, "status": "failed", "checks": {},
                       "osSecurityPrompts": "not tested"}
+    if args.source_run_id:
+        evidence["sourceRunId"] = args.source_run_id
+    if args.source_commit:
+        evidence["sourceCommit"] = args.source_commit
     app_process = None
     package_name = None
     mount = None

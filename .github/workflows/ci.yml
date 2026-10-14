@@ -129,3 +129,20 @@ jobs:
             release-artifacts/*
           if-no-files-found: error
           retention-days: 14
+      - name: Preserve Linux installers for smoke diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir=src-tauri/target/x86_64-unknown-linux-gnu/release/bundle
+          destination=.cache/debug-installer
+          mkdir -p "$destination"
+          find "$bundle_dir" -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} "$destination/" \; 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: debug-installer-linux-x64-${{ github.sha }}
+          path: .cache/debug-installer/*
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 0
