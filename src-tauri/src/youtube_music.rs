@@ -188,7 +188,9 @@ pub async fn search(
         .user_agent("Mozilla/5.0 Burrata/0.1")
         .build()
         .map_err(|e| e.to_string())?;
-    let response = client.post("https://music.youtube.com/youtubei/v1/search").query(&[("key", "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8")]).json(&json!({"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20250101.01.00","hl":"en","gl":"US"}},"query":q,"params":"EgWKAQIIAWoKEAkQChADEAQQBQ%3D%3D"})).send().await;
+    // Public search works without an embedded API key. Keep credentials out of
+    // both the request URL and distributed source/binaries.
+    let response = client.post("https://music.youtube.com/youtubei/v1/search").json(&json!({"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20250101.01.00","hl":"en","gl":"US"}},"query":q,"params":"EgWKAQIIAWoKEAkQChADEAQQBQ%3D%3D"})).send().await;
     if let Ok(response) = response {
         if response.status().is_success() {
             if let Ok(body) = response.json::<Value>().await {

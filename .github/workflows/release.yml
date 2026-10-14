@@ -179,6 +179,7 @@ jobs:
       - name: Audit source and contracts
         shell: bash
         run: |
+          python3 scripts/test_audit_secrets.py
           python3 scripts/audit_secrets.py
           python3 scripts/check_contracts.py
       - run: npm run check

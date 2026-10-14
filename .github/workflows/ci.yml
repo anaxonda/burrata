@@ -44,10 +44,14 @@ jobs:
       - name: Check installed-smoke path handling
         run: python scripts/release/test_smoke_installed.py
       - name: Audit source for common secrets
-        run: python3 scripts/audit_secrets.py
+        run: |
+          python3 scripts/test_audit_secrets.py
+          python3 scripts/audit_secrets.py
         if: runner.os != 'Windows'
       - name: Audit source for common secrets (Windows)
-        run: python scripts/audit_secrets.py
+        run: |
+          python scripts/test_audit_secrets.py
+          python scripts/audit_secrets.py
         if: runner.os == 'Windows'
       - run: python3 scripts/check_contracts.py
         if: runner.os != 'Windows'
