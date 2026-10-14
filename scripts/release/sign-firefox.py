@@ -250,12 +250,28 @@ def safe_process_diagnostic(stdout: bytes | str | None, stderr: bytes | str | No
     safe_lines = []
     for raw_line in text.splitlines():
         line = raw_line.strip()
-        if (not line or line.startswith(("{", "[", "\""))
-                or re.match(r"[\w.-]+\s*:\s*[\[{\"]", line)
-                or re.match(r"(?i)(server response|response body|response data)\s*:", line)):
+        if not line or re.match(r"(?i)(server response|response body|response data)\s*:", line):
+            continue
+        # web-ext prefixes logger messages with tags such as [error]. Strip those
+        # only for recognizing JSON; a plain-text [error] reason is useful output.
+        json_candidate = re.sub(r"^(?:\[[^\]]+\]\s*)+", "", line)
+        if json_candidate.startswith(("{", "[", '"')):
+            try:
+                json.loads(json_candidate)
+                continue
+            except json.JSONDecodeError:
+                pass
+        # The uncaught web-ext error prints a useful first line followed by a
+        # long Node stack. Keeping stack frames displaced that first line.
+        if re.match(r"^at\s+", line) or re.match(r"^at\s+.+:\d+:\d+\)?$", line):
             continue
         safe_lines.append(line[:240])
-    return " | ".join(safe_lines[-4:])[:800]
+    if not safe_lines:
+        return ""
+    important = [line for line in safe_lines
+                 if re.search(r"(?i)error|failed|invalid|submission|validation|rejected|unauthori[sz]ed|forbidden|timeout", line)]
+    selected = important[:6] if important else safe_lines[-6:]
+    return " | ".join(selected)[:1_000]
 
 
 def run_web_ext_sign(source_dir: pathlib.Path, artifacts_dir: pathlib.Path,

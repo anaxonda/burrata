@@ -100,6 +100,18 @@ class SignFirefoxTests(unittest.TestCase):
         for sensitive in (api_key, api_secret, jwt, "private body"):
             self.assertNotIn(sensitive, safe)
 
+    def test_web_ext_sign_failure_keeps_primary_logger_reason_before_stack(self):
+        output = (
+            "[error] WebExtError: AMO rejected submission: validation failed\n"
+            '    at file:///runner/node_modules/web-ext/lib/cmd/sign.js:101:13\n'
+            "    at async Program.execute (web-ext/lib/program.js:270:7)\n"
+            '{"detail":"private response body"}\n'
+        )
+        safe = sign_firefox.safe_process_diagnostic(output, None, [])
+        self.assertIn("[error] WebExtError: AMO rejected submission: validation failed", safe)
+        self.assertNotIn("sign.js:101", safe)
+        self.assertNotIn("private response body", safe)
+
     def test_404_is_a_version_miss(self):
         def open_api(_request, timeout):
             self.assertEqual(timeout, 30)
