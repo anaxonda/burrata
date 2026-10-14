@@ -4327,8 +4327,8 @@ mod tests {
         let script = format!(
             r#"
 case "$*" in
-  *ytsearch*) own='{youtube_marker}'; other='{soundcloud_marker}'; result='{{"entries":[{{"id":"yt","url":"https://www.youtube.com/watch?v=yt","title":"Artist - Night Drive","duration":180}}]}}' ;;
-  *scsearch*) own='{soundcloud_marker}'; other='{youtube_marker}'; result='{{"entries":[{{"id":"sc","url":"https://soundcloud.com/artist/night-drive","title":"Artist - Night Drive","duration":180}}]}}' ;;
+  *ytsearch*) own='{}'; other='{}'; result='{{"entries":[{{"id":"yt","url":"https://www.youtube.com/watch?v=yt","title":"Artist - Night Drive","duration":180}}]}}' ;;
+  *scsearch*) own='{}'; other='{}'; result='{{"entries":[{{"id":"sc","url":"https://soundcloud.com/artist/night-drive","title":"Artist - Night Drive","duration":180}}]}}' ;;
   *) exit 2 ;;
 esac
 touch "$own"
@@ -4339,7 +4339,11 @@ while [ ! -e "$other" ] && [ "$i" -lt 300 ]; do
 done
 [ -e "$other" ] || {{ echo 'provider searches did not overlap' >&2; exit 9; }}
 echo "$result"
-"#
+"#,
+            youtube_marker.display(),
+            soundcloud_marker.display(),
+            soundcloud_marker.display(),
+            youtube_marker.display(),
         );
         std::fs::write(&executable, format!("#!/bin/sh\n{script}\n")).unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();

@@ -16,7 +16,7 @@ LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text(encodin
 RECIPE = LOCK["ffmpeg"]["btbnBuildRecipe"]
 CACHE = RECIPE["sourceCache"]
 TARGETS = json.loads((ROOT / CACHE["inputList"]).read_text(encoding="utf-8"))["variants"]
-LICENSE_NAME = re.compile(r"(?i)(?:^|/)(?:license|copying|copyright|notice|patents?)(?:[._-].*)?$")
+LICENSE_NAME = re.compile(r"(?i)(?:^|/)(?:licen[cs]e(?:s)?|copying|copyright|notice|patents?)(?:[._-].*)?$")
 CHUNK = 1024 * 1024
 
 
