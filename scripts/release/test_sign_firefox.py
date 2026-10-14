@@ -112,6 +112,29 @@ class SignFirefoxTests(unittest.TestCase):
         self.assertNotIn("sign.js:101", safe)
         self.assertNotIn("private response body", safe)
 
+    def test_web_ext_diagnostic_extracts_allowlisted_pretty_json_validation_fields(self):
+        output = (
+            "WebExtError: Validation failed:\n"
+            "{\n"
+            '  "errors": 1,\n'
+            '  "validation": {\n'
+            '    "messages": [{\n'
+            '      "code": "UNSAFE_VAR_ASSIGNMENT",\n'
+            '      "file": "content.js",\n'
+            '      "message": "Dynamic import argument is unsafe",\n'
+            '      "description": "Use a fixed import path",\n'
+            '      "api_secret": "must never be exposed"\n'
+            "    }]\n"
+            "  }\n"
+            "}\n"
+        )
+        safe = sign_firefox.safe_process_diagnostic(output, None, [])
+        self.assertIn("code=UNSAFE_VAR_ASSIGNMENT", safe)
+        self.assertIn("file=content.js", safe)
+        self.assertIn("message=Dynamic import argument is unsafe", safe)
+        self.assertIn("description=Use a fixed import path", safe)
+        self.assertNotIn("must never be exposed", safe)
+
     def test_404_is_a_version_miss(self):
         def open_api(_request, timeout):
             self.assertEqual(timeout, 30)

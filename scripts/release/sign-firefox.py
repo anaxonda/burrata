@@ -36,6 +36,7 @@ TRUSTED_DOWNLOAD_HOSTS = {
 }
 MAX_XPI_BYTES = 200_000_000
 IGNORE_FILES = ["tests/**", "README.md", "manifest.chromium.json"]
+VALIDATION_FIELDS = {"message", "description", "code", "file", "id", "type", "line", "column"}
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
@@ -248,6 +249,27 @@ def safe_process_diagnostic(stdout: bytes | str | None, stderr: bytes | str | No
     text = re.sub(r"(?i)(authorization\s*[:=]\s*)(?:JWT\s+)?[^\s,;]+", r"\1[REDACTED]", text)
     text = re.sub(r"(?i)(web_ext_api_(?:key|secret)\s*[:=]\s*)[^\s,;]+", r"\1[REDACTED]", text)
     safe_lines = []
+    validation_details = []
+
+    def keep_validation_field(key: str, value) -> None:
+        if key.lower() not in VALIDATION_FIELDS or isinstance(value, (dict, list, bool)) or value is None:
+            return
+        rendered = str(value).strip()
+        if rendered:
+            field = f"{key.lower()}={rendered[:180]}"
+            if field not in validation_details:
+                validation_details.append(field)
+
+    def collect_json_fields(value) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if isinstance(key, str):
+                    keep_validation_field(key, child)
+                collect_json_fields(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect_json_fields(child)
+
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or re.match(r"(?i)(server response|response body|response data)\s*:", line):
@@ -255,6 +277,25 @@ def safe_process_diagnostic(stdout: bytes | str | None, stderr: bytes | str | No
         # web-ext prefixes logger messages with tags such as [error]. Strip those
         # only for recognizing JSON; a plain-text [error] reason is useful output.
         json_candidate = re.sub(r"^(?:\[[^\]]+\]\s*)+", "", line)
+        # AMO validation details are often pretty-printed one key per line, so
+        # they are not valid JSON until the entire response object is reassembled.
+        field_match = re.fullmatch(r'"([A-Za-z][A-Za-z0-9_-]*)"\s*:\s*(.*?)(?:,)?', json_candidate)
+        if field_match:
+            key, raw_value = field_match.groups()
+            try:
+                keep_validation_field(key, json.loads(raw_value.rstrip(",").strip()))
+            except json.JSONDecodeError:
+                pass
+        # Also collect allowlisted fields from a single-line JSON response or
+        # a JSON object embedded after web-ext's human-readable error prefix.
+        start_positions = [pos for pos in (json_candidate.find("{"), json_candidate.find("[")) if pos >= 0]
+        if start_positions:
+            start = min(start_positions)
+            try:
+                parsed, _end = json.JSONDecoder().raw_decode(json_candidate[start:])
+                collect_json_fields(parsed)
+            except json.JSONDecodeError:
+                pass
         if json_candidate.startswith(("{", "[", '"')):
             try:
                 json.loads(json_candidate)
@@ -269,8 +310,11 @@ def safe_process_diagnostic(stdout: bytes | str | None, stderr: bytes | str | No
     if not safe_lines:
         return ""
     important = [line for line in safe_lines
-                 if re.search(r"(?i)error|failed|invalid|submission|validation|rejected|unauthori[sz]ed|forbidden|timeout", line)]
-    selected = important[:6] if important else safe_lines[-6:]
+                 if re.search(r"(?i)error|failed|invalid|submission|validation|rejected|unauthori[sz]ed|forbidden|timeout", line)
+                 and not re.match(r'"(?:errors|warnings|type|validation)"\s*:', line)]
+    selected = validation_details[:5] + important[:4]
+    if not selected:
+        selected = safe_lines[-6:]
     return " | ".join(selected)[:1_000]
 
 
