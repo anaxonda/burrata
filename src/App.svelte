@@ -174,6 +174,31 @@
   });
   let systemLight = $state(false);
   onMount(()=>{if(typeof window.matchMedia!=="function")return;const query=window.matchMedia("(prefers-color-scheme: light)");const update=()=>systemLight=query.matches;update();query.addEventListener("change",update);return()=>query.removeEventListener("change",update);});
+  function handleDesktopExternalAnchor(event: MouseEvent) {
+    if (!desktop() || event.defaultPrevented) return;
+    if (event.type === "click" && event.button !== 0) return;
+    if (event.type === "auxclick" && event.button !== 1) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest<HTMLAnchorElement>("a[href]");
+    if (!anchor || anchor.target.toLowerCase() !== "_blank" || anchor.hasAttribute("download") || anchor.onclick) return;
+    let url: URL;
+    try { url = new URL(anchor.href); } catch { event.preventDefault(); return; }
+    if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    void run(() => call("open_external_url", { url: url.href }));
+  }
+  onMount(() => {
+    document.addEventListener("click", handleDesktopExternalAnchor);
+    document.addEventListener("auxclick", handleDesktopExternalAnchor);
+    return () => {
+      document.removeEventListener("click", handleDesktopExternalAnchor);
+      document.removeEventListener("auxclick", handleDesktopExternalAnchor);
+    };
+  });
   let settingsCategory = $state<"general"|"playback"|"library"|"downloads"|"connections"|"integrations"|"advanced">("general");
   type PlaylistPreferences = { favoritesPlaylistId: string; shortcuts: (string|null)[]; shortcutBindings?: string[] };
   let playlistPreferences = $state<PlaylistPreferences>({ favoritesPlaylistId:"", shortcuts:Array(9).fill(null) });

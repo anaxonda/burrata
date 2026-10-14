@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserImportResult, Candidate, Chart, Collection, DownloadJob, LocalAsset, Preview, Settings, Track } from "./lib/types";
 import type { ArtistReleaseRef } from "./lib/artist-types";
 
-const mocks = vi.hoisted(() => ({ call: vi.fn(), listen: vi.fn() }));
+const mocks = vi.hoisted(() => ({ call: vi.fn(), listen: vi.fn(), isDesktop: true }));
 vi.mock("./lib/api", () => ({
   call: mocks.call,
   listen: mocks.listen,
-  desktop: () => true,
+  desktop: () => mocks.isDesktop,
   playable: (url: string) => url,
 }));
 vi.mock("svelte", async () => {
@@ -66,6 +66,7 @@ let songRadioTracks: Track[] = [];
 let songRadioFailure = "";
 let batchInspectionHigh = false;
 let artistProfileTopTracks: Track[] = [];
+let artistProfileLinks: { label: string; url: string; provider?: string | null }[] = [];
 let savedChartTracks: Track[] = [savedTrack];
 let audioSearchResult: Track[] = [];
 let partialSoulseekSearch = false;
@@ -243,6 +244,7 @@ beforeEach(() => {
     disconnect() {}
   });
   mocks.listen.mockResolvedValue(() => {});
+  mocks.isDesktop = true;
   eventHandlers.clear();
   failNextCollectionLoad = false;
   holdStartupCalls = false;
@@ -262,6 +264,7 @@ beforeEach(() => {
   songRadioFailure = "";
   batchInspectionHigh = false;
   artistProfileTopTracks = [];
+  artistProfileLinks = [];
   savedChartTracks = [savedTrack];
   audioSearchResult = [];
   partialSoulseekSearch = false;
@@ -308,7 +311,7 @@ beforeEach(() => {
       case "search_artists": return { query: args?.query, page: 0, pageSize: 20, hasMore: false, results: [{ artist: { provider: "musicbrainz", id: "artist-1" }, name: "Visible Artist", sourceUrl: "https://musicbrainz.org/artist/artist-1" }], warnings: [] };
       case "get_artist_profile": {
         const artist = args?.artist as { provider: string; id: string };
-        return { artist: { artist, name: "Visible Artist", sourceUrl: "https://musicbrainz.org/artist/artist-1" }, genres: [], tags: [], sourceTags: [], aliases: [], links: [], topTracks: artistProfileTopTracks, releases: { artist, items: [], warnings: [] }, discogsAvailable: false, lastfmAvailable: false, sourceCoverage: [], warnings: [] };
+        return { artist: { artist, name: "Visible Artist", sourceUrl: "https://musicbrainz.org/artist/artist-1" }, genres: [], tags: [], sourceTags: [], aliases: [], links: artistProfileLinks, topTracks: artistProfileTopTracks, releases: { artist, items: [], warnings: [] }, discogsAvailable: false, lastfmAvailable: false, sourceCoverage: [], warnings: [] };
       }
       case "get_artist_tracks": return { artist: args?.artist, items: [], source: "MusicBrainz", warnings: [] };
       case "get_artist_releases": return { artist: args?.artist, items: [], warnings: [] };
@@ -2055,6 +2058,79 @@ describe("saved recording navigation", () => {
     playlistActions[0]!.click();
     await settle();
     expect(document.querySelector("dialog.playlist-picker-dialog")).not.toBeNull();
+  });
+
+  it("opens ArtistPage source and provider anchors externally on desktop, including keyboard and middle clicks", async () => {
+    artistProfileLinks = [
+      { label: "Discogs", provider: "discogs", url: "https://www.discogs.com/artist/123" },
+      { label: "Unsafe", provider: "test", url: "javascript:alert(1)" },
+    ];
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('.library-sidebar button[aria-label="Library"]')?.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("tbody tr")].find((row) => row.textContent?.includes("Saved Recording"))!
+      .querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
+    await settle();
+    document.querySelector<HTMLButtonElement>(".artist-result")!.click();
+    await settle();
+
+    const sourceProfile = [...document.querySelectorAll<HTMLAnchorElement>(".artist-page a[target='_blank']")]
+      .find((anchor) => anchor.textContent?.includes("Open source profile"))!;
+    const keyboardClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 0 });
+    sourceProfile.dispatchEvent(keyboardClick);
+    await settle();
+    expect(keyboardClick.defaultPrevented).toBe(true);
+    expect(mocks.call).toHaveBeenCalledWith("open_external_url", { url: "https://musicbrainz.org/artist/artist-1" });
+
+    const providerLink = [...document.querySelectorAll<HTMLAnchorElement>(".artist-page a[target='_blank']")]
+      .find((anchor) => anchor.textContent?.includes("Discogs"))!;
+    const middleClick = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+    providerLink.dispatchEvent(middleClick);
+    await settle();
+    expect(middleClick.defaultPrevented).toBe(true);
+    expect(mocks.call).toHaveBeenCalledWith("open_external_url", { url: "https://www.discogs.com/artist/123" });
+
+    const unsafe = [...document.querySelectorAll<HTMLAnchorElement>(".artist-page a[target='_blank']")]
+      .find((anchor) => anchor.textContent?.includes("Unsafe"))!;
+    const unsafeClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    unsafe.dispatchEvent(unsafeClick);
+    await settle();
+    expect(unsafeClick.defaultPrevented).toBe(true);
+    expect(mocks.call.mock.calls.some(([, args]) => (args as { url?: string } | undefined)?.url?.startsWith("javascript:"))).toBe(false);
+
+    const handled = document.createElement("a");
+    handled.href = "https://example.org/handled";
+    handled.target = "_blank";
+    handled.addEventListener("click", (event) => event.preventDefault());
+    document.body.append(handled);
+    const ownHandlerClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    handled.dispatchEvent(ownHandlerClick);
+    await settle();
+    expect(ownHandlerClick.defaultPrevented).toBe(true);
+    expect(mocks.call).not.toHaveBeenCalledWith("open_external_url", { url: "https://example.org/handled" });
+    handled.remove();
+  });
+
+  it("leaves ArtistPage external anchors to browser preview navigation", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("tbody tr")].find((row) => row.textContent?.includes("Saved Recording"))!
+      .querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
+    await settle();
+    document.querySelector<HTMLButtonElement>(".artist-result")!.click();
+    await settle();
+
+    const link = [...document.querySelectorAll<HTMLAnchorElement>(".artist-page a[target='_blank']")]
+      .find((anchor) => anchor.textContent?.includes("Open source profile"))!;
+    mocks.isDesktop = false;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    link.dispatchEvent(click);
+    await settle();
+    expect(click.defaultPrevented).toBe(false);
+    expect(mocks.call).not.toHaveBeenCalledWith("open_external_url", { url: "https://musicbrainz.org/artist/artist-1" });
   });
 
   it("searches Soulseek files through the cancellable polling API", async () => {

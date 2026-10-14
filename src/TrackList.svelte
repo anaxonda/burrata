@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { Track } from "./lib/types";
 
   let {
@@ -25,12 +26,79 @@
     paused?: boolean;
     listLabel?: string;
   } = $props();
+  let openMoreMenu: HTMLDetailsElement | null = null;
+
+  function closeOpenMenu() {
+    const active = openMoreMenu?.open ? openMoreMenu : document.querySelector<HTMLDetailsElement>("details.more[open]");
+    if (active) active.open = false;
+    openMoreMenu = null;
+  }
+  function dismissMenuOutside(event: PointerEvent) {
+    const active = openMoreMenu?.open ? openMoreMenu : document.querySelector<HTMLDetailsElement>("details.more[open]");
+    if (active && event.target instanceof Node && !active.contains(event.target)) closeOpenMenu();
+  }
+  function dismissMenuEscape(event: KeyboardEvent) {
+    if (event.key === "Escape" && (openMoreMenu?.open || document.querySelector("details.more[open]"))) closeOpenMenu();
+  }
+  function dismissMenuOnScroll(event: Event) {
+    if (openMoreMenu && event.target instanceof Node && openMoreMenu.contains(event.target)) return;
+    closeOpenMenu();
+  }
+  onMount(() => {
+    window.addEventListener("pointerdown", dismissMenuOutside);
+    window.addEventListener("keydown", dismissMenuEscape);
+    window.addEventListener("scroll", dismissMenuOnScroll, true);
+    window.addEventListener("resize", closeOpenMenu);
+    return () => {
+      window.removeEventListener("pointerdown", dismissMenuOutside);
+      window.removeEventListener("keydown", dismissMenuEscape);
+      window.removeEventListener("scroll", dismissMenuOnScroll, true);
+      window.removeEventListener("resize", closeOpenMenu);
+    };
+  });
 
   function context(track: Track, event: MouseEvent) {
     if (!onContext) return;
     event.preventDefault();
     event.stopPropagation();
     onContext(track, event);
+  }
+  function positionMoreMenu(event: Event) {
+    const details = event.currentTarget as HTMLDetailsElement;
+    const menu = details.querySelector<HTMLElement>(".more-menu");
+    if (!menu) return;
+    if (!details.open) {
+      menu.style.removeProperty("left");
+      menu.style.removeProperty("top");
+      if (openMoreMenu === details) openMoreMenu = null;
+      return;
+    }
+    document.querySelectorAll<HTMLDetailsElement>(".shared-track-list details.more[open]").forEach((other) => {
+      if (other !== details) other.open = false;
+    });
+    openMoreMenu = details;
+    const summary = details.querySelector("summary");
+    if (!summary) return;
+    const anchor = summary.getBoundingClientRect();
+    const box = menu.getBoundingClientRect();
+    const gutter = 8;
+    const width = Math.min(box.width || menu.scrollWidth || 200, window.innerWidth - gutter * 2);
+    const height = Math.min(menu.scrollHeight || box.height || 240, window.innerHeight - gutter * 2);
+    const left = Math.max(gutter, Math.min(anchor.right - width, window.innerWidth - width - gutter));
+    const roomBelow = window.innerHeight - anchor.bottom - gutter;
+    const roomAbove = anchor.top - gutter;
+    const top = height <= roomBelow || roomBelow >= roomAbove
+      ? Math.max(gutter, Math.min(anchor.bottom + gutter, window.innerHeight - height - gutter))
+      : Math.max(gutter, anchor.top - height - gutter);
+    menu.style.position = "fixed";
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+  function runMenuAction(event: MouseEvent, action: () => unknown) {
+    void action();
+    const details = (event.currentTarget as HTMLElement).closest("details");
+    if (openMoreMenu === details) openMoreMenu = null;
+    details?.removeAttribute("open");
   }
 </script>
 
@@ -57,14 +125,14 @@
         {#if onFavorite}<button class="icon-action favorite" class:active={track.favorite} aria-label={`${track.favorite ? "Remove" : "Add"} ${track.title} ${track.favorite ? "from" : "to"} favorites`} aria-pressed={track.favorite} title={track.favorite ? "Remove from favorites" : "Add to favorites"} onclick={() => onFavorite?.(track)}>{track.favorite ? "♥" : "♡"}</button>{/if}
         {#if onDownload}<button class="icon-action" aria-label={`Download ${track.title}`} title="Download" onclick={() => onDownload?.(track)}>↓</button>{/if}
         {#if onContext || onNext || onQueue || onPlaylist || onArtist || onInfo || track.sourceUrl}
-          <details class="more"><summary aria-label={`More actions for ${track.title}`} title="More actions">⋯</summary><div class="more-menu">
-            {#if onNext}<button onclick={() => onNext?.(track)}>Play next</button>{/if}
-            {#if onQueue}<button onclick={() => onQueue?.(track)}>Add to queue</button>{/if}
-            {#if onPlaylist}<button onclick={() => onPlaylist?.(track)}>Add to playlist</button>{/if}
-            {#if onArtist}<button onclick={() => onArtist?.(track)}>Open artist</button>{/if}
-            {#if onInfo}<button onclick={() => onInfo?.(track)}>Track information</button>{/if}
+          <details class="more" ontoggle={positionMoreMenu}><summary aria-label={`More actions for ${track.title}`} title="More actions">⋯</summary><div class="more-menu">
+            {#if onNext}<button onclick={(event) => runMenuAction(event, () => onNext?.(track))}>Play next</button>{/if}
+            {#if onQueue}<button onclick={(event) => runMenuAction(event, () => onQueue?.(track))}>Add to queue</button>{/if}
+            {#if onPlaylist}<button onclick={(event) => runMenuAction(event, () => onPlaylist?.(track))}>Add to playlist</button>{/if}
+            {#if onArtist}<button onclick={(event) => runMenuAction(event, () => onArtist?.(track))}>Open artist</button>{/if}
+            {#if onInfo}<button onclick={(event) => runMenuAction(event, () => onInfo?.(track))}>Track information</button>{/if}
             {#if track.sourceUrl}<a href={track.sourceUrl} target="_blank" rel="noreferrer">Open source ↗</a>{/if}
-            {#if onContext}<button onclick={(event) => onContext?.(track, event)}>More actions…</button>{/if}
+            {#if onContext}<button onclick={(event) => runMenuAction(event, () => onContext?.(track, event))}>More actions…</button>{/if}
           </div></details>
         {/if}
       </div>
@@ -73,7 +141,7 @@
 </ol>
 
 <style>
-  .shared-track-list{list-style:none;margin:0;padding:0;min-width:0}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.buffering .icon-action.play{animation:track-pulse 1s ease-in-out infinite alternate}.shared-track-list li.paused .icon-action.play{animation:none}@keyframes track-pulse{to{opacity:.45;transform:scale(.88)}}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more summary{display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}.icon-action:hover,.more summary:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}.more{position:relative}.more summary{list-style:none}.more summary::-webkit-details-marker{display:none}.more-menu{position:absolute;z-index:5;top:36px;right:0;display:flex;flex-direction:column;min-width:160px;padding:5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 10px 30px #0008}.more-menu button,.more-menu a{padding:8px;border:0;border-radius:5px;background:transparent;color:var(--text);text-align:left;text-decoration:none;white-space:nowrap}.more-menu button:hover,.more-menu a:hover{background:var(--raised)}
+  .shared-track-list{list-style:none;margin:0;padding:0;min-width:0}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.buffering .icon-action.play{animation:track-pulse 1s ease-in-out infinite alternate}.shared-track-list li.paused .icon-action.play{animation:none}@keyframes track-pulse{to{opacity:.45;transform:scale(.88)}}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more summary{display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}.icon-action:hover,.more summary:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}.more{position:relative}.more summary{list-style:none}.more summary::-webkit-details-marker{display:none}.more-menu{position:fixed;z-index:80;top:8px;left:8px;right:auto;display:flex;flex-direction:column;box-sizing:border-box;width:max-content;min-width:160px;max-width:min(240px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow:auto;padding:5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 10px 30px #0008}.more-menu button,.more-menu a{display:flex;flex:0 0 auto;align-items:center;justify-content:flex-start;box-sizing:border-box;width:100%;min-width:0;height:auto;min-height:36px;padding:8px 10px;border:0;border-radius:5px;background:transparent;color:var(--text);font:inherit;font-size:12px;line-height:1.35;text-align:left;text-decoration:none;white-space:normal;overflow-wrap:anywhere;word-break:normal}.more-menu button:hover,.more-menu a:hover{background:var(--raised)}
   @media(max-width:640px){.shared-track-list li{gap:7px}.track-position{flex-basis:18px;font-size:10px}.artwork{flex-basis:36px;width:36px;height:36px}.duration{display:none}.track-title strong{font-size:12px}.track-subtitle{font-size:10px}.row-actions{gap:2px}}
   @media(max-width:450px){.artwork{flex-basis:32px;width:32px;height:32px}.shared-track-list li{gap:5px}.icon-action,.more summary{font-size:12px}}
   @media(prefers-reduced-motion:reduce){.shared-track-list li.buffering .icon-action.play{animation:none}}

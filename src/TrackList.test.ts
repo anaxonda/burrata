@@ -56,6 +56,46 @@ describe("TrackList", () => {
     expect(onContext).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps overflow actions inside the viewport and closes them after use or dismissal", async () => {
+    const onQueue = vi.fn();
+    const target = render({ onQueue });
+    await tick();
+    const menus = [...target.querySelectorAll<HTMLDetailsElement>("details.more")];
+    const firstMenu = menus[0]!;
+    const firstAnchor = firstMenu.querySelector("summary")!;
+    const popup = firstMenu.querySelector<HTMLElement>(".more-menu")!;
+    vi.spyOn(firstAnchor, "getBoundingClientRect").mockReturnValue({ left: window.innerWidth - 30, right: window.innerWidth + 2, top: window.innerHeight - 48, bottom: window.innerHeight - 16, width: 32, height: 32, x: window.innerWidth - 30, y: window.innerHeight - 48, toJSON: () => ({}) });
+    vi.spyOn(popup, "getBoundingClientRect").mockReturnValue({ left: 0, right: 200, top: 0, bottom: 240, width: 200, height: 240, x: 0, y: 0, toJSON: () => ({}) });
+    Object.defineProperty(popup, "scrollHeight", { configurable: true, value: 240 });
+
+    firstMenu.open = true;
+    firstMenu.dispatchEvent(new Event("toggle"));
+    const left = Number.parseFloat(popup.style.left);
+    const top = Number.parseFloat(popup.style.top);
+    expect(popup.style.position).toBe("fixed");
+    expect(left).toBeGreaterThanOrEqual(8);
+    expect(left + 200).toBeLessThanOrEqual(window.innerWidth - 8);
+    expect(top).toBeGreaterThanOrEqual(8);
+    expect(top + 240).toBeLessThanOrEqual(window.innerHeight - 8);
+
+    menus[1]!.open = true;
+    menus[1]!.dispatchEvent(new Event("toggle"));
+    expect(firstMenu.open).toBe(false);
+    expect(menus[1]!.open).toBe(true);
+    menus[1]!.querySelector<HTMLButtonElement>(".more-menu button")!.click();
+    expect(onQueue).toHaveBeenCalledWith(tracks[1]);
+    expect(menus[1]!.open).toBe(false);
+
+    menus[0]!.open = true;
+    menus[0]!.dispatchEvent(new Event("toggle"));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(menus[0]!.open).toBe(false);
+    menus[0]!.open = true;
+    menus[0]!.dispatchEvent(new Event("toggle"));
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(menus[0]!.open).toBe(false);
+  });
+
   it("announces the current row and exposes buffering and selection states", () => {
     const onSelect = vi.fn();
     const target = render({ playingTrackId: "track-1", bufferingTrackId: "track-1", selectedTrackIds: ["track-1"], onSelect });
