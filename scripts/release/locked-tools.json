@@ -67,7 +67,15 @@
       "variants": [
         "win64 gpl 8.1",
         "linux64 gpl 8.1"
-      ]
+      ],
+      "sourceCache": {
+        "workflowRunId": 37619928982,
+        "artifactId": 11481442646,
+        "artifactSha256": "0fba1773c244060a8d9940b0c42aa192c3275b4ea60b1057da4ea6fc6882998f",
+        "artifactBytes": 2210375760,
+        "cacheMember": "cache.tar.gz",
+        "inputList": "scripts/release/btbn-source-cache-targets.json"
+      }
     }
   },
   "fpcalc": {

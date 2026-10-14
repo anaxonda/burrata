@@ -65,6 +65,7 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
 
     jobs = str(os.cpu_count() or 4)
     lame = extracted["lame"]
+    chromaprint = extracted["chromaprint"]
     run(["./configure", f"--prefix={prefix}", "--enable-static", "--disable-shared", "--disable-frontend"], lame)
     run(["make", "-j" + jobs], lame)
     run(["make", "install"], lame)

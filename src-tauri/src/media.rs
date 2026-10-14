@@ -2789,7 +2789,10 @@ mod tests {
                 let asset = LocalAsset {
                     id: "embedded-cover-test".into(),
                     recording_id: track.id.clone(),
-                    path: path.to_string_lossy().into_owned(),
+                    path: fs::canonicalize(&path)
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
                     hash: hash_file(&path).unwrap(),
                     source_codec: "mp3".into(),
                     final_codec: "mp3".into(),
@@ -2875,11 +2878,12 @@ mod tests {
     #[tokio::test]
     async fn asset_retag_preserves_audio_and_recovers_the_committed_journal() {
         let dir = tempfile::tempdir().unwrap();
+        let library = fs::canonicalize(dir.path()).unwrap();
         let settings = Settings {
-            music_directory: dir.path().to_string_lossy().into_owned(),
+            music_directory: library.to_string_lossy().into_owned(),
             ..Settings::default()
         };
-        let path = dir.path().join("retag-fixture.wav");
+        let path = library.join("retag-fixture.wav");
         let result = Command::new("ffmpeg")
             .args([
                 "-nostdin",

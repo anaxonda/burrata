@@ -55,3 +55,9 @@ tempfile = "3"
 [profile.release]
 strip = "debuginfo"
 lto = "thin"
+
+[profile.dev]
+debug = 1
+
+[profile.test]
+debug = 0

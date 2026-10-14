@@ -33,6 +33,7 @@ src-tauri/recognizer/target/
 
 # User-provided API credential notes
 lastfm.txt
+ff.txt
 BURRATA_SOULSEEK_HANDOFF.md
 
 # Local service state and credentials

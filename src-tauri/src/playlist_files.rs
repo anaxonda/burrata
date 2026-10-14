@@ -20,6 +20,7 @@ const MAX_PLAYLIST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_PLAYLIST_ENTRIES: usize = 10_000;
 const MAX_SCAN_DEPTH: usize = 8;
 const MAX_PLAYLISTS: usize = 5000;
+const BURRATA_MIRROR_MARKER: &str = "#BURRATA-MIRROR";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,9 +110,12 @@ pub fn list_local_playlists(settings: &Settings) -> Result<Vec<LocalPlaylistFile
     }
     if !settings.music_directory.trim().is_empty() {
         let configured_mirror_root = Path::new(&settings.music_directory).join("Playlists");
-        let mirror_root =
-            fs::canonicalize(&configured_mirror_root).unwrap_or(configured_mirror_root);
-        files.retain(|file| !Path::new(&file.path).starts_with(&mirror_root));
+        if let Ok(mirror_root) = fs::canonicalize(&configured_mirror_root) {
+            files.retain(|file| {
+                let path = Path::new(&file.path);
+                !path.starts_with(&mirror_root) || !is_burrata_mirror(path)
+            });
+        }
     }
     files.sort_by(|a, b| {
         a.path
@@ -121,6 +125,18 @@ pub fn list_local_playlists(settings: &Settings) -> Result<Vec<LocalPlaylistFile
     });
     files.dedup_by(|a, b| a.path == b.path);
     Ok(files)
+}
+
+fn is_burrata_mirror(path: &Path) -> bool {
+    fs::metadata(path)
+        .ok()
+        .filter(|metadata| metadata.len() <= MAX_PLAYLIST_BYTES)
+        .and_then(|_| fs::read(path).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .is_some_and(|text| {
+            text.lines()
+                .any(|line| line.trim() == BURRATA_MIRROR_MARKER)
+        })
 }
 
 fn scan_directory(
@@ -584,7 +600,9 @@ mod tests {
     #[test]
     fn scans_configured_roots_without_following_symlinks_and_sorts_deterministically() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("playlists");
+        // Keep this distinct from the implicit music_directory/Playlists mirror
+        // path. macOS filesystems are case-insensitive, so "playlists" aliases it.
+        let root = dir.path().join("configured-playlists");
         fs::create_dir_all(root.join("nested")).unwrap();
         fs::write(root.join("z.M3U8"), "#EXTM3U\n/a.mp3\n").unwrap();
         fs::write(root.join("nested/a.m3u"), "#EXTM3U\n/b.mp3\n").unwrap();
@@ -595,8 +613,8 @@ mod tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
         let found = list_local_playlists(&settings(&root)).unwrap();
-        // macOS resolves the system temp directory through /private/tmp, so
-        // compare the scanner's canonical output against the canonical root.
+        // Compare the scanner's canonical output against the canonical root,
+        // since macOS may resolve temp directories through a symlinked prefix.
         let canonical_root = fs::canonicalize(&root).unwrap();
         let mut local: Vec<_> = found
             .iter()
@@ -607,6 +625,30 @@ mod tests {
         assert!(local[0].path.ends_with("nested/a.m3u"));
         assert_eq!(local[0].track_count, 1);
         assert!(local[1].path.ends_with("z.M3U8"));
+    }
+
+    #[test]
+    fn keeps_user_playlists_beside_burrata_mirrors_visible() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("Music");
+        let mirror_root = music.join("Playlists");
+        fs::create_dir_all(&mirror_root).unwrap();
+        let user_playlist = mirror_root.join("My playlist.m3u");
+        fs::write(&user_playlist, "#EXTM3U\n/song.mp3\n").unwrap();
+        let mirror = mirror_root.join("generated.m3u8");
+        fs::write(&mirror, "#EXTM3U\n#BURRATA-MIRROR\n#PLAYLIST:Generated\n").unwrap();
+
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            playlist_directories: vec![mirror_root.to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+        let found = list_local_playlists(&settings).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].path,
+            fs::canonicalize(user_playlist).unwrap().to_string_lossy()
+        );
     }
 
     #[test]

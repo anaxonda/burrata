@@ -114,6 +114,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          cache-on-failure: true
       - name: Install Linux bundle prerequisites
         if: runner.os == 'Linux'
         run: |

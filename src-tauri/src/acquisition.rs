@@ -4318,20 +4318,41 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn independent_web_provider_queries_run_concurrently() {
-        let script = r#"
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let youtube_marker = directory.path().join("youtube-started");
+        let soundcloud_marker = directory.path().join("soundcloud-started");
+        let executable = directory.path().join("fake-yt-dlp");
+        let script = format!(
+            r#"
 case "$*" in
-  *ytsearch*) sleep 0.25; echo '{"entries":[{"id":"yt","url":"https://www.youtube.com/watch?v=yt","title":"Artist - Night Drive","duration":180}]}' ;;
-  *scsearch*) sleep 0.25; echo '{"entries":[{"id":"sc","url":"https://soundcloud.com/artist/night-drive","title":"Artist - Night Drive","duration":180}]}' ;;
+  *ytsearch*) own='{youtube_marker}'; other='{soundcloud_marker}'; result='{{"entries":[{{"id":"yt","url":"https://www.youtube.com/watch?v=yt","title":"Artist - Night Drive","duration":180}}]}}' ;;
+  *scsearch*) own='{soundcloud_marker}'; other='{youtube_marker}'; result='{{"entries":[{{"id":"sc","url":"https://soundcloud.com/artist/night-drive","title":"Artist - Night Drive","duration":180}}]}}' ;;
+  *) exit 2 ;;
 esac
-"#;
-        let (_directory, settings) = fake_tool(script);
+touch "$own"
+i=0
+while [ ! -e "$other" ] && [ "$i" -lt 300 ]; do
+  sleep 0.01
+  i=$((i + 1))
+done
+[ -e "$other" ] || {{ echo 'provider searches did not overlap' >&2; exit 9; }}
+echo "$result"
+"#
+        );
+        std::fs::write(&executable, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let settings = Settings {
+            yt_dlp_path: executable.to_string_lossy().into(),
+            ..Default::default()
+        };
         let track = Track {
             artist: "Artist".into(),
             title: "Night Drive".into(),
             duration_seconds: Some(180.0),
             ..Default::default()
         };
-        let started = Instant::now();
         let found = find_candidates_with_cancel(
             &track,
             &["youtube".into(), "soundcloud".into()],
@@ -4343,7 +4364,6 @@ esac
         .await
         .unwrap();
         assert_eq!(found.len(), 2);
-        assert!(started.elapsed() < Duration::from_millis(450));
     }
 
     #[cfg(unix)]
@@ -4458,6 +4478,7 @@ esac
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn concurrent_preview_cache_misses_share_one_search() {
         use std::sync::atomic::{AtomicUsize, Ordering};

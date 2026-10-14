@@ -113,10 +113,30 @@ fn sync_playlists_with_scan(
         .lock()
         .map_err(|_| "Playlist sync lock is unavailable")?;
     let mut status = PlaylistSyncStatus::default();
-    let files = scan.files;
     status.warnings.extend(scan.warnings);
-    status.scanned = files.len();
     let mut state = read_state(store)?;
+    let mut legacy_mirror_paths = state
+        .mirror_paths
+        .values()
+        .filter_map(|path| fs::canonicalize(path).ok())
+        .collect::<HashSet<_>>();
+    if state.mirror_hashes.contains_key("favorites") {
+        if let Some(path) = mirrors_dir(settings).map(|dir| dir.join("Liked Songs.m3u8")) {
+            if let Ok(path) = fs::canonicalize(path) {
+                legacy_mirror_paths.insert(path);
+            }
+        }
+    }
+    let files = scan
+        .files
+        .into_iter()
+        .filter(|file| {
+            fs::canonicalize(&file.path)
+                .map(|path| !legacy_mirror_paths.contains(&path))
+                .unwrap_or(true)
+        })
+        .collect::<Vec<_>>();
+    status.scanned = files.len();
     state.preserve_mirrors.clear();
     state.changed_sources.clear();
     state.paused_mirrors.clear();
@@ -471,7 +491,7 @@ pub fn export_mixxx_playlist(
     fs::create_dir_all(&root).map_err(|e| format!("Cannot create Mixxx export directory: {e}"))?;
     let path = root.join(format!("{}.m3u8", collection.id));
     let title = collection.name.replace(['\r', '\n'], " ");
-    let mut body = format!("#EXTM3U\n#PLAYLIST:{title}\n");
+    let mut body = format!("#EXTM3U\n#BURRATA-MIRROR\n#PLAYLIST:{title}\n");
     let mut exported = 0;
     let mut missing = Vec::new();
     for track in &tracks {
@@ -1170,7 +1190,11 @@ fn render_m3u(tracks: &[Track], _music_root: &str) -> String {
 }
 
 fn render_named_m3u(name: &str, tracks: &[Track], music_root: &str) -> String {
-    render_m3u(tracks, music_root).replacen("#EXTM3U\n", &format!("#EXTM3U\n#PLAYLIST:{name}\n"), 1)
+    render_m3u(tracks, music_root).replacen(
+        "#EXTM3U\n",
+        &format!("#EXTM3U\n#BURRATA-MIRROR\n#PLAYLIST:{name}\n"),
+        1,
+    )
 }
 
 fn playlist_title(text: &str) -> Option<String> {
@@ -1229,6 +1253,8 @@ mod tests {
                 < text.find("https://youtube.com/watch?v=two").unwrap()
         );
         assert!(text.contains("ytdl://ytsearch1:C Three mix"));
+        let managed_text = render_named_m3u("Managed", &tracks, "/music");
+        assert!(managed_text.starts_with("#EXTM3U\n#BURRATA-MIRROR\n#PLAYLIST:Managed\n"));
         assert_eq!(
             count_entries("#EXTM3U\n#EXTINF:1,A - B\nhttps://x\n../c.mp3\n"),
             2
@@ -1732,6 +1758,39 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn startup_sync_ignores_legacy_unmarked_persisted_mirror() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("Music");
+        let mirror_dir = music.join("Playlists/Personal");
+        fs::create_dir_all(&mirror_dir).unwrap();
+        let mirror = mirror_dir.join("legacy-collection.m3u8");
+        fs::write(
+            &mirror,
+            "#EXTM3U\n#PLAYLIST:Old generated mirror\nhttps://example.com/track\n",
+        )
+        .unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+        store
+            .save_playlist_sync_state(&serde_json::json!({
+                "mirrorPaths": {"legacy-collection": mirror.to_string_lossy()},
+                "mirrorHashes": {"legacy-collection": "previous-hash"}
+            }))
+            .unwrap();
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            playlist_directories: vec![music.join("Playlists").to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+        let scan = playlist_files::scan_local_playlists(&settings).unwrap();
+
+        let status = sync_playlists_with_scan(&store, &settings, scan).unwrap();
+
+        assert_eq!(status.scanned, 0);
+        assert!(status.sources.is_empty());
+        assert!(store.list_collections().unwrap().is_empty());
     }
 
     #[test]
