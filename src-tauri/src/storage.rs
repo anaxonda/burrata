@@ -428,7 +428,7 @@ impl Store {
             .collect()
     }
     /// Search the saved library in SQLite, returning only the requested stable page.
-    /// Matching is across the same five metadata fields used by discovery search.
+    /// Matching covers the library fields used by discovery and MCP library search.
     pub fn search_library_tracks(
         &self,
         terms: &[String],
@@ -438,7 +438,7 @@ impl Store {
         let conn = self.connection.lock().map_err(err)?;
         let mut filters = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
-        let haystack = "lower(COALESCE(json_extract(l.metadata,'$.artist'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.title'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.album'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.version'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.remixers'),''))";
+        let haystack = "lower(COALESCE(json_extract(l.metadata,'$.artist'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.title'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.album'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.version'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.remixers'),'' ) || ' ' || COALESCE(json_quote(json_extract(l.metadata,'$.provenance.remixers')),'null') || ' ' || COALESCE(json_quote(json_extract(l.metadata,'$.provenance.artistCredits')),'null'))";
         for term in terms {
             filters.push(format!("instr({haystack},?)>0"));
             values.push(term.to_lowercase().into());
@@ -463,7 +463,7 @@ impl Store {
             for raw in rows {
                 let track: Track = decode(raw.clone())?;
                 let haystack = format!(
-                    "{} {} {} {} {}",
+                    "{} {} {} {} {} {} {}",
                     track.artist,
                     track.title,
                     track.album.as_deref().unwrap_or(""),
@@ -472,7 +472,9 @@ impl Store {
                         .remixers
                         .as_ref()
                         .map(|names| names.join(" "))
-                        .unwrap_or_default()
+                        .unwrap_or_default(),
+                    track.provenance["remixers"].to_string(),
+                    track.provenance["artistCredits"].to_string()
                 )
                 .to_lowercase();
                 if terms
@@ -1632,6 +1634,36 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = Store::open(&d.path().join("library.sqlite")).unwrap();
         (d, s)
+    }
+
+    #[test]
+    fn indexed_library_search_includes_unicode_remixer_and_credit_metadata_with_pagination() {
+        let (_dir, store) = db();
+        let mut top_level = track("top-level", "");
+        top_level.remixers = Some(vec!["Máté Remixer".into()]);
+        let mut provenance_remixer = track("provenance-remixer", "");
+        provenance_remixer.provenance = serde_json::json!({"remixers": ["Máté Remixer"]});
+        let mut artist_credit = track("artist-credit", "");
+        artist_credit.provenance = serde_json::json!({"artistCredits": ["Máté Remixer"]});
+        for saved in [&top_level, &provenance_remixer, &artist_credit] {
+            store.save_track(saved).unwrap();
+        }
+
+        let (ascii_matches, total) = store
+            .search_library_tracks(&["Remixer".into()], 10, 0)
+            .unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(ascii_matches.len(), 3);
+
+        let (first_page, total) = store.search_library_tracks(&["máté".into()], 2, 0).unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(first_page.len(), 2);
+        assert_eq!(first_page[0].id, "fixture:artist-credit");
+        assert_eq!(first_page[1].id, "fixture:provenance-remixer");
+        let (last_page, total) = store.search_library_tracks(&["máté".into()], 2, 2).unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(last_page.len(), 1);
+        assert_eq!(last_page[0].id, "fixture:top-level");
     }
     #[test]
     fn asset_lookup_by_path_returns_only_the_indexed_exact_path() {

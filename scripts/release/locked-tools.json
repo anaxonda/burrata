@@ -50,7 +50,8 @@
         "--enable-gpl",
         "--enable-libmp3lame",
         "--enable-libopus",
-        "--enable-securetransport"
+        "--enable-securetransport",
+        "--enable-encoder=png"
       ]
     },
     "sourceCommits": {
@@ -138,6 +139,7 @@
     },
     "licenseText": {
       "file": "LGPL-2.1.txt",
+      "localPath": "scripts/release/licenses/LGPL-2.1.txt",
       "url": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt",
       "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
     }

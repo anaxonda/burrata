@@ -632,30 +632,13 @@ impl AutomationService {
                     .await?
             }
             "search_library" => {
-                let q = str_arg(&a, "query", 500)?.to_lowercase();
+                let q = str_arg(&a, "query", 500)?;
                 let offset = usize_arg(&a, "offset", 100000)?.unwrap_or(0);
                 let limit = usize_arg(&a, "limit", MAX_PAGE)?.unwrap_or(25).max(1);
-                let mut rows = self
+                let (rows, total) = self
                     .store
-                    .list_tracks("library", None)
-                    .map_err(ToolError::failed)?
-                    .into_iter()
-                    .filter(|t| {
-                        format!(
-                            "{} {} {} {} {} {}",
-                            t.artist,
-                            t.title,
-                            t.version.as_deref().unwrap_or(""),
-                            t.album.as_deref().unwrap_or(""),
-                            t.provenance["remixers"].to_string(),
-                            t.provenance["artistCredits"].to_string()
-                        )
-                        .to_lowercase()
-                        .contains(&q)
-                    })
-                    .collect::<Vec<_>>();
-                let total = rows.len();
-                rows = rows.drain(offset.min(total)..).take(limit).collect();
+                    .search_library_tracks(&[q], limit, offset)
+                    .map_err(ToolError::failed)?;
                 json!({"items":rows.into_iter().map(safe_track).collect::<Vec<_>>(),"total":total,"offset":offset,"limit":limit,"hasMore":offset.saturating_add(limit)<total})
             }
             "get_track" => {

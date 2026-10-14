@@ -75,10 +75,12 @@ def prepare(target: str, destination: pathlib.Path) -> None:
         source_record = fpcalc_lock["sourceArchive"]
         source_archive = tmp / "chromaprint-1.5.1.tar.gz"
         license_record = fpcalc_lock["licenseText"]
-        license_text = tmp / license_record["file"]
+        license_text = ROOT / license_record["localPath"]
         verified_download(asset["url"], binary_archive, asset["sha256"])
         verified_download(source_record["url"], source_archive, source_record["sha256"])
-        verified_download(license_record["url"], license_text, license_record["sha256"])
+        license_sha = sha256(license_text)
+        if license_sha != license_record["sha256"]:
+            raise RuntimeError(f"Checked-in LGPL text SHA-256 mismatch: expected {license_record['sha256']}, got {license_sha}")
 
         binary = tmp / expected_binary_name
         binary.write_bytes(member_bytes(binary_archive, expected_binary_name))

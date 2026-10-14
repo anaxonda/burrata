@@ -11,6 +11,8 @@ bundle_dir="src-tauri/target/$TARGET/release/bundle"
 out="release-artifacts"
 rm -rf "$out"
 mkdir -p "$out/installers"
+test -s .cache/release-smoke-evidence.json || { echo "Installed-artifact smoke evidence is missing" >&2; exit 1; }
+cp .cache/release-smoke-evidence.json "$out/smoke-evidence.json"
 find "$bundle_dir" -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp -v {} "$out/installers/" \;
 test -n "$(find "$out/installers" -type f -print -quit)" || { echo "No installer produced for $TARGET" >&2; exit 1; }
 python3 scripts/release/write-inventory.py "$out/artifact-inventory.json"
@@ -63,4 +65,7 @@ fi
 cp ".cache/release-assets/burrata-yt-dlp-$TARGET"* "$out/"
 cp ".cache/release-assets/bgutil-plugin-2.0.2-$TARGET.zip" "$out/"
 cp ".cache/release-assets/youtube-support-target.json" "$out/"
-(cd "$out" && find installers -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+(cd "$out" && {
+  find installers -type f -print0 | sort -z | xargs -0 sha256sum
+  sha256sum smoke-evidence.json
+} > SHA256SUMS.txt)

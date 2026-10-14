@@ -80,9 +80,9 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
     env["PKG_CONFIG_ALLOW_SYSTEM_CFLAGS"] = "1"
     env["PKG_CONFIG_ALLOW_SYSTEM_LIBS"] = "1"
     ffmpeg = extracted["ffmpeg"]
+    macos_configure = LOCK["ffmpeg"]["macOSSourceBuild"]["configure"]
     configure = [
-        "./configure", f"--prefix={prefix}", "--disable-autodetect", "--disable-shared", "--enable-static",
-        "--enable-gpl", "--enable-libmp3lame", "--enable-libopus", "--enable-securetransport",
+        "./configure", f"--prefix={prefix}", *macos_configure,
         "--pkg-config-flags=--static", f"--extra-cflags=-I{prefix}/include -mmacosx-version-min=14.0",
         f"--extra-ldflags=-L{prefix}/lib -mmacosx-version-min=14.0",
     ]
@@ -148,6 +148,8 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
             raise RuntimeError(f"Missing upstream license file: {license_path}")
         (DEST / output_name).write_bytes(license_path.read_bytes())
     lgpl = LOCK["fpcalc"]["licenseText"]
-    lgpl_path = source_dir / lgpl["file"]
-    download(lgpl["url"], lgpl_path, lgpl["sha256"])
+    lgpl_path = ROOT / lgpl["localPath"]
+    lgpl_sha = hashlib.sha256(lgpl_path.read_bytes()).hexdigest()
+    if lgpl_sha != lgpl["sha256"]:
+        raise RuntimeError(f"Checked-in LGPL text SHA-256 mismatch: expected {lgpl['sha256']}, got {lgpl_sha}")
     shutil.copy2(lgpl_path, DEST / lgpl["file"])
