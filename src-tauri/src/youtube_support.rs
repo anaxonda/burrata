@@ -24,7 +24,8 @@ use tokio::{
 };
 
 const REPO_API: &str = "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest";
-const RECOMMENDED_REPO_API: &str = "https://api.github.com/repos/anaxonda/burrata/releases/latest";
+const RECOMMENDED_REPO_API: &str =
+    "https://api.github.com/repos/anaxonda/burrata/releases?per_page=10";
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const HELPER_PORT: u16 = 4416;
 const MAX_UPSTREAM_ASSET_BYTES: usize = 120 * 1024 * 1024;
@@ -72,6 +73,7 @@ pub enum DiagnosisCategory {
     LoginRequired,
     Http403,
     ExpiredStream,
+    VideoUnavailable,
     Network,
     Unsupported,
 }
@@ -228,7 +230,7 @@ impl YouTubeSupportManager {
                 published_at: None,
                 available: false,
                 message:
-                    "Burrata's configured GitHub release does not publish youtube-support.json yet."
+                    "The selected published Burrata release does not publish youtube-support.json yet."
                         .into(),
             },
             Err(message) => UpdateCheck {
@@ -414,16 +416,7 @@ impl YouTubeSupportManager {
     }
 
     async fn load_recommended(&self) -> Result<Option<(String, Option<String>)>, String> {
-        let release: Value = github_client()?
-            .get(RECOMMENDED_REPO_API)
-            .send()
-            .await
-            .map_err(|e| format!("Could not check Burrata's recommended update feed: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("Could not check Burrata's recommended update feed: {e}"))?
-            .json()
-            .await
-            .map_err(|e| format!("Burrata's recommended release metadata is invalid: {e}"))?;
+        let release = self.fetch_recommended_release().await?;
         let published = release["published_at"].as_str().map(str::to_owned);
         match self
             .load_recommended_manifest_from_release(&release)
@@ -437,7 +430,17 @@ impl YouTubeSupportManager {
     async fn load_recommended_bundle(
         &self,
     ) -> Result<(RecommendedTarget, ReleaseAsset, String), String> {
-        let release: Value = github_client()?
+        let release = self.fetch_recommended_release().await?;
+        self.load_recommended_manifest_from_release(&release)
+            .await?
+            .ok_or_else(|| {
+                "The selected published Burrata release does not publish youtube-support.json yet."
+                    .to_owned()
+            })
+    }
+
+    async fn fetch_recommended_release(&self) -> Result<Value, String> {
+        let releases: Value = github_client()?
             .get(RECOMMENDED_REPO_API)
             .send()
             .await
@@ -447,10 +450,10 @@ impl YouTubeSupportManager {
             .json()
             .await
             .map_err(|e| format!("Burrata's recommended release metadata is invalid: {e}"))?;
-        self.load_recommended_manifest_from_release(&release)
-            .await?
+        select_recommended_release(&releases)
+            .cloned()
             .ok_or_else(|| {
-                "Burrata's configured GitHub release does not publish youtube-support.json yet."
+                "No published Burrata release in the latest 10 releases contains youtube-support.json."
                     .to_owned()
             })
     }
@@ -1050,7 +1053,12 @@ fn is_supported_youtube_url(value: &str) -> bool {
 }
 fn classify_ytdlp_error(stderr: &str) -> DiagnosisCategory {
     let s = stderr.to_ascii_lowercase();
-    if s.contains("javascript runtime")
+    if s.contains("video unavailable")
+        || s.contains("this video is unavailable")
+        || s.contains("video has been removed")
+    {
+        DiagnosisCategory::VideoUnavailable
+    } else if s.contains("javascript runtime")
         || s.contains("js runtime")
         || s.contains("node not found")
         || s.contains("deno not found")
@@ -1091,6 +1099,7 @@ fn diagnosis_message(category: &DiagnosisCategory) -> &'static str {
         DiagnosisCategory::LoginRequired => "YouTube requires sign-in for this video or network. Burrata does not use account cookies.",
         DiagnosisCategory::Http403 => "YouTube returned HTTP 403. Retry with the current yt-dlp nightly or run this check again later.",
         DiagnosisCategory::ExpiredStream => "YouTube returned an expired stream. Re-extract the video to get a fresh audio URL.",
+        DiagnosisCategory::VideoUnavailable => "YouTube reports that this video is unavailable. Check that it is public and playable in your region.",
         DiagnosisCategory::Unsupported => "yt-dlp did not recognize this video URL.",
         _ => "YouTube extraction failed. Check your connection and try again.",
     }
@@ -1237,6 +1246,17 @@ fn parse_assets(release: &Value) -> Result<Vec<ReleaseAsset>, String> {
             })
         })
         .collect()
+}
+fn select_recommended_release(releases: &Value) -> Option<&Value> {
+    releases.as_array()?.iter().find(|release| {
+        release["draft"].as_bool() == Some(false)
+            && release["published_at"].as_str().is_some()
+            && release["assets"].as_array().is_some_and(|assets| {
+                assets
+                    .iter()
+                    .any(|asset| asset["name"] == "youtube-support.json")
+            })
+    })
 }
 fn platform_asset_name() -> Result<&'static str, String> {
     if cfg!(target_os = "windows") {
@@ -1533,11 +1553,41 @@ mod tests {
             classify_ytdlp_error("Sign in to confirm you are not a bot"),
             DiagnosisCategory::LoginRequired
         );
+        assert_eq!(
+            classify_ytdlp_error("ERROR: [youtube] Video unavailable"),
+            DiagnosisCategory::VideoUnavailable
+        );
         assert!(!is_supported_youtube_url(
             "http://youtube.com/watch?v=secret"
         ));
         assert!(!is_supported_youtube_url(
             "https://example.com/watch?v=secret"
         ));
+    }
+
+    #[test]
+    fn recommended_feed_selects_newest_published_release_including_prereleases() {
+        let releases = serde_json::json!([
+            {"tag_name":"draft","draft":true,"prerelease":false,"published_at":null,
+             "assets":[{"name":"youtube-support.json"}]},
+            {"tag_name":"candidate","draft":false,"prerelease":true,"published_at":"2026-10-12T12:00:00Z",
+             "assets":[{"name":"youtube-support.json"}]},
+            {"tag_name":"older","draft":false,"prerelease":false,"published_at":"2026-10-10T12:00:00Z",
+             "assets":[{"name":"youtube-support.json"}]}
+        ]);
+        let selected = select_recommended_release(&releases).unwrap();
+        assert_eq!(selected["tag_name"], "candidate");
+    }
+
+    #[test]
+    fn recommended_feed_without_published_manifest_is_not_selected() {
+        let releases = serde_json::json!([
+            {"tag_name":"draft","draft":true,"published_at":null,
+             "assets":[{"name":"youtube-support.json"}]},
+            {"tag_name":"published-without-feed","draft":false,"published_at":"2026-10-12T12:00:00Z",
+             "assets":[{"name":"burrata.tar.gz"}]}
+        ]);
+        assert!(select_recommended_release(&releases).is_none());
+        assert!(select_recommended_release(&serde_json::json!([])).is_none());
     }
 }

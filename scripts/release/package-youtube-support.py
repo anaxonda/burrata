@@ -14,7 +14,7 @@ plugin = ROOT / "src-tauri/resources/youtube-support/bgutil/plugin/yt_dlp_plugin
 if not plugin.is_dir() or not any(plugin.rglob("*.py")):
     raise SystemExit(f"Required pinned BgUtils plugin sources are missing: {plugin}")
 output = ROOT / ".cache/release-assets"
-output.mkdir(exist_ok=True)
+output.mkdir(parents=True, exist_ok=True)
 if TARGET not in lock["ytDlp"]["assets"]:
     raise SystemExit(f"No locked yt-dlp update binary for target {TARGET!r}")
 # The verified upstream archive name is retained in lock metadata, but the

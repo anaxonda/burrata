@@ -64,7 +64,10 @@
       "sourceArchive": "https://github.com/BtbN/FFmpeg-Builds/archive/refs/tags/autobuild-2026-10-07-13-07.tar.gz",
       "sha256": "e46e2323fddeb8a77395a9da6da28cec85df76c9d2952a97860b7df43aead103",
       "license": "MIT",
-      "variants": ["win64 gpl 8.1", "linux64 gpl 8.1"]
+      "variants": [
+        "win64 gpl 8.1",
+        "linux64 gpl 8.1"
+      ]
     }
   },
   "fpcalc": {
@@ -92,6 +95,13 @@
         "sha256": "36b478e16aa69f757f376645db0d436073a42c0097b6bb2677109e7835b59bbc",
         "binary": "fpcalc.exe",
         "binarySha256": "659ea2dba1a12d7df4fe2b6f23f60fd9414ae61aca1b014ee8fa37c5e09b930b"
+      },
+      "aarch64-apple-darwin": {
+        "asset": "chromaprint-fpcalc-1.5.1-macos-arm64.tar.gz",
+        "url": "https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-macos-arm64.tar.gz",
+        "sha256": "9c5d9565d2396dbcf0e1d797e1ffdf1e19242f3bed88ac3200e144286b57ede6",
+        "binary": "fpcalc",
+        "binarySha256": "b1b4079ac041ccd5933a55ba73234f9cbc86053e56204a550be0e424eeaac915"
       }
     },
     "licenseText": {
