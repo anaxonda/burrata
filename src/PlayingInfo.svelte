@@ -20,6 +20,8 @@
     activeChapter = "",
     onPlay,
     onMoreInfo,
+    onFavorite,
+    favorite = track.favorite,
     panelWidth = 340,
     onPanelWidthChange,
   }: {
@@ -38,6 +40,8 @@
     activeChapter?: string;
     onPlay?: () => void;
     onMoreInfo?: () => void;
+    onFavorite?: () => void;
+    favorite?: boolean;
     panelWidth?: number;
     onPanelWidthChange?: (width: number) => void;
   } = $props();
@@ -158,6 +162,7 @@
     </dl>
 
     <div class="actions">
+      {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}>{favorite ? "♥ Favorited" : "♡ Add to favorites"}</button>{/if}
       {#if onPlay}<button class="primary" onclick={onPlay}>Play</button>{/if}
       {#if !radioLinks.isRadio}<SourceLink {track} />{/if}
       {#if candidate?.url && /^https:\/\//.test(candidate.url)}

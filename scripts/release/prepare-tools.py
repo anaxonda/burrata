@@ -19,8 +19,24 @@ if TARGET not in LOCK["node"]["archives"] or TARGET not in LOCK["ytDlp"]["assets
     raise SystemExit(f"No locked Node/yt-dlp artifacts for target {TARGET!r}")
 
 DEST = ROOT / "src-tauri/resources/tools" / TARGET
+PREPARED_CACHE = ROOT / ".cache/prepared-tool-resources" / TARGET
 shutil.rmtree(DEST, ignore_errors=True)
 DEST.mkdir(parents=True)
+
+# Reuse a prepared runtime only after checking the locked media profile, source
+# archive hashes, embedded build recipe, tool versions, and executable hashes.
+if PREPARED_CACHE.is_dir():
+    shutil.copytree(PREPARED_CACHE, DEST, dirs_exist_ok=True)
+    verified = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/release/verify-media-tool-build.py"), TARGET],
+        check=False,
+    )
+    if verified.returncode == 0:
+        print(f"Restored verified prepared tool resources from {PREPARED_CACHE}")
+        raise SystemExit(0)
+    print("Prepared tool cache failed verification; rebuilding from locked sources", file=sys.stderr)
+    shutil.rmtree(DEST)
+    DEST.mkdir(parents=True)
 
 
 def fetch(url: str, path: pathlib.Path) -> None:
@@ -115,93 +131,57 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
     fetch(LOCK["ytDlp"]["noticesUrl"], DEST / "YT_DLP_THIRD_PARTY_LICENSES.txt")
     fetch(LOCK["ytDlp"]["licenseUrl"], DEST / "YT_DLP_LICENSE.txt")
 
-    if TARGET in LOCK["ffmpeg"]["assets"]:
-        ffmpeg_name = LOCK["ffmpeg"]["assets"][TARGET]
-        ffmpeg = verified_download(LOCK["ffmpeg"]["upstream"], ffmpeg_name,
-                                   LOCK["ffmpeg"]["checksumFile"], tmp)
-        wanted = ("ffmpeg.exe", "ffprobe.exe", "LICENSE.txt") if os.name == "nt" else ("ffmpeg", "ffprobe", "LICENSE.txt")
-        extract_archive(ffmpeg, tmp, wanted)
-        shutil.move(DEST / "LICENSE.txt", DEST / "FFMPEG_UPSTREAM_LICENSE.txt")
-        ffmpeg_sha = sha256(ffmpeg)
-        source_commit = LOCK["ffmpeg"]["sourceCommits"][TARGET]
-        sources = DEST / "sources"
-        sources.mkdir(exist_ok=True)
-        source_archive = sources / f"ffmpeg-{source_commit}.tar.gz"
-        source_url = f"https://github.com/FFmpeg/FFmpeg/archive/{source_commit}.tar.gz"
-        fetch(source_url, source_archive)
-        (sources / "FFMPEG_SOURCE_COMMIT.txt").write_text(f"Repository: https://github.com/FFmpeg/FFmpeg\nPinned commit prefix: {source_commit}\nArchive URL: {source_url}\n", encoding="utf-8")
-        ffmpeg_source_record = {"commit": source_commit, "archive": source_archive.name, "sha256": sha256(source_archive), "url": source_url}
-        recipe = LOCK["ffmpeg"]["btbnBuildRecipe"]
-        recipe_archive = sources / f"BtbN-FFmpeg-Builds-{recipe['commit']}.tar.gz"
-        fetch(recipe["sourceArchive"], recipe_archive)
-        recipe_digest = sha256(recipe_archive)
-        if recipe_digest != recipe["sha256"]:
-            raise RuntimeError(f"Pinned BtbN build-recipe source SHA-256 mismatch: expected {recipe['sha256']}, got {recipe_digest}")
-        recipe_record = {
-            "repository": recipe["repository"], "releaseTag": recipe["releaseTag"],
-            "commit": recipe["commit"], "archive": recipe_archive.name,
-            "sha256": recipe_digest, "url": recipe["sourceArchive"],
-            "license": recipe["license"], "variants": recipe["variants"],
-        }
-        source_bundle = recipe["sourceCache"]["sourceBundle"]
-        source_manifest_path = ROOT / source_bundle["manifest"]["localPath"]
-        source_manifest_sha = sha256(source_manifest_path)
-        if source_manifest_sha != source_bundle["manifest"]["sha256"]:
-            raise RuntimeError(
-                "Pinned BtbN corresponding-source manifest SHA-256 mismatch: "
-                f"expected {source_bundle['manifest']['sha256']}, got {source_manifest_sha}"
-            )
-        source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
-        source_cache = source_manifest.get("sourceCache", {})
-        if (source_manifest.get("commit") != recipe["commit"]
-                or source_manifest.get("releaseTag") != recipe["releaseTag"]
-                or source_cache.get("workflowRunId") != recipe["sourceCache"]["workflowRunId"]
-                or source_cache.get("artifactSha256") != recipe["sourceCache"]["artifactSha256"]):
-            raise RuntimeError("BtbN corresponding-source manifest provenance does not match the pinned build")
-        expected_parts = [
-            {"file": item["asset"], "bytes": item["bytes"], "sha256": item["sha256"]}
-            for item in source_bundle["parts"]
-        ]
-        if source_cache.get("parts") != expected_parts:
-            raise RuntimeError("BtbN corresponding-source manifest parts differ from locked source assets")
-        variant_entries = source_cache.get("variants", {}).get(TARGET, {}).get("sourceEntries")
-        target_entry_count = len(json.loads((ROOT / recipe["sourceCache"]["inputList"]).read_text(encoding="utf-8"))["variants"][TARGET]["cacheEntries"])
-        if variant_entries != target_entry_count or source_cache.get("uniqueSourceEntries") != 119:
-            raise RuntimeError("BtbN corresponding-source manifest does not cover the locked target source archives")
-        shutil.copy2(source_manifest_path, sources / source_bundle["manifest"]["asset"])
-        recipe_record["sourceBundle"] = {
-            "releaseTag": source_bundle["releaseTag"],
-            "manifest": source_bundle["manifest"]["asset"],
-            "manifestSha256": source_manifest_sha,
-            "parts": expected_parts,
-            "uniqueSourceEntries": source_cache["uniqueSourceEntries"],
-            "targetSourceEntries": variant_entries,
-        }
-    elif TARGET == "aarch64-apple-darwin":
-        ffmpeg_name = "ffmpeg-8.1.3.tar.xz (source-built)"
-        subprocess.run([sys.executable, str(ROOT / "scripts/release/build-macos-media-tools.py"), str(DEST)], check=True)
-        ffmpeg_sha = LOCK["ffmpeg"]["macOSSourceBuild"]["sha256"]
-    else:
+    builders = {
+        "aarch64-apple-darwin": "build-macos-media-tools.py",
+        "x86_64-pc-windows-msvc": "build-windows-media-tools.py",
+        "x86_64-unknown-linux-gnu": "build-linux-media-tools.py",
+    }
+    builder = builders.get(TARGET)
+    if builder is None:
         raise SystemExit(f"No pinned FFmpeg build is defined for target {TARGET!r}")
+    subprocess.run([sys.executable, str(ROOT / "scripts/release" / builder), str(DEST)], check=True)
+    recipe_dir = DEST / "build-recipe"
+    recipe_dir.mkdir()
+    recipe_files = ["build-media-tools-common.py", builder, "test-media-tools.py", "locked-tools.json"]
+    for filename in recipe_files:
+        shutil.copy2(ROOT / "scripts/release" / filename, recipe_dir / filename)
     ffmpeg_bin = DEST / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    ffprobe_bin = DEST / ("ffprobe.exe" if os.name == "nt" else "ffprobe")
     actual_ffmpeg = subprocess.check_output([str(ffmpeg_bin), "-version"], text=True).splitlines()[0]
     if LOCK["ffmpeg"]["version"] not in actual_ffmpeg:
         raise RuntimeError(f"Bundled FFmpeg version mismatch: expected {LOCK['ffmpeg']['version']}, got {actual_ffmpeg}")
     (DEST / "FFMPEG_LICENSE.txt").write_bytes(subprocess.check_output([str(ffmpeg_bin), "-L"]))
     (DEST / "FFMPEG_BUILD_INFO.txt").write_bytes(subprocess.check_output([str(ffmpeg_bin), "-version"]))
+    ffmpeg_name = LOCK["ffmpeg"]["source"]["archive"]
+    media_inventory = DEST / "MEDIA_SOURCE_INVENTORY.json"
+    build_configuration = DEST / "FFMPEG_BUILD_CONFIGURATION.json"
 
     readme = DEST / "LOCKED_TOOLS.json"
     tool_record = {
         "target": TARGET,
         "versions": {"node": LOCK["node"]["version"], "yt-dlp": LOCK["ytDlp"]["version"], "ffmpeg-build": LOCK["ffmpeg"]["version"]},
-        "sha256": {node_archive_name: sha256(node_archive), ytdlp_name: sha256(ytdlp), ffmpeg_name: ffmpeg_sha},
+        "sha256": {
+            node_archive_name: sha256(node_archive),
+            ytdlp_name: sha256(ytdlp),
+            "nodeExecutable": sha256(node_bin),
+            "ytDlpExecutable": sha256(ytdlp_bin),
+            ffmpeg_name: sha256(DEST / "sources" / ffmpeg_name),
+            "ffmpegExecutable": sha256(ffmpeg_bin),
+            "ffprobeExecutable": sha256(ffprobe_bin),
+            "mediaSourceInventory": sha256(media_inventory),
+            "ffmpegBuildConfiguration": sha256(build_configuration),
+            "buildRecipe": {filename: sha256(recipe_dir / filename) for filename in recipe_files},
+        },
         "sources": {"yt-dlp": {"commit": LOCK["ytDlp"]["sourceCommit"], "url": LOCK["ytDlp"]["licenseUrl"]}},
         "license": {"node": LOCK["node"]["license"], "yt-dlp": LOCK["ytDlp"]["license"], "ffmpeg": LOCK["ffmpeg"]["license"]}
     }
-    if TARGET in LOCK["ffmpeg"]["assets"]:
-        tool_record["ffmpegSource"] = ffmpeg_source_record
-        tool_record["ffmpegBuildRecipe"] = recipe_record
+    tool_record["mediaSourceInventory"] = json.loads(media_inventory.read_text(encoding="utf-8"))
+    tool_record["ffmpegBuildConfiguration"] = json.loads(build_configuration.read_text(encoding="utf-8"))
     if TARGET == "aarch64-apple-darwin":
         tool_record["fpcalc"] = {"version": LOCK["fpcalc"]["version"], "sha256": LOCK["fpcalc"]["sha256"], "license": LOCK["fpcalc"]["license"]}
     readme.write_text(json.dumps(tool_record, indent=2) + "\n", encoding="utf-8")
+subprocess.run([sys.executable, str(ROOT / "scripts/release/verify-media-tool-build.py"), TARGET], check=True)
+shutil.rmtree(PREPARED_CACHE, ignore_errors=True)
+PREPARED_CACHE.parent.mkdir(parents=True, exist_ok=True)
+shutil.copytree(DEST, PREPARED_CACHE)
 print(f"Prepared verified tool resources at {DEST}")

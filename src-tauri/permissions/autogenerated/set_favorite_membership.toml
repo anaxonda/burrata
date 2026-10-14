@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-favorite-membership"
+description = "Enables the set_favorite_membership command without any pre-configured scope."
+commands.allow = ["set_favorite_membership"]
+
+[[permission]]
+identifier = "deny-set-favorite-membership"
+description = "Denies the set_favorite_membership command without any pre-configured scope."
+commands.deny = ["set_favorite_membership"]

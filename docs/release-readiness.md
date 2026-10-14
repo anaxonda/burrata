@@ -1,6 +1,6 @@
 # Desktop release readiness
 
-Audit date: 2026-10-13. This document describes the release automation and its remaining distribution gates. It is not a release approval or legal opinion.
+Audit date: 2026-10-14. This document describes the release automation and its remaining distribution gates. It is not a release approval or legal opinion.
 
 ## Release automation
 
@@ -20,7 +20,7 @@ Each native job also builds the matching BgUtils provider/plugin 2.0.2 from its 
 
 `scripts/release/locked-tools.json` records exact versions, upstream URLs, asset names, licenses, and upstream checksum manifests. `prepare-tools.py` stages native tools under `src-tauri/resources/tools/<target-triple>/` and rejects missing or mismatched upstream SHA-256 entries. The pinned shared JavaScript runtime is Node LTS 24. yt-dlp uses the tested official nightly PyInstaller binary with bundled EJS support. Deno is not part of the desktop runtime.
 
-All three targets include FFmpeg/ffprobe 8.1.3. macOS builds natively from the pinned source archive with statically built LAME 3.100 and Opus 1.6.1, disables autodetection, and enables Secure Transport. Windows and Linux use named assets from the immutable BtbN FFmpeg-Builds release and verify them against its checksum file. Their exact BtbN autobuild recipe and all 119 unique dependency source-cache archives referenced by the successful Windows/Linux target Dockerfiles are published in the separate [runtime-sources-2026-10-07 source-only release](https://github.com/anaxonda/burrata/releases/tag/runtime-sources-2026-10-07). Native preparation validates the checked-in compact source manifest; final artifact collection verifies the published manifest bytes and both source-asset sizes against the lock. Installers link to the source release without embedding its 2.1 GB of archives. The manifest inventories source hashes, license/notice paths, and embedded MIT header grants. The macOS bundle also includes fpcalc 1.5.1 from its pinned upstream asset with matching source archive and notices. Missing binaries, source manifest, or checksum matches fail preparation; missing published source assets fail artifact collection.
+All three targets build FFmpeg/ffprobe 8.1.3 from the same pinned upstream source archive and shared GPL-3.0-or-later feature profile. The build statically includes LAME 3.100 and Opus 1.6.1, enables zlib (pinned static zlib 1.3.2 on Linux/Windows and SDK zlib on macOS), disables dependency autodetection, and retains broad built-in audio decoding, common containers and transports, PNG artwork encoding, metadata, and chapters. TLS uses Apple Secure Transport on macOS, pinned static OpenSSL 3.5.9 on Linux, and Windows Schannel on Windows; Windows native CI supplies an MSYS2 MINGW64 compiler for FFmpeg's MinGW build. Each target stages the exact corresponding source archives, upstream licenses, target build scripts, effective configure arguments, and hash inventory with the runtime. CI caches prepared runtime bundles by target, lock file, and builder source; every restored bundle is checked against its source inventory, recipe hashes, binary hashes, and versions before use. Native CI rehashes cached sources before use and exercises MP3, Opus, FLAC, PNG, and Matroska metadata/chapters against generated fixtures while checking HTTPS and common transport support. The Windows and Linux BtbN binaries and their separate 2.1 GB source-cache bundle are no longer used by release preparation. `prepare-tools.py` and artifact collection verify the built binaries, source archives, build scripts, configuration, and notices against `locked-tools.json`. A successful clean-run qualification across the new builders is still required before release. The macOS bundle also includes fpcalc 1.5.1 from its pinned upstream asset with matching source archive and notices.
 
 fpcalc 1.5.1 is included on all three targets from the official pinned Chromaprint release assets. Preparation verifies each archive and extracted binary hash, retains the matching source archive and upstream `LICENSE.md`, and adds the locally checked-in LGPL-2.1 text after verifying its locked SHA-256.
 
@@ -40,3 +40,74 @@ There is no `Deno` dependency: yt-dlp EJS is supplied by the official PyInstalle
 slskd remains a separate, optional service configured by the user. Burrata connects to its HTTP API and does not install or supervise it. Browser capture requires the companion extension and native messaging host. Optional AcoustID fingerprinting requires `fpcalc` plus an AcoustID key. Provider credentials are stored in the operating system credential store where supported; they are not release build secrets. See [tool setup](tool-setup.md), [connections](connections.md), and [MCP bridge](mcp.md).
 
 The repository's `audit_secrets.py` checks common private-key, cloud-token, and credential-assignment formats without printing matches. It is heuristic, does not scan Git history, and does not replace secret rotation if a credential was ever committed.
+
+## Release and usability follow-through
+
+The 2026-10-14 implementation adds the player, playlist preferences, shared track views, searchable history/MCP tools, and public-documentation changes below. Shared source-build scripts and stronger installer media checks are implemented; native release qualification and fresh-machine manual checks remain separate distribution gates.
+
+### Player layout and loading feedback
+
+- Model resolving, buffering, playing, paused, and failed playback explicitly. Show an animated ring around the main play button while resolving or buffering, including after playback stalls; stop it on pause, success, cancellation, or failure. Preserve a working pause/cancel action and provide an accessible loading announcement and reduced-motion treatment.
+- Give track information, transport, and trailing controls separate space in the bottom bar. Keep volume and queue controls from overlapping at half-screen widths, large text, and varying sidebar widths. Use a recognizable queue icon, an adequate click target, a tooltip, and a visible active state; show a text label when space permits. Move lower-priority details into the currently-playing pane at narrow widths.
+- Validate local, YouTube/SoundCloud, chapter, and radio playback, including slow resolution, a stalled stream, and quick track changes. Loading from an old request must not overwrite the current track's state.
+
+### Consistent track display and interactions
+
+- Use one shared responsive track row/list and action menu for playlists, library, search, artist/discography tracks, album tracks, and radio/listening history. Keep typography, spacing, metadata separation, selection, playback state, and action placement consistent; views choose relevant columns rather than introducing independent row designs.
+- Show title, artist, and essential availability first. At narrower widths, place artist beneath title and collapse secondary columns. Keep album track numbers, discography release/year, and history playback timestamps where relevant. Long text must truncate cleanly without concatenating artist/title or covering controls.
+- Keep play, heart, download, and overflow as the main row actions. Put play-next, queue, playlist, source, and information actions in the shared overflow/right-click menu. Artist and album links use verified identities when present and offer a search when identity is unresolved.
+- Share play/pause/buffering feedback and highlight the current track accessibly. Support Shift range selection, Ctrl/Cmd toggling, and a compact bulk-action toolbar across applicable lists. Surface downloads on affected rows and keep codec/provenance/match diagnostics in track information.
+- Present discography albums separately from recordings; opening an album uses the shared track list. Standardize loading, empty, and provider-failure states. Keep Queue and Now playing in a responsive resizable side panel with clear tabs and preserve browsing position.
+
+### Favorites and playlist shortcuts
+
+`playlist_preferences.rs` persists a mutable Favorites playlist ID, nine shortcut destinations and configurable key combinations. It migrates legacy liked tracks, clears deleted shortcut targets, and synchronizes heart state with the selected playlist. The settings categories, player/pane hearts, shortcut assignment flow, and GUI/MCP playlist synchronization are wired to these services.
+
+- Add matching heart controls to the playback bar and currently-playing pane. Their state comes from membership in the configured Favorites playlist and stays synchronized with track menus and playlist edits.
+- Let users choose or create an editable Favorites playlist in Settings. Preserve existing liked tracks when introducing this setting; imported immutable snapshots cannot be the mutable target. Changing the setting must not silently move or remove tracks from the old playlist.
+- Add up to nine configurable playlist shortcut slots. Invoking an unassigned slot opens a playlist chooser with a create-playlist action, then remembers the chosen playlist ID. Assigned slots add the currently playing track without changing playback; repeated additions do not duplicate it. Settings allow rebinding, clearing, and selecting another playlist, with conflict detection and explicit feedback for deleted destinations or no current track.
+- Default shortcuts to the focused Burrata application and suppress them in text inputs, editable content, and modal workflows. Global shortcuts are a separate future decision. Make chapter actions target the current chapter's stable track identity when one is available.
+- Reuse playlist services for the GUI and MCP. Heart removal affects only the chosen Favorites playlist membership, never the recording or downloaded file.
+
+### Settings organization
+
+Replace the long mixed settings page with a responsive category navigation and one active category:
+
+1. General: theme and basic application preferences.
+2. Playback: source preference, streaming fallbacks, preview behavior, radio recognition, and inclusion of radio songs in listening history.
+3. Library & playlists: music folder, playlist folders, Favorites destination, and shortcut mappings.
+4. Downloads & tagging: download sources/fallbacks, quality, and metadata recognition preferences.
+5. Connections: browser companion, optional Soulseek/slskd, and catalog accounts.
+6. Integrations: MCP permissions/setup and supported player/system integrations.
+7. Advanced & diagnostics: bundled/managed/system tool paths and versions, yt-dlp updates/rollback, and troubleshooting.
+
+Keep onboarding separate from everyday settings, provide a consistent save/status model, and show advanced paths only on demand. Check keyboard navigation and narrow layouts as well as full-width desktop use.
+
+### Radio history as reusable tracks
+
+- Replace station history's bespoke title/artist cards with the shared playlist track list, including standard artwork, row numbering, selection, context menus, play, download, Favorites, queue, playlist, artist, and information actions.
+- Persist stable track identities for history entries, with station, playback date/time, and identification provenance. Show the local date/time for each listening occurrence in the list, with an explicit timezone in its full timestamp; allow newest/oldest sorting and date filtering. Distinguish actual user listening times from provider-supplied broadcast-history times, and retain the listening timestamp when a delayed recognition result arrives. Preserve distinct listening occurrences in history without duplicating the underlying track. Recognition results remain provisional unless reconciled to a catalog identity.
+- Playing an earlier history item resolves the song through the normal audio-source pipeline; never reuse the live station stream URL as if it were that past song. Indicate when the resolved recording is uncertain or unavailable. This does not imply archived access to the original radio broadcast.
+- Keep station history and overall listening history clearly distinguished, using the same list component and consistent actions. Previously heard entries remain visible when current station metadata expires or speech replaces music.
+- Add **Include radio songs in playback history** under Playback settings, enabled by default for new and existing profiles without an explicit choice. Identified songs actually heard while listening also appear in overall history with a visible **Via [station name]** attribution, playback timestamp, and station link. Do not insert unplayed provider-history entries. Use one occurrence per heard song/session transition, reconcile delayed metadata/recognition without duplicates, and distinguish repeated listens. Turning this off stops future radio-song additions without removing saved history or disabling station history/recognition.
+- Make history searchable by title, artist, album, and station, combined with date range, radio/non-radio/station filters, and newest/oldest sorting. Search the full persisted history on the backend with bounded pagination; do not limit matching to the currently loaded page. Apply the same behavior to station-history lists where relevant.
+
+### History through MCP
+
+- Expose read-scoped `search_playback_history` and `get_playback_history_entry` tools through the existing authenticated service/bridge. The current GUI-only `list_playback_history` command is not exposed in the MCP registry and currently accepts only limit/offset.
+- Share the GUI's history query service, filters, sort order, and pagination. Return stable history-entry and track IDs, listening timestamps, source kind, station ID/name, recognition provenance, and bounded pagination metadata; allow station-specific queries and distinguish broadcast timestamps from listening occurrences.
+- History tracks should work with existing play, queue, playlist, and audio-source/download tools through their stable track IDs. Keep history lookup read-only and subject to the existing read scope; do not expose deletion merely to enable search.
+
+### Shared FFmpeg build and fresh-machine qualification
+
+- Shared source builds and platform TLS backends are implemented in release preparation. Keep bundled tools as the default; explicit system/custom overrides remain advanced settings.
+- The build keeps broad audio decoding, common containers and streaming protocols, MP3/Opus encoders, metadata/chapters, and PNG artwork support while disabling optional dependency autodetection. Source/configuration, hashes, notices, and matching source archives are recorded for each target.
+- Native CI caches only source archives and verifies their locked hashes before use. Measure installed size and installer download size against the current baseline; do not set a savings promise before measurement.
+- Qualify exact installer downloads in fresh OS VMs with clean app data and no preinstalled development/media tools. Verify actual executable paths during playback, download, conversion, tagging/artwork, chapter operations, BPM/key analysis, recognition, MCP, yt-dlp update/rollback, restart, and uninstall. Include AppImage/RPM coverage and a separate downloaded-file Gatekeeper/SmartScreen check. Existing CI smoke remains a prerequisite, not a substitute.
+
+### Public documentation and privacy
+
+- Rewrite Soulseek instructions for a general audience: optional service setup, login/API key, host/container download-path mapping, sharing visibility, connection versus transfer troubleshooting, and supported OS options. Update settings labels and remove machine-specific success claims.
+- Audit tracked files, Git history, release assets/logs, and Git author metadata separately for personal paths/usernames, local infrastructure, and credentials. Replace personal path examples with portable placeholders; keep legitimate upstream attribution intact. Confirm ignored credential/config files are absent from tracked history.
+- Document recognition accurately: releases include the portable `burrata-recognize` helper derived from SongRec fingerprinting code; fingerprints are generated locally, but Shazam matching uses a remote service. Remove stale instructions implying a separately installed SongRec application is required.
+- Review historical exposure before choosing any history rewrite; source-tree cleanup does not remove older commits or already uploaded release artifacts.

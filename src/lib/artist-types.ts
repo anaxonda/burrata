@@ -204,6 +204,10 @@ export interface ArtistPageProps {
   onQueueTracks?: (tracks: Track[], mode: "append" | "next") => void | Promise<void>;
   onTrackContext?: (track: Track, event: MouseEvent) => void;
   onDownloadTrack?: (track: Track) => void | Promise<void>;
+  onFavoriteTrack?: (track: Track) => void | Promise<void>;
   onAddTrackToPlaylist?: (track: Track) => void | Promise<void>;
   onArtistNavigate?: (artist: ArtistRef) => void | Promise<void>;
+  playingTrackId?: string;
+  bufferingTrackId?: string;
+  paused?: boolean;
 }

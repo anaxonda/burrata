@@ -1,10 +1,61 @@
-use crate::models::Track;
-use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::{
+    models::Track,
+    radio::{RadioStation, RadioTrackMetadata},
+    storage::Store,
+};
+use chrono::{DateTime, Days, NaiveDate, SecondsFormat, Utc};
+use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Mutex;
+
+const INCLUDE_RADIO_SONGS_KEY: &str = "includeRadioSongsInPlaybackHistory.v1";
+
+/// Existing profiles without an explicit preference default to enabled.
+pub fn include_radio_songs_in_history(store: &Store) -> Result<bool, String> {
+    Ok(store
+        .get_json_preference(INCLUDE_RADIO_SONGS_KEY)?
+        .and_then(|value| value.as_bool().map(|enabled| enabled.to_owned()))
+        .unwrap_or(true))
+}
+
+pub fn set_include_radio_songs_in_history(store: &Store, enabled: bool) -> Result<(), String> {
+    store.set_json_preference(INCLUDE_RADIO_SONGS_KEY, &Value::Bool(enabled))
+}
+
+/// Build a reusable unverified song identity from station metadata. The station
+/// stream never becomes the song's `source_url`.
+pub fn radio_song_track(station: &RadioStation, metadata: &RadioTrackMetadata) -> Track {
+    let normalized_artist = metadata.artist.trim().to_lowercase();
+    let normalized_title = metadata.title.trim().to_lowercase();
+    let track_hash = format!(
+        "{:x}",
+        Sha256::digest(format!("{normalized_artist}\n{normalized_title}").as_bytes())
+    );
+    Track {
+        id: format!("radio_song:{track_hash}"),
+        provider: "radio_song".into(),
+        provider_id: track_hash,
+        artist: metadata.artist.trim().to_owned(),
+        title: metadata.title.trim().to_owned(),
+        album: metadata.album.clone(),
+        artwork_url: metadata.artwork_url.clone(),
+        source_url: String::new(),
+        provenance: serde_json::json!({
+            "sourceKind":"radioSong",
+            "identity":"unverified station metadata",
+            "catalogVerified":false,
+            "radioStationId":station.id,
+            "radioStationName":station.name,
+            "radioStationUrl":station.homepage_url.as_deref().unwrap_or(&station.source_url),
+            "radioMetadataConfidence":metadata.metadata_confidence,
+            "radioObservedAt":metadata.observed_at
+        }),
+        ..Track::default()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,6 +65,42 @@ pub struct PlaybackHistoryEntry {
     pub provider: String,
     pub track: Track,
     pub chapter: Option<Value>,
+}
+
+fn default_search_limit() -> u32 {
+    100
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackHistorySearchOptions {
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub station_id: Option<String>,
+    /// RFC3339 instant or YYYY-MM-DD (inclusive start of day).
+    #[serde(default)]
+    pub from: Option<String>,
+    /// RFC3339 instant or YYYY-MM-DD (inclusive end of day).
+    #[serde(default)]
+    pub to: Option<String>,
+    /// `oldest` sorts oldest-first. Any other value sorts newest-first.
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default = "default_search_limit")]
+    pub limit: u32,
+    #[serde(default)]
+    pub offset: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackHistoryPage {
+    pub items: Vec<PlaybackHistoryEntry>,
+    pub total: usize,
+    pub has_more: bool,
 }
 
 /// Persistent playback history, stored independently from the library database.
@@ -52,19 +139,106 @@ impl PlaybackHistory {
         track: &Track,
         chapter: Option<Value>,
     ) -> Result<bool, String> {
+        self.record_at(
+            session_id,
+            provider,
+            track,
+            chapter,
+            &Utc::now().to_rfc3339(),
+        )
+    }
+
+    fn record_at(
+        &self,
+        session_id: &str,
+        provider: &str,
+        track: &Track,
+        chapter: Option<Value>,
+        played_at: &str,
+    ) -> Result<bool, String> {
         let track_json = serde_json::to_string(track).map_err(|e| e.to_string())?;
         let chapter_json = chapter
             .as_ref()
             .map(serde_json::to_string)
             .transpose()
             .map_err(|e| e.to_string())?;
-        let now = Utc::now().to_rfc3339();
         let connection = self.connection.lock().map_err(|e| e.to_string())?;
         let changed = connection.execute(
             "INSERT OR IGNORE INTO playback_history(session_id, played_at, provider, track_json, chapter_json) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![session_id, now, provider, track_json, chapter_json],
+            params![session_id, played_at, provider, track_json, chapter_json],
         ).map_err(|e| e.to_string())?;
         Ok(changed == 1)
+    }
+
+    /// Record a successful playback after resolving only placeholder fields from the
+    /// current library row with the same stable Track ID.
+    pub fn record_enriched(
+        &self,
+        store: &Store,
+        session_id: &str,
+        provider: &str,
+        track: &Track,
+        chapter: Option<Value>,
+    ) -> Result<bool, String> {
+        let track = enrich_track(store, track.clone())?;
+        self.record(session_id, provider, &track, chapter)
+    }
+
+    /// Record an identified song only when the caller confirms it was heard during
+    /// an active station session. `occurrence_key` must stay stable for retries of
+    /// one transition and differ when the same song is heard again later.
+    pub fn record_radio_occurrence(
+        &self,
+        store: &Store,
+        listening_session_id: &str,
+        occurrence_key: &str,
+        listened_at: &str,
+        station: &RadioStation,
+        metadata: &RadioTrackMetadata,
+    ) -> Result<bool, String> {
+        if !include_radio_songs_in_history(store)? {
+            return Ok(false);
+        }
+        if listening_session_id.trim().is_empty()
+            || occurrence_key.trim().is_empty()
+            || station.id.trim().is_empty()
+            || metadata.station_id != station.id
+            || metadata.title.trim().is_empty()
+        {
+            return Err(
+                "Radio history occurrence is missing its listening identity or song metadata"
+                    .into(),
+            );
+        }
+        let listened_at = DateTime::parse_from_rfc3339(listened_at)
+            .map_err(|_| "Radio listening time must be RFC3339")?
+            .with_timezone(&Utc)
+            .to_rfc3339();
+        // Never attach the live station stream as a past-song source.
+        let track = radio_song_track(station, metadata);
+        // A reusable stable track row lets existing play/queue/playlist tools act
+        // on the history item; it represents the identified song, never the live
+        // stream URL.
+        store.save_track(&track)?;
+        let occurrence_hash = format!(
+            "{:x}",
+            Sha256::digest(
+                format!(
+                    "{}\n{}\n{}",
+                    listening_session_id.trim(),
+                    station.id,
+                    occurrence_key.trim()
+                )
+                .as_bytes()
+            )
+        );
+        self.record_at(
+            &format!("radio:{occurrence_hash}"),
+            "radio",
+            &track,
+            None,
+            &listened_at,
+        )
     }
 
     pub fn list(&self, limit: u32, offset: u32) -> Result<Vec<PlaybackHistoryEntry>, String> {
@@ -101,6 +275,153 @@ impl PlaybackHistory {
         .collect()
     }
 
+    pub fn list_enriched(
+        &self,
+        store: &Store,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<PlaybackHistoryEntry>, String> {
+        self.list(limit, offset)?
+            .into_iter()
+            .map(|entry| enrich_entry(store, entry))
+            .collect()
+    }
+
+    pub fn get(
+        &self,
+        store: &Store,
+        session_id: &str,
+    ) -> Result<Option<PlaybackHistoryEntry>, String> {
+        self.get_enriched(store, session_id)
+    }
+
+    pub fn get_enriched(
+        &self,
+        store: &Store,
+        session_id: &str,
+    ) -> Result<Option<PlaybackHistoryEntry>, String> {
+        let connection = self.connection.lock().map_err(|e| e.to_string())?;
+        let row = connection
+            .query_row(
+                "SELECT session_id, played_at, provider, track_json, chapter_json FROM playback_history WHERE session_id=?1",
+                [session_id],
+                raw_history_row,
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        row.map(decode_history_row)
+            .transpose()?
+            .map(|entry| enrich_entry(store, entry))
+            .transpose()
+    }
+
+    /// Search every row matching provider/date bounds, enriching snapshot placeholders
+    /// before applying the literal text query and page window. Rows are streamed in
+    /// stable SQL order; only the requested result page is retained in memory.
+    pub fn search(
+        &self,
+        store: &Store,
+        options: PlaybackHistorySearchOptions,
+    ) -> Result<PlaybackHistoryPage, String> {
+        let query = options
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|q| !q.is_empty());
+        let provider = options
+            .provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
+        let mut filters = Vec::new();
+        let mut values = Vec::<SqlValue>::new();
+        if let Some(provider) = provider {
+            if provider.eq_ignore_ascii_case("non-radio") {
+                filters.push("lower(provider)<>'radio'".to_owned());
+            } else {
+                filters.push(format!("lower(provider)=lower(?{})", values.len() + 1));
+                values.push(provider.to_owned().into());
+            }
+        }
+        if let Some(station_id) = options
+            .station_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            filters.push(format!(
+                "json_extract(track_json,'$.provenance.radioStationId')=?{}",
+                values.len() + 1
+            ));
+            values.push(station_id.to_owned().into());
+        }
+        if let Some(from) = options.from.as_deref() {
+            let (value, _) = normalize_date_bound(from, false)?;
+            filters.push(format!(
+                "julianday(played_at)>=julianday(?{})",
+                values.len() + 1
+            ));
+            values.push(value.into());
+        }
+        if let Some(to) = options.to.as_deref() {
+            let (value, exclusive) = normalize_date_bound(to, true)?;
+            let operator = if exclusive { "<" } else { "<=" };
+            filters.push(format!(
+                "julianday(played_at){operator}julianday(?{})",
+                values.len() + 1
+            ));
+            values.push(value.into());
+        }
+        let where_sql = if filters.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", filters.join(" AND "))
+        };
+        let order_sql = if options
+            .sort
+            .as_deref()
+            .is_some_and(|sort| sort.eq_ignore_ascii_case("oldest"))
+        {
+            "played_at ASC, rowid ASC"
+        } else {
+            "played_at DESC, rowid DESC"
+        };
+        let sql = format!(
+            "SELECT session_id, played_at, provider, track_json, chapter_json FROM playback_history{where_sql} ORDER BY {order_sql}"
+        );
+        let connection = self.connection.lock().map_err(|e| e.to_string())?;
+        let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
+        let mut rows = statement
+            .query(params_from_iter(values.iter()))
+            .map_err(|e| e.to_string())?;
+        let offset = options.offset as usize;
+        let limit = options.limit.clamp(1, 500) as usize;
+        let query = query.map(str::to_lowercase);
+        let mut total = 0usize;
+        let mut items = Vec::with_capacity(limit);
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let entry = enrich_entry(
+                store,
+                decode_history_row(raw_history_row(row).map_err(|e| e.to_string())?)?,
+            )?;
+            if query.as_deref().is_some_and(|query| {
+                let text = history_search_text(&entry);
+                !query.split_whitespace().all(|term| text.contains(term))
+            }) {
+                continue;
+            }
+            if total >= offset && items.len() < limit {
+                items.push(entry);
+            }
+            total += 1;
+        }
+        Ok(PlaybackHistoryPage {
+            has_more: offset.saturating_add(items.len()) < total,
+            items,
+            total,
+        })
+    }
+
     pub fn clear(&self) -> Result<(), String> {
         self.connection
             .lock()
@@ -124,9 +445,113 @@ impl PlaybackHistory {
     }
 }
 
+type RawHistoryEntry = (String, String, String, String, Option<String>);
+
+fn raw_history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawHistoryEntry> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+    ))
+}
+
+fn decode_history_row(
+    (session_id, played_at, provider, track_json, chapter_json): RawHistoryEntry,
+) -> Result<PlaybackHistoryEntry, String> {
+    Ok(PlaybackHistoryEntry {
+        session_id,
+        played_at,
+        provider,
+        track: serde_json::from_str(&track_json).map_err(|e| e.to_string())?,
+        chapter: chapter_json
+            .map(|s| serde_json::from_str(&s).map_err(|e| e.to_string()))
+            .transpose()?,
+    })
+}
+
+fn enrich_entry(
+    store: &Store,
+    mut entry: PlaybackHistoryEntry,
+) -> Result<PlaybackHistoryEntry, String> {
+    entry.track = enrich_track(store, entry.track)?;
+    Ok(entry)
+}
+
+fn enrich_track(store: &Store, mut historical: Track) -> Result<Track, String> {
+    let Some(current) = store.get_track(&historical.id)? else {
+        return Ok(historical);
+    };
+    if current.id != historical.id {
+        return Ok(historical);
+    }
+    let title_is_placeholder = historical.title.trim() == historical.source_url.trim()
+        || url::Url::parse(historical.title.trim()).is_ok();
+    if title_is_placeholder
+        && !current.title.trim().is_empty()
+        && current.title.trim() != current.source_url.trim()
+        && url::Url::parse(current.title.trim()).is_err()
+    {
+        historical.title = current.title;
+    }
+    if matches!(historical.artist.trim(), "" | "Unknown artist")
+        && !current.artist.trim().is_empty()
+        && !current.artist.eq_ignore_ascii_case("Unknown artist")
+    {
+        historical.artist = current.artist;
+    }
+    if historical.album.as_deref().is_none_or(str::is_empty) {
+        historical.album = current.album;
+    }
+    Ok(historical)
+}
+
+fn history_search_text(entry: &PlaybackHistoryEntry) -> String {
+    let provenance = &entry.track.provenance;
+    [
+        entry.track.title.as_str(),
+        entry.track.artist.as_str(),
+        entry.track.album.as_deref().unwrap_or_default(),
+        provenance["stationName"].as_str().unwrap_or_default(),
+        provenance["station"]["name"].as_str().unwrap_or_default(),
+        provenance["stationTitle"].as_str().unwrap_or_default(),
+        provenance["radioProvider"].as_str().unwrap_or_default(),
+        entry
+            .chapter
+            .as_ref()
+            .and_then(|c| c["title"].as_str())
+            .unwrap_or_default(),
+    ]
+    .join(" ")
+    .to_lowercase()
+}
+
+fn normalize_date_bound(value: &str, is_to: bool) -> Result<(String, bool), String> {
+    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        let date = if is_to {
+            date.checked_add_days(Days::new(1))
+                .ok_or("History date is out of range")?
+        } else {
+            date
+        };
+        let instant = date
+            .and_hms_opt(0, 0, 0)
+            .ok_or("History date is invalid")?
+            .and_utc();
+        return Ok((instant.to_rfc3339_opts(SecondsFormat::Secs, true), is_to));
+    }
+    let instant = DateTime::parse_from_rfc3339(value)
+        .map_err(|_| "History dates must be RFC3339 or YYYY-MM-DD")?
+        .with_timezone(&Utc);
+    Ok((instant.to_rfc3339_opts(SecondsFormat::Nanos, true), false))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::Store;
+    use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
     fn track() -> Track {
@@ -136,6 +561,20 @@ mod tests {
             provider_id: "p-1".into(),
             title: "Track".into(),
             artist: "Artist".into(),
+            ..Track::default()
+        }
+    }
+
+    fn imported_url_track(url: &str) -> Track {
+        let hash = format!("{:x}", Sha256::digest(url.as_bytes()));
+        Track {
+            id: format!("import:{hash}"),
+            provider: "import".into(),
+            provider_id: hash,
+            source_url: url.into(),
+            artist: "Unknown artist".into(),
+            title: url.into(),
+            provenance: serde_json::json!({"importFormat":"m3u-url", "identity":"unverified playlist URL"}),
             ..Track::default()
         }
     }
@@ -181,5 +620,214 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn archived_url_snapshot_enriches_without_changing_history_identity_or_chapter() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("playback-history.sqlite")).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let url = "https://www.youtube.com/watch?v=History1234";
+        let snapshot = imported_url_track(url);
+        let chapter = serde_json::json!({"id":"chapter-3", "title":"Act III", "start":42.0});
+        history
+            .record(
+                "history-session",
+                "youtube",
+                &snapshot,
+                Some(chapter.clone()),
+            )
+            .unwrap();
+        let mut repaired = snapshot.clone();
+        repaired.artist = "Mercedes Sosa".into();
+        repaired.title = "Alfonsina y el Mar".into();
+        store.save_track(&repaired).unwrap();
+
+        let enriched = history
+            .get_enriched(&store, "history-session")
+            .unwrap()
+            .unwrap();
+        assert_eq!(enriched.session_id, "history-session");
+        assert_eq!(enriched.provider, "youtube");
+        assert_eq!(enriched.track.id, snapshot.id);
+        assert_eq!(enriched.track.source_url, url);
+        assert_eq!(enriched.track.artist, "Mercedes Sosa");
+        assert_eq!(enriched.track.title, "Alfonsina y el Mar");
+        assert_eq!(enriched.chapter, Some(chapter));
+        assert_eq!(history.list(10, 0).unwrap()[0].track.title, url);
+    }
+
+    #[test]
+    fn history_search_filters_after_enrichment_and_before_pagination() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("playback-history.sqlite")).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let url = "https://www.youtube.com/watch?v=History1234";
+        let snapshot = imported_url_track(url);
+        let mut repaired = snapshot.clone();
+        repaired.artist = "Bebo Valdés".into();
+        repaired.title = "Lágrimas Negras".into();
+        store.save_track(&repaired).unwrap();
+        history
+            .record("target", "youtube", &snapshot, None)
+            .unwrap();
+        // These newer nonmatching items precede the target in the unfiltered history.
+        history.record("newer-1", "local", &track(), None).unwrap();
+        history.record("newer-2", "local", &track(), None).unwrap();
+
+        let page = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    query: Some("valdés lágrimas".into()),
+                    provider: Some("youtube".into()),
+                    limit: 1,
+                    ..PlaybackHistorySearchOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items.len(), 1);
+        assert!(!page.has_more);
+        assert_eq!(page.items[0].session_id, "target");
+        assert_eq!(page.items[0].track.title, "Lágrimas Negras");
+    }
+
+    #[test]
+    fn new_history_records_are_enriched_before_persistence() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("playback-history.sqlite")).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let url = "https://www.youtube.com/watch?v=History1234";
+        let snapshot = imported_url_track(url);
+        let mut repaired = snapshot.clone();
+        repaired.artist = "Cesária Évora".into();
+        repaired.title = "Sodade".into();
+        store.save_track(&repaired).unwrap();
+
+        assert!(history
+            .record_enriched(&store, "new-session", "youtube", &snapshot, None)
+            .unwrap());
+        let saved = history.list(10, 0).unwrap().remove(0);
+        assert_eq!(saved.track.id, snapshot.id);
+        assert_eq!(saved.track.artist, "Cesária Évora");
+        assert_eq!(saved.track.title, "Sodade");
+    }
+
+    #[test]
+    fn radio_song_history_obeys_default_on_setting_and_dedupes_per_occurrence() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("playback-history.sqlite")).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        assert!(include_radio_songs_in_history(&store).unwrap());
+        let station = RadioStation {
+            id: "station-1".into(),
+            name: "Example FM".into(),
+            stream_url: "https://radio.example/live".into(),
+            source_url: "https://radio.example/about".into(),
+            provider: Some("internet_radio".into()),
+            country: None,
+            tags: None,
+            homepage_url: Some("https://radio.example/".into()),
+            favicon_url: None,
+            bitrate_kbps: None,
+            codec: None,
+            language: None,
+            is_custom: true,
+        };
+        let metadata = RadioTrackMetadata {
+            station_id: station.id.clone(),
+            artist: "Cesária Évora".into(),
+            title: "Sodade".into(),
+            album: Some("Miss Perfumado".into()),
+            year: Some("1992".into()),
+            artwork_url: None,
+            source_url: station.stream_url.clone(),
+            observed_at: Some("2026-10-14T10:00:00Z".into()),
+            metadata_confidence: "station-reported metadata".into(),
+        };
+        let listened_at = "2026-10-14T10:03:00Z";
+
+        set_include_radio_songs_in_history(&store, false).unwrap();
+        assert!(!history
+            .record_radio_occurrence(
+                &store,
+                "listen-session",
+                "transition-1",
+                listened_at,
+                &station,
+                &metadata,
+            )
+            .unwrap());
+        assert!(history.list(10, 0).unwrap().is_empty());
+        set_include_radio_songs_in_history(&store, true).unwrap();
+
+        assert!(history
+            .record_radio_occurrence(
+                &store,
+                "listen-session",
+                "transition-1",
+                listened_at,
+                &station,
+                &metadata,
+            )
+            .unwrap());
+        assert!(!history
+            .record_radio_occurrence(
+                &store,
+                "listen-session",
+                "transition-1",
+                listened_at,
+                &station,
+                &metadata,
+            )
+            .unwrap());
+        assert!(history
+            .record_radio_occurrence(
+                &store,
+                "listen-session",
+                "transition-2",
+                "2026-10-14T10:07:00Z",
+                &station,
+                &metadata,
+            )
+            .unwrap());
+
+        let items = history.list(10, 0).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].provider, "radio");
+        assert_eq!(items[0].played_at, "2026-10-14T10:07:00+00:00");
+        assert_eq!(items[0].track.id, items[1].track.id);
+        assert_eq!(items[0].track.source_url, "");
+        assert_eq!(items[0].track.provenance["radioStationName"], "Example FM");
+        assert_eq!(
+            items[0].track.provenance["radioObservedAt"],
+            "2026-10-14T10:00:00Z"
+        );
+        assert_eq!(
+            items[0].track.provenance["radioStationUrl"],
+            "https://radio.example/"
+        );
+        let station_page = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    station_id: Some("station-1".into()),
+                    ..PlaybackHistorySearchOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(station_page.total, 2);
+        let non_radio_page = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    provider: Some("non-radio".into()),
+                    ..PlaybackHistorySearchOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(non_radio_page.total, 0);
     }
 }

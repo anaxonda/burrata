@@ -55,7 +55,7 @@ describe("ReleaseView", () => {
     target.querySelector<HTMLButtonElement>('[aria-label="More actions for Alpha"]')!.click();
     [...target.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent === "Add to playlist")!.click();
     target.querySelector<HTMLButtonElement>(".artist-link")!.click();
-    const row = target.querySelector(".track-list li")!;
+    const row = target.querySelector(".shared-track-list li")!;
     const contextEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); row.dispatchEvent(contextEvent);
     target.querySelector<HTMLButtonElement>(".back")!.click();
     expect(onDownload).toHaveBeenCalledWith(tracks[1]);
@@ -66,7 +66,7 @@ describe("ReleaseView", () => {
     expect(onBack).toHaveBeenCalledOnce();
     const filter = target.querySelector<HTMLInputElement>('[aria-label="Filter tracks"]')!;
     filter.value = "Zulu"; filter.dispatchEvent(new Event("input", { bubbles: true })); await settle();
-    expect(target.querySelectorAll(".track-list li")).toHaveLength(1);
+    expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(1);
     expect(target.querySelector(".track-title")?.textContent).toContain("Zulu");
   });
 });

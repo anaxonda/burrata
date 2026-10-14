@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-search-playback-history"
+description = "Enables the search_playback_history command without any pre-configured scope."
+commands.allow = ["search_playback_history"]
+
+[[permission]]
+identifier = "deny-search-playback-history"
+description = "Denies the search_playback_history command without any pre-configured scope."
+commands.deny = ["search_playback_history"]

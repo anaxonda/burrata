@@ -19,7 +19,8 @@
   };
   type UpdateCheck = { channel: string; version: string | null; publishedAt: string | null; available: boolean; message: string };
   type Diagnosis = { ok: boolean; category: string; ytDlpVersion: string | null; providerAvailable: boolean; audioAccessible: boolean; message: string };
-  let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false }: {
+  let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false, category = "all" }: {
+    category?: string;
     onSettingsChanged?: () => void; onComplete?: () => void; onboarding?: boolean;
   } = $props();
 
@@ -118,8 +119,8 @@
 </script>
 
 <section class="release-setup settings-card" aria-labelledby="release-setup-title">
-  <h2 id="release-setup-title">{onboarding ? "Welcome to Burrata" : "YouTube & integrations"}</h2>
-  <p class="intro">Choose where Burrata keeps music and connect optional desktop tools.</p>
+  <h2 id="release-setup-title">{onboarding ? "Welcome to Burrata" : category === "connections" ? "Browser companion" : category === "playback" ? "Radio" : category === "integrations" ? "Local integrations" : "YouTube support"}</h2>
+  {#if onboarding}<p class="intro">Choose where Burrata keeps music and connect optional desktop tools.</p>{/if}
   {#if loading}<p role="status">Loading setup…</p>
   {:else if error && !setup && !youtube}<p role="alert">{error}</p>
   {:else}
@@ -134,7 +135,7 @@
       </section>
     {/if}
 
-    <section class="tool-section" aria-labelledby="browser-title">
+    {#if category === "all" || category === "connections"}<section class="tool-section" aria-labelledby="browser-title">
       <h3 id="browser-title">Browser companion</h3>
       <p>Connect a browser to import charts and playlists. Burrata reads pages only when you use the extension; it does not read cookies or logins.</p>
       {#if setup?.browser.browsers.length}
@@ -151,13 +152,16 @@
       {#if setup?.mcpCommand?.length}<details><summary>MCP command</summary><p>Use this command to connect Burrata tools to an MCP-compatible client.</p><code class="command">{setup.mcpCommand.join(" ")}</code></details>{/if}
     </section>
 
-    <section class="tool-section" aria-labelledby="recognition-title">
+    {/if}
+    {#if category === "integrations" && setup?.mcpCommand?.length}<p>Connect a local MCP client with:</p><code class="command">{setup.mcpCommand.join(" ")}</code>{/if}
+    {#if category === "all" || category === "playback"}<section class="tool-section" aria-labelledby="recognition-title">
       <h3 id="recognition-title">Radio recognition</h3>
       <label class="check"><input type="checkbox" bind:checked={radioRecognition} /> Enable radio track recognition</label>
       <button disabled={busy || radioRecognition === setup?.radioRecognition} onclick={() => void saveRecognition()}>Save setting</button>
     </section>
 
-    <section class="tool-section" aria-labelledby="youtube-title">
+    {/if}
+    {#if category === "all" || category === "advanced"}<section class="tool-section" aria-labelledby="youtube-title">
       <h3 id="youtube-title">YouTube support</h3>
       {#if youtube}
         <p class="version">Active yt-dlp: {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
@@ -176,7 +180,7 @@
           {#if youtube.managedVersion}<button class="quiet" disabled={busy} onclick={() => void rollbackYoutube()}>Roll back managed update</button>{/if}
         </div>
       {:else}<p role="status">YouTube support status is unavailable.</p>{/if}
-    </section>
+    </section>{/if}
   {/if}
   {#if error && setup}<p role="alert">{error}</p>{/if}
   {#if message}<p role="status">{message}</p>{/if}

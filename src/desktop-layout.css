@@ -75,3 +75,19 @@
 .trash-row>span { flex:1;min-width:0;overflow-wrap:anywhere; }.trash-row small { display:block;color:var(--muted); }
 
 .downloaded-badge{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;margin-left:7px;border-radius:50%;background:var(--accent);color:var(--base);font-size:13px;font-weight:800}.playlist-import-actions{position:relative;font-size:12px}.playlist-import-actions summary{cursor:pointer;padding:7px;border:1px solid var(--line);border-radius:6px}.playlist-import-actions[open]{background:var(--raised);padding:8px;border-radius:8px}.playlist-import-actions button{display:block;margin-top:6px}
+
+/* Keep a useful browser column alongside the player pane at desktop half-widths. */
+@media(min-width:901px) and (max-width:1199px) {
+  .app-shell.has-player-panel { grid-template-columns:var(--library-sidebar-width,200px) minmax(0,1fr) var(--info-panel-width,340px); }
+}
+@media(min-width:760px) and (max-width:1199px) {
+  .player-panel-host { position:relative; grid-column:3; grid-row:1; inset:auto; width:auto; }
+}
+@media(min-width:760px) and (max-width:900px) {
+  .app-shell.has-player-panel { grid-template-columns:64px minmax(0,1fr) var(--info-panel-width,340px); }
+}
+@media(max-width:759px) {
+  .app-shell,.app-shell.has-player-panel { grid-template-columns:64px minmax(0,1fr); }
+  .player-panel-host { left:auto; right:0; width:min(var(--info-panel-width,340px),calc(100% - 64px)); }
+  .player-panel-host .playing-info { max-width:100%; }
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-radio-history-setting"
+description = "Enables the set_radio_history_setting command without any pre-configured scope."
+commands.allow = ["set_radio_history_setting"]
+
+[[permission]]
+identifier = "deny-set-radio-history-setting"
+description = "Denies the set_radio_history_setting command without any pre-configured scope."
+commands.deny = ["set_radio_history_setting"]

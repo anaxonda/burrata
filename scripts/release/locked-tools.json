@@ -32,90 +32,40 @@
   },
   "ffmpeg": {
     "version": "8.1.3",
-    "upstream": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-07-13-07/",
-    "license": "GPL build; exact source commit and source archive are included with the release",
-    "checksumFile": "checksums.sha256",
-    "assets": {
-      "x86_64-pc-windows-msvc": "ffmpeg-n8.1.3-14-g330caae0c1-win64-gpl-8.1.zip",
-      "x86_64-unknown-linux-gnu": "ffmpeg-n8.1.3-14-g330caae0c1-linux64-gpl-8.1.tar.xz"
-    },
-    "macOSSourceBuild": {
-      "version": "8.1.3",
+    "license": "GPL-3.0-or-later build; FFmpeg, LAME, Opus, zlib and OpenSSL sources/configuration are pinned and bundled with each target.",
+    "source": {
       "url": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz",
       "sha256": "7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3",
-      "configure": [
-        "--disable-autodetect",
-        "--disable-shared",
-        "--enable-static",
-        "--enable-gpl",
-        "--enable-libmp3lame",
-        "--enable-libopus",
-        "--enable-securetransport",
-        "--enable-encoder=png",
-        "--enable-zlib"
-      ],
-      "systemDependencies": [
-        {
-          "name": "zlib",
-          "provider": "macOS SDK (libz.tbd; runtime libz.1.dylib)",
-          "linkFlag": "-lz",
-          "usedBy": "PNG encoder",
-          "license": "Apple-provided system component"
-        },
-        {
-          "name": "Secure Transport",
-          "provider": "macOS SDK Security and CoreFoundation frameworks",
-          "usedBy": "FFmpeg HTTPS/TLS",
-          "license": "Apple-provided system frameworks"
-        }
-      ]
+      "archive": "ffmpeg-8.1.3.tar.xz"
     },
-    "sourceCommits": {
-      "x86_64-pc-windows-msvc": "330caae0c1",
-      "x86_64-unknown-linux-gnu": "330caae0c1"
-    },
-    "btbnBuildRecipe": {
-      "repository": "https://github.com/BtbN/FFmpeg-Builds",
-      "releaseTag": "autobuild-2026-10-07-13-07",
-      "commit": "9acad4a9ef1583096af7836cc1e9c8cbcb4d3950",
-      "sourceArchive": "https://github.com/BtbN/FFmpeg-Builds/archive/refs/tags/autobuild-2026-10-07-13-07.tar.gz",
-      "sha256": "e46e2323fddeb8a77395a9da6da28cec85df76c9d2952a97860b7df43aead103",
-      "license": "MIT",
-      "variants": [
-        "win64 gpl 8.1",
-        "linux64 gpl 8.1"
-      ],
-      "sourceCache": {
-        "workflowRunId": 37619928982,
-        "artifactId": 11481442646,
-        "artifactSha256": "0fba1773c244060a8d9940b0c42aa192c3275b4ea60b1057da4ea6fc6882998f",
-        "artifactBytes": 2210375760,
-        "cacheMember": "cache.tar.gz",
-        "inputList": "scripts/release/btbn-source-cache-targets.json",
-        "sourceBundle": {
-          "repository": "https://github.com/anaxonda/burrata",
-          "releaseTag": "runtime-sources-2026-10-07",
-          "manifest": {
-            "asset": "btbn-ffmpeg-source-manifest.json",
-            "localPath": "scripts/release/btbn-ffmpeg-source-manifest.json",
-            "url": "https://github.com/anaxonda/burrata/releases/download/runtime-sources-2026-10-07/btbn-ffmpeg-source-manifest.json",
-            "sha256": "0f39485c0b1464b8352400d314831f382b155ece61808b3ba3b64cd7377cb343"
-          },
-          "parts": [
-            {
-              "asset": "btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part1.zip",
-              "url": "https://github.com/anaxonda/burrata/releases/download/runtime-sources-2026-10-07/btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part1.zip",
-              "bytes": 1150003368,
-              "sha256": "40d25e1b7b4ac24b768a7ad4672aa1587f87b703ddc5158c4c6444af01744d8c"
-            },
-            {
-              "asset": "btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part2.zip",
-              "url": "https://github.com/anaxonda/burrata/releases/download/runtime-sources-2026-10-07/btbn-ffmpeg-build-sources-autobuild-2026-10-07-13-07-part2.zip",
-              "bytes": 997854858,
-              "sha256": "944d9aca082876880116553c9ee051d3d8cfc5868da6ee1236fef1a8b1cfc812"
-            }
-          ]
-        }
+    "configureCommon": [
+      "--disable-autodetect",
+      "--disable-shared",
+      "--enable-static",
+      "--enable-gpl",
+      "--enable-version3",
+      "--enable-libmp3lame",
+      "--enable-libopus",
+      "--enable-encoder=png",
+      "--enable-zlib"
+    ],
+    "tlsBackends": {
+      "aarch64-apple-darwin": {
+        "flag": "--enable-securetransport",
+        "systemDependencies": [
+          "macOS Security and CoreFoundation frameworks",
+          "macOS SDK zlib"
+        ]
+      },
+      "x86_64-unknown-linux-gnu": {
+        "flag": "--enable-openssl",
+        "dependency": "openssl"
+      },
+      "x86_64-pc-windows-msvc": {
+        "flag": "--enable-schannel",
+        "systemDependencies": [
+          "Windows Schannel/Crypt32 system libraries"
+        ]
       }
     }
   },
@@ -171,5 +121,20 @@
     "url": "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
     "sha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1",
     "license": "BSD-3-Clause"
+  },
+  "zlib": {
+    "version": "1.3.2",
+    "url": "https://zlib.net/fossils/zlib-1.3.2.tar.gz",
+    "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16",
+    "license": "zlib License"
+  },
+  "openssl": {
+    "version": "3.5.9",
+    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+    "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+    "license": "Apache-2.0",
+    "targets": [
+      "x86_64-unknown-linux-gnu"
+    ]
   }
 }

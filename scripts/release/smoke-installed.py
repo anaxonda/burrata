@@ -8,6 +8,7 @@ import os
 import pathlib
 import shutil
 import signal
+import math
 import struct
 import subprocess
 import sys
@@ -165,6 +166,116 @@ def bundled_tool_checks(resource_root: pathlib.Path, target: str,
         raise SmokeFailure("resources", "packaged native messaging host is missing")
     checks["browserHost"] = {"path": str(host.relative_to(resource_root)), "protocol": "present"}
     return checks
+
+
+def bundled_media_checks(resource_root: pathlib.Path, target: str, env: dict[str, str],
+                         temp: pathlib.Path) -> dict[str, dict[str, str]]:
+    """Exercise the packaged FFmpeg pair with deterministic generated media.
+
+    Commands use absolute paths under the installed resource tree while PATH is
+    restricted by platform_environment(), so a runner-installed FFmpeg cannot
+    satisfy these checks accidentally.
+    """
+    tools = resource_root / "tools" / target
+    ext = ".exe" if sys.platform == "win32" else ""
+    ffmpeg = tools / ("ffmpeg" + ext)
+    ffprobe = tools / ("ffprobe" + ext)
+    if not ffmpeg.is_file() or not ffprobe.is_file():
+        raise SmokeFailure("media", "packaged FFmpeg or ffprobe is missing")
+
+    fixture_dir = temp / "media-fixtures"
+    fixture_dir.mkdir()
+    source = fixture_dir / "synthetic-tone.wav"
+    cover = fixture_dir / "synthetic-cover.png"
+    mp3 = fixture_dir / "tagged-cover.mp3"
+    opus = fixture_dir / "tagged-tone.opus"
+    run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=4:sample_rate=44100", "-ac", "2",
+         "-c:a", "pcm_s16le", source], timeout=60, env=env)
+    run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
+         "-i", "color=c=0x7f42ff:s=64x64", "-frames:v", "1", cover],
+        timeout=60, env=env)
+
+    run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-i", source,
+         "-i", cover, "-map", "0:a:0", "-map", "1:v:0", "-c:a", "libmp3lame",
+         "-b:a", "128k", "-c:v", "copy", "-disposition:v:0", "attached_pic",
+         "-id3v2_version", "3", "-metadata", "title=Burrata Smoke Fixture",
+         "-metadata", "artist=Burrata Test", "-metadata:s:v:0", "title=Album cover",
+         "-metadata:s:v:0", "comment=Cover (front)", mp3], timeout=60, env=env)
+    run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-i", source,
+         "-map", "0:a:0", "-c:a", "libopus", "-b:a", "96k", "-metadata",
+         "title=Burrata Smoke Fixture", "-metadata", "artist=Burrata Test", opus],
+        timeout=60, env=env)
+
+    def inspect(path: pathlib.Path) -> dict:
+        result = run([ffprobe, "-v", "error", "-show_entries",
+                      "format=duration:format_tags=title,artist:stream=codec_name,codec_type,width,height:stream_disposition=attached_pic:stream_tags=title,artist,comment",
+                      "-of", "json", path], timeout=30, env=env)
+        try:
+            value = json.loads(result.stdout.decode("utf-8"))
+            duration = float(value["format"]["duration"])
+        except (ValueError, KeyError, TypeError) as error:
+            raise SmokeFailure("media", f"packaged ffprobe returned invalid metadata for {path.suffix}") from error
+        if not math.isfinite(duration) or duration < 3.5:
+            raise SmokeFailure("media", f"packaged ffprobe reported invalid {path.suffix} duration")
+        return value
+
+    mp3_info = inspect(mp3)
+    opus_info = inspect(opus)
+    mp3_audio = [stream for stream in mp3_info.get("streams", [])
+                 if stream.get("codec_type") == "audio"]
+    mp3_picture = [stream for stream in mp3_info.get("streams", [])
+                   if stream.get("codec_type") == "video"]
+    opus_audio = [stream for stream in opus_info.get("streams", [])
+                  if stream.get("codec_type") == "audio"]
+    if not mp3_audio or mp3_audio[0].get("codec_name") != "mp3":
+        raise SmokeFailure("media", "packaged FFmpeg did not produce an MP3 audio stream")
+    if not opus_audio or opus_audio[0].get("codec_name") != "opus":
+        raise SmokeFailure("media", "packaged FFmpeg did not produce an Opus audio stream")
+    if not mp3_picture or mp3_picture[0].get("codec_name") != "png" \
+            or mp3_picture[0].get("disposition", {}).get("attached_pic") != 1 \
+            or mp3_picture[0].get("width") != 64 \
+            or mp3_picture[0].get("height") != 64:
+        raise SmokeFailure("media", "packaged ffprobe did not find the embedded PNG cover art")
+    if mp3_info.get("format", {}).get("tags", {}).get("title") != "Burrata Smoke Fixture" \
+            or mp3_info.get("format", {}).get("tags", {}).get("artist") != "Burrata Test":
+        raise SmokeFailure("media", "packaged ffprobe did not read MP3 title and artist metadata")
+    if not opus_audio or opus_audio[0].get("tags", {}).get("title") != "Burrata Smoke Fixture" \
+            or opus_audio[0].get("tags", {}).get("artist") != "Burrata Test":
+        raise SmokeFailure("media", "packaged ffprobe did not read Opus title and artist metadata")
+
+    decoding: dict[str, dict[str, int | float]] = {}
+    # These are the same output formats and rates used by the app's BPM and key
+    # analysis subprocesses in src-tauri/src/media.rs.
+    for path, label in ((mp3, "mp3"), (opus, "opus")):
+        s16 = run([ffmpeg, "-nostdin", "-v", "error", "-i", path, "-map", "0:a:0",
+                   "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1"],
+                  timeout=60, env=env).stdout
+        f32 = run([ffmpeg, "-nostdin", "-v", "error", "-i", path, "-map", "0:a:0",
+                   "-vn", "-ac", "1", "-ar", "22050", "-f", "f32le", "pipe:1"],
+                  timeout=60, env=env).stdout
+        if len(s16) < 8000 * 2 or len(s16) % 2 or len(f32) < 22050 * 4 or len(f32) % 4:
+            raise SmokeFailure("media", f"packaged FFmpeg returned incomplete {label} analysis audio")
+        floats = (item[0] for item in struct.iter_unpack("<f", f32))
+        peak = 0.0
+        for sample in floats:
+            if not math.isfinite(sample):
+                raise SmokeFailure("media", f"packaged FFmpeg returned invalid {label} float audio")
+            peak = max(peak, abs(sample))
+        if peak < 0.001:
+            raise SmokeFailure("media", f"packaged FFmpeg returned silent {label} analysis audio")
+        decoding[label] = {
+            "bpmS16Samples": len(s16) // 2,
+            "keyF32Samples": len(f32) // 4,
+            "keyPeak": round(peak, 6),
+        }
+
+    return {
+        "ffmpeg": {"path": str(ffmpeg.relative_to(resource_root)),
+                   "mp3": "encoded", "opus": "encoded", "analysisDecode": decoding},
+        "ffprobe": {"path": str(ffprobe.relative_to(resource_root)),
+                    "mp3Tags": "read", "opusTags": "read", "pngCover": "attached and decoded"},
+    }
 
 
 def native_host_check(resource_root: pathlib.Path, target: str,
@@ -347,6 +458,7 @@ def main() -> int:
 
         target = TARGETS[sys.platform]
         evidence["checks"]["packagedTools"] = bundled_tool_checks(resource_root, target, env)
+        evidence["checks"]["mediaFixtures"] = bundled_media_checks(resource_root, target, env, temp)
         app_process = launch_app(app, env, temp)
         discovery = app_data / "automation.json"
         wait_for_app(app_process, discovery, temp / "installed-app.stderr.log")

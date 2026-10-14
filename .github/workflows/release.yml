@@ -106,6 +106,7 @@ jobs:
           node-version: '24.21.0'
           cache: npm
       - uses: actions/setup-python@v6
+        id: python
         with:
           python-version: '3.13'
       - name: Require the intended native runner architecture
@@ -135,14 +136,46 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf pulseaudio rpm libfuse2 xvfb
+          sudo apt-get install -y build-essential cmake curl dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev nasm patchelf perl pulseaudio rpm libfuse2 xvfb
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-nasm
+            mingw-w64-x86_64-pkgconf
       - run: npm ci
       - name: Check installed-smoke path handling
         run: python3 scripts/release/test_smoke_installed.py
-      - name: Download and verify pinned runtime tools
+      - name: Check pinned media source-build contract
+        run: python3 scripts/release/test-media-build-contract.py
+      - name: Cache verified prepared tool runtimes
+        uses: actions/cache@v4
+        with:
+          path: .cache/prepared-tool-resources/${{ matrix.target }}
+          key: prepared-tools-v1-${{ matrix.target }}-${{ hashFiles('scripts/release/locked-tools.json', 'scripts/release/prepare-tools.py', 'scripts/release/verify-media-tool-build.py', 'scripts/release/build-*-media-tools.py', 'scripts/release/build-media-tools-common.py', 'scripts/release/test-media-tools.py') }}
+      - name: Cache hash-locked media source archives
+        uses: actions/cache@v4
+        with:
+          path: .cache/media-tool-sources
+          key: media-source-v1-${{ matrix.target }}-${{ hashFiles('scripts/release/locked-tools.json') }}
+      - name: Download and verify pinned runtime tools (macOS/Linux)
+        if: runner.os != 'Windows'
         env:
           TARGET: ${{ matrix.target }}
         run: python3 scripts/release/prepare-tools.py
+      - name: Download and verify pinned runtime tools (Windows MSYS2)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          TARGET: ${{ matrix.target }}
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: |
+          python_exe="$(cygpath -u "$PYTHON_PATH")"
+          "$python_exe" scripts/release/prepare-tools.py
       - name: Add prepared media tools to PATH for native tests
         shell: bash
         env:

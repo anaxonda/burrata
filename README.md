@@ -9,9 +9,9 @@ and artist discovery. These integrations are experimental;
 real website extraction, playback, and the complete desktop/Mixxx workflow require
 live qualification.
 
-Direct Beatport and Traxsource chart requests in this workspace returned HTTP 403
-with provider verification pages. The companion uses your normal browser session;
-verification or sign-in may require your attention. No API credentials are required.
+Direct Beatport and Traxsource chart requests may return provider verification
+pages. The companion uses your normal browser session; verification or sign-in
+may require your attention. No API credentials are required.
 Synthetic parser tests do not establish current website compatibility.
 
 ## Implemented workflow
@@ -241,7 +241,7 @@ cargo test --manifest-path src-tauri/Cargo.toml native_forwarding_authenticates_
 
 Provider/parser and player tests use synthetic fixtures, a real sanitized Beatport
 Afro House row, or mocked official APIs.
-Validation completed in this workspace:
+Validation notes:
 
 - Latest playback/UI checks: 101 Rust tests passed, with the existing opt-in loopback
   forwarding test ignored; 46 frontend tests, five mocked player tests, and seven
@@ -250,9 +250,8 @@ Validation completed in this workspace:
 - Synthetic IPC smoke exercised the compiled UI, including imports, candidate controls,
   keyboard switching, stale responses, and dark/light layouts at 960/1440 pixels.
 - Live YouTube and SoundCloud `yt-dlp` searches returned public results; YouTube format
-  inspection returned AAC and Opus audio. A search for the imported Spotify song
-  Jamaican (Bam Bam) returned a plausible review candidate; the imported Traxsource
-  song Tonite had no plausible result in the checked searches.
+  inspection returned AAC and Opus audio. Catalog matching keeps uncertain candidates
+  available for review.
 - Resolved YouTube AAC and SoundCloud progressive MP3 streams played successfully
   in Chrome with advancing playback time and no media error. Native Linux WebKitGTK
   still needs a live check. Tag round trips cover all selected fields across MP3,

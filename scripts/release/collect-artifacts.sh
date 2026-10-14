@@ -5,7 +5,7 @@ set -euo pipefail
 : "${TARGET:?missing Rust target}"
 : "${LABEL:?missing artifact label}"
 
-python3 scripts/release/verify-source-release.py
+python3 scripts/release/verify-media-tool-build.py "$TARGET"
 
 bundle_dir="src-tauri/target/$TARGET/release/bundle"
 out="release-artifacts"
@@ -20,6 +20,7 @@ cp src-tauri/vendor/SOURCES.md "$out/THIRD_PARTY_SOURCES.md"
 cp scripts/release/THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES.md"
 cp scripts/release/locked-tools.json "$out/locked-tools.json"
 cp "src-tauri/resources/tools/$TARGET/LOCKED_TOOLS.json" "$out/LOCKED_TOOLS-$LABEL.json"
+cp "src-tauri/resources/tools/$TARGET/FFMPEG_BUILD_CONFIGURATION.json" "$out/FFMPEG_BUILD_CONFIGURATION.json"
 if [[ -f "src-tauri/resources/tools/$TARGET/LOCKED_FPCALC.json" ]]; then
   cp "src-tauri/resources/tools/$TARGET/LOCKED_FPCALC.json" "$out/LOCKED_FPCALC-$LABEL.json"
 fi
@@ -30,16 +31,11 @@ out = pathlib.Path(out)
 tools = json.loads((out / f"LOCKED_TOOLS-{label}.json").read_text(encoding="utf-8"))
 lines = ["", "## Release-bundled tools", "", "| Tool | Version / source | SHA-256 | License |", "| --- | --- | --- | --- |"]
 for name, record in tools.get("sha256", {}).items():
-    lines.append(f"| {name} | Pinned archive | {record} | See `THIRD_PARTY_NOTICES.md` and bundled upstream notices |")
-source = tools.get("ffmpegSource")
-if source:
-    lines.append(f"| FFmpeg source archive | {source['commit']} ({source['url']}) | {source['sha256']} | GPL-2.0-or-later source; GPL binary build |")
-recipe = tools.get("ffmpegBuildRecipe")
-if recipe:
-    lines.append(f"| BtbN FFmpeg-Builds recipe source archive | {recipe['commit']} ({recipe['url']}) | {recipe['sha256']} | MIT; contains the exact release build scripts and dependency source pins |")
-    bundle = recipe.get("sourceBundle")
-    if bundle:
-        lines.append(f"| BtbN FFmpeg corresponding-source manifest | {bundle['releaseTag']} ({bundle['manifest']}) | {bundle['manifestSha256']} | Full source archives are in the separate [runtime source release](https://github.com/anaxonda/burrata/releases/tag/{bundle['releaseTag']}); the installer carries this compact manifest, not the large archives |")
+    if isinstance(record, dict):
+        for filename, digest in record.items():
+            lines.append(f"| build recipe `{filename}` | Source for this target | {digest} | See repository license |")
+    else:
+        lines.append(f"| {name} | Pinned archive | {record} | See `THIRD_PARTY_NOTICES.md` and bundled upstream notices |")
 fpcalc_record = out / f"LOCKED_FPCALC-{label}.json"
 if fpcalc_record.is_file():
     fpcalc = json.loads(fpcalc_record.read_text(encoding="utf-8"))
@@ -49,9 +45,9 @@ if fpcalc_record.is_file():
         license_file = pathlib.Path("src-tauri/resources/tools") / target / license_name
         if not license_file.is_file():
             raise SystemExit(f"Missing fpcalc license text: {license_file}")
-media_file = pathlib.Path("src-tauri/resources/tools") / target / "MACOS_MEDIA_SOURCE_INVENTORY.json"
+media_file = pathlib.Path("src-tauri/resources/tools") / target / "MEDIA_SOURCE_INVENTORY.json"
 if media_file.is_file():
-    (out / "MACOS_MEDIA_SOURCE_INVENTORY.json").write_bytes(media_file.read_bytes())
+    (out / "MEDIA_SOURCE_INVENTORY.json").write_bytes(media_file.read_bytes())
     media = json.loads(media_file.read_text(encoding="utf-8"))
     for item in media["sources"]:
         lines.append(f"| {item['name']} {item['version']} source archive | {item['url']} | {item['sha256']} | Refer to bundled upstream license |")
@@ -62,6 +58,12 @@ PY
 if [[ -d "src-tauri/resources/tools/$TARGET/sources" ]]; then
   cp -v "src-tauri/resources/tools/$TARGET/sources/"* "$out/"
 fi
+cp -R "src-tauri/resources/tools/$TARGET/build-recipe" "$out/build-recipe"
+for notice in FFMPEG_LICENSE.txt FFMPEG_BUILD_INFO.txt LAME_LICENSE.txt OPUS_LICENSE.txt ZLIB_LICENSE.txt OPENSSL_LICENSE.txt CHROMAPRINT_LICENSE.md LGPL-2.1.txt; do
+  if [[ -f "src-tauri/resources/tools/$TARGET/$notice" ]]; then
+    cp "src-tauri/resources/tools/$TARGET/$notice" "$out/"
+  fi
+done
 cp ".cache/release-assets/burrata-yt-dlp-$TARGET"* "$out/"
 cp ".cache/release-assets/bgutil-plugin-2.0.2-$TARGET.zip" "$out/"
 cp ".cache/release-assets/youtube-support-target.json" "$out/"

@@ -31,19 +31,24 @@ describe("RadioView", () => {
           metadataConfidence: "station-reported; catalog identity unverified",
         }, secondsRemaining: 40, history: [{
           stationId: args?.stationId, artist: "Older Artist", title: "Earlier Song", sourceUrl: stations[0]!.sourceUrl,
-          metadataConfidence: "station-reported",
+          metadataConfidence: "station-reported", observedAt: "2026-10-13T20:34:00.000Z",
         }], historyAvailable: true, note: "Station history is available.",
       };
       throw new Error(`Unexpected command ${command}`);
     });
-    const onPlayStation = vi.fn(), onArtist = vi.fn(), onNowPlaying = vi.fn();
-    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onNowPlaying, playingStationId: "main" } });
+    const onPlayStation = vi.fn(), onArtist = vi.fn(), onNowPlaying = vi.fn(), onPlayTrack = vi.fn();
+    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onNowPlaying, onPlayTrack, playingStationId: "main" } });
     cleanup = () => { void unmount(instance); };
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
     expect(document.querySelectorAll(".station-card")).toHaveLength(4);
     expect(document.querySelector('[aria-label="Now playing on Main Mix"]')?.textContent).toContain("Live Song");
     expect(document.querySelector('[aria-label^="Recently heard"]')?.textContent).toContain("Earlier Song");
+    expect(document.querySelector('[aria-label^="Recently heard"] .track-subtitle')?.textContent).toContain("Via Main Mix");
+    expect(document.querySelector('[aria-label^="Recently heard"] time')?.textContent).toContain("2026");
+    expect(document.querySelector('[aria-label^="Recently heard"] time')?.getAttribute("title")).toContain("2026");
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Earlier Song"]')!.click();
+    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ title: "Earlier Song", artist: "Older Artist" }), expect.any(Array), 0);
     expect(document.querySelector('[aria-label^="Recently heard"]')?.textContent).toContain("your listening history");
     expect(document.querySelector("h1")?.textContent).toBe("Main Mix");
     expect(document.querySelector('img[alt="Album artwork for Live Song"]')?.getAttribute("src")).toBe("https://img.radioparadise.com/covers/l/current.jpg");

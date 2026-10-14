@@ -64,8 +64,8 @@ IDs were checked against official chart links, including [Amapiano](https://www.
 
 ## Why a browser companion
 
-Direct Beatport and Traxsource requests returned HTTP 403 verification pages in
-this workspace. API access is not available for this project. The companion reads
+Direct Beatport and Traxsource requests may return HTTP 403 verification pages.
+API access is not available for this project. The companion reads
 public track metadata from pages loaded in the user's normal browser session.
 
 Manual capture uses temporary access to the active tab. Optional app-driven mode
@@ -78,14 +78,14 @@ interaction. Verification pages are brought forward rather than solved automatic
 From the project directory:
 
 ```sh
-cd /home/loki/projects/burrata
+cd /path/to/burrata
 npm run tauri -- dev
 ```
 
 After the desktop executable has built, use another terminal to register the host:
 
 ```sh
-cd /home/loki/projects/burrata
+cd /path/to/burrata
 python3 scripts/install_browser_host.py \
   --browser firefox \
   --executable "$PWD/src-tauri/target/debug/burrata"
@@ -102,8 +102,8 @@ is Burrata's Rust executable.
 3. Keep Burrata running and open a supported chart or playlist.
 4. Click the extension icon, then **Import current page**.
 
-Temporary Firefox installations disappear on browser restart. Permanent signed
-extension distribution is not implemented yet. See the
+Temporary Firefox installations disappear on browser restart. For packaged
+extension distribution, see the
 [companion instructions](../extension/README.md) for Chromium and other platform setup.
 
 If startup reports that port 1420 is occupied, another Vite development server is
@@ -495,8 +495,8 @@ Estimated values are labeled in the UI and are not key/beat-grid analysis.
 Settings now explains tools, checks their availability, links official installation
 guides for Windows/macOS/Linux, and hides executable paths under advanced options.
 Tool discovery supports common desktop-launch locations. See [tool setup](tool-setup.md).
-Tools are not yet bundled or automatically installed; Windows/macOS releases still
-need qualification.
+The release packages include the supported media and recognition tools. See
+[tool setup](tool-setup.md) for their roles and troubleshooting.
 
 Live direct searches returned ten YouTube and ten SoundCloud results; individual
 source inspection returned audio-only formats. The progressive SoundCloud stream
@@ -728,11 +728,9 @@ local-listener test. Browser fixture QA verified numbering, anchored track and
 playlist context menus, soft deletion, and restoration without changing real user
 playlists. Linux MPRIS implementation is documented in `docs/mpris.md`.
 
-Last.fm on this machine is enabled with its API key in the OS keyring, using
-Burrata's ConnectionManager. The shared secret is not needed for read-only catalog
-or chart requests. `lastfm.txt` is excluded from version control; the source notes
-were not rewritten. The local `configure_lastfm` example reads the key file without
-printing credentials and verifies the direct chart path without saving a playlist.
+Last.fm read-only catalog and chart requests use the API key configured in
+Burrata's Connections settings. They do not require the shared secret used for
+write operations. Provider responses and chart availability can vary over time.
 
 ## Preset sidebar browsers
 
@@ -838,11 +836,12 @@ until a song can be identified.
 Recognition runs automatically while a station is playing and supported stream
 metadata is missing, including when browsing another screen. Attempts and cached
 matches are spaced by 90 seconds; failed recognition does not interrupt playback.
-Identify current song remains available. It uses FFmpeg to capture a bounded
-12-second stream sample locally, then passes that file to an installed SongRec
-CLI, which sends an audio fingerprint to Shazam. It never uses the microphone or
-installs software. A no-match does not create invented artist/title tags or history
-entries. Recognition results remain separate from verified catalog identities.
+Identify current song remains available. Release packages include Burrata's
+portable recognition helper, which captures a bounded 12-second stream sample
+locally and generates a fingerprint. Shazam matching sends the fingerprint to a
+remote service. Recognition does not use the microphone. A no-match does not
+create invented artist/title tags or history entries. Recognition results remain
+separate from verified catalog identities.
 
 Sidebar context menus support renaming playlists (including imported and built-in
 entries) and radio stations. Radio context menus also offer Remove station:
@@ -850,6 +849,5 @@ saved entries are deleted and built-in stations are hidden persistently.
 Persistent label overrides preserve stable IDs and
 source snapshot titles; a refreshed import cannot erase a user-chosen label.
 
-References: [The North Listen Live](https://www.thenorth1033.org/listen-live),
-[MPR streams](https://www.mpr.org/listen/streams),
-[SongRec](https://github.com/marin-m/SongRec).
+References: [The North Listen Live](https://www.thenorth1033.org/listen-live) and
+[MPR streams](https://www.mpr.org/listen/streams).

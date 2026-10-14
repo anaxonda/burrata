@@ -183,14 +183,14 @@ describe("ArtistPage", () => {
     target.querySelector<HTMLButtonElement>('.tabs button:nth-child(3)')!.click(); await settle();
     target.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!.value = "title";
     target.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!.dispatchEvent(new Event("change", { bubbles: true })); await settle();
-    const rows = target.querySelectorAll(".track-list li");
+    const rows = target.querySelectorAll(".shared-track-list li");
     expect(rows[0].textContent).toContain("Alpha");
     rows[0].querySelector<HTMLButtonElement>("button")!.click(); await settle();
     expect(onPlayTrack).toHaveBeenLastCalledWith(songs[1], [songs[1], songs[0]], 0);
     const search = target.querySelector<HTMLInputElement>('[aria-label="Search loaded tracks"]')!;
     search.value = "Zulu"; search.dispatchEvent(new Event("input", { bubbles: true })); await settle();
-    expect(target.querySelectorAll(".track-list li")).toHaveLength(1);
-    expect(target.querySelector(".track-list")?.textContent).toContain("Zulu");
+    expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(1);
+    expect(target.querySelector(".shared-track-list")?.textContent).toContain("Zulu");
   });
 
   it("ignores a pending album play after navigating to another artist", async () => {

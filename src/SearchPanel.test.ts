@@ -34,7 +34,7 @@ describe("SearchPanel", () => {
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ query: "A Song", sourceIds: ["library"], limit: 30 }));
     expect(target.textContent).toContain("A Song");
     expect(target.querySelector<HTMLButtonElement>('[aria-label="Download A Song"]')).not.toBeNull();
-    target.querySelector<HTMLButtonElement>(".play-action")!.click();
+    target.querySelector<HTMLButtonElement>(".icon-action.play")!.click();
     expect(onPlay).toHaveBeenCalledWith(track);
   });
 

@@ -21,6 +21,7 @@ pub mod monochrome;
 pub mod mpris;
 pub mod playback_history;
 pub mod playlist_files;
+pub mod playlist_preferences;
 pub mod playlist_sync;
 pub mod playlist_watch;
 pub mod providers;
@@ -394,6 +395,85 @@ async fn import_local_playlist(
     }
 }
 #[tauri::command]
+fn get_playlist_preferences(
+    state: State<'_, AppState>,
+) -> Result<playlist_preferences::PlaylistPreferences> {
+    playlist_preferences::load(&state.store)
+}
+#[tauri::command]
+fn set_playlist_shortcut(
+    state: State<'_, AppState>,
+    slot: usize,
+    collection_id: Option<String>,
+) -> Result<playlist_preferences::PlaylistPreferences> {
+    playlist_preferences::set_shortcut(&state.store, slot, collection_id)
+}
+#[tauri::command]
+fn set_favorites_playlist(
+    state: State<'_, AppState>,
+    collection_id: String,
+) -> Result<playlist_preferences::PlaylistPreferences> {
+    playlist_preferences::set_favorites_playlist(&state.store, &collection_id)
+}
+#[tauri::command]
+fn set_favorite_membership(state: State<'_, AppState>, track: Track, liked: bool) -> Result<()> {
+    playlist_preferences::set_favorite_membership(&state.store, &track, liked)
+}
+#[tauri::command]
+fn set_playlist_shortcut_binding(
+    state: State<'_, AppState>,
+    slot: usize,
+    binding: String,
+) -> Result<playlist_preferences::PlaylistPreferences> {
+    playlist_preferences::set_shortcut_binding(&state.store, slot, &binding)
+}
+#[tauri::command]
+fn get_radio_song_track(
+    state: State<'_, AppState>,
+    station_id: String,
+    metadata: radio::RadioTrackMetadata,
+) -> Result<Track> {
+    let station = radio::get_radio_stations_saved(&state.store)?
+        .into_iter()
+        .find(|s| s.id == station_id)
+        .ok_or("Radio station not found")?;
+    if metadata.station_id != station.id {
+        return Err("Station metadata does not match".into());
+    }
+    let track = playback_history::radio_song_track(&station, &metadata);
+    Ok(state.store.get_track(&track.id)?.unwrap_or(track))
+}
+#[tauri::command]
+fn get_radio_history_setting(state: State<'_, AppState>) -> Result<bool> {
+    playback_history::include_radio_songs_in_history(&state.store)
+}
+#[tauri::command]
+fn set_radio_history_setting(state: State<'_, AppState>, enabled: bool) -> Result<()> {
+    playback_history::set_include_radio_songs_in_history(&state.store, enabled)
+}
+#[tauri::command]
+fn record_radio_history(
+    state: State<'_, AppState>,
+    listening_session_id: String,
+    occurrence_key: String,
+    listened_at: String,
+    station_id: String,
+    metadata: radio::RadioTrackMetadata,
+) -> Result<bool> {
+    let station = radio::get_radio_stations_saved(&state.store)?
+        .into_iter()
+        .find(|s| s.id == station_id)
+        .ok_or("Radio station not found")?;
+    state.history.record_radio_occurrence(
+        &state.store,
+        &listening_session_id,
+        &occurrence_key,
+        &listened_at,
+        &station,
+        &metadata,
+    )
+}
+#[tauri::command]
 fn record_playback(
     state: State<'_, AppState>,
     session_id: String,
@@ -401,9 +481,12 @@ fn record_playback(
     track: Track,
     chapter: Option<serde_json::Value>,
 ) -> Result<bool> {
+    if state.store.get_track(&track.id)?.is_none() {
+        state.store.save_track(&track)?;
+    }
     state
         .history
-        .record(&session_id, &provider, &track, chapter)
+        .record_enriched(&state.store, &session_id, &provider, &track, chapter)
 }
 #[tauri::command]
 fn list_playback_history(
@@ -413,7 +496,14 @@ fn list_playback_history(
 ) -> Result<Vec<playback_history::PlaybackHistoryEntry>> {
     state
         .history
-        .list(limit.unwrap_or(100), offset.unwrap_or(0))
+        .list_enriched(&state.store, limit.unwrap_or(100), offset.unwrap_or(0))
+}
+#[tauri::command]
+fn search_playback_history(
+    state: State<'_, AppState>,
+    options: playback_history::PlaybackHistorySearchOptions,
+) -> Result<playback_history::PlaybackHistoryPage> {
+    state.history.search(&state.store, options)
 }
 #[tauri::command]
 fn clear_playback_history(state: State<'_, AppState>) -> Result<()> {
@@ -1537,7 +1627,7 @@ fn list_tracks(
 }
 #[tauri::command]
 fn set_favorite(state: State<'_, AppState>, track: Track, value: bool) -> Result<()> {
-    state.store.set_favorite(&track, value)
+    playlist_preferences::set_favorite_membership(&state.store, &track, value)
 }
 #[tauri::command]
 fn set_disposition(state: State<'_, AppState>, track: Track, value: Option<String>) -> Result<()> {
@@ -1598,6 +1688,7 @@ fn remove_from_collection(
 ) -> Result<String> {
     let target_id = playlist_sync::ensure_editable_collection(&state.store, &collection_id)?;
     state.store.remove_from_collection(&target_id, &track_ids)?;
+    playlist_preferences::resync_favorite_flags_after_collection_change(&state.store, &target_id)?;
     Ok(target_id)
 }
 #[tauri::command]
@@ -1606,10 +1697,9 @@ fn add_to_collection(
     collection_id: String,
     tracks: Vec<Track>,
 ) -> Result<()> {
-    state.store.add_to_collection(
-        &playlist_sync::ensure_editable_collection(&state.store, &collection_id)?,
-        &tracks,
-    )
+    let target_id = playlist_sync::ensure_editable_collection(&state.store, &collection_id)?;
+    state.store.add_to_collection(&target_id, &tracks)?;
+    playlist_preferences::resync_favorite_flags_after_collection_change(&state.store, &target_id)
 }
 #[tauri::command]
 fn merge_recordings(
@@ -2178,7 +2268,7 @@ pub fn run() {
             if let Err(error) = analysis.queue(None, false) { diagnostics.push(format!("Analysis preparation failed: {error}")); }
             let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
             let candidate_preview = candidate_preview::CandidatePreviewManager::new(app.handle().clone(), format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()));
-            let automation = automation::AutomationService::new(app.handle().clone(), store.clone(), acquisition.clone(), artists.clone(), connections.clone(), analysis.clone(), dir.clone());
+            let automation = automation::AutomationService::new(app.handle().clone(), store.clone(), acquisition.clone(), artists.clone(), connections.clone(), analysis.clone(), history.clone(), dir.clone());
             automation.set_autotag_manager(autotag.clone());
             let local_audio = local_audio::LocalAudioManager::new(store.clone());
             #[cfg(target_os = "linux")]
@@ -2262,7 +2352,8 @@ pub fn run() {
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,
             analyze_local_assets, get_analysis_status, scan_local_playlists, sync_playlists,
-            record_playback, list_playback_history, clear_playback_history, inspect_chapters,
+            get_radio_song_track,set_playlist_shortcut_binding,get_playlist_preferences,set_playlist_shortcut,set_favorites_playlist,set_favorite_membership,get_radio_history_setting,set_radio_history_setting,record_radio_history,
+            record_playback, list_playback_history, search_playback_history, clear_playback_history, inspect_chapters,
             enrich_chapters, cache_artwork, cache_asset_artwork, get_song_radio
         ])
         .build(tauri::generate_context!())

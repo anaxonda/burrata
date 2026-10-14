@@ -7,6 +7,7 @@ use crate::{
     connections::ConnectionManager,
     discovery::{DiscoveryRequest, DiscoveryService},
     models::*,
+    playback_history::{PlaybackHistory, PlaybackHistorySearchOptions},
     Store,
 };
 use axum::{
@@ -87,6 +88,7 @@ pub struct AutomationService {
     artists: Arc<ArtistService>,
     connections: Arc<ConnectionManager>,
     analysis: Arc<AnalysisManager>,
+    history: Arc<PlaybackHistory>,
     data_dir: PathBuf,
     token: Mutex<String>,
     playback_state: Mutex<Value>,
@@ -105,6 +107,7 @@ impl AutomationService {
         artists: Arc<ArtistService>,
         connections: Arc<ConnectionManager>,
         analysis: Arc<AnalysisManager>,
+        history: Arc<PlaybackHistory>,
         data_dir: PathBuf,
     ) -> Arc<Self> {
         let service = Arc::new(Self {
@@ -114,6 +117,7 @@ impl AutomationService {
             artists,
             connections,
             analysis,
+            history,
             data_dir,
             token: Mutex::new(Uuid::new_v4().to_string()),
             playback_state: Mutex::new(json!({"status":"idle"})),
@@ -641,6 +645,26 @@ impl AutomationService {
                     .map_err(ToolError::failed)?;
                 json!({"items":rows.into_iter().map(safe_track).collect::<Vec<_>>(),"total":total,"offset":offset,"limit":limit,"hasMore":offset.saturating_add(limit)<total})
             }
+            name if playback_history_tool(name) == Some(PlaybackHistoryTool::Search) => {
+                let options = playback_history_search_options(&a)?;
+                let page = self
+                    .history
+                    .search(&self.store, options)
+                    .map_err(ToolError::failed)?;
+                safe_playback_history_page(page)
+            }
+            name if playback_history_tool(name) == Some(PlaybackHistoryTool::Entry) => {
+                let session_id = playback_history_session_id(&a)?;
+                let entry = self
+                    .history
+                    .get_enriched(&self.store, &session_id)
+                    .map_err(ToolError::failed)?
+                    .ok_or_else(|| ToolError {
+                        code: "NOT_FOUND",
+                        message: "Playback history entry was not found".into(),
+                    })?;
+                safe_playback_history_entry(entry)
+            }
             "get_track" => {
                 let id = str_arg(&a, "trackId", 300)?;
                 let track = required_track(&self.store, &id)?;
@@ -1053,6 +1077,11 @@ impl AutomationService {
                 self.store
                     .add_to_collection(&target_id, &ts)
                     .map_err(ToolError::failed)?;
+                crate::playlist_preferences::resync_favorite_flags_after_collection_change(
+                    &self.store,
+                    &target_id,
+                )
+                .map_err(ToolError::failed)?;
                 let added = self
                     .store
                     .list_tracks("collection", Some(&target_id))
@@ -1410,6 +1439,19 @@ fn validate_public_candidate(candidate: &Candidate) -> Result<(), ToolError> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaybackHistoryTool {
+    Search,
+    Entry,
+}
+fn playback_history_tool(name: &str) -> Option<PlaybackHistoryTool> {
+    match name {
+        "search_playback_history" | "list_playback_history" => Some(PlaybackHistoryTool::Search),
+        "get_playback_history_entry" => Some(PlaybackHistoryTool::Entry),
+        _ => None,
+    }
+}
+
 fn tool_scope(name: &str) -> Option<&'static str> {
     Some(match name {
         "search_library"
@@ -1437,6 +1479,9 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "inspect_audio_source"
         | "download_jobs"
         | "analysis_status"
+        | "search_playback_history"
+        | "list_playback_history"
+        | "get_playback_history_entry"
         | "playback_state"
         | "get_slskd_search"
         | "start_slskd_search"
@@ -1700,6 +1745,134 @@ fn safe_track(track: Track) -> Value {
     }
     value
 }
+fn safe_playback_history_entry(entry: crate::playback_history::PlaybackHistoryEntry) -> Value {
+    let mut value = serde_json::to_value(entry).unwrap_or_else(|_| json!({}));
+    if let Some(object) = value.as_object_mut() {
+        if let Some(track) = object.remove("track") {
+            let track: Track = serde_json::from_value(track).unwrap_or_default();
+            object.insert("track".into(), safe_track(track));
+        }
+    }
+    strip_file_fields(&mut value);
+    value
+}
+fn safe_playback_history_page(page: impl Serialize) -> Value {
+    let mut value = serde_json::to_value(page).unwrap_or_else(|_| json!({}));
+    if let Some(items) = value.get_mut("items").and_then(Value::as_array_mut) {
+        for item in items {
+            strip_file_fields(item);
+            if let Some(object) = item.as_object_mut() {
+                if let Some(track) = object.remove("track") {
+                    let track: Track = serde_json::from_value(track).unwrap_or_default();
+                    object.insert("track".into(), safe_track(track));
+                }
+            }
+        }
+    }
+    value
+}
+fn playback_history_search_options(
+    arguments: &Value,
+) -> Result<PlaybackHistorySearchOptions, ToolError> {
+    let empty = Value::Object(serde_json::Map::new());
+    let arguments = if arguments.is_null() {
+        &empty
+    } else {
+        arguments
+    };
+    let object = arguments
+        .as_object()
+        .ok_or_else(|| ToolError::bad("arguments must be an object"))?;
+    const ALLOWED: &[&str] = &[
+        "query",
+        "provider",
+        "stationId",
+        "from",
+        "to",
+        "sort",
+        "limit",
+        "offset",
+    ];
+    if object.keys().any(|key| !ALLOWED.contains(&key.as_str())) {
+        return Err(ToolError::bad("Unsupported playback history argument"));
+    }
+    let query = optional_str_arg(arguments, "query", 300)?;
+    let provider = optional_str_arg(arguments, "provider", 120)?;
+    let station_id = optional_str_arg(arguments, "stationId", 120)?;
+    if provider
+        .as_deref()
+        .is_some_and(|provider| provider.chars().any(char::is_control))
+    {
+        return Err(ToolError::bad("provider contains invalid characters"));
+    }
+    let from = optional_str_arg(arguments, "from", 64)?;
+    let to = optional_str_arg(arguments, "to", 64)?;
+    for (name, value) in [("from", &from), ("to", &to)] {
+        if value
+            .as_ref()
+            .is_some_and(|value| !valid_history_date(value))
+        {
+            return Err(ToolError::bad(format!(
+                "{name} must be YYYY-MM-DD or an RFC3339 timestamp"
+            )));
+        }
+    }
+    if let (Some(from), Some(to)) = (&from, &to) {
+        if history_bound_millis(from, false) > history_bound_millis(to, true) {
+            return Err(ToolError::bad("from must not be later than to"));
+        }
+    }
+    let sort = optional_str_arg(arguments, "sort", 16)?;
+    if sort
+        .as_deref()
+        .is_some_and(|sort| !matches!(sort, "newest" | "oldest"))
+    {
+        return Err(ToolError::bad("sort must be newest or oldest"));
+    }
+    let limit = usize_arg(arguments, "limit", 100)?.unwrap_or(25);
+    if limit == 0 {
+        return Err(ToolError::bad("limit must be at least 1"));
+    }
+    let limit = limit as u32;
+    let offset = usize_arg(arguments, "offset", 1_000_000)?.unwrap_or(0) as u32;
+    Ok(PlaybackHistorySearchOptions {
+        query,
+        provider,
+        station_id,
+        from,
+        to,
+        sort,
+        limit,
+        offset,
+    })
+}
+fn valid_history_date(value: &str) -> bool {
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
+        || chrono::DateTime::parse_from_rfc3339(value).is_ok()
+}
+fn history_bound_millis(value: &str, upper: bool) -> i64 {
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        let time = if upper {
+            chrono::NaiveTime::from_hms_milli_opt(23, 59, 59, 999).unwrap()
+        } else {
+            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()
+        };
+        date.and_time(time).and_utc().timestamp_millis()
+    } else {
+        chrono::DateTime::parse_from_rfc3339(value)
+            .expect("bound validated before comparison")
+            .timestamp_millis()
+    }
+}
+fn playback_history_session_id(arguments: &Value) -> Result<String, ToolError> {
+    let object = arguments
+        .as_object()
+        .ok_or_else(|| ToolError::bad("arguments must be an object"))?;
+    if object.keys().any(|key| key != "sessionId") {
+        return Err(ToolError::bad("Unsupported playback history argument"));
+    }
+    str_arg(arguments, "sessionId", 300)
+}
 fn safe_job(job: DownloadJob) -> Value {
     let mut value = serde_json::to_value(job).unwrap_or_else(|_| json!({}));
     if let Some(object) = value.as_object_mut() {
@@ -1721,10 +1894,9 @@ fn strip_file_fields(value: &mut Value) {
             object.retain(|key, _| {
                 let k = key.to_ascii_lowercase();
                 !(k.contains("filename")
-                    || k.contains("filepath")
-                    || k.contains("localpath")
-                    || k.contains("outputpath")
-                    || k == "path")
+                    || k.ends_with("path")
+                    || k.ends_with("directory")
+                    || k.ends_with("folder"))
             });
             for child in object.values_mut() {
                 strip_file_fields(child);
@@ -1820,7 +1992,7 @@ async fn call_tool(
 }
 fn tool_definitions() -> Vec<Value> {
     [
- ("search_library","Search local library", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),
+ ("search_library","Search local library", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
  ("discover_music","Search selected music sources with independent result pages", "read"),("poll_music_search","Poll a Soulseek discovery search", "read"),("inspect_source_chapters","Inspect source chapters and register stable chapter tracks", "read"),("get_autotag_status","Get paginated autotag review jobs", "read"),("retry_autotag","Retry an autotag job", "manage"),("review_autotag_candidate","Select a catalog candidate for autotag review", "manage"),("apply_autotag_review","Apply approved autotag fields", "manage"),("play_chapter","Play a registered chapter track", "control"),
  ("list_radio_stations","List built-in and saved radio stations", "read"),("search_radio_stations","Search radio stations by name, country, or tag", "read"),("get_station_details","Get details and available current metadata for a station", "read"),("add_radio_station","Save a selected Radio Browser search result", "control"),("add_custom_radio_station","Save a station from a stream URL", "control"),("remove_radio_station","Remove a saved station or hide a built-in station", "control"),("rename_radio_station","Rename a saved or built-in station", "control"),("play_radio_station","Play a saved or built-in radio station", "control"),
  ("playback_state","Get player state", "control"),("play_tracks","Play specific track IDs", "control"),("pause_playback","Pause playback", "control"),("resume_playback","Resume playback", "control"),("queue_tracks","Queue specific track IDs", "control"),("seek_playback","Seek in seconds", "control"),("set_volume","Set volume from 0 to 1", "control"),("create_playlist","Create a playlist", "control"),("add_tracks_to_playlist","Append track IDs to a playlist", "control"),
@@ -1838,6 +2010,8 @@ fn tool_definitions() -> Vec<Value> {
  "discover_music"=>(json!({"query":{"type":"string","maxLength":500},"sourceIds":{"type":"array","maxItems":20,"items":{"type":"string","enum":["library","musicbrainz","discogs","youtube","soundcloud","soulseek","monochrome"]}},"kinds":{"type":"array","maxItems":10,"items":{"type":"string","enum":["artist","album","track","video","set","file"]}},"cursor":{"type":"string","maxLength":100},"limit":{"type":"integer","minimum":1,"maximum":100},"isrc":{"type":"string","maxLength":32}}),json!(["query"])),
  "poll_music_search"=>(json!({"searchId":{"type":"string","maxLength":300}}),json!(["searchId"])),"inspect_source_chapters"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"}}),json!(["trackId","candidate"])),"get_autotag_status"=>(json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),"retry_autotag"=>(json!({"assetId":{"type":"string"}}),json!(["assetId"])),"review_autotag_candidate"=>(json!({"assetId":{"type":"string"},"providerId":{"type":"string"}}),json!(["assetId","providerId"])),"apply_autotag_review"=>(json!({"assetId":{"type":"string"},"fieldKeys":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["artist","title","recordingDate"]}}}),json!(["assetId","fieldKeys"])),"play_chapter"=>(json!({"trackId":{"type":"string"}}),json!(["trackId"])),
  "search_library"=>(json!({"query":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["query"])),
+ "search_playback_history"|"list_playback_history"=>(json!({"query":{"type":"string","maxLength":300},"provider":{"type":"string","maxLength":120,"description":"Exact playback provider filter. Use radio for radio songs or non-radio to exclude them."},"stationId":{"type":"string","maxLength":120,"description":"Filter radio playback history to one station"},"from":{"type":"string","maxLength":64,"description":"Inclusive lower bound as YYYY-MM-DD or RFC3339"},"to":{"type":"string","maxLength":64,"description":"Inclusive upper bound as YYYY-MM-DD or RFC3339"},"sort":{"type":"string","enum":["newest","oldest"]},"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),
+ "get_playback_history_entry"=>(json!({"sessionId":{"type":"string","minLength":1,"maxLength":300}}),json!(["sessionId"])),
  "get_track"=>(json!({"trackId":{"type":"string"}}),json!(["trackId"])),"list_playlists"=>(json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),"get_playlist"=>(json!({"playlistId":{"type":"string"},"snapshotId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["playlistId"])),
  "search_tracks"=>(json!({"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["library","musicbrainz","youtube","soundcloud","soulseek","monochrome"]}}}),json!(["query"])),
  "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),
@@ -2059,6 +2233,45 @@ mod tests {
         ] {
             assert_eq!(tool_scope(name), Some("read"));
         }
+        for name in [
+            "search_playback_history",
+            "list_playback_history",
+            "get_playback_history_entry",
+        ] {
+            assert_eq!(tool_scope(name), Some("read"));
+            assert!(playback_history_tool(name).is_some());
+            let tool = tool_definitions()
+                .into_iter()
+                .find(|tool| tool["name"] == name)
+                .expect("history tool is registered");
+            assert_eq!(tool["scope"], "read");
+            assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+        }
+        let search = tool_definitions()
+            .into_iter()
+            .find(|tool| tool["name"] == "search_playback_history")
+            .unwrap();
+        for key in [
+            "query",
+            "provider",
+            "stationId",
+            "from",
+            "to",
+            "sort",
+            "offset",
+            "limit",
+        ] {
+            assert!(search["inputSchema"]["properties"].get(key).is_some());
+        }
+        assert_eq!(
+            search["inputSchema"]["properties"]["sort"]["enum"],
+            json!(["newest", "oldest"])
+        );
+        let get_entry = tool_definitions()
+            .into_iter()
+            .find(|tool| tool["name"] == "get_playback_history_entry")
+            .unwrap();
+        assert_eq!(get_entry["inputSchema"]["required"], json!(["sessionId"]));
         let playlist = tool_definitions()
             .into_iter()
             .find(|v| v["name"] == "get_playlist")
@@ -2074,6 +2287,77 @@ mod tests {
             assert!(tool["inputSchema"]["properties"].get("offset").is_some());
             assert!(tool["inputSchema"]["properties"].get("limit").is_some());
         }
+    }
+    #[test]
+    fn playback_history_search_options_are_bounded_and_validated() {
+        let options = playback_history_search_options(&json!({
+            "query":"  Night Drive ", "provider":"youtube", "stationId":"station-1", "from":"2026-01-02",
+            "to":"2026-01-05T12:30:00Z", "sort":"oldest", "offset":4, "limit":9
+        }))
+        .unwrap();
+        assert_eq!(options.query.as_deref(), Some("Night Drive"));
+        assert_eq!(options.provider.as_deref(), Some("youtube"));
+        assert_eq!(options.station_id.as_deref(), Some("station-1"));
+        assert_eq!(options.sort.as_deref(), Some("oldest"));
+        assert_eq!((options.limit, options.offset), (9, 4));
+        assert!(playback_history_search_options(&json!({
+            "from":"2026-01-02T12:30:00Z", "to":"2026-01-02"
+        }))
+        .is_ok());
+        assert!(playback_history_search_options(&json!({"from":"yesterday"})).is_err());
+        assert!(playback_history_search_options(&json!({"sort":"random"})).is_err());
+        assert!(
+            playback_history_search_options(&json!({"from":"2026-03-03","to":"2026-03-02"}))
+                .is_err()
+        );
+        assert!(playback_history_search_options(&json!({"limit":101})).is_err());
+        assert!(playback_history_search_options(&json!({"limit":0})).is_err());
+        assert!(playback_history_search_options(&json!({"offset":1000001})).is_err());
+        assert!(playback_history_search_options(&json!({"sql":"select *"})).is_err());
+        assert!(playback_history_search_options(&Value::Null).is_ok());
+        assert!(playback_history_search_options(&json!({"provider":"you\ntube"})).is_err());
+        assert_eq!(
+            playback_history_session_id(&json!({"sessionId":"session-123"})).unwrap(),
+            "session-123"
+        );
+        assert_eq!(
+            playback_history_session_id(&json!({"sessionId":"session-123","clear":true}))
+                .unwrap_err()
+                .code,
+            "INVALID_ARGUMENT"
+        );
+    }
+    #[test]
+    fn playback_history_output_hides_local_paths_and_keeps_stable_ids() {
+        let entry = crate::playback_history::PlaybackHistoryEntry {
+            session_id: "stable-session-id".into(),
+            played_at: "2026-10-14T12:00:00Z".into(),
+            provider: "local".into(),
+            track: Track {
+                id: "recording:stable-id".into(),
+                local_path: Some("/secret/music/file.flac".into()),
+                provenance: json!({"sourcePath":"/secret/music/file.flac","safe":"kept"}),
+                ..Track::default()
+            },
+            chapter: Some(json!({"chapterId":"c1","path":"/secret/music/file.flac"})),
+        };
+        let value = safe_playback_history_entry(entry.clone());
+        assert_eq!(value["sessionId"], "stable-session-id");
+        assert_eq!(value["track"]["id"], "recording:stable-id");
+        assert_eq!(value["track"]["provenance"]["safe"], "kept");
+        assert!(value["track"].get("localPath").is_none());
+        assert!(value["track"]["provenance"].get("sourcePath").is_none());
+        assert!(value["chapter"].get("path").is_none());
+        let page = crate::playback_history::PlaybackHistoryPage {
+            items: vec![entry],
+            total: 1,
+            has_more: false,
+        };
+        let page = safe_playback_history_page(page);
+        assert!(page["items"][0]["track"]["provenance"]
+            .get("sourcePath")
+            .is_none());
+        assert!(page["items"][0]["chapter"].get("path").is_none());
     }
     #[test]
     fn release_tracks_tool_requires_release_and_artist_references() {

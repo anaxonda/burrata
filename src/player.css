@@ -1,7 +1,7 @@
 /* Persistent three-zone player. Keep these selectors specific enough to follow app-wide CSS. */
 footer.player {
   display: grid;
-  grid-template-columns: minmax(190px, 0.9fr) minmax(330px, 1.3fr) minmax(190px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 1.2fr) minmax(180px, auto);
   grid-template-rows: minmax(58px, auto);
   align-items: center;
   gap: 20px;
@@ -174,6 +174,8 @@ footer.player .player-volume-control {
   align-items: center;
   gap: 5px;
   min-width: 0;
+  margin: 0;
+  flex: 0 1 115px;
   color: var(--muted);
   font-size: 13px;
 }
@@ -181,15 +183,32 @@ footer.player .player-volume-control {
 footer.player .player-volume-control .volume {
   width: clamp(56px, 7vw, 90px);
   min-width: 45px;
+  margin: 0;
+  padding: 0;
 }
+
+footer.player .player-right > .queue-toggle { display:flex; gap:6px; width:auto; min-width:36px; padding:6px; font-size:12px; }
+footer.player .queue-toggle[aria-pressed="true"] { color:var(--accent); background:var(--raised); }
+footer.player .play-button.buffering { position:relative; }
+footer.player .play-button.buffering::after { content:""; position:absolute; inset:-4px; border:2px solid color-mix(in srgb,var(--accent) 25%,transparent); border-top-color:var(--text); border-radius:50%; animation:playback-loading 900ms linear infinite; pointer-events:none; }
+@keyframes playback-loading { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { footer.player .play-button.buffering::after { animation:none; border-style:dashed; } }
+@media(max-width:1100px) { footer.player .queue-toggle span { display:none; } }
 
 footer.player .player-right > button:disabled {
   opacity: 0.4;
 }
+footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
+.history-filters { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin-bottom:12px; }
+.history-filters label { display:grid; gap:5px; margin:0; min-width:0; font-size:12px; }
+.history-filters label:first-child { flex:1 1 220px; }
+.history-filters input,.history-filters select { min-width:0; width:100%; }
+.compact-track-actions .row-heart[aria-pressed="true"] { color:#f1768d; }
+.row-play.buffering { opacity:1!important; border:2px dashed var(--accent)!important; border-radius:50%; }
 
 @media (min-width: 650px) and (max-width: 1000px) {
   footer.player {
-    grid-template-columns: minmax(145px, 0.82fr) minmax(270px, 1.3fr) minmax(145px, 0.78fr);
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 1.2fr) minmax(175px, auto);
     gap: 9px;
     padding: 8px 12px;
   }

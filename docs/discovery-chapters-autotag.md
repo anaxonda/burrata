@@ -57,15 +57,12 @@ reviewer chooses a candidate and explicitly approves fields before those fields 
 written. Unapproved fields are preserved. Live-performance identity conflicts
 require review rather than applying studio recording metadata to a live version.
 
-Fingerprint matching needs local `fpcalc` and an AcoustID application key for the
-AcoustID lookup. Burrata generates fingerprints locally and sends the lookup to
-AcoustID. Shazam can be enabled as a fallback and requires the `songrec` command
-(or `SongRec`) plus FFmpeg for sampled audio excerpts; SongRec is not bundled.
-Release packages include `fpcalc` for fingerprinting. In this development
-environment, `songrec` and `fpcalc` are installed, but an AcoustID application
-key is not configured, so AcoustID lookup is unavailable until one is saved in
-**Settings → Connections → AcoustID**. Provider connectivity and matching success
-depend on the user's setup and network access.
+Fingerprint matching needs the packaged `fpcalc` tool and an AcoustID application
+key. Burrata generates fingerprints locally and sends the lookup to AcoustID.
+Shazam matching uses Burrata's packaged portable recognition helper: audio samples
+are captured and fingerprinted locally, then sent to a remote Shazam matching
+service. No separate SongRec installation is required. Provider connectivity and
+matching success depend on the user's setup and network access.
 
 ## MCP tools
 
@@ -86,7 +83,7 @@ The MCP registry and tool schemas are authoritative for the running app and may
 change. The implementation and isolated tests cover these flows, but this document
 does not claim that every provider or end-to-end live workflow has been verified.
 
-## Verification on this machine
+## Verification notes
 
 On 2026-10-13, the frontend suite passed 129 tests, the backend suite passed 224
 (with one ignored), and the MCP transport suite passed three. Chrome layout
@@ -98,7 +95,7 @@ completed results in separate 50-item pages without overlap; the returned row ID
 also worked with `get_track` after the peer search had completed.
 
 These checks do not establish recognition accuracy across a real music corpus.
-AcoustID remains unconfigured on this machine until an application key is supplied.
+AcoustID lookup requires an application key configured by the user.
 
 The online selector excludes Beatport, Traxsource and Spotify. The live revised
 API returned MusicBrainz and Discogs artist references from the respective

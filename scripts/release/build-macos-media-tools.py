@@ -10,11 +10,13 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+from importlib.machinery import SourceFileLoader
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text(encoding="utf-8"))
 TARGET = "aarch64-apple-darwin"
 DEST = pathlib.Path(sys.argv[1]).resolve()
+COMMON = SourceFileLoader("media_common", str(pathlib.Path(__file__).with_name("build-media-tools-common.py"))).load_module()
 if os.uname().machine != "arm64":
     raise SystemExit("Pinned macOS media tools must be built natively on Apple Silicon")
 DEST.mkdir(parents=True, exist_ok=True)
@@ -49,8 +51,9 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
     source_dir.mkdir()
     prefix = tmp / "prefix"
     prefix.mkdir()
+    ffmpeg_source = LOCK["ffmpeg"]["source"]
     source_specs = [
-        ("ffmpeg", "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz", LOCK["ffmpeg"]["macOSSourceBuild"]["sha256"], "ffmpeg-8.1.3.tar.xz"),
+        ("ffmpeg", ffmpeg_source["url"], ffmpeg_source["sha256"], ffmpeg_source["archive"]),
         ("lame", LOCK["lame"]["url"], LOCK["lame"]["sha256"], "lame-3.100.tar.gz"),
         ("opus", LOCK["opus"]["url"], LOCK["opus"]["sha256"], "opus-1.6.1.tar.gz"),
         ("chromaprint", LOCK["fpcalc"]["upstream"], LOCK["fpcalc"]["sha256"], "chromaprint-1.5.1.tar.gz"),
@@ -58,9 +61,10 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
     extracted = {}
     source_inventory = []
     for key, url, digest, filename in source_specs:
+        archive = COMMON.source_file(filename, url, digest)
+        shutil.copy2(archive, source_dir / filename)
         archive = source_dir / filename
-        download(url, archive, digest)
-        source_inventory.append({"name": key, "version": LOCK["ffmpeg"]["macOSSourceBuild"]["version"] if key == "ffmpeg" else LOCK[key if key != "chromaprint" else "fpcalc"]["version"], "url": url, "sha256": digest, "file": filename})
+        source_inventory.append({"name": key, "version": LOCK["ffmpeg"]["version"] if key == "ffmpeg" else LOCK[key if key != "chromaprint" else "fpcalc"]["version"], "url": url, "sha256": digest, "file": filename})
         extracted[key] = extract(archive, tmp / (key + "-src"))
 
     jobs = str(os.cpu_count() or 4)
@@ -80,10 +84,11 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
     env["PKG_CONFIG_ALLOW_SYSTEM_CFLAGS"] = "1"
     env["PKG_CONFIG_ALLOW_SYSTEM_LIBS"] = "1"
     ffmpeg = extracted["ffmpeg"]
-    macos_configure = LOCK["ffmpeg"]["macOSSourceBuild"]["configure"]
+    media_profile = LOCK["ffmpeg"]
     configure = [
-        "./configure", f"--prefix={prefix}", *macos_configure,
-        "--pkg-config-flags=--static", f"--extra-cflags=-I{prefix}/include -mmacosx-version-min=14.0",
+        "./configure", f"--prefix={prefix}", *media_profile["configureCommon"],
+        media_profile["tlsBackends"][TARGET]["flag"], "--pkg-config-flags=--static",
+        f"--extra-cflags=-I{prefix}/include -mmacosx-version-min=14.0",
         f"--extra-ldflags=-L{prefix}/lib -mmacosx-version-min=14.0",
     ]
     run(configure, ffmpeg, env)
@@ -121,13 +126,13 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
     bundled_sources.mkdir(exist_ok=True)
     for _, _, _, filename in source_specs:
         shutil.copy2(source_dir / filename, bundled_sources / filename)
-    (DEST / "MACOS_MEDIA_SOURCE_INVENTORY.json").write_text(json.dumps({
+    (DEST / "MEDIA_SOURCE_INVENTORY.json").write_text(json.dumps({
         "target": TARGET,
         "ffmpeg": {
-            "version": LOCK["ffmpeg"]["macOSSourceBuild"]["version"],
+            "version": media_profile["version"],
             "license": "GPL build",
             "configure": configure[1:],
-            "systemDependencies": LOCK["ffmpeg"]["macOSSourceBuild"]["systemDependencies"],
+            "tls": media_profile["tlsBackends"][TARGET],
         },
         "lame": {"version": LOCK["lame"]["version"], "license": LOCK["lame"]["license"]},
         "opus": {"version": LOCK["opus"]["version"], "license": LOCK["opus"]["license"]},
@@ -141,6 +146,15 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
         },
         "sources": source_inventory,
     }, indent=2) + "\n", encoding="utf-8")
+    (DEST / "FFMPEG_BUILD_CONFIGURATION.json").write_text(json.dumps({
+        "target": TARGET,
+        "version": media_profile["version"],
+        "configure": configure[1:],
+        "tls": media_profile["tlsBackends"][TARGET],
+        "buildJobs": jobs,
+        "toolchain": {"cc": env.get("CC", "clang"), "make": env.get("MAKE", "make")},
+    }, indent=2) + "\n", encoding="utf-8")
+    subprocess.run([sys.executable, str(ROOT / "scripts/release/test-media-tools.py"), str(DEST / "ffmpeg"), str(DEST / "ffprobe")], check=True)
     (DEST / "FFMPEG_LICENSE.txt").write_bytes(subprocess.check_output([str(DEST / "ffmpeg"), "-L"]))
     (DEST / "FFMPEG_BUILD_INFO.txt").write_bytes(subprocess.check_output([str(DEST / "ffmpeg"), "-version"]))
     for source, license_name, output_name in (

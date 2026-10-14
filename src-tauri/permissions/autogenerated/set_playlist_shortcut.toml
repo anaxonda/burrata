@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-playlist-shortcut"
+description = "Enables the set_playlist_shortcut command without any pre-configured scope."
+commands.allow = ["set_playlist_shortcut"]
+
+[[permission]]
+identifier = "deny-set-playlist-shortcut"
+description = "Denies the set_playlist_shortcut command without any pre-configured scope."
+commands.deny = ["set_playlist_shortcut"]

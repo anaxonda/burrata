@@ -10,7 +10,7 @@
   type BrowserImport = { id: string; provider: string; title: string; collectionId: string; sourceUrl: string };
 
   let {
-    view,
+    view, favoritesPlaylistId = "",
     playlistNames={}, onRadioContext,
     radioStations=[], activeRadioStationId="", onRadioStation=()=>{}, onAddRadio=()=>{},
     sections=[], assignments={}, onCreateSection=()=>{}, onRenameSection=()=>{}, onDeleteSection=()=>{}, onMovePlaylist=()=>{}, onCreatePlaylist=()=>{},
@@ -30,6 +30,7 @@
     width = 200,
     onWidthChange,
   }: {
+    favoritesPlaylistId?: string;
     view: string;playlistNames?:Record<string,string>;onRadioContext?:(station:RadioStation,event:MouseEvent)=>void;
     radioStations?:RadioStation[];activeRadioStationId?:string;onRadioStation?:(station:RadioStation)=>void;onAddRadio?:()=>void;
     sections?:PlaylistSection[];assignments?:Record<string,string>;
@@ -156,17 +157,17 @@
       </div>
       <div class="playlist-list built-in-playlists">
         <button class="playlist-card" class:active={activeCollectionId===downloadsId} onclick={()=>{onPlaylist(downloadsId);closeDrawer();}} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.(downloadsId,event);}}><span class="playlist-glyph" aria-hidden="true">↓</span><span class="playlist-copy"><strong>{playlistNames[downloadsId]??collections.find(item=>item.id===downloadsId)?.name??"Downloads"}</strong><small>{collections.find(item=>item.id===downloadsId)?.trackCount??0} tracks</small></span></button>
-        <button class="playlist-card" class:active={view === "favorites"} onclick={() => { onPlaylist("favorites"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("favorites",event);}}>
+        {#if !favoritesPlaylistId}<button class="playlist-card" class:active={view === "favorites"} onclick={() => { onPlaylist("favorites"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("favorites",event);}}>
           <span class="playlist-glyph liked" aria-hidden="true">♥</span>
           <span class="playlist-copy"><strong>{playlistNames.favorites??"Liked Songs"}</strong><small>Your favorites</small></span>
-        </button>
+        </button>{/if}
         <button class="playlist-card" onclick={() => { onPlaylist("history"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("history",event);}}>
           <span class="playlist-glyph history" aria-hidden="true">◷</span>
           <span class="playlist-copy"><strong>{playlistNames.history??"History"}</strong><small>Recently played</small></span>
         </button>
         {#each personalCollections as collection (collection.id)}
           <button draggable="true" ondragstart={(event)=>dragPlaylist(event,collection.id)} class="playlist-card collection-card" class:active={activeCollectionId === collection.id} onclick={() => { onPlaylist(collection.id); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(collection.id, event); closeDrawer(); } }}>
-            <span class="playlist-glyph collection-glyph" aria-hidden="true">▤</span>
+            <span class="playlist-glyph collection-glyph" class:liked={collection.id===favoritesPlaylistId} aria-hidden="true">{collection.id===favoritesPlaylistId?"♥":"▤"}</span>
             <span class="playlist-copy"><strong>{collection.name}</strong><small>{collection.trackCount} {collection.trackCount === 1 ? "track" : "tracks"}</small></span>
           </button>
         {/each}

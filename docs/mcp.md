@@ -19,7 +19,7 @@ The registry is read when the stdio process starts, with a five-second timeout. 
 
 ## Available tools and permissions
 
-The live app registry is authoritative. It exposes library and playlist reads, catalog/artist search, unified music discovery, chapter inspection and playback, autotag review, audio-source search and `inspect_audio_source`, playback and playlist controls, download-job management, analysis, and local Mixxx playlist export. The audio workflow is explicit: search, inspect the chosen candidate and its formats/chapters, then pass that candidate to `download_candidate`; chapter IDs can be supplied when selecting chapters. For example, import a current Beatport Top 50 in Burrata, read its saved playlist, compare exact audio candidates for selected tracks, then export the resulting collection's local files for Mixxx. Track search supports the library, MusicBrainz, YouTube, SoundCloud, Soulseek and Monochrome. Beatport and Traxsource are imported chart sources rather than searchable catalog providers. See [discovery, chapters, and autotagging](discovery-chapters-autotag.md) for the added tools and their boundaries.
+The live app registry is authoritative. It exposes library and playlist reads, catalog/artist search, unified music discovery, chapter inspection and playback, autotag review, audio-source search and `inspect_audio_source`, playback and playlist controls, playback-history search and lookup, download-job management, analysis, and local Mixxx playlist export. The audio workflow is explicit: search, inspect the chosen candidate and its formats/chapters, then pass that candidate to `download_candidate`; chapter IDs can be supplied when selecting chapters. For example, import a current Beatport Top 50 in Burrata, read its saved playlist, compare exact audio candidates for selected tracks, then export the resulting collection's local files for Mixxx. Track search supports the library, MusicBrainz, YouTube, SoundCloud, Soulseek and Monochrome. Beatport and Traxsource are imported chart sources rather than searchable catalog providers. See [discovery, chapters, and autotagging](discovery-chapters-autotag.md) for the added tools and their boundaries.
 
 Automation runs only through the local stdio bridge to a running Burrata app; there is no remote HTTP MCP endpoint or embedded AI service. Read access is on by default. Playback/playlist control is on by default and can be disabled in Burrata's **Settings → AI control · MCP**. Download and audio-analysis management is off by default and must be enabled there. The bridge can export a playlist file for Mixxx from local audio; it does not control a live Mixxx deck. Browser chart/playlist imports are performed in Burrata's UI, not by MCP.
 
@@ -72,32 +72,11 @@ Other MCP clients can use this generic stdio configuration shape:
 
 Keep the server command local. Do not add the app's bearer token to the client configuration; the bridge reads it from Burrata's discovery file.
 
-## Verified on this machine
-
-The native app and official SDK stdio client passed live acceptance checks: all
-four existing local playlists (3/37/14/25 entries), latest Beatport top 50,
-idempotent playlist creation/batch additions, actual local playback/pause/queue,
-and denial of downloads while Manage is disabled. MCP Inspector discovered 33
-tools. Big Thief artist discovery returned both providers and album source links.
-The useful acceptance playlist **Local downloads** contains the four registered
-recordings; its Mixxx export contains four existing local files and no streams.
-
-Downloaded Opus playback uses a separate, ephemeral media token on the existing
-loopback listener. It serves registered asset IDs only, validates origins and
-supports byte ranges. The MCP credential remains in the private `automation.json`
-(mode 0600 on Linux) and survives app restarts; media tokens do not. No provider
-credentials or media URLs appear in MCP playback state.
-
-Run `node scripts/check_live_mcp.mjs` against this populated development library
-for the acceptance workflow. It creates/reuses **Local downloads**, briefly plays
-at low volume, pauses, and restores the previous volume. It is a machine-specific
-acceptance driver, separate from the isolated automated test suite.
-
 `get_release_tracks` is now available in READ scope. Pass a release object returned
 by `get_artist_discography` and its artist identity; it returns saved, ordered tracks
 with stable IDs for `play_tracks`, `queue_tracks` and playlist batches. Release groups
 and Discogs masters resolve to a representative/main edition, recorded in provenance.
-The current registry contains 34 tools. Actual ten-track MusicBrainz and Discogs album
+The current registry contains 37 tools. Actual ten-track MusicBrainz and Discogs album
 lookups have been verified through the SDK client.
 
 ## Radio station control
@@ -110,6 +89,19 @@ station object to `add_radio_station`. For a known stream URL, use
 Control permission and update the running GUI immediately. Station details include
 observed listening history when available. Automatic recognition follows GUI
 playback; MCP does not need to trigger each identification.
+
+## Playback history
+
+`search_playback_history` searches the saved playback history and returns paginated
+entries with stable session IDs and stable track IDs. Use `list_playback_history`
+for the same page format without filters, or pass a `query`, `provider`, `stationId`,
+inclusive `from`/`to` bounds (`YYYY-MM-DD` or RFC3339), `sort` (`newest` or `oldest`),
+`limit` (1–100), and `offset`. `get_playback_history_entry` retrieves one entry
+using its `sessionId`. These tools require Read permission; they only inspect
+history and do not alter playback or delete saved entries. Set `provider` to
+`radio` to search radio songs or `non-radio` to exclude them; `stationId` narrows
+radio history to one station. Local file paths are removed from returned track and
+chapter metadata.
 
 ## Current gaps
 
