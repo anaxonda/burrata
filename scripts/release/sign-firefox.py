@@ -191,6 +191,35 @@ def archive_payload(path: pathlib.Path) -> dict[str, bytes]:
         raise SignFirefoxError(f"Could not inspect extension archive {path.name}.") from None
 
 
+def payload_difference(expected: dict[str, bytes], actual: dict[str, bytes]) -> str:
+    """Return a bounded, content-free summary of archive payload differences."""
+    added = sorted(actual.keys() - expected.keys())
+    missing = sorted(expected.keys() - actual.keys())
+    changed = sorted(path for path in expected.keys() & actual.keys()
+                     if expected[path] != actual[path])
+
+    def safe_path(path: str) -> str:
+        # JSON quoting keeps archive-controlled newlines/control characters out
+        # of workflow logs while still making each filename reviewable.
+        return json.dumps(path, ensure_ascii=True)[:180]
+
+    parts = []
+    for label, paths in (("added", added), ("missing", missing)):
+        if paths:
+            shown = [safe_path(path) for path in paths[:8]]
+            suffix = f" (+{len(paths) - 8} more)" if len(paths) > 8 else ""
+            parts.append(f"{label}: {', '.join(shown)}{suffix}")
+    if changed:
+        details = [
+            f"{safe_path(path)} (expected sha256 {hashlib.sha256(expected[path]).hexdigest()}, "
+            f"actual sha256 {hashlib.sha256(actual[path]).hexdigest()})"
+            for path in changed[:8]
+        ]
+        suffix = f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""
+        parts.append(f"changed: {', '.join(details)}{suffix}")
+    return "; ".join(parts) or "unclassified archive difference"
+
+
 def assert_signed_payload_matches(source_zip: pathlib.Path, signed_xpi: pathlib.Path) -> None:
     try:
         with zipfile.ZipFile(signed_xpi) as archive:
@@ -207,10 +236,12 @@ def assert_signed_payload_matches(source_zip: pathlib.Path, signed_xpi: pathlib.
         raise SignFirefoxError("Could not inspect the newly built extension payload.") from None
     if SIGNATURE_FILES & source_names:
         raise SignFirefoxError("Source extension unexpectedly contains Mozilla signature files.")
-    if archive_payload(source_zip) != archive_payload(signed_xpi):
+    source_payload = archive_payload(source_zip)
+    signed_payload = archive_payload(signed_xpi)
+    if source_payload != signed_payload:
         raise SignFirefoxError(
-            "AMO already has this extension version with a different payload. "
-            "Bump extension/manifest.json version before publishing changed extension code."
+            "AMO-signed XPI payload differs from the pinned web-ext build ("
+            f"{payload_difference(source_payload, signed_payload)})."
         )
 
 

@@ -56,14 +56,19 @@ class SignFirefoxTests(unittest.TestCase):
             self.make_archive(signed, signatures=True)
             assert_signed_payload_matches(source, signed)
 
-    def test_different_payload_requires_extension_version_bump(self):
+    def test_different_payload_reports_filename_and_hashes_without_content(self):
         with tempfile.TemporaryDirectory() as name:
             source = pathlib.Path(name) / "source.zip"
             signed = pathlib.Path(name) / "signed.xpi"
             self.make_archive(source)
             self.make_archive(signed, changed=True, signatures=True)
-            with self.assertRaisesRegex(SignFirefoxError, "Bump extension/manifest.json version"):
+            with self.assertRaises(SignFirefoxError) as caught:
                 assert_signed_payload_matches(source, signed)
+            diagnostic = str(caught.exception)
+            self.assertIn('changed: "background.js"', diagnostic)
+            self.assertIn("expected sha256", diagnostic)
+            self.assertIn("actual sha256", diagnostic)
+            self.assertNotIn("changed", diagnostic.split("sha256", 1)[-1])
 
     def test_existing_xpi_without_all_amo_signatures_is_rejected(self):
         with tempfile.TemporaryDirectory() as name:
@@ -80,8 +85,9 @@ class SignFirefoxTests(unittest.TestCase):
             signed = pathlib.Path(name) / "signed.xpi"
             self.make_archive(source)
             self.make_archive(signed, signatures=True, extra_meta_inf=True)
-            with self.assertRaisesRegex(SignFirefoxError, "different payload"):
+            with self.assertRaises(SignFirefoxError) as caught:
                 assert_signed_payload_matches(source, signed)
+            self.assertIn('added: "META-INF/injected.js"', str(caught.exception))
 
     def test_web_ext_diagnostic_redacts_credentials_and_keeps_safe_context(self):
         api_key = "example-amo-api-key"
