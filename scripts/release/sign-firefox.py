@@ -21,7 +21,7 @@ import zipfile
 
 
 API_ROOT = "https://addons.mozilla.org/api/v5/"
-WEB_EXT_VERSION = "8.4.0"
+WEB_EXT_VERSION = "10.7.0"
 RSA_SIGNATURE_FILES = {
     "meta-inf/manifest.mf",
     "meta-inf/mozilla.sf",
