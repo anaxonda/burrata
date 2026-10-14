@@ -153,8 +153,9 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          cargo build --locked --release --manifest-path src-tauri/Cargo.toml --bin burrata-browser-host --bin burrata-mcp
-          cargo build --locked --release --manifest-path src-tauri/recognizer/Cargo.toml --bin burrata-recognize
+          npm run build
+          cargo build --locked --release --target "$TARGET" --features custom-protocol --manifest-path src-tauri/Cargo.toml --bin burrata-browser-host --bin burrata-mcp
+          cargo build --locked --release --target "$TARGET" --manifest-path src-tauri/recognizer/Cargo.toml --bin burrata-recognize
           node scripts/build_mcp.mjs
           bash scripts/release/prepare-native-resources.sh
       - name: Audit source and contracts

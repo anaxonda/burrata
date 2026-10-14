@@ -92,8 +92,9 @@ jobs:
         env:
           TARGET: x86_64-unknown-linux-gnu
         run: |
-          cargo build --locked --release --manifest-path src-tauri/Cargo.toml --bin burrata-browser-host --bin burrata-mcp
-          cargo build --locked --release --manifest-path src-tauri/recognizer/Cargo.toml --bin burrata-recognize
+          npm run build
+          cargo build --locked --release --target "$TARGET" --features custom-protocol --manifest-path src-tauri/Cargo.toml --bin burrata-browser-host --bin burrata-mcp
+          cargo build --locked --release --target "$TARGET" --manifest-path src-tauri/recognizer/Cargo.toml --bin burrata-recognize
           npm run build:mcp
           bash scripts/release/prepare-native-resources.sh
       - name: Build configured Tauri bundles
