@@ -10,36 +10,36 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class Contracts(unittest.TestCase):
     def test_ipc_permissions_cover_registered_commands(self):
-        core=(ROOT/'src-tauri/src/lib.rs').read_text()
+        core=(ROOT/'src-tauri/src/lib.rs').read_text(encoding='utf-8')
         declared=set(re.findall(r'#\[tauri::command\]\s*(?:async\s+)?fn\s+(\w+)',core))
         handler=core.split('tauri::generate_handler![',1)[1].split('])',1)[0]
         registered=set(re.findall(r'\b[a-z][a-z0-9_]+\b',handler))
-        build=set(re.findall(r'"([a-z0-9_]+)"',(ROOT/'src-tauri/build.rs').read_text().split('fn main',1)[0]))
-        capability=json.loads((ROOT/'src-tauri/capabilities/main.json').read_text())
+        build=set(re.findall(r'"([a-z0-9_]+)"',(ROOT/'src-tauri/build.rs').read_text(encoding='utf-8').split('fn main',1)[0]))
+        capability=json.loads((ROOT/'src-tauri/capabilities/main.json').read_text(encoding='utf-8'))
         allowed={p.removeprefix('allow-').replace('-','_') for p in capability['permissions'] if p.startswith('allow-')}
         self.assertEqual(declared,registered)
         self.assertEqual(registered,build)
         self.assertEqual(registered,allowed)
         self.assertEqual(capability['windows'],['main'])
         self.assertNotIn('remote',capability)
-        ui=(ROOT/'src/App.svelte').read_text()
+        ui=(ROOT/'src/App.svelte').read_text(encoding='utf-8')
         invoked=set(re.findall(r'call(?:<[^>]+>)?\(\s*["\'](\w+)["\']',ui))
         self.assertTrue(invoked<=registered,invoked-registered)
 
     def test_no_remote_frames_and_required_icon(self):
-        config=json.loads((ROOT/'src-tauri/tauri.conf.json').read_text())
+        config=json.loads((ROOT/'src-tauri/tauri.conf.json').read_text(encoding='utf-8'))
         self.assertIn("frame-src 'none'",config['app']['security']['csp'])
         self.assertTrue(config['app']['withGlobalTauri'])
         self.assertTrue(any((ROOT/'src-tauri'/icon).is_file() for icon in config['bundle']['icon'] if icon.endswith('.png')))
         for source in (ROOT/'src-tauri/src').rglob('*.rs'):
-            for include in re.findall(r'include_str!\(\s*"([^"]+)"',source.read_text()):
+            for include in re.findall(r'include_str!\(\s*"([^"]+)"',source.read_text(encoding='utf-8')):
                 self.assertTrue((source.parent/include).is_file(),f'Missing include source: {source}: {include}')
 
 class Schema(unittest.TestCase):
     def setUp(self):
         self.db=sqlite3.connect(':memory:')
         self.db.execute('PRAGMA foreign_keys=ON')
-        self.db.executescript((ROOT/'src-tauri/src/schema.sql').read_text())
+        self.db.executescript((ROOT/'src-tauri/src/schema.sql').read_text(encoding='utf-8'))
     def tearDown(self):
         self.db.close()
     def add(self,identifier):
@@ -68,7 +68,7 @@ class Schema(unittest.TestCase):
         for day,rank in [('2026-10-10',9),('2026-10-11',2)]:
             self.db.execute('INSERT INTO chart_snapshots VALUES(?,?,?,?,?)',(day,'beatport','chart',day,json.dumps({'title':'House Top 100'})))
             self.db.execute('INSERT INTO chart_entries VALUES(?,?,?)',(day,'beatport:1',rank))
-        storage=(ROOT/'src-tauri/src/storage.rs').read_text().split('pub fn chart_memberships',1)[1].split('pub fn latest_snapshot',1)[0]
+        storage=(ROOT/'src-tauri/src/storage.rs').read_text(encoding='utf-8').split('pub fn chart_memberships',1)[1].split('pub fn latest_snapshot',1)[0]
         statement=re.search(r'prepare\(("(?:[^"\\]|\\.)*")',storage).group(1)
         row=self.db.execute(json.loads(statement),('beatport:1',)).fetchone()
         self.assertEqual(row,('beatport','House Top 100','chart',2,'2026-10-11'))
@@ -80,7 +80,7 @@ class Schema(unittest.TestCase):
             self.db.execute("INSERT INTO collection_members VALUES('house',?,1)",(identifier,))
         self.db.execute("INSERT INTO chart_snapshots VALUES('snapshot','traxsource','chart','now','{}')")
         self.db.execute("INSERT INTO chart_entries VALUES('snapshot','traxsource:2',3)")
-        storage=(ROOT/'src-tauri/src/storage.rs').read_text()
+        storage=(ROOT/'src-tauri/src/storage.rs').read_text(encoding='utf-8')
         merge=storage.split('pub fn merge_recordings',1)[1].split('pub fn save_chart',1)[0]
         sqls=[json.loads(s) for s in re.findall(r'"(?:[^"\\]|\\.)*"',merge) if s.startswith(('"UPDATE','"INSERT','"DELETE'))]
         for sql in sqls:

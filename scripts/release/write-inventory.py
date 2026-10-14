@@ -21,4 +21,4 @@ inventory = {
         for f in files
     ],
 }
-output.write_text(json.dumps(inventory, indent=2) + "\n")
+output.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")

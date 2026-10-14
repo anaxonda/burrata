@@ -12,7 +12,7 @@ import tempfile
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text())
+LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text(encoding="utf-8"))
 TARGET = "aarch64-apple-darwin"
 DEST = pathlib.Path(sys.argv[1]).resolve()
 if os.uname().machine != "arm64":
@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
         "opus": {"version": LOCK["opus"]["version"], "license": LOCK["opus"]["license"]},
         "fpcalc": {"version": LOCK["fpcalc"]["version"], "license": LOCK["fpcalc"]["license"]},
         "sources": source_inventory,
-    }, indent=2) + "\n")
+    }, indent=2) + "\n", encoding="utf-8")
     (DEST / "FFMPEG_LICENSE.txt").write_bytes(subprocess.check_output([str(DEST / "ffmpeg"), "-L"]))
     (DEST / "FFMPEG_BUILD_INFO.txt").write_bytes(subprocess.check_output([str(DEST / "ffmpeg"), "-version"]))
     for source, license_name, output_name in (

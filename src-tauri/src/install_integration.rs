@@ -228,7 +228,11 @@ fn registry(browser: Browser, manifest: &Path, remove: bool) -> Result<(), Strin
         Browser::Chromium => r"HKCU\Software\Chromium\NativeMessagingHosts\org.burrata.browser",
         Browser::Edge => r"HKCU\Software\Microsoft\Edge\NativeMessagingHosts\org.burrata.browser",
     };
-    let mut cmd = Command::new("reg.exe");
+    let system_root = std::env::var_os("SystemRoot")
+        .or_else(|| std::env::var_os("WINDIR"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let mut cmd = Command::new(system_root.join("System32/reg.exe"));
     if remove {
         cmd.args(["delete", key, "/f"]);
     } else {
@@ -322,32 +326,8 @@ pub fn unregister() -> Result<InstallStatus, String> {
 pub fn mcp_launcher_main() -> Result<(), String> {
     use std::process::Stdio;
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
-    let binary = if cfg!(windows) {
-        "burrata-mcp.exe"
-    } else {
-        "burrata-mcp"
-    };
-    let mut candidates = Vec::new();
-    for ancestor in current.ancestors() {
-        candidates.push(
-            ancestor
-                .join("tools")
-                .join(crate::tools::target_triple())
-                .join(binary),
-        );
-        candidates.push(
-            ancestor
-                .join("Resources/tools")
-                .join(crate::tools::target_triple())
-                .join(binary),
-        );
-        candidates.push(
-            ancestor
-                .join("resources/tools")
-                .join(crate::tools::target_triple())
-                .join(binary),
-        );
-    }
+    let candidates =
+        mcp_launcher_candidates(&current, crate::tools::target_triple(), cfg!(windows));
     let launcher = candidates
         .into_iter()
         .find(|candidate| candidate.is_file())
@@ -363,6 +343,31 @@ pub fn mcp_launcher_main() -> Result<(), String> {
     } else {
         Err(format!("Burrata MCP launcher exited with {status}"))
     }
+}
+
+fn mcp_launcher_candidates(current_exe: &Path, target: &str, windows: bool) -> Vec<PathBuf> {
+    let binary = if windows {
+        "burrata-mcp.exe"
+    } else {
+        "burrata-mcp"
+    };
+    let mut candidates = Vec::new();
+    for ancestor in current_exe.ancestors() {
+        for root in ["tools", "Resources/tools", "resources/tools"] {
+            candidates.push(ancestor.join(root).join(target).join(binary));
+        }
+        // Debian and RPM packages install Tauri resources beside the executable
+        // under /usr/lib/<app>/resources or /usr/share/<app>/resources.
+        for root in [
+            "../lib/burrata/resources/tools",
+            "../share/burrata/resources/tools",
+            "../lib/burrata/tools",
+            "../share/burrata/tools",
+        ] {
+            candidates.push(ancestor.join(root).join(target).join(binary));
+        }
+    }
+    candidates
 }
 
 #[cfg(test)]
@@ -396,6 +401,20 @@ mod tests {
             bundled_host_path(resources, "x86_64-pc-windows-msvc", true),
             resources.join("tools/x86_64-pc-windows-msvc/burrata-browser-host.exe")
         );
+    }
+
+    #[test]
+    fn mcp_launcher_resolves_inside_the_packaged_resource_tree() {
+        let exe = Path::new("/opt/burrata/resources/tools/x86_64-unknown-linux-gnu/burrata-mcp");
+        let candidates = mcp_launcher_candidates(exe, "x86_64-unknown-linux-gnu", false);
+        assert!(candidates.contains(&exe.to_path_buf()));
+        let windows_exe = Path::new(
+            "C:/Program Files/Burrata/resources/tools/x86_64-pc-windows-msvc/burrata.exe",
+        );
+        let candidates = mcp_launcher_candidates(windows_exe, "x86_64-pc-windows-msvc", true);
+        assert!(candidates
+            .iter()
+            .any(|path| path.ends_with("burrata-mcp.exe")));
     }
 
     #[test]

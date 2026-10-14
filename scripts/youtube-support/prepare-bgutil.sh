@@ -36,7 +36,7 @@ SERVER="$TMP/source/server"
 
 # This plugin source ships in the same immutable upstream commit as the
 # server. Keep the yt_dlp_plugins namespace intact for yt-dlp's plugin loader.
-PLUGIN_SOURCE="$TMP/source/yt_dlp_plugins"
+PLUGIN_SOURCE="$TMP/source/plugin/yt_dlp_plugins"
 [[ -d "$PLUGIN_SOURCE" ]] || { echo "Pinned BgUtils commit has no yt_dlp_plugins directory" >&2; exit 1; }
 PLUGIN_PY="$(find "$PLUGIN_SOURCE" -type f -name '*.py' -print -quit)"
 if [[ -z "$PLUGIN_PY" ]]; then

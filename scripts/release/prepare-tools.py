@@ -13,7 +13,7 @@ import urllib.request
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text())
+LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text(encoding="utf-8"))
 TARGET = os.environ.get("TARGET", "")
 if TARGET not in LOCK["node"]["archives"] or TARGET not in LOCK["ytDlp"]["assets"]:
     raise SystemExit(f"No locked Node/yt-dlp artifacts for target {TARGET!r}")
@@ -43,7 +43,7 @@ def verified_download(base: str, name: str, checksum_file: str, tmp: pathlib.Pat
     fetch(base + name, archive)
     fetch(base + checksum_file, sums)
     expected = None
-    for line in sums.read_text(errors="replace").splitlines():
+    for line in sums.read_text(encoding="utf-8", errors="replace").splitlines():
         fields = line.strip().split()
         if len(fields) >= 2 and fields[-1].lstrip("*") == name:
             expected = fields[0].lower()
@@ -113,12 +113,15 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
     if actual_ytdlp != LOCK["ytDlp"]["version"]:
         raise RuntimeError(f"Bundled yt-dlp version mismatch: expected {LOCK['ytDlp']['version']}, got {actual_ytdlp}")
     fetch(LOCK["ytDlp"]["noticesUrl"], DEST / "YT_DLP_THIRD_PARTY_LICENSES.txt")
+    fetch(LOCK["ytDlp"]["licenseUrl"], DEST / "YT_DLP_LICENSE.txt")
 
     if TARGET in LOCK["ffmpeg"]["assets"]:
         ffmpeg_name = LOCK["ffmpeg"]["assets"][TARGET]
         ffmpeg = verified_download(LOCK["ffmpeg"]["upstream"], ffmpeg_name,
                                    LOCK["ffmpeg"]["checksumFile"], tmp)
-        extract_archive(ffmpeg, tmp, ("ffmpeg.exe", "ffprobe.exe") if os.name == "nt" else ("ffmpeg", "ffprobe"))
+        wanted = ("ffmpeg.exe", "ffprobe.exe", "LICENSE.txt") if os.name == "nt" else ("ffmpeg", "ffprobe", "LICENSE.txt")
+        extract_archive(ffmpeg, tmp, wanted)
+        shutil.move(DEST / "LICENSE.txt", DEST / "FFMPEG_UPSTREAM_LICENSE.txt")
         ffmpeg_sha = sha256(ffmpeg)
         source_commit = LOCK["ffmpeg"]["sourceCommits"][TARGET]
         sources = DEST / "sources"
@@ -126,7 +129,7 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
         source_archive = sources / f"ffmpeg-{source_commit}.tar.gz"
         source_url = f"https://github.com/FFmpeg/FFmpeg/archive/{source_commit}.tar.gz"
         fetch(source_url, source_archive)
-        (sources / "FFMPEG_SOURCE_COMMIT.txt").write_text(f"Repository: https://github.com/FFmpeg/FFmpeg\nPinned commit prefix: {source_commit}\nArchive URL: {source_url}\n")
+        (sources / "FFMPEG_SOURCE_COMMIT.txt").write_text(f"Repository: https://github.com/FFmpeg/FFmpeg\nPinned commit prefix: {source_commit}\nArchive URL: {source_url}\n", encoding="utf-8")
         ffmpeg_source_record = {"commit": source_commit, "archive": source_archive.name, "sha256": sha256(source_archive), "url": source_url}
     elif TARGET == "aarch64-apple-darwin":
         ffmpeg_name = "ffmpeg-8.1.3.tar.xz (source-built)"
@@ -146,11 +149,12 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
         "target": TARGET,
         "versions": {"node": LOCK["node"]["version"], "yt-dlp": LOCK["ytDlp"]["version"], "ffmpeg-build": LOCK["ffmpeg"]["version"]},
         "sha256": {node_archive_name: sha256(node_archive), ytdlp_name: sha256(ytdlp), ffmpeg_name: ffmpeg_sha},
+        "sources": {"yt-dlp": {"commit": LOCK["ytDlp"]["sourceCommit"], "url": LOCK["ytDlp"]["licenseUrl"]}},
         "license": {"node": LOCK["node"]["license"], "yt-dlp": LOCK["ytDlp"]["license"], "ffmpeg": LOCK["ffmpeg"]["license"]}
     }
     if TARGET in LOCK["ffmpeg"]["assets"]:
         tool_record["ffmpegSource"] = ffmpeg_source_record
     if TARGET == "aarch64-apple-darwin":
         tool_record["fpcalc"] = {"version": LOCK["fpcalc"]["version"], "sha256": LOCK["fpcalc"]["sha256"], "license": LOCK["fpcalc"]["license"]}
-    readme.write_text(json.dumps(tool_record, indent=2) + "\n")
+    readme.write_text(json.dumps(tool_record, indent=2) + "\n", encoding="utf-8")
 print(f"Prepared verified tool resources at {DEST}")

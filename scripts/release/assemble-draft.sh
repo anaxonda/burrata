@@ -8,7 +8,7 @@ for label in macos-arm64 windows-x64 linux-x64; do
   while IFS= read -r inventory; do
     if python3 - "$inventory" "$RELEASE_TAG" "$RELEASE_COMMIT" "$label" <<'PY'
 import json, pathlib, sys
-data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+data=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 ok=data.get('tag') == sys.argv[2] and data.get('commit') == sys.argv[3] and data.get('label') == sys.argv[4]
 raise SystemExit(0 if ok else 1)
 PY
@@ -26,7 +26,7 @@ expected = {"aarch64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-li
 records = {}
 feed_version = None
 for path in root.rglob("youtube-support-target.json"):
-    item = json.loads(path.read_text())
+    item = json.loads(path.read_text(encoding="utf-8"))
     target = item.get("target")
     asset = item.get("asset")
     binary = path.parent / asset
@@ -46,7 +46,7 @@ for path in root.rglob("youtube-support-target.json"):
     records[target] = {"asset": asset, "sha256": item["sha256"], "sha512": item["sha512"]}
 if set(records) != expected:
     raise SystemExit(f"YouTube support assets missing for: {sorted(expected-set(records))}")
-(root.parent / "youtube-support.json").write_text(json.dumps({"version": feed_version, "targets": records}, indent=2) + "\n")
+(root.parent / "youtube-support.json").write_text(json.dumps({"version": feed_version, "targets": records}, indent=2) + "\n", encoding="utf-8")
 PY
 rm -rf release-artifacts
 mkdir release-artifacts

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { basename } from 'node:path';
 import { isIP } from 'node:net';
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -188,7 +188,7 @@ export async function main() {
   process.on('SIGTERM', () => { void handle.close(); });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && basename(process.argv[1]) === 'server.js') {
   void main().catch(() => {
     console.error('Burrata MCP server could not start.');
     process.exitCode = 1;

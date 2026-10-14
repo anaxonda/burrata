@@ -15,7 +15,7 @@ import urllib.request
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text())
+LOCK = json.loads((ROOT / "scripts/release/locked-tools.json").read_text(encoding="utf-8"))
 
 
 def sha256(path: pathlib.Path) -> str:
@@ -123,7 +123,7 @@ def prepare(target: str, destination: pathlib.Path) -> None:
             },
             "licenseTexts": ["CHROMAPRINT_LICENSE.md", license_record["file"]],
         }
-        (destination / "LOCKED_FPCALC.json").write_text(json.dumps(record, indent=2) + "\n")
+        (destination / "LOCKED_FPCALC.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> None:

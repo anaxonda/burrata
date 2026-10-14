@@ -13,6 +13,6 @@ files = sorted(p for p in pathlib.Path('release-artifacts').iterdir() if p.is_fi
 pathlib.Path('release-artifacts/extension-inventory.json').write_text(json.dumps({
     'tag': sys.argv[1], 'commit': sys.argv[2],
     'artifacts': [{'file': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size} for p in files]
-}, indent=2) + '\n')
+}, indent=2) + '\n', encoding='utf-8')
 PY
 (cd release-artifacts && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)

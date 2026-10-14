@@ -1224,6 +1224,12 @@
       } else if (request.action === "next" || request.action === "previous") {
         if (paused) {
           const keepPaused = Boolean(preview) || systemPausedTrack;
+          // Manual Next exits repeat-one before moving to another queue item. Keep
+          // paused automation navigation consistent without starting a preview.
+          if (request.action === "next" && repeatMode === "one") {
+            repeatMode = "off";
+            playbackQueue.setRepeat(repeatMode);
+          }
           const next = request.action === "next" ? playbackQueue.next() : playbackQueue.previous();
           if (next) {
             await closePreview(); refreshQueue(); playingTrack = next; selected = next;

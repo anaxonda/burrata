@@ -27,6 +27,7 @@
       "x86_64-unknown-linux-gnu": "60606cef1a65d70f6639a85b45ebb7acf08dbb81831e134dd93939e23ca2b792"
     },
     "sourceCommit": "8973412",
+    "licenseUrl": "https://raw.githubusercontent.com/yt-dlp/yt-dlp/8973412/LICENSE",
     "noticesUrl": "https://raw.githubusercontent.com/yt-dlp/yt-dlp/8973412/THIRD_PARTY_LICENSES.txt"
   },
   "ffmpeg": {

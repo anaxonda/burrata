@@ -1684,6 +1684,7 @@ describe("saved recording navigation", () => {
     expect(next.error).toBeNull();
     expect(next.playback.currentIndex).toBe(1);
     expect(next.playback.trackId).toBe(secondTrack.id);
+    expect(next.playback.repeat).toBe("off");
     expect(next.playback.paused).toBe(true);
     expect(next.playback.status).toBe("paused");
     expect(play).toHaveBeenCalledTimes(1);

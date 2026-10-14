@@ -94,6 +94,8 @@
               case "list_browser_imports": return fixtureImports.filter(item => !fixtureDeletedCollections.has(item.collectionId));
               case "list_jobs": return fixtureJobs;
               case "get_settings": return fixtureSettings;
+              case "get_release_setup": return {setupComplete:true,musicDirectory:fixtureSettings.musicDirectory,radioRecognition:true,mcpCommand:["/Applications/Burrata.app/Contents/Resources/tools/aarch64-apple-darwin/burrata-mcp"],browser:{browsers:[{browser:"chrome",installed:true},{browser:"firefox",installed:false}]},toolPaths:[]};
+              case "youtube_support_status": return {bundledVersion:"2026.10.10.233141",managedVersion:null,activeVersion:"2026.10.10.233141",activeSource:"bundled",updateAvailable:null,recommendedUpdate:"Check for a recommended update",advancedUpdate:"Official nightly",provider:{version:"2.0.2",available:false,helperRunning:false,message:"QA fixture: token-provider compatibility has not been checked."}};
               case "get_connections": return { settings: { slskd: { enabled: true } } };
               case "get_diagnostics": return [];
               case "sync_playlists": return { synchronized: fixtureCollections.length, warnings: [], pausedMirrors: [], sources: fixtureCollections.map((collection) => ({ collectionId: collection.id })) };

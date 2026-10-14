@@ -3613,7 +3613,7 @@ mod tests {
         assert_ne!(original, inspection_cache_key(&candidate, &settings));
         candidate.url = "https://youtube.com/watch?v=a".into();
         let mut changed = settings.clone();
-        changed.js_runtime_path = "node".into();
+        changed.js_runtime_path = "deno".into();
         assert_ne!(original, inspection_cache_key(&candidate, &changed));
     }
 

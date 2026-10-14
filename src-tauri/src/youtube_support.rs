@@ -328,13 +328,30 @@ impl YouTubeSupportManager {
     }
 
     async fn stage_activate(&self, version: &str, bytes: &[u8]) -> Result<SupportStatus, String> {
+        let manager = self;
+        self.stage_activate_with_probe(version, bytes, move |path| async move {
+            manager.probe_candidate(&path).await
+        })
+        .await
+    }
+
+    async fn stage_activate_with_probe<F, Fut>(
+        &self,
+        expected_version: &str,
+        bytes: &[u8],
+        probe: F,
+    ) -> Result<SupportStatus, String>
+    where
+        F: FnOnce(PathBuf) -> Fut,
+        Fut: std::future::Future<Output = Result<(), String>>,
+    {
         let root = self.managed_root();
         fs::create_dir_all(root.join("versions"))
             .map_err(|e| format!("Could not create managed YouTube support directory: {e}"))?;
-        let version_dir = root.join("versions").join(version);
+        let version_dir = root.join("versions").join(expected_version);
         if version_dir.exists() {
             return Err(format!(
-                "Version {version} is already staged; it was left intact."
+                "Version {expected_version} is already staged; it was left intact."
             ));
         }
         let staging = root
@@ -355,7 +372,22 @@ impl YouTubeSupportManager {
             let _ = fs::remove_dir_all(&staging);
             return Err(e);
         }
-        if let Err(e) = self.probe_candidate(&staged_exe).await {
+        let actual_version = match version(&staged_exe).await {
+            Ok(actual) => actual,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&staging);
+                return Err(format!(
+                    "Staged yt-dlp version probe failed; active version was kept: {error}"
+                ));
+            }
+        };
+        if actual_version != expected_version {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!(
+                "Staged yt-dlp reported version {actual_version}, expected {expected_version}; active version was kept."
+            ));
+        }
+        if let Err(e) = probe(staged_exe.clone()).await {
             let _ = fs::remove_dir_all(&staging);
             return Err(format!(
                 "Compatibility probe failed; active version was kept: {e}"
@@ -370,7 +402,7 @@ impl YouTubeSupportManager {
             .map(|p| p.version)
             .unwrap_or_else(|| "@bundled".into());
         let pointer = VersionPointer {
-            version: version.to_owned(),
+            version: expected_version.to_owned(),
             executable: executable_filename().to_owned(),
             previous: Some(previous),
         };
@@ -1331,16 +1363,20 @@ mod tests {
         let manager = YouTubeSupportManager::new(tmp.path(), "/usr/bin/yt-dlp", None, None, None);
         let root = manager.managed_root();
         fs::create_dir_all(root.join("versions/v1")).unwrap();
-        fs::write(root.join("versions/v1/yt-dlp"), b"fixture").unwrap();
+        let executable = executable_filename();
+        fs::write(root.join("versions/v1").join(&executable), b"fixture").unwrap();
         let p = VersionPointer {
             version: "v1".into(),
-            executable: "yt-dlp".into(),
+            executable: executable.into(),
             previous: None,
         };
         manager
             .write_pointer_atomically("current.json", &p)
             .unwrap();
-        assert_eq!(manager.active_executable(), root.join("versions/v1/yt-dlp"));
+        assert_eq!(
+            manager.active_executable(),
+            root.join("versions/v1").join(executable_filename())
+        );
         assert!(root.join("current.json").is_file());
     }
 
@@ -1354,25 +1390,129 @@ mod tests {
             YouTubeSupportManager::new(tmp.path().join("data"), &bundled, None, None, None);
         let root = manager.managed_root();
         fs::create_dir_all(root.join("versions/v2")).unwrap();
-        fs::write(root.join("versions/v2/yt-dlp"), b"managed fixture").unwrap();
+        fs::write(
+            root.join("versions/v2").join(executable_filename()),
+            b"managed fixture",
+        )
+        .unwrap();
         manager
             .write_pointer_atomically(
                 "current.json",
                 &VersionPointer {
                     version: "v2".into(),
-                    executable: "yt-dlp".into(),
+                    executable: executable_filename().into(),
                     previous: Some("@bundled".into()),
                 },
             )
             .unwrap();
         manager.rollback().await.unwrap();
         assert_eq!(manager.active_executable(), bundled);
+        let bundled_pointer = manager.read_pointer("current.json").unwrap();
+        assert_eq!(bundled_pointer.version, "@bundled");
+        assert_eq!(bundled_pointer.previous.as_deref(), Some("v2"));
+        manager.rollback().await.unwrap();
+        assert_eq!(
+            manager.active_executable(),
+            root.join("versions/v2").join(executable_filename())
+        );
+        let managed_pointer = manager.read_pointer("current.json").unwrap();
+        assert_eq!(managed_pointer.version, "v2");
+        assert_eq!(managed_pointer.previous.as_deref(), Some("@bundled"));
+    }
+
+    #[tokio::test]
+    async fn corrupt_pointer_falls_back_to_bundled_and_cannot_be_rolled_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundled = tmp.path().join("resources/yt-dlp");
+        fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        fs::write(&bundled, b"bundled fixture").unwrap();
+        let manager =
+            YouTubeSupportManager::new(tmp.path().join("data"), &bundled, None, None, None);
+        fs::create_dir_all(manager.managed_root()).unwrap();
+        fs::write(manager.pointer_path("current.json"), b"{ broken pointer").unwrap();
+
+        assert!(manager.read_pointer("current.json").is_none());
+        assert_eq!(manager.active_executable(), bundled);
+        assert!(manager.rollback().await.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_candidate_probe_keeps_existing_active_pointer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundled = tmp.path().join("resources/yt-dlp");
+        fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        fs::write(&bundled, b"bundled fixture").unwrap();
+        let manager =
+            YouTubeSupportManager::new(tmp.path().join("data"), &bundled, None, None, None);
+        let root = manager.managed_root();
+        let active_dir = root.join("versions/active.1");
+        fs::create_dir_all(&active_dir).unwrap();
+        let active = active_dir.join(executable_filename());
+        fs::write(&active, b"existing managed fixture").unwrap();
+        manager
+            .write_pointer_atomically(
+                "current.json",
+                &VersionPointer {
+                    version: "active.1".into(),
+                    executable: executable_filename().into(),
+                    previous: Some("@bundled".into()),
+                },
+            )
+            .unwrap();
+
+        let staged_script = b"#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo candidate.2; exit 0; fi\nexit 1\n";
+        let failure = manager
+            .stage_activate_with_probe("candidate.2", staged_script, |_| async {
+                Err("mock YouTube extraction failure".into())
+            })
+            .await
+            .unwrap_err();
+
+        assert!(failure.contains("Compatibility probe failed"));
+        assert!(failure.contains("mock YouTube extraction failure"));
+        assert_eq!(manager.active_executable(), active);
         assert_eq!(
             manager.read_pointer("current.json").unwrap().version,
-            "@bundled"
+            "active.1"
         );
-        manager.rollback().await.unwrap();
-        assert_eq!(manager.active_executable(), root.join("versions/v2/yt-dlp"));
+        assert!(!root.join("versions/candidate.2").exists());
+        let version_dirs = fs::read_dir(root.join("versions"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(version_dirs.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn staged_binary_must_report_the_requested_release_version() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundled = tmp.path().join("resources/yt-dlp");
+        fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        fs::write(&bundled, b"bundled fixture").unwrap();
+        let manager =
+            YouTubeSupportManager::new(tmp.path().join("data"), &bundled, None, None, None);
+
+        let script = b"#!/bin/sh\necho wrong.version\n";
+        let failure = manager
+            .stage_activate_with_probe("expected.version", script, |_| async {
+                panic!("compatibility probe must not run when version differs");
+                #[allow(unreachable_code)]
+                Ok(())
+            })
+            .await
+            .unwrap_err();
+
+        assert!(failure.contains("reported version wrong.version"));
+        assert!(failure.contains("expected expected.version"));
+        assert_eq!(manager.active_executable(), bundled);
+        assert!(manager.read_pointer("current.json").is_none());
+        let version_dirs = fs::read_dir(manager.managed_root().join("versions"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert!(version_dirs.is_empty());
     }
 
     #[test]

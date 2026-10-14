@@ -16,25 +16,37 @@ cp src-tauri/vendor/SOURCES.md "$out/THIRD_PARTY_SOURCES.md"
 cp scripts/release/THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES.md"
 cp scripts/release/locked-tools.json "$out/locked-tools.json"
 cp "src-tauri/resources/tools/$TARGET/LOCKED_TOOLS.json" "$out/LOCKED_TOOLS-$LABEL.json"
+if [[ -f "src-tauri/resources/tools/$TARGET/LOCKED_FPCALC.json" ]]; then
+  cp "src-tauri/resources/tools/$TARGET/LOCKED_FPCALC.json" "$out/LOCKED_FPCALC-$LABEL.json"
+fi
 python3 - "$TARGET" "$LABEL" "$out" <<'PY'
 import json, pathlib, sys
 target, label, out = sys.argv[1:]
 out = pathlib.Path(out)
-tools = json.loads((out / f"LOCKED_TOOLS-{label}.json").read_text())
+tools = json.loads((out / f"LOCKED_TOOLS-{label}.json").read_text(encoding="utf-8"))
 lines = ["", "## Release-bundled tools", "", "| Tool | Version / source | SHA-256 | License |", "| --- | --- | --- | --- |"]
 for name, record in tools.get("sha256", {}).items():
     lines.append(f"| {name} | Pinned archive | {record} | See `THIRD_PARTY_NOTICES.md` and bundled upstream notices |")
 source = tools.get("ffmpegSource")
 if source:
     lines.append(f"| FFmpeg source archive | {source['commit']} ({source['url']}) | {source['sha256']} | GPL-2.0-or-later source; GPL binary build |")
+fpcalc_record = out / f"LOCKED_FPCALC-{label}.json"
+if fpcalc_record.is_file():
+    fpcalc = json.loads(fpcalc_record.read_text(encoding="utf-8"))
+    source = fpcalc["source"]
+    lines.append(f"| Chromaprint {fpcalc['version']} source archive | {source['url']} ({source['commit']}) | {source['sha256']} | LGPL-2.1-or-later |")
+    for license_name in fpcalc.get("licenseTexts", []):
+        license_file = pathlib.Path("src-tauri/resources/tools") / target / license_name
+        if not license_file.is_file():
+            raise SystemExit(f"Missing fpcalc license text: {license_file}")
 media_file = pathlib.Path("src-tauri/resources/tools") / target / "MACOS_MEDIA_SOURCE_INVENTORY.json"
 if media_file.is_file():
     (out / "MACOS_MEDIA_SOURCE_INVENTORY.json").write_bytes(media_file.read_bytes())
-    media = json.loads(media_file.read_text())
+    media = json.loads(media_file.read_text(encoding="utf-8"))
     for item in media["sources"]:
         lines.append(f"| {item['name']} {item['version']} source archive | {item['url']} | {item['sha256']} | Refer to bundled upstream license |")
 lines.extend(["", "BgUtils POT Provider 2.0.2 source commit: `26475e9d3665b972c4aeb83b4dbaafcf64b88438`; its source and lock files are included in the application resources.", ""])
-with (out / "THIRD_PARTY_SOURCES.md").open("a") as stream:
+with (out / "THIRD_PARTY_SOURCES.md").open("a", encoding="utf-8", newline="\n") as stream:
     stream.write("\n".join(lines))
 PY
 cp ".cache/release-assets/burrata-yt-dlp-$TARGET"* "$out/"

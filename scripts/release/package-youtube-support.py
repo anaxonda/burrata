@@ -9,13 +9,17 @@ import zipfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TARGET = os.environ.get("TARGET", "")
 version = "2.0.2"
-lock = json.loads((ROOT / "scripts/release/locked-tools.json").read_text())
+lock = json.loads((ROOT / "scripts/release/locked-tools.json").read_text(encoding="utf-8"))
 plugin = ROOT / "src-tauri/resources/youtube-support/bgutil/plugin/yt_dlp_plugins"
 if not plugin.is_dir() or not any(plugin.rglob("*.py")):
     raise SystemExit(f"Required pinned BgUtils plugin sources are missing: {plugin}")
 output = ROOT / ".cache/release-assets"
 output.mkdir(exist_ok=True)
-binary_name = lock["ytDlp"]["assets"][TARGET]
+if TARGET not in lock["ytDlp"]["assets"]:
+    raise SystemExit(f"No locked yt-dlp update binary for target {TARGET!r}")
+# The verified upstream archive name is retained in lock metadata, but the
+# staged resource is normalized by prepare-tools.py to the executable name.
+binary_name = "yt-dlp.exe" if TARGET == "x86_64-pc-windows-msvc" else "yt-dlp"
 binary_source = ROOT / "src-tauri/resources/tools" / TARGET / binary_name
 if not binary_source.is_file():
     raise SystemExit(f"Required yt-dlp updater binary is missing: {binary_source}")
@@ -40,5 +44,5 @@ record = {
     "pluginSha256": hashlib.sha256(data).hexdigest(),
     "pluginSha512": hashlib.sha512(data).hexdigest(),
 }
-(output / "youtube-support-target.json").write_text(json.dumps(record, indent=2) + "\n")
+(output / "youtube-support-target.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 print(f"Packaged {asset} and {plugin_asset}")
