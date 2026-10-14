@@ -24,6 +24,10 @@ describe("RadioView", () => {
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "get_radio_stations") return stations;
       if (command === "get_station_details") return { stationId: args?.stationId };
+      if (command === "get_radio_song_track") {
+        const item = args?.metadata as RadioTrackMetadata;
+        return { id: "radio_song:canonical", provider: "radio_song", providerId: "canonical", sourceUrl: "", artist: item.artist, title: item.title, album: item.album, favorite: false, provenance: { sourceKind: "radioSong", identity: "unverified station metadata", radioStationId: item.stationId } };
+      }
       if (command === "poll_radio_station") return {
         stationId: args?.stationId, nowPlaying: {
           stationId: args?.stationId, artist: "Radio Artist", title: "Live Song", album: "Current Album", year: "2025",
@@ -36,8 +40,8 @@ describe("RadioView", () => {
       };
       throw new Error(`Unexpected command ${command}`);
     });
-    const onPlayStation = vi.fn(), onArtist = vi.fn(), onNowPlaying = vi.fn(), onPlayTrack = vi.fn();
-    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onNowPlaying, onPlayTrack, playingStationId: "main" } });
+    const onPlayStation = vi.fn(), onArtist = vi.fn(), onNowPlaying = vi.fn(), onPlayTrack = vi.fn(), onFavoriteTrack = vi.fn(), onOpenHistory = vi.fn();
+    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onNowPlaying, onPlayTrack, onFavoriteTrack, onOpenHistory, playingStationId: "main" } });
     cleanup = () => { void unmount(instance); };
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
@@ -47,15 +51,29 @@ describe("RadioView", () => {
     expect(document.querySelector('[aria-label^="Recently heard"] .track-subtitle')?.textContent).toContain("Via Main Mix");
     expect(document.querySelector('[aria-label^="Recently heard"] time')?.textContent).toContain("2026");
     expect(document.querySelector('[aria-label^="Recently heard"] time')?.getAttribute("title")).toContain("2026");
+    expect(document.querySelector('[aria-label^="Recently heard"] .track-title')?.textContent).toContain("Earlier Song");
+    const historySearch = document.querySelector<HTMLInputElement>('[aria-label="Search station history"]')!;
+    historySearch.value = "no match"; historySearch.dispatchEvent(new Event("input", { bubbles: true })); await tick();
+    expect(document.querySelector(".history")?.textContent).toContain("No recent tracks match this filter.");
+    historySearch.value = "older artist"; historySearch.dispatchEvent(new Event("input", { bubbles: true })); await tick();
+    expect(document.querySelector('[aria-label^="Recently heard"] .track-title')?.textContent).toContain("Earlier Song");
+    document.querySelector<HTMLButtonElement>(".full-history")!.click();
+    expect(onOpenHistory).toHaveBeenCalledWith("main");
+    expect(document.querySelector('[aria-label="Add Earlier Song to favorites"]')).toBeTruthy();
+    document.querySelector<HTMLButtonElement>('[aria-label="Add Earlier Song to favorites"]')!.click();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(onFavoriteTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", sourceUrl: "" }));
     document.querySelector<HTMLButtonElement>('[aria-label="Play Earlier Song"]')!.click();
-    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ title: "Earlier Song", artist: "Older Artist" }), expect.any(Array), 0);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", title: "Earlier Song", artist: "Older Artist", sourceUrl: "" }), expect.any(Array), 0);
     expect(document.querySelector('[aria-label^="Recently heard"]')?.textContent).toContain("your listening history");
     expect(document.querySelector("h1")?.textContent).toBe("Main Mix");
     expect(document.querySelector('img[alt="Album artwork for Live Song"]')?.getAttribute("src")).toBe("https://img.radioparadise.com/covers/l/current.jpg");
     document.querySelector<HTMLButtonElement>(".artist-link")!.click();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(onArtist).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "radio", artist: "Radio Artist", title: "Live Song",
-      provenance: expect.objectContaining({ identity: "station-reported; catalog identity unverified" }),
+      id: "radio_song:canonical", provider: "radio_song", artist: "Radio Artist", title: "Live Song",
+      provenance: expect.objectContaining({ identity: "unverified station metadata", radioStationId: "main" }),
     }));
     document.querySelectorAll<HTMLButtonElement>('[aria-label="Radio stations"] .station-card')[1]!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();

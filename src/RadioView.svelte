@@ -22,12 +22,14 @@
   };
 
   let { onPlayStation, onArtist, playingStationId = "", onNowPlaying, selectedStationId: requestedStationId = "", showAdd = false, onStationsChanged, onAddClosed, stationNames={}, savedStations,
-    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onTrackContext, playingTrackId = "", bufferingTrackId = "", paused = false,
+    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onTrackContext, onOpenHistory, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
   }:
     { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; showAdd?: boolean; onStationsChanged?: (stations: RadioStation[]) => void; onAddClosed?: () => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
       onPlayTrack?: (track: Track, tracks: Track[], index: number) => void | Promise<void>; onDownloadTrack?: (track: Track) => void | Promise<void>; onFavoriteTrack?: (track: Track) => void | Promise<void>;
       onQueueTracks?: (tracks: Track[], mode: "next" | "append") => void | Promise<void>; onAddTrackToPlaylist?: (track: Track) => void | Promise<void>; onTrackContext?: (track: Track, event: MouseEvent) => void;
+      onOpenHistory?: (stationId: string) => void;
       playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
+      favoriteTrackIds?: string[];
     } = $props();
   let stations = $state<RadioStation[]>([]);
   let activeStationId = $state("main");
@@ -38,6 +40,8 @@
   });
   let metadata = $state<RadioMetadata | null>(null);
   let historyByStation = $state<Record<string, RadioTrackMetadata[]>>({});
+  let radioTracksByIdentity = $state<Record<string, Track>>({});
+  const radioTrackLoads = new Map<string, Promise<Track>>();
   let historyAvailabilityByStation = $state<Record<string, boolean>>({});
   let stationDetailsById = $state<Record<string, RadioStationDetails>>({});
   let loadingStations = $state(true);
@@ -57,6 +61,8 @@
   let stationName = $state("");
   let stationUrl = $state("");
   let stationActionError = $state("");
+  let historyQuery = $state("");
+  let historySort = $state<"newest" | "oldest">("newest");
   let recognizing = $state(false);
   const selectedStationId = $derived(activeStationId);
   const selectedStation = $derived(stations.find((station) => station.id === selectedStationId) ? {
@@ -66,7 +72,19 @@
   const currentHistory = $derived(historyByStation[selectedStationId] ?? []);
   const displayedNowPlaying = $derived(metadata?.nowPlaying ?? (playingStationId !== selectedStationId ? stationDetailsById[selectedStationId]?.nowPlaying ?? null : currentHistory[0] ?? stationDetailsById[selectedStationId]?.nowPlaying ?? null));
   const showingLastIdentified = $derived(playingStationId === selectedStationId && !metadata?.nowPlaying && Boolean(displayedNowPlaying));
-  const visibleHistory = $derived(currentHistory);
+  const visibleHistory = $derived.by(() => {
+    const query = historyQuery.trim().toLocaleLowerCase();
+    return currentHistory
+      .filter((item) => !query || [item.title, item.artist, item.album, stationNames[item.stationId]].some((value) => value?.toLocaleLowerCase().includes(query)))
+      .map((item, index) => ({ item, index, time: Date.parse(item.observedAt ?? "") }))
+      .sort((a, b) => {
+        const aTime = Number.isFinite(a.time) ? a.time : (historySort === "newest" ? -Infinity : Infinity);
+        const bTime = Number.isFinite(b.time) ? b.time : (historySort === "newest" ? -Infinity : Infinity);
+        const delta = historySort === "oldest" ? aTime - bTime : bTime - aTime;
+        return delta || a.index - b.index;
+      })
+      .map(({ item }) => item);
+  });
   const selectedStationWebsite = $derived(selectedStation?.homepageUrl || (["main", "mellow", "rock", "global"].includes(selectedStation?.id ?? "") ? selectedStation?.sourceUrl : "") || "");
   const selectedStationFavicon = $derived(selectedStation?.faviconUrl || selectedStation?.favicon || "");
   let requestedDetailsStationId = "";
@@ -122,20 +140,74 @@
   }
 
   function metadataKey(item: RadioTrackMetadata) { return `${item.artist}\u0000${item.title}\u0000${item.album ?? ""}`.toLocaleLowerCase(); }
-  function trackForMetadata(item: RadioTrackMetadata): Track {
-    const safeKey = encodeURIComponent(metadataKey(item));
+  function radioIdentityKey(item: RadioTrackMetadata) { return `${item.artist.trim().toLocaleLowerCase()}\n${item.title.trim().toLocaleLowerCase()}`; }
+  function fallbackTrackForMetadata(item: RadioTrackMetadata): Track {
+    const identity = radioIdentityKey(item);
     return {
-      id: `radio:${item.stationId}:${safeKey}`, provider: "radio", providerId: `${item.stationId}:${safeKey}`,
-      sourceUrl: item.sourceUrl, artist: item.artist, title: item.title, album: item.album ?? undefined,
+      id: `radio_song:unresolved:${encodeURIComponent(identity)}`, provider: "radio_song", providerId: identity,
+      sourceUrl: "", artist: item.artist.trim(), title: item.title.trim(), album: item.album ?? undefined,
       releaseDate: item.year ?? undefined, artworkUrl: item.artworkUrl ?? undefined, favorite: false,
-      provenance: { sourceKind: "radioMetadata", identity: "station-reported; catalog identity unverified", metadataConfidence: item.metadataConfidence, stationId: item.stationId, observedAt: item.observedAt ?? null },
+      provenance: { sourceKind: "radioSong", identity: "unverified station metadata; canonical track lookup unavailable", radioStationId: item.stationId, radioMetadataConfidence: item.metadataConfidence, radioObservedAt: item.observedAt ?? null },
     };
   }
+  function withOccurrence(track: Track, item: RadioTrackMetadata): Track {
+    const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
+    return {
+      ...track,
+      favorite: favoriteTrackIds.includes(track.id),
+      provenance: { ...provenance, stationId: item.stationId, observedAt: item.observedAt ?? null, radioStationId: item.stationId, radioStationName: stationNames[item.stationId] ?? provenance.radioStationName ?? "Radio", radioObservedAt: item.observedAt ?? provenance.radioObservedAt ?? null, radioMetadataConfidence: item.metadataConfidence ?? provenance.radioMetadataConfidence },
+    };
+  }
+  async function hydrateRadioSong(item: RadioTrackMetadata): Promise<Track> {
+    const identity = radioIdentityKey(item);
+    const cached = radioTracksByIdentity[identity];
+    if (cached) return withOccurrence(cached, item);
+    let pending = radioTrackLoads.get(identity);
+    if (!pending) {
+      pending = call<Track>("get_radio_song_track", { stationId: item.stationId, metadata: item })
+        .catch(() => fallbackTrackForMetadata(item))
+        .then((track) => {
+          radioTracksByIdentity = { ...radioTracksByIdentity, [identity]: track };
+          return track;
+        })
+        .finally(() => radioTrackLoads.delete(identity));
+      radioTrackLoads.set(identity, pending);
+    }
+    return withOccurrence(await pending, item);
+  }
+  function trackForMetadata(item: RadioTrackMetadata): Track {
+    return withOccurrence(radioTracksByIdentity[radioIdentityKey(item)] ?? fallbackTrackForMetadata(item), item);
+  }
+  function metadataForTrack(track: Track) { return visibleHistory.find(item => radioIdentityKey(item) === radioIdentityKey({ stationId: "", artist: track.artist, title: track.title, sourceUrl: "", metadataConfidence: "" })); }
+  async function hydrateHistoryTrack(track: Track) {
+    const item = metadataForTrack(track);
+    return item ? hydrateRadioSong(item) : track;
+  }
+  async function playHistoryTrack(_track: Track, _tracks: Track[], index: number) {
+    const tracks = await Promise.all(visibleHistory.map(hydrateRadioSong));
+    if (tracks[index]) await onPlayTrack?.(tracks[index], tracks, index);
+  }
+  function downloadHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onDownloadTrack?.(canonical)); }
+  function favoriteHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onFavoriteTrack?.(canonical)); }
+  function playlistHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onAddTrackToPlaylist?.(canonical)); }
+  function queueHistoryTrack(track: Track, mode: "next" | "append") { void hydrateHistoryTrack(track).then(canonical => onQueueTracks?.([canonical], mode)); }
+  function artistHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onArtist(canonical)); }
+  function contextHistoryTrack(track: Track, event: MouseEvent) { void hydrateHistoryTrack(track).then(canonical => onTrackContext?.(canonical, event)); }
+  function openArtistForMetadata(item: RadioTrackMetadata) {
+    void hydrateRadioSong(item).then(track => onArtist(track));
+  }
+  $effect(() => {
+    for (const item of visibleHistory) {
+      const identity = radioIdentityKey(item);
+      if (!radioTracksByIdentity[identity] && !radioTrackLoads.has(identity)) void hydrateRadioSong(item);
+    }
+  });
   const stationHistoryTracks = $derived(visibleHistory.map(trackForMetadata));
   function historyTimestamp(track: Track) {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
-    if (typeof provenance.observedAt !== "string") return { label: "Listening time unavailable", full: "Listening time unavailable" };
-    const date = new Date(provenance.observedAt);
+    const observedAt = provenance.observedAt ?? provenance.radioObservedAt;
+    if (typeof observedAt !== "string") return { label: "Listening time unavailable", full: "Listening time unavailable" };
+    const date = new Date(observedAt);
     if (!Number.isFinite(date.getTime())) return { label: "Listening time unavailable", full: "Listening time unavailable" };
     const full = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "long" }).format(date);
     const label = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
@@ -293,7 +365,7 @@
         {@const item = displayedNowPlaying}
         <div class="track-card">
           {#if item.artworkUrl}<img src={item.artworkUrl} alt={`Album artwork for ${item.title}`} />{:else}<div class="art-placeholder" aria-label="No artwork available">♫</div>{/if}
-          <div class="track-copy"><h2>{item.title}</h2><button class="artist-link" aria-label={`Search artist information for ${item.artist}`} onclick={() => onArtist(trackForMetadata(item))}>{item.artist}</button>{#if item.album}<p>{item.album}{item.year ? ` · ${item.year}` : ""}</p>{/if}<details class="confidence-details"><summary title={item.metadataConfidence}>Details</summary><small>{item.metadataConfidence}. Catalog identity is unverified.</small></details></div>
+          <div class="track-copy"><h2>{item.title}</h2><button class="artist-link" aria-label={`Search artist information for ${item.artist}`} onclick={() => openArtistForMetadata(item)}>{item.artist}</button>{#if item.album}<p>{item.album}{item.year ? ` · ${item.year}` : ""}</p>{/if}<details class="confidence-details"><summary title={item.metadataConfidence}>Details</summary><small>{item.metadataConfidence}. Catalog identity is unverified.</small></details></div>
         </div>
       {:else}<p class="empty">{playingStationId === selectedStation.id ? "Current track information is unavailable." : "Play this station to see its current track."}</p>{#if playingStationId === selectedStation.id}<button class="identify-button" disabled={recognizing} onclick={() => void identifyCurrentSong(selectedStation.id)}>{recognizing ? "Identifying…" : "Identify current song"}</button><small class="recognition-note">Songs are identified automatically when station metadata is missing. A short stream sample is fingerprinted through SongRec and sent to Shazam. No microphone is used.</small>{/if}{/if}
       {#if metadata?.note || stationDetailsById[selectedStationId]?.note}<details class="confidence-details"><summary title={metadata?.note ?? stationDetailsById[selectedStationId]?.note}>Station details</summary><small>{metadata?.note ?? stationDetailsById[selectedStationId]?.note}</small></details>{/if}
@@ -302,7 +374,8 @@
   {#if selectedStation}
     <section class="history" aria-label={`Recently heard on ${selectedStation?.name ?? "Radio Paradise"}`}>
       <h2>Station history <small>your listening history</small></h2>
-      {#if stationHistoryTracks.length}<TrackList tracks={stationHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} onArtist={onArtist} onContext={onTrackContext} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrackId} {bufferingTrackId} {paused} />{:else}<p class="empty">Songs identified while you listen will appear here.</p>{/if}
+      <div class="history-tools"><label>Search station history<input aria-label="Search station history" type="search" bind:value={historyQuery} placeholder="Title or artist" /></label><label>Sort by<select aria-label="Sort station history" bind:value={historySort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>{#if onOpenHistory}<button class="full-history" onclick={() => onOpenHistory?.(selectedStation.id)}>Full listening history →</button>{/if}</div>
+      {#if stationHistoryTracks.length}<TrackList tracks={stationHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={playHistoryTrack} onDownload={downloadHistoryTrack} onFavorite={favoriteHistoryTrack} onNext={track => queueHistoryTrack(track, "next")} onQueue={track => queueHistoryTrack(track, "append")} onPlaylist={playlistHistoryTrack} onArtist={artistHistoryTrack} onContext={contextHistoryTrack} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="empty">No recent tracks match this filter.</p>{:else}<p class="empty">Songs identified while you listen will appear here.</p>{/if}
     </section>
   {/if}
 </section>
@@ -310,4 +383,5 @@
 <style>
   .radio-page{max-width:1120px;margin:0 auto;padding:clamp(18px,4vw,42px);color:var(--text)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}.page-heading h1{margin:3px 0;font-size:clamp(24px,4vw,34px)}.page-heading p:not(.eyebrow){margin:5px 0;color:var(--muted)}.heading-actions{display:flex;align-items:center;gap:12px}.heading-actions>a{color:var(--accent);font-size:13px}.add-button,.station-search button,.search-results button,.remove-station{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}.eyebrow{margin:0;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.12em}.stations{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:10px}.station-card{display:flex;align-items:center;gap:12px;min-height:78px;padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--text);text-align:left}.station-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.station-mark{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;background:var(--raised);font-size:22px}.station-copy{display:grid;gap:5px;flex:1;min-width:0}.station-copy small,.track-copy small{color:var(--muted);font-size:11px}.play-icon{color:var(--accent)}.station-add{margin:0 0 18px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.add-tabs{display:flex;gap:5px;margin-bottom:12px}.add-tabs button{border:0;border-radius:6px;padding:8px 12px;background:transparent;color:var(--muted)}.add-tabs button.active{background:var(--raised);color:var(--text)}.station-search label{display:grid;gap:6px;color:var(--muted);font-size:12px}.station-search label span{display:flex;gap:8px}.station-search input{min-width:0;width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text)}.radio-filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px}.custom-station{display:grid;grid-template-columns:1fr 1.4fr auto;align-items:end;gap:10px}.custom-station small{grid-column:1/-1;color:var(--muted)}.search-results{list-style:none;margin:10px 0 0;padding:0;max-height:280px;overflow:auto}.search-results li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line)}.search-results li div{display:grid;gap:3px;min-width:0}.search-results li small{color:var(--muted);font-size:11px}.remove-station{padding:4px 7px;font-size:10px}.now-playing,.history{margin-top:26px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.station-details{margin:7px 0;color:var(--muted);font-size:12px;line-height:1.5}.station-actions{display:flex;gap:8px;margin:10px 0}.track-card{display:grid;grid-template-columns:128px minmax(0,1fr);gap:18px;align-items:center;margin-top:12px}.track-card img,.art-placeholder{width:128px;aspect-ratio:1;object-fit:cover;border-radius:9px;background:var(--raised)}.art-placeholder{display:grid;place-items:center;color:var(--muted);font-size:44px}.track-copy{min-width:0}.track-copy h2{margin:0 0 6px;font-size:22px}.track-copy p{margin:8px 0;color:var(--muted);font-size:13px}.artist-link{border:0;padding:0;background:transparent;color:var(--accent);text-align:left;font-size:16px;text-decoration:underline}.empty{color:var(--muted);font-size:12px;line-height:1.5}.history h2{margin:0 0 9px;font-size:15px}.history h2 small{color:var(--muted);font-weight:400}.error{padding:12px;border:1px solid #a44;border-radius:8px;color:#ff9c9c}@media(max-width:560px){.page-heading{display:block}.heading-actions{margin-top:10px;flex-wrap:wrap}.track-card{grid-template-columns:88px minmax(0,1fr);gap:12px}.track-card img,.art-placeholder{width:88px}.track-copy h2{font-size:18px}.now-playing,.history{padding:13px}.custom-station{grid-template-columns:1fr}.custom-station small{grid-column:auto}.radio-filters{grid-template-columns:1fr}}
   .station-identity{display:flex;align-items:center;gap:12px;min-width:0}.station-favicon{width:38px;height:38px;object-fit:contain;border-radius:7px}.station-identity>div{min-width:0}.confidence-details{margin-top:7px;color:var(--muted);font-size:11px}.confidence-details summary{cursor:pointer}.confidence-details small{display:block;margin-top:4px;max-width:42ch}.identify-button{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}.recognition-note{display:block;margin-top:5px;color:var(--muted);font-size:11px}
+  .history-tools{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:0 0 12px}.history-tools label{display:grid;gap:4px;color:var(--muted);font-size:11px}.history-tools input,.history-tools select{min-width:145px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text);font:inherit}.full-history{margin-left:auto;border:0;padding:7px 0;background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
 </style>

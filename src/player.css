@@ -208,8 +208,8 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
 
 @media (min-width: 650px) and (max-width: 1000px) {
   footer.player {
-    grid-template-columns: minmax(0, 1fr) minmax(210px, 1.2fr) minmax(175px, auto);
-    gap: 9px;
+    grid-template-columns: minmax(0, 1fr) minmax(205px, 1.2fr) minmax(150px, auto);
+    gap: 8px;
     padding: 8px 12px;
   }
   footer.player .mini-art {
@@ -218,13 +218,15 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
     height: 42px;
   }
   footer.player > .now-playing { gap: 8px; }
-  footer.player .player-transport { gap: 5px; }
+  footer.player .player-transport { gap: 4px; }
   footer.player .player-transport button,
-  footer.player .player-right > button { min-width: 28px; width: 28px; height: 30px; }
-  footer.player .player-transport .play-button { min-width: 34px; width: 34px; height: 34px; }
-  footer.player .player-right { gap: 5px; }
-  footer.player .player-volume-control { gap: 2px; }
-  footer.player .player-volume-control .volume { width: 55px; }
+  footer.player .player-right > button { min-width: 32px; width: 32px; height: 32px; }
+  footer.player .player-transport .play-button { min-width: 36px; width: 36px; height: 36px; }
+  footer.player .player-right { gap: 3px; }
+  footer.player .player-volume-control { flex: 0 1 54px; gap: 0; }
+  footer.player .player-volume-control > span { display: none; }
+  footer.player .player-volume-control .volume { width: 54px; min-width: 42px; }
+  footer.player .player-right > .queue-toggle { min-width: 32px; width: 32px; padding: 0; }
 }
 
 @media (max-width: 649px) {
@@ -259,16 +261,16 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   }
   footer.player .player-transport button,
   footer.player .player-right > button {
-    min-width: 27px;
-    width: 27px;
-    height: 29px;
+    min-width: 32px;
+    width: 32px;
+    height: 32px;
     border-radius: 6px;
     font-size: 12px;
   }
   footer.player .player-transport .play-button {
-    min-width: 32px;
-    width: 32px;
-    height: 32px;
+    min-width: 36px;
+    width: 36px;
+    height: 36px;
   }
   footer.player .player-scrubber {
     grid-column: 1;
@@ -289,16 +291,22 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   }
   footer.player .player-right > button[aria-label="Show playback queue and chapters"] { font-size: 16px; }
   footer.player .player-volume-control > span { display: none; }
-  footer.player .player-volume-control .volume { width: 46px; min-width: 38px; }
+  footer.player .player-volume-control .volume { width: 48px; min-width: 40px; }
 }
 
 @media (max-width: 360px) {
   footer.player { padding-right: 6px; padding-left: 6px; gap: 4px; }
   footer.player .mini-art { flex-basis: 32px; width: 32px; height: 32px; }
-  footer.player .player-transport button,
-  footer.player .player-right > button { min-width: 24px; width: 24px; }
-  footer.player .player-transport .play-button { min-width: 29px; width: 29px; height: 29px; }
-  footer.player .player-volume-control .volume { width: 36px; min-width: 30px; }
+  footer.player .player-right { gap: 0; }
+  footer.player .player-volume-control .volume { width: 40px; min-width: 36px; }
 }
 
 footer.player .volume { display:block; }
+footer.player .player-transport button,
+footer.player .player-right > button { font-size:16px; }
+footer.player .player-transport .play-button { font-size:16px; }
+@media(max-width:649px) {
+  footer.player .player-transport button,
+  footer.player .player-right > button { font-size:16px; }
+  footer.player .player-transport .play-button { font-size:16px; }
+}

@@ -218,6 +218,7 @@
   @media (max-width: 1199px) {
     .playing-info-backdrop { padding: 8px 8px calc(var(--player-height, 100px) + 8px + env(safe-area-inset-bottom)); }
     .playing-info { width: 100%; padding: 14px; border-radius: 15px; }
+    .docked .playing-info { width:100%; }
     .track-hero { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
     img, .cover-placeholder { width: 96px; }
     .cover-placeholder { font-size: 40px; }

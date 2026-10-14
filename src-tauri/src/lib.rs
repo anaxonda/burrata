@@ -440,8 +440,20 @@ fn get_radio_song_track(
     if metadata.station_id != station.id {
         return Err("Station metadata does not match".into());
     }
-    let track = playback_history::radio_song_track(&station, &metadata);
-    Ok(state.store.get_track(&track.id)?.unwrap_or(track))
+    let mut track = playback_history::radio_song_track(&station, &metadata);
+    if let Some(saved) = state.store.get_track(&track.id)? {
+        track.favorite = saved.favorite;
+        track.local_path = saved.local_path;
+        track.local_availability = saved.local_availability;
+        track.asset_id = saved.asset_id;
+        track.duration_seconds = saved.duration_seconds;
+        track.bpm = saved.bpm;
+        track.key = saved.key;
+        if track.artwork_url.is_none() {
+            track.artwork_url = saved.artwork_url;
+        }
+    }
+    Ok(track)
 }
 #[tauri::command]
 fn get_radio_history_setting(state: State<'_, AppState>) -> Result<bool> {

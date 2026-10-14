@@ -372,13 +372,14 @@ beforeEach(() => {
       case "list_snapshots": return savedSnapshots;
       case "load_snapshot": return savedSnapshots.find((snapshot) => snapshot.id === args?.id) ?? chart;
       case "search_playback_history": {
-        const options = (args?.options ?? {}) as { query?: string; provider?: string | null; from?: string | null; to?: string | null; sort?: string; limit?: number; offset?: number };
+        const options = (args?.options ?? {}) as { query?: string; provider?: string | null; stationId?: string | null; from?: string | null; to?: string | null; sort?: string; limit?: number; offset?: number };
         let matching = [...historyEntries];
         if (options.query) {
           const query = options.query.toLocaleLowerCase();
           matching = matching.filter((item) => `${item.track.title} ${item.track.artist} ${item.track.album ?? ""} ${(item.track.provenance as Record<string,unknown> | null)?.radioStationName ?? ""}`.toLocaleLowerCase().includes(query));
         }
         if (options.provider) matching = matching.filter((item) => options.provider === "non-radio" ? item.provider !== "radio" : item.provider.toLocaleLowerCase() === options.provider!.toLocaleLowerCase());
+        if (options.stationId) matching = matching.filter((item) => (item.track.provenance as Record<string, unknown> | null)?.radioStationId === options.stationId);
         if (options.from) matching = matching.filter((item) => item.playedAt >= options.from!);
         if (options.to) matching = matching.filter((item) => item.playedAt.slice(0, 10) <= options.to!.slice(0, 10));
         matching.sort((a, b) => options.sort === "oldest" ? a.playedAt.localeCompare(b.playedAt) : b.playedAt.localeCompare(a.playedAt));
@@ -1816,6 +1817,36 @@ describe("saved recording navigation", () => {
     expect(document.querySelector('[aria-label="Playback history tracks"]')?.textContent).toContain("Lágrimas Negras");
     expect(document.querySelector('[aria-label="Playback history tracks"]')?.textContent).not.toContain("Unrelated recording");
     expect(mocks.call).toHaveBeenCalledWith("search_playback_history", { options: expect.objectContaining({ query: "lágrimas", offset: 0, limit: 100 }) });
+  });
+
+  it("opens full listening history for one station and clears that station when changing source", async () => {
+    radioStationState = [{ id: "main", name: "Main Mix", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false }];
+    historyEntries = [
+      { id: "main-play", sessionId: "main-play", provider: "radio", playedAt: "2026-10-14T18:30:00Z", track: { ...savedTrack, id: "radio-main", title: "Main Station Song", provenance: { radioStationId: "main" } } },
+      { id: "other-play", sessionId: "other-play", provider: "radio", playedAt: "2026-10-14T18:31:00Z", track: { ...savedTrack, id: "radio-other", title: "Other Station Song", provenance: { radioStationId: "other" } } },
+    ];
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find((button) => button.textContent?.includes("Main Mix"))!.click();
+    await settle();
+    document.querySelector<HTMLButtonElement>(".full-history")!.click();
+    await settle();
+
+    expect(document.querySelector('[aria-label="Listening history"]')).not.toBeNull();
+    const station = document.querySelector<HTMLSelectElement>('[aria-label="History station"]')!;
+    expect(station.value).toBe("main");
+    expect(document.querySelector('[aria-label="Playback history tracks"]')?.textContent).toContain("Main Station Song");
+    expect(document.querySelector('[aria-label="Playback history tracks"]')?.textContent).not.toContain("Other Station Song");
+    expect(mocks.call).toHaveBeenCalledWith("search_playback_history", { options: expect.objectContaining({ provider: "radio", stationId: "main" }) });
+
+    const source = document.querySelector<HTMLSelectElement>('[aria-label="History source"]')!;
+    source.value = "non-radio";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    expect(document.querySelector('[aria-label="History station"]')).toBeNull();
+    const historySearch = mocks.call.mock.calls.filter(([command]) => command === "search_playback_history").slice(-1)[0]!;
+    expect((historySearch[1] as { options: Record<string, unknown> }).options).toMatchObject({ provider: "non-radio", stationId: null });
   });
 
   it("shows radio history enabled by default and persists the user's opt-out", async () => {
