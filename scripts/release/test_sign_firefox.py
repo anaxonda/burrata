@@ -35,9 +35,9 @@ class Response:
 
 class SignFirefoxTests(unittest.TestCase):
     def make_archive(self, path: pathlib.Path, *, changed=False, signatures=False,
-                     extra_meta_inf=False):
+                     extra_meta_inf=False, manifest_content=None):
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr("manifest.json", b'{"version":"0.1.8"}')
+            archive.writestr("manifest.json", manifest_content or b'{"version":"0.1.8"}')
             archive.writestr("background.js", b"changed" if changed else b"same")
             if signatures:
                 archive.writestr("META-INF/manifest.mf", b"manifest signature data")
@@ -69,6 +69,38 @@ class SignFirefoxTests(unittest.TestCase):
             self.assertIn("expected sha256", diagnostic)
             self.assertIn("actual sha256", diagnostic)
             self.assertNotIn("changed", diagnostic.split("sha256", 1)[-1])
+
+    def test_manifest_json_serialization_only_differences_are_accepted(self):
+        with tempfile.TemporaryDirectory() as name:
+            source = pathlib.Path(name) / "source.zip"
+            signed = pathlib.Path(name) / "signed.xpi"
+            self.make_archive(source, manifest_content=b'{"version":"0.1.8","name":"\\u0042urrata"}')
+            self.make_archive(signed, signatures=True,
+                              manifest_content=b'{\n  "name": "Burrata", "version" : "0.1.8"\n}')
+            assert_signed_payload_matches(source, signed)
+
+    def test_manifest_semantic_change_is_rejected_and_names_top_level_key(self):
+        with tempfile.TemporaryDirectory() as name:
+            source = pathlib.Path(name) / "source.zip"
+            signed = pathlib.Path(name) / "signed.xpi"
+            self.make_archive(source)
+            self.make_archive(signed, signatures=True,
+                              manifest_content=b'{"version":"0.1.9"}')
+            with self.assertRaises(SignFirefoxError) as caught:
+                assert_signed_payload_matches(source, signed)
+            diagnostic = str(caught.exception)
+            self.assertIn('changed keys="version"', diagnostic)
+            self.assertIn("expected sha256", diagnostic)
+
+    def test_manifest_duplicate_keys_and_nonstandard_constants_are_rejected(self):
+        self.assertFalse(sign_firefox.manifests_equivalent(
+            b'{"version":"0.1.8","version":"0.1.8"}', b'{"version":"0.1.8"}'))
+        self.assertFalse(sign_firefox.manifests_equivalent(b'{"value":NaN}', b'{"value":NaN}'))
+
+    def test_manifest_permission_changes_are_rejected(self):
+        self.assertFalse(sign_firefox.manifests_equivalent(
+            b'{"permissions":["activeTab"]}',
+            b'{"permissions":["activeTab","cookies"]}'))
 
     def test_existing_xpi_without_all_amo_signatures_is_rejected(self):
         with tempfile.TemporaryDirectory() as name:

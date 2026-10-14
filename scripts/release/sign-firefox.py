@@ -191,12 +191,61 @@ def archive_payload(path: pathlib.Path) -> dict[str, bytes]:
         raise SignFirefoxError(f"Could not inspect extension archive {path.name}.") from None
 
 
+def canonical_json(value) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, allow_nan=False).encode("utf-8")
+
+
+def parse_manifest_strict(data: bytes) -> tuple[dict, bytes]:
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON object key")
+            result[key] = value
+        return result
+
+    def reject_constant(_value):
+        raise ValueError("non-standard JSON constant")
+
+    value = json.loads(data.decode("utf-8"), object_pairs_hook=unique_object,
+                       parse_constant=reject_constant)
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise ValueError("extension manifest must be a JSON object")
+    # Canonical serialization preserves JSON types while disregarding only
+    # insignificant whitespace, object key order, and equivalent string escapes.
+    return value, canonical_json(value)
+
+
+def manifest_top_level_diff(expected: bytes, actual: bytes) -> str:
+    try:
+        expected_value, _expected_canonical = parse_manifest_strict(expected)
+        actual_value, _actual_canonical = parse_manifest_strict(actual)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError):
+        return "top-level manifest keys unavailable (invalid strict JSON)"
+    expected_keys = set(expected_value)
+    actual_keys = set(actual_value)
+    added = sorted(actual_keys - expected_keys)
+    missing = sorted(expected_keys - actual_keys)
+    changed = sorted(key for key in expected_keys & actual_keys
+                     if canonical_json(expected_value[key]) != canonical_json(actual_value[key]))
+    details = []
+    if added:
+        details.append("added keys=" + ",".join(json.dumps(key) for key in added[:8]))
+    if missing:
+        details.append("missing keys=" + ",".join(json.dumps(key) for key in missing[:8]))
+    if changed:
+        details.append("changed keys=" + ",".join(json.dumps(key) for key in changed[:8]))
+    return "; ".join(details) or "manifest serialization differs"
+
+
 def payload_difference(expected: dict[str, bytes], actual: dict[str, bytes]) -> str:
     """Return a bounded, content-free summary of archive payload differences."""
     added = sorted(actual.keys() - expected.keys())
     missing = sorted(expected.keys() - actual.keys())
     changed = sorted(path for path in expected.keys() & actual.keys()
-                     if expected[path] != actual[path])
+                     if expected[path] != actual[path]
+                     and not (path == "manifest.json" and manifests_equivalent(expected[path], actual[path])))
 
     def safe_path(path: str) -> str:
         # JSON quoting keeps archive-controlled newlines/control characters out
@@ -212,12 +261,20 @@ def payload_difference(expected: dict[str, bytes], actual: dict[str, bytes]) -> 
     if changed:
         details = [
             f"{safe_path(path)} (expected sha256 {hashlib.sha256(expected[path]).hexdigest()}, "
-            f"actual sha256 {hashlib.sha256(actual[path]).hexdigest()})"
+            f"actual sha256 {hashlib.sha256(actual[path]).hexdigest()}"
+            f"{'; ' + manifest_top_level_diff(expected[path], actual[path]) if path == 'manifest.json' else ''})"
             for path in changed[:8]
         ]
         suffix = f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""
         parts.append(f"changed: {', '.join(details)}{suffix}")
     return "; ".join(parts) or "unclassified archive difference"
+
+
+def manifests_equivalent(expected: bytes, actual: bytes) -> bool:
+    try:
+        return parse_manifest_strict(expected)[1] == parse_manifest_strict(actual)[1]
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError):
+        return False
 
 
 def assert_signed_payload_matches(source_zip: pathlib.Path, signed_xpi: pathlib.Path) -> None:
@@ -238,7 +295,13 @@ def assert_signed_payload_matches(source_zip: pathlib.Path, signed_xpi: pathlib.
         raise SignFirefoxError("Source extension unexpectedly contains Mozilla signature files.")
     source_payload = archive_payload(source_zip)
     signed_payload = archive_payload(signed_xpi)
-    if source_payload != signed_payload:
+    same_paths = source_payload.keys() == signed_payload.keys()
+    same_files = same_paths and all(
+        source_payload[path] == signed_payload[path]
+        or (path == "manifest.json" and manifests_equivalent(source_payload[path], signed_payload[path]))
+        for path in source_payload
+    )
+    if not same_files:
         raise SignFirefoxError(
             "AMO-signed XPI payload differs from the pinned web-ext build ("
             f"{payload_difference(source_payload, signed_payload)})."
