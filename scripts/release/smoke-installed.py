@@ -47,23 +47,25 @@ def run(args: list[str | os.PathLike[str]], *, timeout: int = 60,
 
 def platform_environment(home: pathlib.Path, app_data: pathlib.Path) -> dict[str, str]:
     env = dict(os.environ)
-    env["HOME"] = str(home)
     env["TMPDIR"] = str(home / "tmp")
     env["TEMP"] = str(home / "tmp")
     env["TMP"] = str(home / "tmp")
     env["BURRATA_APP_DATA"] = str(app_data)
     if sys.platform == "linux":
+        env["HOME"] = str(home)
         env["XDG_DATA_HOME"] = str(app_data.parent)
         env["XDG_CONFIG_HOME"] = str(home / ".config")
         env["XDG_CACHE_HOME"] = str(home / ".cache")
         env["PATH"] = "/usr/bin:/bin"
     elif sys.platform == "darwin":
+        env["HOME"] = str(home)
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
     else:
-        user_profile = str(home)
-        env["USERPROFILE"] = user_profile
-        env["APPDATA"] = str(app_data.parent)
-        env["LOCALAPPDATA"] = str(home / "AppData" / "Local")
+        # Keep Windows' real profile and Known Folders intact so WebView2 and
+        # Tauri exercise the same environment as an ordinary installation.
+        # Burrata app data is isolated through its dedicated override; only
+        # WebView2's browser data receives a temporary private location.
+        env["WEBVIEW2_USER_DATA_FOLDER"] = str(home / "webview2")
         system_root = env.get("SystemRoot", r"C:\Windows")
         env["PATH"] = os.pathsep.join([str(pathlib.Path(system_root) / "System32"), system_root])
     return env
@@ -190,8 +192,10 @@ def launch_app(app: pathlib.Path, env: dict[str, str], temp: pathlib.Path) -> su
         command = [dbus, "--", xvfb, "-a", "--server-args=-screen 0 1280x800x24", app]
     else:
         command = [app]
-    kwargs = {"env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
-              "stderr": subprocess.DEVNULL}
+    stdout_log = (temp / "installed-app.stdout.log").open("wb")
+    stderr_log = (temp / "installed-app.stderr.log").open("wb")
+    kwargs = {"env": env, "stdin": subprocess.DEVNULL, "stdout": stdout_log,
+              "stderr": stderr_log}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
@@ -200,13 +204,24 @@ def launch_app(app: pathlib.Path, env: dict[str, str], temp: pathlib.Path) -> su
         return subprocess.Popen([os.fspath(item) for item in command], **kwargs)
     except OSError as error:
         raise SmokeFailure("launch", f"could not start installed GUI executable: {error}") from error
+    finally:
+        stdout_log.close()
+        stderr_log.close()
 
 
-def wait_for_app(app_process: subprocess.Popen, discovery: pathlib.Path) -> None:
+def wait_for_app(app_process: subprocess.Popen, discovery: pathlib.Path,
+                 stderr_log: pathlib.Path) -> None:
     deadline = time.monotonic() + 75
     while time.monotonic() < deadline:
         if app_process.poll() is not None:
-            raise SmokeFailure("launch", f"installed GUI exited before publishing automation discovery (exit {app_process.returncode})")
+            detail = ""
+            try:
+                tail = stderr_log.read_text(encoding="utf-8", errors="replace").strip()[-2400:]
+                if tail:
+                    detail = f"; stderr: {tail}"
+            except OSError:
+                pass
+            raise SmokeFailure("launch", f"installed GUI exited before publishing automation discovery (exit {app_process.returncode}){detail}")
         try:
             value = json.loads(discovery.read_text(encoding="utf-8"))
             if isinstance(value.get("url"), str) and isinstance(value.get("token"), str) and len(value["token"]) >= 32:
@@ -234,12 +249,30 @@ def run_mcp_status(resource_root: pathlib.Path, target: str, discovery: pathlib.
         raise SmokeFailure("mcp", "installed MCP client returned invalid evidence") from error
 
 
-def stop_process(process: subprocess.Popen | None) -> None:
-    if process is None or process.poll() is not None:
+def stop_process(process: subprocess.Popen | None, temp: pathlib.Path) -> None:
+    if process is None:
         return
     if os.name == "nt":
-        process.terminate()
+        # WebView2 is a child process. Kill the process tree even if the app
+        # already exited during startup. Then find only WebView2 processes
+        # whose command line includes this run's unique temporary directory;
+        # the app may have exited before taskkill can walk its child tree.
+        run(["taskkill", "/PID", str(process.pid), "/T", "/F"], timeout=10, check=False)
+        cleanup_script = r"""
+$needle = $env:BURRATA_SMOKE_TEMP_NAME
+Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -ieq 'msedgewebview2.exe' -and $_.CommandLine -and
+  $_.CommandLine.IndexOf($needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+"""
+        run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", cleanup_script],
+            timeout=20,
+            env={**os.environ, "BURRATA_SMOKE_TEMP_NAME": temp.name}, check=False)
+        if process.poll() is None:
+            process.terminate()
     else:
+        if process.poll() is not None:
+            return
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -272,7 +305,7 @@ def main() -> int:
     package_name = None
     mount = None
     installed_path = None
-    temp_obj = tempfile.TemporaryDirectory(prefix="burrata-install-smoke-")
+    temp_obj = tempfile.TemporaryDirectory(prefix="burrata-install-smoke-", ignore_cleanup_errors=True)
     temp = pathlib.Path(temp_obj.name)
     mount = temp / "dmg" if sys.platform == "darwin" else None
     home = temp / "home"
@@ -285,6 +318,8 @@ def main() -> int:
     home.mkdir()
     app_data.mkdir(parents=True)
     (home / "tmp").mkdir()
+    if sys.platform == "win32":
+        (home / "webview2").mkdir()
     env = platform_environment(home, app_data)
     try:
         if sys.platform == "linux":
@@ -303,7 +338,7 @@ def main() -> int:
         evidence["checks"]["packagedTools"] = bundled_tool_checks(resource_root, target, env)
         app_process = launch_app(app, env, temp)
         discovery = app_data / "automation.json"
-        wait_for_app(app_process, discovery)
+        wait_for_app(app_process, discovery, temp / "installed-app.stderr.log")
         evidence["checks"]["guiStartup"] = "automation discovery published"
         evidence["checks"]["nativeHost"] = native_host_check(resource_root, target, env)
         evidence["checks"]["mcp"] = run_mcp_status(resource_root, target, discovery, env)
@@ -317,7 +352,7 @@ def main() -> int:
         print(f"Installed smoke failed at {error.stage}: {error}", file=sys.stderr)
         return 1
     finally:
-        stop_process(app_process)
+        stop_process(app_process, temp)
         if sys.platform == "linux" and package_name:
             run(["sudo", "-n", "apt-get", "remove", "-y", package_name], timeout=300, check=False)
         if sys.platform == "darwin" and mount:
