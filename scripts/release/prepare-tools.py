@@ -131,6 +131,18 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
         fetch(source_url, source_archive)
         (sources / "FFMPEG_SOURCE_COMMIT.txt").write_text(f"Repository: https://github.com/FFmpeg/FFmpeg\nPinned commit prefix: {source_commit}\nArchive URL: {source_url}\n", encoding="utf-8")
         ffmpeg_source_record = {"commit": source_commit, "archive": source_archive.name, "sha256": sha256(source_archive), "url": source_url}
+        recipe = LOCK["ffmpeg"]["btbnBuildRecipe"]
+        recipe_archive = sources / f"BtbN-FFmpeg-Builds-{recipe['commit']}.tar.gz"
+        fetch(recipe["sourceArchive"], recipe_archive)
+        recipe_digest = sha256(recipe_archive)
+        if recipe_digest != recipe["sha256"]:
+            raise RuntimeError(f"Pinned BtbN build-recipe source SHA-256 mismatch: expected {recipe['sha256']}, got {recipe_digest}")
+        recipe_record = {
+            "repository": recipe["repository"], "releaseTag": recipe["releaseTag"],
+            "commit": recipe["commit"], "archive": recipe_archive.name,
+            "sha256": recipe_digest, "url": recipe["sourceArchive"],
+            "license": recipe["license"], "variants": recipe["variants"],
+        }
     elif TARGET == "aarch64-apple-darwin":
         ffmpeg_name = "ffmpeg-8.1.3.tar.xz (source-built)"
         subprocess.run([sys.executable, str(ROOT / "scripts/release/build-macos-media-tools.py"), str(DEST)], check=True)
@@ -154,6 +166,7 @@ with tempfile.TemporaryDirectory(prefix="burrata-tools-") as temp_dir:
     }
     if TARGET in LOCK["ffmpeg"]["assets"]:
         tool_record["ffmpegSource"] = ffmpeg_source_record
+        tool_record["ffmpegBuildRecipe"] = recipe_record
     if TARGET == "aarch64-apple-darwin":
         tool_record["fpcalc"] = {"version": LOCK["fpcalc"]["version"], "sha256": LOCK["fpcalc"]["sha256"], "license": LOCK["fpcalc"]["license"]}
     readme.write_text(json.dumps(tool_record, indent=2) + "\n", encoding="utf-8")
