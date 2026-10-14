@@ -1,0 +1,26 @@
+# Copy to data/slskd.yml, fill in credentials locally, and chmod 600.
+soulseek:
+  username: YOUR_SOULSEEK_USERNAME
+  password: CHANGE_ME_BEFORE_USE
+  listen_port: 50300
+web:
+  port: 5030
+  authentication:
+    username: slskd
+    password: CHANGE_ME_BEFORE_USE
+    api_keys:
+      burrata:
+        key: CHANGE_TO_A_RANDOM_32_CHARACTER_API_KEY
+        role: readwrite
+directories:
+  downloads: /app/downloads
+  incomplete: /app/incomplete
+transfers:
+  download:
+    # Remote waits count as slots; leave capacity for other peers.
+    slots: 32
+    destination:
+      subdirectory: ${BATCH_ID}
+# Add only folders you deliberately want to share; none are shared here.
+shares:
+  directories: []

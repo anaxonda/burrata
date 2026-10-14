@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unregister-browser-host"
+description = "Enables the unregister_browser_host command without any pre-configured scope."
+commands.allow = ["unregister_browser_host"]
+
+[[permission]]
+identifier = "deny-unregister-browser-host"
+description = "Denies the unregister_browser_host command without any pre-configured scope."
+commands.deny = ["unregister_browser_host"]

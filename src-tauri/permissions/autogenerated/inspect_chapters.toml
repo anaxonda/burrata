@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-inspect-chapters"
+description = "Enables the inspect_chapters command without any pre-configured scope."
+commands.allow = ["inspect_chapters"]
+
+[[permission]]
+identifier = "deny-inspect-chapters"
+description = "Denies the inspect_chapters command without any pre-configured scope."
+commands.deny = ["inspect_chapters"]

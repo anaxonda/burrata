@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-enrich-search-result"
+description = "Enables the enrich_search_result command without any pre-configured scope."
+commands.allow = ["enrich_search_result"]
+
+[[permission]]
+identifier = "deny-enrich-search-result"
+description = "Denies the enrich_search_result command without any pre-configured scope."
+commands.deny = ["enrich_search_result"]

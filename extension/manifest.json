@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "Burrata Browser Companion",
+  "version": "0.1.8",
+  "description": "Import public chart, playlist, and album metadata into the local Burrata desktop app.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "nativeMessaging",
+    "storage",
+    "alarms"
+  ],
+  "optional_host_permissions": [
+    "https://www.beatport.com/*",
+    "https://www.traxsource.com/*",
+    "https://open.spotify.com/*",
+    "https://www.shazam.com/*",
+    "https://shazam.com/*",
+    "https://www.last.fm/*",
+    "https://last.fm/*",
+    "https://bandcamp.com/*",
+    "https://*.bandcamp.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "parsers.js"
+      ],
+      "matches": [
+        "https://www.beatport.com/*",
+        "https://www.traxsource.com/*",
+        "https://open.spotify.com/*",
+        "https://www.shazam.com/*",
+        "https://shazam.com/*",
+        "https://www.last.fm/*",
+        "https://last.fm/*",
+        "https://bandcamp.com/*",
+        "https://*.bandcamp.com/*"
+      ]
+    }
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "burrata-browser@burrata.local",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

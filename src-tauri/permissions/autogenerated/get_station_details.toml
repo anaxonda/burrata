@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-station-details"
+description = "Enables the get_station_details command without any pre-configured scope."
+commands.allow = ["get_station_details"]
+
+[[permission]]
+identifier = "deny-get-station-details"
+description = "Denies the get_station_details command without any pre-configured scope."
+commands.deny = ["get_station_details"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-mixxx-playlist"
+description = "Enables the export_mixxx_playlist command without any pre-configured scope."
+commands.allow = ["export_mixxx_playlist"]
+
+[[permission]]
+identifier = "deny-export-mixxx-playlist"
+description = "Denies the export_mixxx_playlist command without any pre-configured scope."
+commands.deny = ["export_mixxx_playlist"]

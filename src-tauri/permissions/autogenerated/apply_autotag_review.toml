@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-apply-autotag-review"
+description = "Enables the apply_autotag_review command without any pre-configured scope."
+commands.allow = ["apply_autotag_review"]
+
+[[permission]]
+identifier = "deny-apply-autotag-review"
+description = "Denies the apply_autotag_review command without any pre-configured scope."
+commands.deny = ["apply_autotag_review"]

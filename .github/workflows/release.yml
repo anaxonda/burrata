@@ -1,0 +1,227 @@
+name: Tagged desktop prerelease
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build from its exact commit
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      commit: ${{ steps.meta.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+      - id: meta
+        name: Validate tag, commit, and package versions
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          tag_commit="$(git rev-parse "refs/tags/$REQUESTED_TAG^{commit}")"
+          head_commit="$(git rev-parse HEAD)"
+          test "$tag_commit" = "$head_commit"
+          version="${REQUESTED_TAG#v}"
+          test "$(node -p "require('./package.json').version")" = "$version"
+          test "$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")" = "$version"
+          test "$(sed -n 's/^version = \"\([^\"]*\)\"/\1/p' src-tauri/Cargo.toml | head -1)" = "$version"
+          echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$tag_commit" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-15
+            bundles: dmg
+            label: macos-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            bundles: nsis
+            label: windows-x64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            bundles: deb,rpm,appimage
+            label: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Require the intended native runner architecture
+        if: runner.os != 'Windows'
+        env:
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          case "$TARGET" in
+            aarch64-apple-darwin) test "$(uname -m)" = arm64 ;;
+            x86_64-unknown-linux-gnu) test "$(uname -m)" = x86_64 ;;
+            *) echo "Unexpected target $TARGET on $(uname -m)" >&2; exit 1 ;;
+          esac
+      - name: Require x64 Windows runner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw "Expected AMD64 runner, got $env:PROCESSOR_ARCHITECTURE" }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install Linux bundle prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl file libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf rpm libfuse2
+      - run: npm ci
+      - name: Download and verify pinned runtime tools
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/release/prepare-tools.py
+      - name: Stage verified fpcalc for Linux or Windows
+        if: runner.os != 'macOS'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/release/prepare-fpcalc.py
+      - name: Build pinned BgUtils helper and plugin
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          node_bin="src-tauri/resources/tools/$TARGET/node"
+          [[ "$RUNNER_OS" == Windows ]] && node_bin+=".exe"
+          NODE_BIN="$node_bin" bash scripts/youtube-support/prepare-bgutil.sh src-tauri/resources
+      - name: Package pinned YouTube support plugin
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/release/package-youtube-support.py
+      - name: Build and stage native helpers
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo build --locked --release --manifest-path src-tauri/Cargo.toml --bin burrata-browser-host --bin burrata-mcp
+          cargo build --locked --release --manifest-path src-tauri/recognizer/Cargo.toml --bin burrata-recognize
+          node scripts/build_mcp.mjs
+          bash scripts/release/prepare-native-resources.sh
+      - name: Audit source and contracts
+        shell: bash
+        run: |
+          python3 scripts/audit_secrets.py
+          python3 scripts/check_contracts.py
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:extension
+      - run: npm run test:mcp
+      - run: npm run test:player
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build native installer
+        run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Collect installers, provenance, and checksums
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          TARGET: ${{ matrix.target }}
+          LABEL: ${{ matrix.label }}
+        run: bash scripts/release/collect-artifacts.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: burrata-${{ matrix.label }}-${{ needs.prepare.outputs.commit }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  extension:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+      - run: npm ci
+      - name: Build Chromium extension ZIP
+        run: |
+          python3 scripts/build_browser_extension.py
+          mkdir -p release-artifacts
+          cd .cache/browser-companion-chromium
+          zip -qr ../../release-artifacts/burrata-chromium.zip .
+      - name: Build and sign Firefox extension (AMO unlisted)
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          test -n "$WEB_EXT_API_KEY" && test -n "$WEB_EXT_API_SECRET"
+          npx --yes web-ext@8.4.0 sign --source-dir extension --artifacts-dir release-artifacts --channel unlisted --api-key "$WEB_EXT_API_KEY" --api-secret "$WEB_EXT_API_SECRET"
+      - name: Package extension provenance
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: bash scripts/release/collect-extension.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: burrata-extensions-${{ needs.prepare.outputs.commit }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  draft:
+    needs: [prepare, build, extension]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: burrata-*-${{ needs.prepare.outputs.commit }}
+          path: incoming
+          merge-multiple: false
+      - name: Validate complete artifact set and assemble draft bundle
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: bash scripts/release/assemble-draft.sh
+      - name: Create draft prerelease only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          assets=(release-artifacts/*)
+          test "${#assets[@]}" -gt 0
+          gh release create "$RELEASE_TAG" "${assets[@]}" --draft --prerelease --verify-tag --title "Burrata $RELEASE_TAG" --generate-notes

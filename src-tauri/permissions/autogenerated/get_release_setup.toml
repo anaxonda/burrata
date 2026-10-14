@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-release-setup"
+description = "Enables the get_release_setup command without any pre-configured scope."
+commands.allow = ["get_release_setup"]
+
+[[permission]]
+identifier = "deny-get-release-setup"
+description = "Denies the get_release_setup command without any pre-configured scope."
+commands.deny = ["get_release_setup"]

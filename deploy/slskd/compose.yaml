@@ -1,0 +1,14 @@
+services:
+  slskd:
+    image: slskd/slskd@sha256:588af49abc3088d639c8f1174d3bfad6e92c093a275a593140e3ac9311ebf6c4
+    container_name: burrata-slskd
+    restart: unless-stopped
+    user: "${SLSKD_UID:?Set your numeric user ID}:${SLSKD_GID:?Set your numeric group ID}"
+    ports:
+      - "127.0.0.1:5030:5030"
+      - "50300:50300"
+    volumes:
+      - ./data:/app
+    environment:
+      SLSKD_REMOTE_CONFIGURATION: "false"
+      SLSKD_DOWNLOAD_SLOTS: "32"

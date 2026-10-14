@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-retry-autotag"
+description = "Enables the retry_autotag command without any pre-configured scope."
+commands.allow = ["retry_autotag"]
+
+[[permission]]
+identifier = "deny-retry-autotag"
+description = "Denies the retry_autotag command without any pre-configured scope."
+commands.deny = ["retry_autotag"]

@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.21.0"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl file libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf rpm libfuse2
+      - run: npm ci
+      - name: Audit source for common secrets
+        run: python3 scripts/audit_secrets.py
+        if: runner.os != 'Windows'
+      - name: Audit source for common secrets (Windows)
+        run: python scripts/audit_secrets.py
+        if: runner.os == 'Windows'
+      - run: python3 scripts/check_contracts.py
+        if: runner.os != 'Windows'
+      - run: python scripts/check_contracts.py
+        if: runner.os == 'Windows'
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:extension
+      - run: npm run test:mcp
+      - run: npm run test:player
+      - run: npm run build
+      - run: npm run build:mcp
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+  linux-bundles:
+    name: Linux configured bundle targets
+    runs-on: ubuntu-22.04
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.21.0"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install Linux bundle prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl file libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf rpm libfuse2
+      - run: npm ci
+      - name: Prepare the same locked Linux runtime resources used by releases
+        env:
+          TARGET: x86_64-unknown-linux-gnu
+        run: |
+          python3 scripts/release/prepare-tools.py
+          python3 scripts/release/prepare-fpcalc.py
+          NODE_BIN="src-tauri/resources/tools/$TARGET/node" bash scripts/youtube-support/prepare-bgutil.sh src-tauri/resources
+      - name: Build native helpers and complete packaged resources
+        env:
+          TARGET: x86_64-unknown-linux-gnu
+        run: |
+          cargo build --locked --release --manifest-path src-tauri/Cargo.toml --bin burrata-browser-host --bin burrata-mcp
+          cargo build --locked --release --manifest-path src-tauri/recognizer/Cargo.toml --bin burrata-recognize
+          npm run build:mcp
+          bash scripts/release/prepare-native-resources.sh
+      - name: Build configured Tauri bundles
+        run: npm run tauri -- build --target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage
+      - name: Collect packages and checksums
+        run: |
+          test -n "$(find src-tauri/target/release/bundle -type f -name '*.deb' -print -quit)"
+          test -n "$(find src-tauri/target/release/bundle -type f -name '*.rpm' -print -quit)"
+          test -n "$(find src-tauri/target/release/bundle -type f -name '*.AppImage' -print -quit)"
+          mkdir release-artifacts
+          find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} release-artifacts/ \;
+          (cd release-artifacts && sha256sum *.deb *.rpm *.AppImage > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: burrata-linux-${{ github.sha }}
+          path: |
+            release-artifacts/*
+          if-no-files-found: error
+          retention-days: 14

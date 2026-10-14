@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-load-browser-import"
+description = "Enables the load_browser_import command without any pre-configured scope."
+commands.allow = ["load_browser_import"]
+
+[[permission]]
+identifier = "deny-load-browser-import"
+description = "Denies the load_browser_import command without any pre-configured scope."
+commands.deny = ["load_browser_import"]

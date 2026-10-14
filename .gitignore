@@ -1,0 +1,40 @@
+node_modules/
+dist/
+.cache/
+src-tauri/target/
+src-tauri/recognizer/target/
+src-tauri/resources/
+src-tauri/gen/
+src-tauri/resources/tools/
+src-tauri/resources/youtube-support/
+src-tauri/resources/mcp/server.cjs
+src-tauri/resources/mcp/server.cjs.LEGAL.txt
+src-tauri/resources/
+src-tauri/recognizer/target/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.burrata-staging/
+.env
+.env.*
+*.log
+# Never commit acquired audio.
+*.mp3
+*.flac
+*.opus
+*.m4a
+*.wav
+*.aiff
+*.aif
+*.ogg
+*.webm
+
+# User-provided API credential notes
+lastfm.txt
+BURRATA_SOULSEEK_HANDOFF.md
+
+# Local service state and credentials
+deploy/slskd/data/
+*.pem
+*.p12
+*.pfx

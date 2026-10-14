@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-test-connections"
+description = "Enables the test_connections command without any pre-configured scope."
+commands.allow = ["test_connections"]
+
+[[permission]]
+identifier = "deny-test-connections"
+description = "Denies the test_connections command without any pre-configured scope."
+commands.deny = ["test_connections"]

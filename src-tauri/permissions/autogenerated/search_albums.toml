@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-search-albums"
+description = "Enables the search_albums command without any pre-configured scope."
+commands.allow = ["search_albums"]
+
+[[permission]]
+identifier = "deny-search-albums"
+description = "Denies the search_albums command without any pre-configured scope."
+commands.deny = ["search_albums"]

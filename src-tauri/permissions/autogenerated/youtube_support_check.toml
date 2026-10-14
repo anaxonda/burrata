@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-youtube-support-check"
+description = "Enables the youtube_support_check command without any pre-configured scope."
+commands.allow = ["youtube_support_check"]
+
+[[permission]]
+identifier = "deny-youtube-support-check"
+description = "Denies the youtube_support_check command without any pre-configured scope."
+commands.deny = ["youtube_support_check"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-slskd-search"
+description = "Enables the start_slskd_search command without any pre-configured scope."
+commands.allow = ["start_slskd_search"]
+
+[[permission]]
+identifier = "deny-start-slskd-search"
+description = "Denies the start_slskd_search command without any pre-configured scope."
+commands.deny = ["start_slskd_search"]

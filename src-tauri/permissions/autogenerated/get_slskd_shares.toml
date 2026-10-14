@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-slskd-shares"
+description = "Enables the get_slskd_shares command without any pre-configured scope."
+commands.allow = ["get_slskd_shares"]
+
+[[permission]]
+identifier = "deny-get-slskd-shares"
+description = "Denies the get_slskd_shares command without any pre-configured scope."
+commands.deny = ["get_slskd_shares"]

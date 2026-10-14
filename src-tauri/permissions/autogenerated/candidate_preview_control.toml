@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-candidate-preview-control"
+description = "Enables the candidate_preview_control command without any pre-configured scope."
+commands.allow = ["candidate_preview_control"]
+
+[[permission]]
+identifier = "deny-candidate-preview-control"
+description = "Denies the candidate_preview_control command without any pre-configured scope."
+commands.deny = ["candidate_preview_control"]

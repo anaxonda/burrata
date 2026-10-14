@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-add-radio-station"
+description = "Enables the add_radio_station command without any pre-configured scope."
+commands.allow = ["add_radio_station"]
+
+[[permission]]
+identifier = "deny-add-radio-station"
+description = "Denies the add_radio_station command without any pre-configured scope."
+commands.deny = ["add_radio_station"]

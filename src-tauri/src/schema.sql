@@ -1,0 +1,18 @@
+BEGIN IMMEDIATE;
+CREATE TABLE works(id TEXT PRIMARY KEY,title TEXT NOT NULL,artist TEXT NOT NULL);
+CREATE TABLE recordings(id TEXT PRIMARY KEY,work_id TEXT NOT NULL REFERENCES works(id),version TEXT,favorite INTEGER NOT NULL DEFAULT 0,disposition TEXT CHECK(disposition IN ('shortlist','reject')),manual_metadata TEXT NOT NULL DEFAULT '{}');
+CREATE TABLE catalog_listings(id TEXT PRIMARY KEY,provider TEXT NOT NULL,provider_id TEXT NOT NULL,recording_id TEXT NOT NULL REFERENCES recordings(id),source_url TEXT NOT NULL,metadata TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(provider,provider_id));
+CREATE TABLE chart_snapshots(id TEXT PRIMARY KEY,provider TEXT NOT NULL,source_url TEXT NOT NULL,fetched_at TEXT NOT NULL,payload TEXT NOT NULL);
+CREATE INDEX chart_cache ON chart_snapshots(provider,source_url,fetched_at);
+CREATE TABLE chart_entries(snapshot_id TEXT NOT NULL REFERENCES chart_snapshots(id),listing_id TEXT NOT NULL REFERENCES catalog_listings(id),rank INTEGER,PRIMARY KEY(snapshot_id,listing_id));
+CREATE INDEX chart_listing ON chart_entries(listing_id);
+CREATE TABLE collections(id TEXT PRIMARY KEY,name TEXT NOT NULL);
+CREATE TABLE collection_members(collection_id TEXT NOT NULL REFERENCES collections(id),recording_id TEXT NOT NULL REFERENCES recordings(id),position INTEGER NOT NULL,PRIMARY KEY(collection_id,recording_id));
+CREATE TABLE local_assets(id TEXT PRIMARY KEY,recording_id TEXT NOT NULL REFERENCES recordings(id),path TEXT NOT NULL UNIQUE,hash TEXT NOT NULL,payload TEXT NOT NULL);
+CREATE INDEX asset_hash ON local_assets(hash);
+CREATE TABLE download_jobs(id TEXT PRIMARY KEY,state TEXT NOT NULL,payload TEXT NOT NULL);
+CREATE TABLE preview_sources(id TEXT PRIMARY KEY,listing_id TEXT NOT NULL REFERENCES catalog_listings(id),payload TEXT NOT NULL);
+CREATE TABLE acquisition_candidates(id TEXT PRIMARY KEY,listing_id TEXT NOT NULL REFERENCES catalog_listings(id),payload TEXT NOT NULL);
+CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+PRAGMA user_version=1;
+COMMIT;

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-radio-stations"
+description = "Enables the get_radio_stations command without any pre-configured scope."
+commands.allow = ["get_radio_stations"]
+
+[[permission]]
+identifier = "deny-get-radio-stations"
+description = "Denies the get_radio_stations command without any pre-configured scope."
+commands.deny = ["get_radio_stations"]

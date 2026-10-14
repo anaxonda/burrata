@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-poll-search-source"
+description = "Enables the poll_search_source command without any pre-configured scope."
+commands.allow = ["poll_search_source"]
+
+[[permission]]
+identifier = "deny-poll-search-source"
+description = "Denies the poll_search_source command without any pre-configured scope."
+commands.deny = ["poll_search_source"]

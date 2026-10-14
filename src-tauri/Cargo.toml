@@ -1,0 +1,56 @@
+[package]
+name = "burrata"
+default-run = "burrata"
+version = "0.1.0"
+description = "Local-first DJ music discovery and acquisition"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+
+[lib]
+name = "burrata_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+cc = "1"
+cmake = "0.1"
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+scraper = "0.22"
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+lofty = "0.22"
+url = "2"
+futures-util = "0.3"
+csv = "1"
+strsim = "0.11"
+libc = "0.2"
+axum = "0.8"
+dirs = "7"
+keyring = { version = "=3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+notify = "8.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2"
+zbus = { version = "4.4", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = "debuginfo"
+lto = "thin"

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-radio-station"
+description = "Enables the remove_radio_station command without any pre-configured scope."
+commands.allow = ["remove_radio_station"]
+
+[[permission]]
+identifier = "deny-remove-radio-station"
+description = "Denies the remove_radio_station command without any pre-configured scope."
+commands.deny = ["remove_radio_station"]

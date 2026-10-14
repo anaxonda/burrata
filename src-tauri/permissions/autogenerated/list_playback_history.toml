@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-playback-history"
+description = "Enables the list_playback_history command without any pre-configured scope."
+commands.allow = ["list_playback_history"]
+
+[[permission]]
+identifier = "deny-list-playback-history"
+description = "Denies the list_playback_history command without any pre-configured scope."
+commands.deny = ["list_playback_history"]

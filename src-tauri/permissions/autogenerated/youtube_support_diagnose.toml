@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-youtube-support-diagnose"
+description = "Enables the youtube_support_diagnose command without any pre-configured scope."
+commands.allow = ["youtube_support_diagnose"]
+
+[[permission]]
+identifier = "deny-youtube-support-diagnose"
+description = "Denies the youtube_support_diagnose command without any pre-configured scope."
+commands.deny = ["youtube_support_diagnose"]

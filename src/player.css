@@ -1,0 +1,285 @@
+/* Persistent three-zone player. Keep these selectors specific enough to follow app-wide CSS. */
+footer.player {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.9fr) minmax(330px, 1.3fr) minmax(190px, 0.8fr);
+  grid-template-rows: minmax(58px, auto);
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  min-height: 84px;
+  padding: 10px 20px;
+  flex-wrap: unset;
+}
+
+footer.player > .now-playing {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  margin: 0;
+  padding: 5px;
+  overflow: hidden;
+  border-radius: 9px;
+  color: var(--text);
+  text-align: left;
+}
+
+footer.player .mini-art {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: 7px;
+  box-shadow: 0 5px 16px #0004;
+}
+
+footer.player .player-track-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+footer.player .player-track-title,
+footer.player .player-track-artist,
+footer.player .player-source,
+footer.player .player-status {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+footer.player .player-track-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.25;
+}
+
+footer.player .player-track-artist {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+footer.player .player-source {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+footer.player .player-status {
+  min-height: 10px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+footer.player .player-center {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-rows: 34px 17px;
+  align-content: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+footer.player .player-transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+footer.player .player-transport button,
+footer.player .player-right > button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+footer.player .player-transport button:hover,
+footer.player .player-right > button:hover,
+footer.player .player-transport button.active {
+  background: var(--raised);
+  color: var(--accent);
+}
+
+footer.player .player-transport .play-button {
+  min-width: 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--base);
+  font-size: 14px;
+}
+
+footer.player .player-scrubber {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+footer.player .player-scrubber .time {
+  flex: 0 0 34px;
+  width: 34px;
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+footer.player .seek {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 40px;
+  max-width: none;
+}
+
+footer.player .player-right {
+  display: flex;
+  grid-column: 3;
+  grid-row: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+footer.player .player-right > button[aria-label="Show playback queue and chapters"] {
+  font-size: 19px;
+}
+
+footer.player .player-volume-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+footer.player .player-volume-control .volume {
+  width: clamp(56px, 7vw, 90px);
+  min-width: 45px;
+}
+
+footer.player .player-right > button:disabled {
+  opacity: 0.4;
+}
+
+@media (min-width: 650px) and (max-width: 1000px) {
+  footer.player {
+    grid-template-columns: minmax(145px, 0.82fr) minmax(270px, 1.3fr) minmax(145px, 0.78fr);
+    gap: 9px;
+    padding: 8px 12px;
+  }
+  footer.player .mini-art {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
+  }
+  footer.player > .now-playing { gap: 8px; }
+  footer.player .player-transport { gap: 5px; }
+  footer.player .player-transport button,
+  footer.player .player-right > button { min-width: 28px; width: 28px; height: 30px; }
+  footer.player .player-transport .play-button { min-width: 34px; width: 34px; height: 34px; }
+  footer.player .player-right { gap: 5px; }
+  footer.player .player-volume-control { gap: 2px; }
+  footer.player .player-volume-control .volume { width: 55px; }
+}
+
+@media (max-width: 649px) {
+  footer.player {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 40px 26px;
+    gap: 5px 7px;
+    min-height: 88px;
+    padding: 7px 9px calc(7px + env(safe-area-inset-bottom));
+  }
+  footer.player > .now-playing {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 40px;
+    padding: 2px;
+  }
+  footer.player .mini-art {
+    flex-basis: 36px;
+    width: 36px;
+    height: 36px;
+  }
+  footer.player .player-track-copy { gap: 2px; }
+  footer.player .player-track-title { font-size: 11px; }
+  footer.player .player-track-artist { font-size: 9px; }
+  footer.player .player-status { display: none; }
+  footer.player .player-center { display: contents; }
+  footer.player .player-transport {
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+    gap: 1px;
+  }
+  footer.player .player-transport button,
+  footer.player .player-right > button {
+    min-width: 27px;
+    width: 27px;
+    height: 29px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  footer.player .player-transport .play-button {
+    min-width: 32px;
+    width: 32px;
+    height: 32px;
+  }
+  footer.player .player-scrubber {
+    grid-column: 1;
+    grid-row: 2;
+    gap: 4px;
+  }
+  footer.player .player-scrubber .time {
+    flex-basis: 28px;
+    width: 28px;
+    font-size: 8px;
+  }
+  footer.player .seek { min-width: 20px; height: 4px; }
+  footer.player .player-right {
+    grid-column: 2;
+    grid-row: 2;
+    justify-content: flex-end;
+    gap: 2px;
+  }
+  footer.player .player-right > button[aria-label="Show playback queue and chapters"] { font-size: 16px; }
+  footer.player .player-volume-control > span { display: none; }
+  footer.player .player-volume-control .volume { width: 46px; min-width: 38px; }
+}
+
+@media (max-width: 360px) {
+  footer.player { padding-right: 6px; padding-left: 6px; gap: 4px; }
+  footer.player .mini-art { flex-basis: 32px; width: 32px; height: 32px; }
+  footer.player .player-transport button,
+  footer.player .player-right > button { min-width: 24px; width: 24px; }
+  footer.player .player-transport .play-button { min-width: 29px; width: 29px; height: 29px; }
+  footer.player .player-volume-control .volume { width: 36px; min-width: 30px; }
+}
+
+footer.player .volume { display:block; }

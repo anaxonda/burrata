@@ -1,0 +1,74 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Burrata",
+  "version": "0.1.0",
+  "identifier": "org.burrata.discovery",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Burrata",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 360,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "capabilities": [
+        "main"
+      ],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https: data:; media-src 'self' asset: http: https: blob:; connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    },
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "dmg",
+      "nsis",
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "category": "Music",
+    "shortDescription": "Discover, audition and acquire music for your DJ library",
+    "longDescription": "Local-first DJ chart discovery, previews, source comparison and tagged audio acquisition.",
+    "license": "GPL-3.0-or-later",
+    "resources": ["resources/**/*"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      }
+    },
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
+}

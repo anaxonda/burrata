@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-search-sources"
+description = "Enables the list_search_sources command without any pre-configured scope."
+commands.allow = ["list_search_sources"]
+
+[[permission]]
+identifier = "deny-list-search-sources"
+description = "Denies the list_search_sources command without any pre-configured scope."
+commands.deny = ["list_search_sources"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-sidebar-layout"
+description = "Enables the save_sidebar_layout command without any pre-configured scope."
+commands.allow = ["save_sidebar_layout"]
+
+[[permission]]
+identifier = "deny-save-sidebar-layout"
+description = "Denies the save_sidebar_layout command without any pre-configured scope."
+commands.deny = ["save_sidebar_layout"]

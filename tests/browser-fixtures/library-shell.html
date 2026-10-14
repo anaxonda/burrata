@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101412" />
+    <title>Burrata · temporary browser QA fixture</title>
+    <style>
+      html, body, #app { height: 100%; }
+      body::after { content: "TEMPORARY QA FIXTURE · mocked desktop API"; position: fixed; z-index: 80; right: 12px; bottom: 10px; padding: 5px 8px; border: 1px solid #526052; border-radius: 5px; background: #18201b; color: #a9b8aa; font: 9px/1.2 ui-monospace, monospace; letter-spacing: .06em; opacity: .82; pointer-events: none; }
+    </style>
+    <script>
+      // Browser-only Tauri contract. All state lives in this tab; no backend/database is used.
+      const fixtureCollections = [
+        { id: "after-hours", name: "After Hours", trackCount: 8 },
+        { id: "warm-textures", name: "Warm Textures", trackCount: 5 },
+        { id: "weekend-digs", name: "Weekend Digs", trackCount: 12 },
+      ];
+      const fixtureTracks = [
+        { id: "bt-vampire-empire", provider: "spotify", providerId: "7K3l7hsL3Jk9m6UFTg3h3x", sourceUrl: "https://open.spotify.com/track/7K3l7hsL3Jk9m6UFTg3h3x", artist: "Big Thief", title: "Vampire Empire", album: "Vampire Empire", genre: "Indie Rock", durationSeconds: 211, bpm: 127, key: "C major", releaseDate: "2023-09-20", favorite: true, provenance: { identity: "verified catalog track", sourceKind: "spotify", sourceUrl: "https://open.spotify.com/track/7K3l7hsL3Jk9m6UFTg3h3x" } },
+        { id: "bt-not", provider: "spotify", providerId: "4m4sZs7R3zX5h8e5rQ3u1P", sourceUrl: "https://open.spotify.com/track/4m4sZs7R3zX5h8e5rQ3u1P", artist: "Big Thief", title: "Not", album: "Two Hands", genre: "Indie Rock", durationSeconds: 356, bpm: 119, key: "D minor", releaseDate: "2019-10-11", favorite: false, provenance: { identity: "verified catalog track", sourceKind: "spotify" } },
+        { id: "bt-simulation-swarm", provider: "spotify", providerId: "5QnrgKqH1fQ3c3aA2f4rN4", sourceUrl: "https://open.spotify.com/track/5QnrgKqH1fQ3c3aA2f4rN4", artist: "Big Thief", title: "Simulation Swarm", album: "Dragon New Warm Mountain I Believe in You", genre: "Indie Folk", durationSeconds: 241, bpm: 96, key: "A major", releaseDate: "2022-02-11", favorite: true, provenance: { identity: "verified catalog track", sourceKind: "spotify" } },
+        { id: "khruangbin-time", provider: "local", providerId: "local:khruangbin-time", sourceUrl: "", artist: "Khruangbin", title: "Time (You and I)", album: "Mordechai", genre: "Funk", durationSeconds: 301, bpm: 105, key: "F minor", releaseDate: "2020-06-26", favorite: true, localPath: "/Music/Khruangbin/Mordechai/Time (You and I).flac", localAvailability: "available", provenance: { source: "local file tags", codec: "FLAC", bitrateKbps: 890 } },
+        { id: "yussef-love-is-the-message", provider: "traxsource", providerId: "ytm-001", sourceUrl: "https://www.traxsource.com/track/fixture", artist: "Yussef Dayes", title: "Love Is the Message", album: "Black Classical Music", genre: "Broken Beat", durationSeconds: 342, bpm: 122, key: "G minor", releaseDate: "2023-09-08", favorite: false, provenance: { identity: "unverified catalog match", metadataSource: "Traxsource" } },
+        { id: "dj-koze-pick-up", provider: "beatport", providerId: "bp-001", sourceUrl: "https://www.beatport.com/track/fixture", artist: "DJ Koze", title: "Pick Up", album: "Knock Knock", genre: "Deep House", durationSeconds: 369, bpm: 123, key: "F minor", releaseDate: "2018-05-04", favorite: false, provenance: { identity: "verified catalog track", sourceKind: "beatport" } },
+        { id: "little-simz-introvert", provider: "local", providerId: "local:little-simz", sourceUrl: "", artist: "Little Simz", title: "Introvert", album: "Sometimes I Might Be Introvert", genre: "Hip-Hop", durationSeconds: 380, bpm: 94, key: "B minor", favorite: false, localPath: "/Music/Little Simz/Introvert.flac", localAvailability: "available", provenance: { source: "local file tags", codec: "FLAC" } },
+      ];
+      const fixtureJobs = [
+        { id: "job-active", track: fixtureTracks[0], candidate: { id: "candidate-active", provider: "youtube", url: "https://www.youtube.com/watch?v=fixture", title: "Big Thief - Vampire Empire", uploader: "4AD", formats: [{ id: "flac", codec: "FLAC", extension: "flac", bitrate: 920, sampleRate: 44100, lossless: true }], permission: "allowed", confidence: "high", score: 92, reasons: ["Artist and title match", "Duration within 2 seconds"], official: true }, state: "downloading", progress: 63, createdAt: "2026-10-12T18:00:00Z", outputProfile: "source", formatId: "flac" },
+        { id: "job-done", track: fixtureTracks[1], candidate: { id: "candidate-done", provider: "soundcloud", url: "https://soundcloud.com/fixture/not", title: "Big Thief - Not", uploader: "4AD", formats: [{ id: "mp3", codec: "MP3", extension: "mp3", bitrate: 320, lossless: false }], permission: "allowed", confidence: "high", score: 87, reasons: ["Catalog release match"], official: true }, state: "completed", progress: 100, outputPath: "/Music/Burrata/Big Thief - Not.mp3", createdAt: "2026-10-12T17:42:00Z", outputProfile: "high-quality", formatId: "mp3" },
+        { id: "job-failed", track: fixtureTracks[2], candidate: { id: "candidate-failed", provider: "youtube", url: "https://www.youtube.com/watch?v=fixture2", title: "Simulation Swarm", formats: [], permission: "allowed", confidence: "medium", score: 71, reasons: ["Possible live version"], official: false }, state: "failed", progress: 24, error: "The source stopped responding before the audio stream was ready.", createdAt: "2026-10-12T17:21:00Z", outputProfile: "source" },
+      ];
+      const fixtureDeletedCollections = new Map();
+      let fixtureSidebarLayout={sections:[],assignments:{}};
+      let fixtureRadios=[{id:"main",name:"Radio Paradise · Main",streamUrl:"https://stream.radioparadise.com/flac",sourceUrl:"https://radioparadise.com",codec:"FLAC"},{id:"mellow",name:"Radio Paradise · Mellow",streamUrl:"https://stream.radioparadise.com/mellow-flac",sourceUrl:"https://radioparadise.com",codec:"FLAC"}];
+      const fixtureRadioMetadata={stationId:"main",nowPlaying:{stationId:"main",artist:"Gillian Welch",title:"Everything Is Free",album:"Time (The Revelator)",sourceUrl:"https://radioparadise.com",metadataConfidence:"Fixture metadata"},history:[],historyAvailable:false,note:"Temporary QA metadata"};
+      const fixtureCollectionsById = Object.fromEntries(fixtureCollections.map((item) => [item.id, item]));
+      const fixtureImports = [
+        { id: "browser-import-1", provider: "spotify", kind: "playlist", title: "Big Thief essentials", sourceUrl: "https://open.spotify.com/playlist/fixture", fetchedAt: "2026-10-12T16:00:00Z", collectionId: "weekend-digs", capturedCount: 12, importedCount: 12, expectedTotal: 12, complete: true, warnings: [] },
+      ];
+      const chapterCandidate={id:"youtube:aaaaaaaaaaa",provider:"youtube",url:"https://www.youtube.com/watch?v=aaaaaaaaaaa",title:"Chapter playback QA · vinyl set",uploader:"QA creator",durationSeconds:35,formats:[{id:"251",codec:"opus",extension:"webm",bitrate:160,lossless:false}],permission:"unknown",confidence:"review",score:0,reasons:[],official:false,chapters:[{id:"chapter-0-0",title:"Introduction",startTime:0,endTime:5,confidence:"source_metadata_unverified"},{id:"chapter-1",title:"QA Artist — First song",startTime:5,endTime:15,confidence:"source_metadata_unverified"},{id:"chapter-2",title:"QA Artist — Second song",startTime:15,endTime:35,confidence:"source_metadata_unverified"}]};
+      const chapterTrack={id:"youtube:aaaaaaaaaaa",provider:"youtube",providerId:"aaaaaaaaaaa",sourceUrl:chapterCandidate.url,artist:"",title:chapterCandidate.title,durationSeconds:35,favorite:false,provenance:{sourceKind:"audioSearch",audioCandidate:chapterCandidate,sourceMetadata:{channel:"QA creator",description:"Mock set for chapter playback and responsive layout verification."}}};
+      fixtureTracks.push(chapterTrack);
+      const fixtureSettings = { musicDirectory: "/Music/Burrata", autoPreview: false, previewDelayMs: 250, theme: "dark", preferredDownloadSource: "youtube", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno", playlistDirectories: [] };
+      const fixtureArtist = new URLSearchParams(location.search).get("artist") === "gillian" ? "gillian-profile" : "big-thief-profile";
+      if (fixtureArtist === "gillian-profile") fixtureTracks[0] = { ...fixtureTracks[0], id: "fixture-gillian-caleb", artist: "Gillian Welch", title: "Caleb Meyer", provider: "fixture", sourceUrl: "https://musicbrainz.org/artist/2ff49515-1701-4bac-a53a-04345893f3f3" };
+      const profileReady = fetch(`/tests/browser-fixtures/${fixtureArtist}.json`).then((response) => response.json());
+      const albumTracksReady = fixtureArtist === "gillian-profile" ? fetch("/tests/browser-fixtures/gillian-album-tracks.json").then(response => response.json()) : Promise.resolve({});
+      window.__TAURI__ = {
+        core: {
+          convertFileSrc: (path) => path,
+          async invoke(command, args = {}) {
+            const view = args.view;
+            switch (command) {
+              case "import_collection_url": {
+                const provider = args.url.includes('last.fm') ? 'lastfm' : 'shazam';
+                const result = {id:'preset-qa-'+provider,provider,kind:'chart',title:provider==='shazam'?'Shazam Global Top 200':'Last.fm Top Tracks',sourceUrl:args.url,fetchedAt:new Date().toISOString(),collectionId:'preset-qa-'+provider,capturedCount:3,importedCount:3,expectedTotal:null,complete:false,warnings:['Temporary QA fixture: three mocked tracks']};
+                fixtureImports.unshift(result);fixtureCollections.push({id:result.collectionId,name:result.title,trackCount:3});return result;
+              }
+              case "get_autotag_settings": return {enabled:true,shazamFallback:true,fpcalcAvailable:true,songrecAvailable:true,acoustidConfigured:false};
+              case "get_autotag_jobs": return [];
+              case "list_search_sources": return ["library","musicbrainz","discogs","beatport","traxsource","spotify","youtube","soundcloud","soulseek"].map(id=>({id,name:({musicbrainz:"MusicBrainz",discogs:"Discogs",youtube:"YouTube",soundcloud:"SoundCloud",soulseek:"Soulseek"}[id]||id),enabled:true,kinds:["track","artist","album","video"]}));
+              case "search_source": {const id=args.sourceIds[0];const items=id==="youtube"?[chapterTrack]:fixtureTracks.filter(t=>!args.query||`${t.artist} ${t.title}`.toLowerCase().includes(args.query.toLowerCase()));return {sourceId:id,results:items.map(track=>({id:track.id,kind:id==="youtube"?"video":"track",sourceId:id,title:track.title,subtitle:track.artist,url:track.sourceUrl,track,data:{}})),complete:true,nextCursor:null,warnings:[]};}
+              case "enrich_search_result": return args.track;
+              case "inspect_youtube_source": case "inspect_candidate": return chapterCandidate;
+              case "find_candidates": return args.providerIds.includes("youtube") ? [chapterCandidate] : [];
+              case "register_chapter_track": return args.track;
+              case "resolve_preview": return {kind:"audio",url:"/.cache/browser-qa-tone.wav",canSeek:true,canVolume:true,isExcerpt:false};
+              case "record_playback": case "automation_playback_state": return null;
+              case "save_audio_match": return args.track;
+              case "list_collections": return fixtureCollections.filter(item => !fixtureDeletedCollections.has(item.id));
+              case "list_deleted_collections": return [...fixtureDeletedCollections.values()];
+              case "get_radio_stations":return fixtureRadios;
+              case "get_radio_metadata":case "poll_radio_station":return {...fixtureRadioMetadata,stationId:args.stationId};
+              case "get_station_details":{const station=fixtureRadios.find(s=>s.id===args.stationId);return {...station,stationId:args.stationId,description:"A radio station description in the temporary QA fixture.",nowPlaying:fixtureRadioMetadata.nowPlaying,history:[],historyAvailable:false,note:"Fixture metadata"};}
+              case "rename_radio_station":fixtureRadios=fixtureRadios.map(s=>s.id===args.stationId?{...s,name:args.name}:s);return fixtureRadios;
+              case "search_radio_stations":return [{id:"rb:fixture",name:"Salsa Radio",country:"France",tags:"salsa,latin",codec:"MP3",bitrateKbps:128,streamUrl:"https://radio.example/stream.mp3",sourceUrl:"https://radio.example"}];
+              case "add_radio_station":fixtureRadios=[...fixtureRadios,args.station];return fixtureRadios;
+              case "add_custom_radio_station":fixtureRadios=[...fixtureRadios,{id:"custom:fixture",name:args.name,streamUrl:args.url,sourceUrl:args.url}];return fixtureRadios;
+              case "remove_radio_station":fixtureRadios=fixtureRadios.filter(s=>s.id!==args.stationId);return fixtureRadios;
+              case "get_sidebar_layout":return fixtureSidebarLayout;
+              case "save_sidebar_layout":fixtureSidebarLayout=args.layout;return fixtureSidebarLayout;
+              case "create_collection": {const item={id:`fixture-new-${fixtureCollections.length}`,name:args.name,trackCount:0};fixtureCollections.push(item);fixtureCollectionsById[item.id]=item;return item;}
+              case "rename_collection": {const item=fixtureCollectionsById[args.collectionId];item.name=args.name;return item;}
+              case "delete_collection": { const item = fixtureCollectionsById[args.collectionId]; if (!item) throw new Error("Unknown fixture playlist"); fixtureDeletedCollections.set(item.id, item); return item; }
+              case "restore_collection": { const item = fixtureDeletedCollections.get(args.collectionId); if (!item) throw new Error("Unknown deleted fixture playlist"); fixtureDeletedCollections.delete(item.id); return item; }
+              case "list_tracks":
+                if (view === "favorites") return fixtureTracks.filter((track) => track.favorite);
+                if (view === "collections") return fixtureTracks.slice(0, Math.min(fixtureCollectionsById[args.collectionId]?.trackCount ?? 0, 6));
+                return fixtureTracks;
+              case "list_assets": return fixtureTracks.filter((track) => track.localPath).map((track, index) => ({ id: `asset-${index + 1}`, recordingId: track.id, path: track.localPath, hash: `fixture-hash-${index + 1}`, sourceCodec: "FLAC", finalCodec: "FLAC", sourceBitrate: 890, finalBitrate: 890, processing: "copied", track }));
+              case "get_analysis_status": return [];
+              case "get_browser_status": return { connected: true, pendingCount: 0, lastSeen: new Date().toISOString(), hostName: "Fixture browser" };
+              case "list_browser_imports": return fixtureImports.filter(item => !fixtureDeletedCollections.has(item.collectionId));
+              case "list_jobs": return fixtureJobs;
+              case "get_settings": return fixtureSettings;
+              case "get_connections": return { settings: { slskd: { enabled: true } } };
+              case "get_diagnostics": return [];
+              case "sync_playlists": return { synchronized: fixtureCollections.length, warnings: [], pausedMirrors: [], sources: fixtureCollections.map((collection) => ({ collectionId: collection.id })) };
+              case "get_artist_profile": return await profileReady;
+              case "search_artists": {
+                const profile = await profileReady;
+                return { query: args.query, page: args.page ?? 1, pageSize: args.pageSize ?? 20, total: 1, hasMore: false, results: [profile.artist], warnings: [] };
+              }
+              case "get_artist_releases": return (await profileReady).releases;
+              case "get_release_tracks": { const albums = await albumTracksReady; if (!albums[args.release.sourceUrl]) throw new Error("Choose the MusicBrainz 2003 XE or captured Discogs Time (The Revelator) edition in this QA fixture."); return albums[args.release.sourceUrl]; }
+              case "get_artist_tracks": return { artist: (await profileReady).artist.artist, items: [], source: "Cached public fixture", warnings: [] };
+              case "get_artist_collaborations": return { artist: (await profileReady).artist.artist, items: [], sourceCoverage: [], warnings: [] };
+              case "list_playback_history": return [];
+              case "list_genres": return [{ id: "deep-house", name: "Deep House", chartUrl: "https://www.traxsource.com/genre/1/deep-house/top100" }, { id: "afro-house", name: "Afro House", chartUrl: "https://www.beatport.com/genre/afro-house/89/top-100" }];
+              case "list_snapshots": return [];
+              case "refresh_jobs": return fixtureJobs;
+              case "warm_track_previews": return null;
+              case "set_favorite": {
+                const track = fixtureTracks.find((item) => item.id === args.track.id);
+                if (track) track.favorite = Boolean(args.value);
+                return null;
+              }
+              case "get_chart_memberships": return [];
+              case "load_browser_import": {const item=fixtureImports.find(i=>i.id===args.id)??fixtureImports[0];return {id:item.id,provider:item.provider,title:item.title,sourceUrl:item.sourceUrl,fetchedAt:item.fetchedAt,tracks:fixtureTracks.slice(0,3),stale:false};}
+              case "open_in_file_manager": case "open_external_url": case "stop_candidate_preview": case "candidate_preview_control": return null;
+              default: console.info("[temporary fixture] mocked command:", command, args); return null;
+            }
+          }
+        },
+        event: { listen: async () => () => {} }
+      };
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

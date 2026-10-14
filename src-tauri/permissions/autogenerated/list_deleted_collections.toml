@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-deleted-collections"
+description = "Enables the list_deleted_collections command without any pre-configured scope."
+commands.allow = ["list_deleted_collections"]
+
+[[permission]]
+identifier = "deny-list-deleted-collections"
+description = "Denies the list_deleted_collections command without any pre-configured scope."
+commands.deny = ["list_deleted_collections"]

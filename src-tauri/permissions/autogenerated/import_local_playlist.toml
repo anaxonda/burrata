@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-local-playlist"
+description = "Enables the import_local_playlist command without any pre-configured scope."
+commands.allow = ["import_local_playlist"]
+
+[[permission]]
+identifier = "deny-import-local-playlist"
+description = "Denies the import_local_playlist command without any pre-configured scope."
+commands.deny = ["import_local_playlist"]

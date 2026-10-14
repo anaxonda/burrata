@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-find-candidates"
+description = "Enables the find_candidates command without any pre-configured scope."
+commands.allow = ["find_candidates"]
+
+[[permission]]
+identifier = "deny-find-candidates"
+description = "Denies the find_candidates command without any pre-configured scope."
+commands.deny = ["find_candidates"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-warm-track-previews"
+description = "Enables the warm_track_previews command without any pre-configured scope."
+commands.allow = ["warm_track_previews"]
+
+[[permission]]
+identifier = "deny-warm-track-previews"
+description = "Denies the warm_track_previews command without any pre-configured scope."
+commands.deny = ["warm_track_previews"]

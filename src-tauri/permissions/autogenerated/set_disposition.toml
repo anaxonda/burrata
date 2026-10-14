@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-disposition"
+description = "Enables the set_disposition command without any pre-configured scope."
+commands.allow = ["set_disposition"]
+
+[[permission]]
+identifier = "deny-set-disposition"
+description = "Denies the set_disposition command without any pre-configured scope."
+commands.deny = ["set_disposition"]

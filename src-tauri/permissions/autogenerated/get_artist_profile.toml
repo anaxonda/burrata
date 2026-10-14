@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-artist-profile"
+description = "Enables the get_artist_profile command without any pre-configured scope."
+commands.allow = ["get_artist_profile"]
+
+[[permission]]
+identifier = "deny-get-artist-profile"
+description = "Denies the get_artist_profile command without any pre-configured scope."
+commands.deny = ["get_artist_profile"]

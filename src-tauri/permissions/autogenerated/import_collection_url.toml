@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-collection-url"
+description = "Enables the import_collection_url command without any pre-configured scope."
+commands.allow = ["import_collection_url"]
+
+[[permission]]
+identifier = "deny-import-collection-url"
+description = "Denies the import_collection_url command without any pre-configured scope."
+commands.deny = ["import_collection_url"]

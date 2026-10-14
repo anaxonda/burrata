@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-playback-history"
+description = "Enables the clear_playback_history command without any pre-configured scope."
+commands.allow = ["clear_playback_history"]
+
+[[permission]]
+identifier = "deny-clear-playback-history"
+description = "Denies the clear_playback_history command without any pre-configured scope."
+commands.deny = ["clear_playback_history"]

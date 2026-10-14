@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-autotag-jobs"
+description = "Enables the get_autotag_jobs command without any pre-configured scope."
+commands.allow = ["get_autotag_jobs"]
+
+[[permission]]
+identifier = "deny-get-autotag-jobs"
+description = "Denies the get_autotag_jobs command without any pre-configured scope."
+commands.deny = ["get_autotag_jobs"]

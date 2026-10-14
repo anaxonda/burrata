@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-mp3"
+description = "Enables the export_mp3 command without any pre-configured scope."
+commands.allow = ["export_mp3"]
+
+[[permission]]
+identifier = "deny-export-mp3"
+description = "Denies the export_mp3 command without any pre-configured scope."
+commands.deny = ["export_mp3"]

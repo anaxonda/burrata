@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-register-chapter-track"
+description = "Enables the register_chapter_track command without any pre-configured scope."
+commands.allow = ["register_chapter_track"]
+
+[[permission]]
+identifier = "deny-register-chapter-track"
+description = "Denies the register_chapter_track command without any pre-configured scope."
+commands.deny = ["register_chapter_track"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-add-managed-slskd-share"
+description = "Enables the add_managed_slskd_share command without any pre-configured scope."
+commands.allow = ["add_managed_slskd_share"]
+
+[[permission]]
+identifier = "deny-add-managed-slskd-share"
+description = "Denies the add_managed_slskd_share command without any pre-configured scope."
+commands.deny = ["add_managed_slskd_share"]

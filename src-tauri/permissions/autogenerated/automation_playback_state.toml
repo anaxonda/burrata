@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-automation-playback-state"
+description = "Enables the automation_playback_state command without any pre-configured scope."
+commands.allow = ["automation_playback_state"]
+
+[[permission]]
+identifier = "deny-automation-playback-state"
+description = "Denies the automation_playback_state command without any pre-configured scope."
+commands.deny = ["automation_playback_state"]

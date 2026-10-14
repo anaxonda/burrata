@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-track"
+description = "Enables the update_track command without any pre-configured scope."
+commands.allow = ["update_track"]
+
+[[permission]]
+identifier = "deny-update-track"
+description = "Denies the update_track command without any pre-configured scope."
+commands.deny = ["update_track"]
