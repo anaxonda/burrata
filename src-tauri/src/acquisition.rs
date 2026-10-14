@@ -380,11 +380,23 @@ async fn run_tool<F: FnMut(&str)>(
     let mut errors = String::new();
     let mut status = None;
     let mut stream_open = true;
+    let mut cancel_open = true;
     let result = loop {
         tokio::select! {
             _ = &mut timeout => { terminate(&mut child).await; break Err("yt-dlp operation timed out".into()); }
-            changed = cancel.changed(), if !cancel.has_changed().is_err() => {
-                if changed.is_ok() && *cancel.borrow() { terminate(&mut child).await; break Err("Cancelled".into()); }
+            changed = cancel.changed(), if cancel_open => {
+                match changed {
+                    Ok(()) if *cancel.borrow() => { terminate(&mut child).await; break Err("Cancelled".into()); }
+                    Ok(()) => {},
+                    Err(_) => {
+                        // A watch sender can send `true` and then be dropped in
+                        // the same turn. `has_changed()` reports a closed
+                        // channel before this task polls `changed()`, so check
+                        // the retained value before disabling this branch.
+                        cancel_open = false;
+                        if *cancel.borrow() { terminate(&mut child).await; break Err("Cancelled".into()); }
+                    }
+                }
             }
             exit = child.wait(), if status.is_none() => {
                 match exit {
@@ -4578,7 +4590,10 @@ echo "$result"
     #[cfg(unix)]
     #[tokio::test]
     async fn newer_preview_generation_cancels_old_search_and_rejects_late_result() {
-        let (_directory, settings) = fake_tool("sleep 60");
+        let directory = tempfile::tempdir().unwrap();
+        let started = directory.path().join("started");
+        let (_tool_directory, settings) =
+            fake_tool(&format!("touch '{}'\nsleep 60", started.display()));
         let state = Arc::new(PreviewSearchState::default());
         let old_cancel = state.begin(1_000).unwrap();
         let old_state = state.clone();
@@ -4593,12 +4608,52 @@ echo "$result"
             .await
             .map(|_| ())
         });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !started.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("fake yt-dlp process did not start");
         let _new_cancel = state.begin(2_000).unwrap();
-        assert!(old_search.await.unwrap().unwrap_err().contains("Cancelled"));
+        let error = match old_search.await.unwrap() {
+            Err(error) => error,
+            Ok(output) => panic!("expected old preview to be cancelled, got {output:?}"),
+        };
+        assert!(error.contains("Cancelled"), "unexpected error: {error}");
         assert!(!old_state.finish(1_000).unwrap());
         assert!(state.finish(2_000).unwrap());
         assert!(state.begin(1_500).is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_tool_cancels_when_watch_sender_closes_with_pending_true() {
+        let (_directory, settings) = fake_tool("echo ready\nsleep 60");
+        let state = Arc::new(PreviewSearchState::default());
+        let old_cancel = state.begin(1_000).unwrap();
+        let mut new_cancel = None;
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            run_tool(
+                &settings,
+                vec![],
+                old_cancel,
+                Duration::from_secs(1),
+                |_| {
+                    if new_cancel.is_none() {
+                        // Cancel synchronously while run_tool is handling the
+                        // line, so send(true) and dropping the old sender both
+                        // happen before its next select iteration.
+                        new_cancel = Some(state.begin(2_000).unwrap());
+                    }
+                },
+            ),
+        )
+        .await
+        .expect("run_tool did not stop promptly after cancellation");
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        assert!(new_cancel.is_some());
     }
 
     #[cfg(unix)]
