@@ -2184,3 +2184,6 @@ select optgroup {
 .settings > .settings-card h2 { font-size:15px; color:var(--text); }
 .settings > .settings-card > p { font-size:11px; line-height:1.6; color:var(--muted); }
 .settings-basic-card > label + button { margin-top:0; }
+
+/* Keep first-run setup above the player and other fixed app panels. */
+.release-onboarding { z-index: 100; }

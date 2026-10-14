@@ -113,7 +113,16 @@ separately installed EJS package are not required for the packaged setup. Manage
 YouTube support can check the configured Recommended release feed or official yt-dlp
 nightlies, verify checksums, probe compatibility, and roll back to the prior version
 or bundled baseline. The Recommended feed is only available after a release publishes
-its manifest. Actual Windows and macOS installer qualification is still in progress.
+its manifest. The tagged release workflow creates a draft prerelease, while a manual
+build without a tag produces native qualification packages only. Native package jobs
+install and launch the macOS DMG, Windows NSIS installer, or Linux DEB in isolated app
+data, probe bundled tools, query the authenticated MCP status endpoint, and test the
+native-host heartbeat. They attach checksummed smoke evidence to the packages and
+preserve failure evidence. The Linux RPM and AppImage are built but do not receive the
+installation smoke; OS security prompts and full fresh-machine behavior remain manual
+qualification. The Windows/Linux FFmpeg corresponding-source archives are published
+separately in the
+[runtime source release](https://github.com/anaxonda/burrata/releases/tag/runtime-sources-2026-10-07).
 The anonymous BgUtils provider runs locally on loopback when needed; Burrata does not
 use account cookies or sign-in. Preview streams are temporary and are not retained.
 Configure custom executable paths and the absolute music directory in Settings when
@@ -270,8 +279,9 @@ live verification. No DJ database is modified by Burrata.
 6. Import the completed directory into Mixxx and load the recording onto a deck.
 7. Combine two charts, verify overlapping recordings, merge them explicitly, and
    confirm one collection/playlist entry with both provider ranks preserved.
-8. Validate Linux packaging and startup recovery before publishing a release.
+8. Review native installed-package smoke evidence and separately install/qualify Linux
+   RPM and AppImage packages; validate startup recovery before publishing a release.
 
-Hype/DJ/historical charts, starter-pack automation, native drag-out and
-Windows/macOS release qualification
-remain later milestones. The generated lockfiles should be used during release qualification.
+Hype/DJ/historical charts, starter-pack automation, native drag-out, and full
+fresh-machine Windows/macOS qualification remain later milestones. The generated
+lockfiles should be used during release qualification.

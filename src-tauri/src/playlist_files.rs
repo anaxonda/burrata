@@ -113,7 +113,8 @@ pub fn list_local_playlists(settings: &Settings) -> Result<Vec<LocalPlaylistFile
         if let Ok(mirror_root) = fs::canonicalize(&configured_mirror_root) {
             files.retain(|file| {
                 let path = Path::new(&file.path);
-                !path.starts_with(&mirror_root) || !is_burrata_mirror(path)
+                !path.starts_with(&mirror_root)
+                    || !is_burrata_generated_playlist(path, &mirror_root)
             });
         }
     }
@@ -137,6 +138,73 @@ fn is_burrata_mirror(path: &Path) -> bool {
             text.lines()
                 .any(|line| line.trim() == BURRATA_MIRROR_MARKER)
         })
+}
+
+/// Recognize pre-marker Burrata files by their narrowly defined generated path shape.
+/// Ordinary playlists elsewhere under Music/Playlists remain discoverable.
+fn is_legacy_burrata_playlist(path: &Path, mirror_root: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(mirror_root) else {
+        return false;
+    };
+    let parts = relative
+        .components()
+        .filter_map(|part| match part {
+            Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if parts.len() == 2
+        && generated_group(&parts[0])
+        && Path::new(&parts[1])
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(is_uuid)
+    {
+        return true;
+    }
+    if parts.len() != 4 || !parts[0].eq_ignore_ascii_case("Archives") {
+        return false;
+    }
+    let favorites =
+        parts[1].eq_ignore_ascii_case("Favorites") && parts[2].eq_ignore_ascii_case("favorites");
+    if !(favorites || (generated_group(&parts[1]) && is_uuid(&parts[2]))) {
+        return false;
+    }
+    let Some(stem) = Path::new(&parts[3])
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+    else {
+        return false;
+    };
+    let Some((timestamp, revision)) = stem.split_once('-') else {
+        return false;
+    };
+    timestamp.len() == 14
+        && timestamp.bytes().all(|byte| byte.is_ascii_digit())
+        && (is_uuid(revision)
+            || (revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())))
+}
+
+pub(crate) fn is_burrata_generated_playlist(path: &Path, mirror_root: &Path) -> bool {
+    is_burrata_mirror(path) || is_legacy_burrata_playlist(path, mirror_root)
+}
+
+fn generated_group(group: &str) -> bool {
+    [
+        "Favorites",
+        "Personal",
+        "Spotify",
+        "Beatport",
+        "Traxsource",
+        "Local",
+        "Mixxx",
+    ]
+    .iter()
+    .any(|known| group.eq_ignore_ascii_case(known))
+}
+
+fn is_uuid(value: &str) -> bool {
+    uuid::Uuid::parse_str(value).is_ok()
 }
 
 fn scan_directory(
@@ -204,8 +272,7 @@ fn scan_directory(
                     .into_owned(),
                 modified,
                 track_count: count,
-                warning: warning
-                    .or_else(|| (count == 0).then(|| "Playlist has no entry lines".into())),
+                warning,
             });
             if files.len() > MAX_PLAYLISTS {
                 return Err("Playlist scan exceeded 5,000 files".into());
@@ -257,6 +324,34 @@ pub fn import_local_playlist(
     if playlist_entry_count(text) > MAX_PLAYLIST_ENTRIES {
         return Err("Playlist import is limited to 10,000 entries".into());
     }
+    let (tracks, unmatched, metadata_only) =
+        preview_playlist_tracks(settings, store, &canonical_file, text)?;
+    if tracks.is_empty() {
+        return Err("No playlist entries matched registered local audio files".into());
+    }
+    let collection = store.create_collection(&playlist_name(&canonical_file))?;
+    store.replace_playlist_entries(&collection.id, &tracks)?;
+    Ok(LocalPlaylistImport {
+        collection: Collection {
+            track_count: tracks.len() as u32,
+            ..collection
+        },
+        imported_count: tracks.len(),
+        unmatched_count: unmatched,
+        warning: (unmatched > 0).then(|| format!("{unmatched} playlist entries did not match registered local files; {metadata_only} were imported from EXTINF or filename metadata only")),
+    })
+}
+
+/// Reproduce the import resolver without creating or changing a collection.
+pub(crate) fn preview_playlist_tracks(
+    settings: &Settings,
+    store: &Store,
+    canonical_file: &Path,
+    text: &str,
+) -> Result<(Vec<Track>, usize, usize)> {
+    if playlist_entry_count(text) > MAX_PLAYLIST_ENTRIES {
+        return Err("Playlist import is limited to 10,000 entries".into());
+    }
     let assets = store.list_assets()?;
     let mut by_path: HashMap<PathBuf, Track> = HashMap::new();
     let music_roots = approved_audio_roots(settings);
@@ -300,17 +395,7 @@ pub fn import_local_playlist(
             }
         }
     }
-    if tracks.is_empty() {
-        return Err("No playlist entries matched registered local audio files".into());
-    }
-    let collection = store.create_collection(&playlist_name(&canonical_file))?;
-    store.replace_playlist_entries(&collection.id, &tracks)?;
-    Ok(LocalPlaylistImport {
-        collection: Collection { track_count: tracks.len() as u32, ..collection },
-        imported_count: tracks.len(),
-        unmatched_count: unmatched,
-        warning: (unmatched > 0).then(|| format!("{unmatched} playlist entries did not match registered local files; {metadata_only} were imported from EXTINF or filename metadata only")),
-    })
+    Ok((tracks, unmatched, metadata_only))
 }
 
 fn effective_directories(settings: &Settings) -> Vec<PathBuf> {
@@ -635,8 +720,47 @@ mod tests {
         fs::create_dir_all(&mirror_root).unwrap();
         let user_playlist = mirror_root.join("My playlist.m3u");
         fs::write(&user_playlist, "#EXTM3U\n/song.mp3\n").unwrap();
+        let empty_playlist = mirror_root.join("Empty.m3u");
+        fs::write(&empty_playlist, "#EXTM3U\n").unwrap();
+        let user_archive_folder = mirror_root.join("Archives");
+        fs::create_dir_all(&user_archive_folder).unwrap();
+        fs::write(
+            user_archive_folder.join("My archive.m3u"),
+            "#EXTM3U\n/song.mp3\n",
+        )
+        .unwrap();
         let mirror = mirror_root.join("generated.m3u8");
         fs::write(&mirror, "#EXTM3U\n#BURRATA-MIRROR\n#PLAYLIST:Generated\n").unwrap();
+        let legacy_collection_id = uuid::Uuid::new_v4();
+        let legacy_mirror = mirror_root
+            .join("Spotify")
+            .join(format!("{legacy_collection_id}.m3u8"));
+        fs::create_dir_all(legacy_mirror.parent().unwrap()).unwrap();
+        fs::write(
+            &legacy_mirror,
+            "#EXTM3U\n#PLAYLIST:Legacy mirror\n/song.mp3\n",
+        )
+        .unwrap();
+        let legacy_mixxx = mirror_root
+            .join("Mixxx")
+            .join(format!("{}.m3u8", uuid::Uuid::new_v4()));
+        fs::create_dir_all(legacy_mixxx.parent().unwrap()).unwrap();
+        fs::write(
+            &legacy_mixxx,
+            "#EXTM3U\n#PLAYLIST:Legacy Mixxx export\n/song.mp3\n",
+        )
+        .unwrap();
+        let archive_id = uuid::Uuid::new_v4();
+        let legacy_archive = mirror_root
+            .join("Archives/Traxsource")
+            .join(archive_id.to_string())
+            .join(format!("20261013010101-{}.m3u8", "a".repeat(64)));
+        fs::create_dir_all(legacy_archive.parent().unwrap()).unwrap();
+        fs::write(
+            &legacy_archive,
+            "#EXTM3U\n#PLAYLIST:Legacy archive\n/song.mp3\n",
+        )
+        .unwrap();
 
         let settings = Settings {
             music_directory: music.to_string_lossy().into_owned(),
@@ -649,11 +773,18 @@ mod tests {
             .into_iter()
             .filter(|file| Path::new(&file.path).starts_with(&canonical_mirror_root))
             .collect::<Vec<_>>();
-        assert_eq!(found.len(), 1);
-        assert_eq!(
-            found[0].path,
-            fs::canonicalize(user_playlist).unwrap().to_string_lossy()
-        );
+        assert_eq!(found.len(), 3);
+        let found_paths = found
+            .iter()
+            .map(|file| PathBuf::from(&file.path))
+            .collect::<Vec<_>>();
+        assert!(found_paths.contains(&fs::canonicalize(user_playlist).unwrap()));
+        assert!(found_paths.contains(&fs::canonicalize(empty_playlist).unwrap()));
+        assert!(found_paths
+            .contains(&fs::canonicalize(user_archive_folder.join("My archive.m3u")).unwrap()));
+        assert!(found.iter().any(|file| {
+            file.name == "Empty" && file.track_count == 0 && file.warning.is_none()
+        }));
     }
 
     #[test]

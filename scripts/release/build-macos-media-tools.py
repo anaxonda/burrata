@@ -123,7 +123,12 @@ with tempfile.TemporaryDirectory(prefix="burrata-macos-media-") as temp_dir:
         shutil.copy2(source_dir / filename, bundled_sources / filename)
     (DEST / "MACOS_MEDIA_SOURCE_INVENTORY.json").write_text(json.dumps({
         "target": TARGET,
-        "ffmpeg": {"version": "8.1.3", "license": "GPL build", "configure": configure[1:]},
+        "ffmpeg": {
+            "version": LOCK["ffmpeg"]["macOSSourceBuild"]["version"],
+            "license": "GPL build",
+            "configure": configure[1:],
+            "systemDependencies": LOCK["ffmpeg"]["macOSSourceBuild"]["systemDependencies"],
+        },
         "lame": {"version": LOCK["lame"]["version"], "license": LOCK["lame"]["license"]},
         "opus": {"version": LOCK["opus"]["version"], "license": LOCK["opus"]["license"]},
         "fpcalc": {

@@ -28,6 +28,8 @@ static PLAYLIST_SYNC_LOCK: Mutex<()> = Mutex::new(());
 pub struct PlaylistSyncStatus {
     pub scanned: usize,
     pub synchronized: usize,
+    #[serde(default)]
+    pub migrated_generated_imports: usize,
     pub warnings: Vec<String>,
     pub mirrors_directory: Option<String>,
     pub sources: Vec<PlaylistSourceStatus>,
@@ -115,6 +117,7 @@ fn sync_playlists_with_scan(
     let mut status = PlaylistSyncStatus::default();
     status.warnings.extend(scan.warnings);
     let mut state = read_state(store)?;
+    status.migrated_generated_imports = migrate_generated_imports(store, settings, &mut state)?;
     let mut legacy_mirror_paths = state
         .mirror_paths
         .values()
@@ -226,10 +229,10 @@ fn sync_playlists_with_scan(
                 let source = state.sources.get(&key).unwrap();
                 let warning = if entry_count > MAX_ENTRIES {
                     Some(format!("Playlist exceeds the {MAX_ENTRIES} entry limit"))
-                } else if entry_count == 0 {
-                    Some("Playlist has no entry lines".into())
                 } else if bound_collection_deleted {
                     Some("Collection was deleted; the source binding is retained and will not recreate it".into())
+                } else if entry_count == 0 {
+                    None
                 } else if source_changed {
                     Some("Source contents changed; the new revision was archived for review".into())
                 } else if source.collection_id.is_none() {
@@ -242,6 +245,8 @@ fn sync_playlists_with_scan(
                 (
                     if bound_collection_deleted {
                         "deleted"
+                    } else if entry_count == 0 {
+                        "empty"
                     } else if warning.is_some() {
                         "needsReview"
                     } else {
@@ -297,6 +302,139 @@ fn sync_playlists_with_scan(
     persist_state(store, &state)?;
     status.synchronized = status.sources.iter().filter(|s| s.state == "bound").count();
     Ok(status)
+}
+
+/// Detach old imports of Burrata-owned mirror/archive files so they are not treated as
+/// user sources. Soft-delete only a provably untouched auto-imported collection.
+fn migrate_generated_imports(
+    store: &Store,
+    settings: &Settings,
+    state: &mut SyncState,
+) -> Result<usize> {
+    if settings.music_directory.trim().is_empty() {
+        return Ok(0);
+    }
+    let mirror_root = Path::new(&settings.music_directory).join("Playlists");
+    let mirror_root = match fs::canonicalize(mirror_root) {
+        Ok(path) => path,
+        Err(_) => return Ok(0),
+    };
+    let mut recorded_mirror_paths = state
+        .mirror_paths
+        .values()
+        .map(PathBuf::from)
+        .map(|path| fs::canonicalize(&path).unwrap_or(path))
+        .collect::<HashSet<_>>();
+    if state.mirror_hashes.contains_key("favorites") {
+        let favorite_path = mirror_root.join("Liked Songs.m3u8");
+        recorded_mirror_paths.insert(fs::canonicalize(&favorite_path).unwrap_or(favorite_path));
+    }
+    let generated_paths = state
+        .sources
+        .iter()
+        .filter(|(_, source)| source.collection_id.is_some())
+        .map(|(path, _)| path)
+        .filter(|source| {
+            let path = Path::new(source);
+            let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+            recorded_mirror_paths.contains(&canonical)
+                || (path.starts_with(&mirror_root)
+                    && playlist_files::is_burrata_generated_playlist(path, &mirror_root))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut migrated = 0;
+    for path in generated_paths {
+        let Some(source) = state.sources.get(&path).cloned() else {
+            continue;
+        };
+        if let Some(collection_id) = source.collection_id.as_deref() {
+            if generated_import_is_unchanged(store, settings, state, &path, collection_id, &source)
+            {
+                // Soft deletion preserves collection membership and every referenced audio asset.
+                if store
+                    .list_collections()?
+                    .iter()
+                    .any(|collection| collection.id == collection_id)
+                {
+                    store.delete_collection(collection_id)?;
+                }
+            }
+        }
+        if let Some(source) = state.sources.get_mut(&path) {
+            source.collection_id = None;
+            source.personal_collection_id = None;
+        }
+        migrated += 1;
+    }
+    Ok(migrated)
+}
+
+fn generated_import_is_unchanged(
+    store: &Store,
+    settings: &Settings,
+    state: &SyncState,
+    source_path: &str,
+    collection_id: &str,
+    source: &SourceState,
+) -> bool {
+    if source.personal_collection_id.is_some()
+        || state.protected_copies.contains_key(collection_id)
+        || state
+            .protected_copies
+            .values()
+            .any(|id| id == collection_id)
+        || state.sources.iter().any(|(path, other)| {
+            path != source_path && other.collection_id.as_deref() == Some(collection_id)
+        })
+        || store
+            .is_browser_source_collection(collection_id)
+            .unwrap_or(true)
+    {
+        return false;
+    }
+    let Some(original_name) = source.original_name.as_deref() else {
+        return false;
+    };
+    if Path::new(source_path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        != Some(original_name)
+    {
+        return false;
+    }
+    let Some(snapshot) = source.snapshots.last() else {
+        return false;
+    };
+    if source.last_source_hash.as_deref() != Some(&snapshot.revision)
+        || digest(snapshot.contents.as_bytes()) != snapshot.revision
+    {
+        return false;
+    }
+    let Ok(collections) = store.list_collections() else {
+        return false;
+    };
+    let Some(collection) = collections.iter().find(|item| item.id == collection_id) else {
+        return false;
+    };
+    if collection.name != original_name {
+        return false;
+    }
+    let Ok((expected_tracks, _, _)) = playlist_files::preview_playlist_tracks(
+        settings,
+        store,
+        Path::new(source_path),
+        &snapshot.contents,
+    ) else {
+        return false;
+    };
+    let Ok(current_tracks) = store.list_tracks("collection", Some(collection_id)) else {
+        return false;
+    };
+    expected_tracks
+        .iter()
+        .map(|track| &track.id)
+        .eq(current_tracks.iter().map(|track| &track.id))
 }
 
 /// Recreate a deliberately deleted mirror from its current database contents and resume sync.
@@ -927,9 +1065,23 @@ fn archive_mirror(
         .collect::<String>();
     let path = dir.join(format!("{stamp}-{revision}.m3u8"));
     if !path.exists() {
-        atomic_write(&path, contents.as_bytes())?;
+        atomic_write(&path, &mark_burrata_mirror(contents))?;
     }
     Ok(())
+}
+
+fn mark_burrata_mirror(contents: &str) -> Vec<u8> {
+    if contents
+        .lines()
+        .any(|line| line.trim() == "#BURRATA-MIRROR")
+    {
+        return contents.as_bytes().to_vec();
+    }
+    if let Some(body) = contents.strip_prefix("#EXTM3U\n") {
+        format!("#EXTM3U\n#BURRATA-MIRROR\n{body}").into_bytes()
+    } else {
+        format!("#BURRATA-MIRROR\n{contents}").into_bytes()
+    }
 }
 
 fn archive_chart_snapshot(
@@ -1806,6 +1958,193 @@ mod tests {
         assert_eq!(status.scanned, 0);
         assert!(status.sources.is_empty());
         assert!(store.list_collections().unwrap().is_empty());
+    }
+
+    #[test]
+    fn empty_user_playlist_does_not_create_sync_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("Music");
+        let playlist = dir.path().join("Empty.m3u");
+        fs::create_dir_all(&music).unwrap();
+        fs::write(&playlist, "#EXTM3U\n").unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let scan = playlist_files::LocalPlaylistScan {
+            files: vec![playlist_files::LocalPlaylistFile {
+                path: playlist.to_string_lossy().into_owned(),
+                name: "Empty".into(),
+                modified: None,
+                track_count: 0,
+                warning: None,
+            }],
+            roots: Vec::new(),
+            warnings: Vec::new(),
+        };
+
+        let status = sync_playlists_with_scan(&store, &settings, scan).unwrap();
+
+        assert!(status.warnings.is_empty());
+        assert_eq!(status.sources.len(), 1);
+        assert_eq!(status.sources[0].state, "empty");
+        assert!(status.sources[0].warning.is_none());
+        assert!(store.list_collections().unwrap().is_empty());
+    }
+
+    fn generated_archive_fixture(
+        dir: &Path,
+    ) -> (
+        Store,
+        Settings,
+        PathBuf,
+        PathBuf,
+        playlist_files::LocalPlaylistScan,
+    ) {
+        let music = dir.join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let audio = music.join("song.mp3");
+        fs::write(&audio, b"audio fixture").unwrap();
+        let collection_dir = music
+            .join("Playlists/Archives/Personal")
+            .join(uuid::Uuid::new_v4().to_string());
+        fs::create_dir_all(&collection_dir).unwrap();
+        let path = collection_dir.join(format!("20261013010101-{}.m3u8", "b".repeat(64)));
+        fs::write(
+            &path,
+            format!("#EXTM3U\n#EXTINF:180,Artist - Song\n{}\n", audio.display()),
+        )
+        .unwrap();
+        let store = Store::open(&dir.join("db.sqlite")).unwrap();
+        let track = Track {
+            id: "local:generated-archive-audio".into(),
+            provider: "local".into(),
+            provider_id: "generated-archive-audio".into(),
+            artist: "Artist".into(),
+            title: "Song".into(),
+            source_url: "local:generated-archive-audio".into(),
+            ..Track::default()
+        };
+        store.save_track(&track).unwrap();
+        store
+            .save_asset(&crate::models::LocalAsset {
+                id: "asset-generated-archive-audio".into(),
+                recording_id: track.id.clone(),
+                path: audio.to_string_lossy().into_owned(),
+                hash: "archive-audio-hash".into(),
+                source_codec: "mp3".into(),
+                final_codec: "mp3".into(),
+                source_bitrate: None,
+                final_bitrate: None,
+                processing: "imported".into(),
+                track,
+            })
+            .unwrap();
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            playlist_directories: vec![music.join("Playlists").to_string_lossy().into_owned()],
+            ..Settings::default()
+        };
+        let scan = playlist_files::LocalPlaylistScan {
+            files: vec![playlist_files::LocalPlaylistFile {
+                path: path.to_string_lossy().into_owned(),
+                name: path.file_stem().unwrap().to_string_lossy().into_owned(),
+                modified: None,
+                track_count: 1,
+                warning: None,
+            }],
+            roots: Vec::new(),
+            warnings: Vec::new(),
+        };
+        (store, settings, path, audio, scan)
+    }
+
+    fn empty_scan() -> playlist_files::LocalPlaylistScan {
+        playlist_files::LocalPlaylistScan {
+            files: Vec::new(),
+            roots: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn startup_migration_soft_deletes_unchanged_archive_self_import_and_preserves_membership() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, settings, archive, audio, scan) = generated_archive_fixture(dir.path());
+        let imported = sync_playlists_with_scan(&store, &settings, scan).unwrap();
+        let collection_id = imported.sources[0]
+            .collection_id
+            .clone()
+            .expect("archive was imported before migration");
+        assert_eq!(store.list_collections().unwrap().len(), 1);
+        assert_eq!(
+            store
+                .list_tracks("collection", Some(&collection_id))
+                .unwrap()
+                .len(),
+            1
+        );
+        let source_bytes = fs::read(&archive).unwrap();
+
+        let migrated = sync_playlists_with_scan(&store, &settings, empty_scan()).unwrap();
+
+        assert_eq!(migrated.migrated_generated_imports, 1);
+        assert!(store.list_collections().unwrap().is_empty());
+        let deleted = store.list_deleted_collections().unwrap();
+        assert_eq!(deleted.len(), 1);
+        assert_eq!(deleted[0].id, collection_id);
+        assert_eq!(deleted[0].track_count, 1);
+        assert_eq!(fs::read(&archive).unwrap(), source_bytes);
+        assert!(audio.is_file());
+        assert_eq!(store.list_assets().unwrap().len(), 1);
+        let source_key = fs::canonicalize(archive)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(read_state(&store).unwrap().sources[&source_key]
+            .collection_id
+            .is_none());
+    }
+
+    #[test]
+    fn startup_migration_keeps_user_edited_archive_collection() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, settings, _archive, _audio, scan) = generated_archive_fixture(dir.path());
+        let imported = sync_playlists_with_scan(&store, &settings, scan).unwrap();
+        let collection_id = imported.sources[0]
+            .collection_id
+            .clone()
+            .expect("archive was imported before migration");
+        let added_track = store
+            .save_track(&Track {
+                id: "fixture:user-added-track".into(),
+                provider: "fixture".into(),
+                provider_id: "user-added-track".into(),
+                artist: "User".into(),
+                title: "Added track".into(),
+                ..Track::default()
+            })
+            .unwrap();
+        store
+            .replace_playlist_entries(&collection_id, &[added_track])
+            .unwrap();
+
+        let migrated = sync_playlists_with_scan(&store, &settings, empty_scan()).unwrap();
+
+        assert_eq!(migrated.migrated_generated_imports, 1);
+        let active = store.list_collections().unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, collection_id);
+        assert_eq!(active[0].track_count, 1);
+        assert!(store.list_deleted_collections().unwrap().is_empty());
+        assert_eq!(
+            store
+                .list_tracks("collection", Some(&collection_id))
+                .unwrap()[0]
+                .id,
+            "fixture:user-added-track"
+        );
     }
 
     #[test]

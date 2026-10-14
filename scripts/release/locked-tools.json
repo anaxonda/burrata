@@ -51,7 +51,23 @@
         "--enable-libmp3lame",
         "--enable-libopus",
         "--enable-securetransport",
-        "--enable-encoder=png"
+        "--enable-encoder=png",
+        "--enable-zlib"
+      ],
+      "systemDependencies": [
+        {
+          "name": "zlib",
+          "provider": "macOS SDK (libz.tbd; runtime libz.1.dylib)",
+          "linkFlag": "-lz",
+          "usedBy": "PNG encoder",
+          "license": "Apple-provided system component"
+        },
+        {
+          "name": "Secure Transport",
+          "provider": "macOS SDK Security and CoreFoundation frameworks",
+          "usedBy": "FFmpeg HTTPS/TLS",
+          "license": "Apple-provided system frameworks"
+        }
       ]
     },
     "sourceCommits": {

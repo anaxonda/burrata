@@ -4,12 +4,12 @@ Burrata's release packaging stages its command-line tools alongside the app. The
 packaged set includes yt-dlp, Node.js, FFmpeg/ffprobe, the native recognition
 helper, and the browser/MCP companion tools. Node.js is shared by yt-dlp's
 JavaScript challenge support and the local MCP services. The portable recognition
-helper is included in release resources; Chromaprint's `fpcalc` is available only
-for platforms where its native library is packaged. `slskd` is an optional,
-separately installed service used only for Soulseek.
+helper and official Chromaprint `fpcalc` binaries are included in all three release
+targets. `slskd` is an optional, separately installed service used only for Soulseek.
 
-The release resource layout and versions are pinned during packaging, but
-qualification of the actual Windows and macOS installers is still in progress.
+The release resource layout and versions are pinned during packaging. Native jobs
+install-smoke the DMG, NSIS installer, and Linux DEB; fresh-machine product behavior
+and macOS/Windows security prompts still need manual qualification.
 If a packaged tool is missing or cannot start, open **Settings → Tools Burrata
 uses** and select **Check tools**. Keep the default executable names to use the
 packaged tools. The collapsed **Advanced: use custom executable paths** section
@@ -50,8 +50,8 @@ retain the source audio; acquisition happens only after you explicitly start it.
   BPM estimates can be imperfect. Decoded audio also feeds Burrata's bundled key
   detector; uncertain or non-tonal audio can retain an unknown key.
 - **Recognition helper** supports automatic matching of newly downloaded tracks.
-  AcoustID lookup also needs a saved application key. Availability of the
-  Chromaprint `fpcalc` component depends on platform packaging. See
+  Chromaprint `fpcalc` is included on all release targets; AcoustID lookup also
+  needs a saved application key. See
   [discovery, chapters, and autotagging](discovery-chapters-autotag.md) for the
   review and metadata boundaries.
 - **slskd** is an optional local Soulseek service. Burrata does not bundle or

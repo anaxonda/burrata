@@ -60,12 +60,12 @@ require review rather than applying studio recording metadata to a live version.
 Fingerprint matching needs local `fpcalc` and an AcoustID application key for the
 AcoustID lookup. Burrata generates fingerprints locally and sends the lookup to
 AcoustID. Shazam can be enabled as a fallback and requires the `songrec` command
-(or `SongRec`) plus FFmpeg for the sampled audio excerpts. These tools are not
-bundled or installed by Burrata. In this development environment, `songrec` and
-`fpcalc` are installed, but an AcoustID application key is not configured, so
-AcoustID lookup is unavailable until one is saved in **Settings → Connections →
-AcoustID**. Provider connectivity and matching success depend on the user's setup
-and network access.
+(or `SongRec`) plus FFmpeg for sampled audio excerpts; SongRec is not bundled.
+Release packages include `fpcalc` for fingerprinting. In this development
+environment, `songrec` and `fpcalc` are installed, but an AcoustID application
+key is not configured, so AcoustID lookup is unavailable until one is saved in
+**Settings → Connections → AcoustID**. Provider connectivity and matching success
+depend on the user's setup and network access.
 
 ## MCP tools
 
