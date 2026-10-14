@@ -97,5 +97,21 @@ describe("ReleaseSetup", () => {
     expect(target.textContent).toContain("Public audio could not be reached.");
     expect(target.textContent).toContain("No recommended update is available.");
     expect(callMock).not.toHaveBeenCalledWith("youtube_support_update", expect.anything());
+    expect(callMock.mock.calls.filter(([command]) => command === "youtube_support_status")).toHaveLength(2);
+  });
+
+  it.each([false, true])("explains nightly availability and offers installation only for an update (%s)", async (available) => {
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") return youtube;
+      if (command === "youtube_support_check") return { channel: "official-nightly", version: "2026.10.10.233141", available, message: "Checksums verified before staging." };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(); await settle();
+    button(target, "Check nightly").click(); await settle();
+    expect(target.textContent).toContain("Latest nightly: 2026.10.10.233141");
+    expect(target.textContent).toContain(available ? "Update available" : "Already installed");
+    expect(!!button(target, "Install nightly")).toBe(available);
+    expect(callMock).not.toHaveBeenCalledWith("youtube_support_update", expect.anything());
   });
 });

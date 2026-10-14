@@ -104,6 +104,7 @@
     busy = true; error = ""; diagnosis = null;
     try {
       diagnosis = await call<Diagnosis>("youtube_support_diagnose", { ...(diagnosisUrl.trim() ? { url: diagnosisUrl.trim() } : {}) });
+      youtube = await call<YoutubeStatus>("youtube_support_status");
       // A repair is offered only after diagnosis and remains an explicit user action.
       if (!diagnosis.ok) await checkUpdate("recommended");
     } catch (cause) { error = `Could not diagnose YouTube support: ${String(cause)}`; }
@@ -170,7 +171,7 @@
           {#if checks.recommended}<p role="status">{checks.recommended.message}</p>{#if checks.recommended.available}<button class="primary" disabled={busy} onclick={() => void updateYoutube("recommended")}>Install recommended update</button>{/if}{/if}
           <details><summary>Advanced: official yt-dlp nightly</summary><p>Nightly builds can change unexpectedly. Check only if you choose to try the advanced update channel.</p>
             <button disabled={busy} onclick={() => void checkUpdate("nightly")}>Check nightly</button>
-            {#if checks.nightly}<p role="status">{checks.nightly.message}</p>{#if checks.nightly.available}<button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly</button>{/if}{/if}
+            {#if checks.nightly}<p role="status">{#if checks.nightly.version}Latest nightly: {checks.nightly.version} · {checks.nightly.available ? "Update available" : "Already installed"}{:else}{checks.nightly.message}{/if}</p>{#if checks.nightly.available}<p>{checks.nightly.message}</p><button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly</button>{/if}{/if}
           </details>
           {#if youtube.managedVersion}<button class="quiet" disabled={busy} onclick={() => void rollbackYoutube()}>Roll back managed update</button>{/if}
         </div>
