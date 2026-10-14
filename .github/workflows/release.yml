@@ -6,9 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to build from its exact commit
+        description: Existing release tag; leave blank to qualify the current main commit
         type: string
-        required: true
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -20,29 +21,46 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
       commit: ${{ steps.meta.outputs.commit }}
+      publish_draft: ${{ steps.meta.outputs.publish_draft }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.tag || 'main') || github.ref }}
           fetch-depth: 0
       - id: meta
-        name: Validate tag, commit, and package versions
+        name: Validate source commit and package versions
         shell: bash
         env:
-          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || (github.event_name == 'push' && github.ref_name || '') }}
+          WORKFLOW_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
-          tag_commit="$(git rev-parse "refs/tags/$REQUESTED_TAG^{commit}")"
           head_commit="$(git rev-parse HEAD)"
-          test "$tag_commit" = "$head_commit"
-          version="${REQUESTED_TAG#v}"
-          test "$(node -p "require('./package.json').version")" = "$version"
-          test "$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")" = "$version"
-          test "$(sed -n 's/^version = \"\([^\"]*\)\"/\1/p' src-tauri/Cargo.toml | head -1)" = "$version"
-          echo "tag=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+          package_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")"
+          cargo_version="$(sed -n 's/^version = \"\([^\"]*\)\"/\1/p' src-tauri/Cargo.toml | head -1)"
+          test "$package_version" = "$tauri_version"
+          test "$package_version" = "$cargo_version"
+          if [[ -z "$REQUESTED_TAG" ]]; then
+            test "$WORKFLOW_EVENT" = workflow_dispatch
+            main_commit="$(git rev-parse refs/remotes/origin/main^{commit})"
+            test "$head_commit" = "$main_commit"
+            artifact_tag="build-$head_commit"
+            version="$package_version"
+            publish_draft=false
+          else
+            [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+            tag_commit="$(git rev-parse "refs/tags/$REQUESTED_TAG^{commit}")"
+            test "$tag_commit" = "$head_commit"
+            version="${REQUESTED_TAG#v}"
+            test "$package_version" = "$version"
+            artifact_tag="$REQUESTED_TAG"
+            publish_draft=true
+          fi
+          echo "tag=$artifact_tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "commit=$tag_commit" >> "$GITHUB_OUTPUT"
+          echo "commit=$head_commit" >> "$GITHUB_OUTPUT"
+          echo "publish_draft=$publish_draft" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -106,6 +124,12 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: python3 scripts/release/prepare-tools.py
+      - name: Add prepared media tools to PATH for native tests
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          python3 -c 'import os, pathlib; p = pathlib.Path("src-tauri/resources/tools") / os.environ["TARGET"]; open(os.environ["GITHUB_PATH"], "a", encoding="utf-8").write(str(p.resolve()) + os.linesep)'
       - name: Stage verified fpcalc for Linux or Windows
         if: runner.os != 'macOS'
         env:
@@ -163,6 +187,7 @@ jobs:
 
   extension:
     needs: prepare
+    if: needs.prepare.outputs.publish_draft == 'true'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -199,6 +224,7 @@ jobs:
 
   draft:
     needs: [prepare, build, extension]
+    if: needs.prepare.outputs.publish_draft == 'true'
     runs-on: ubuntu-22.04
     permissions:
       contents: write

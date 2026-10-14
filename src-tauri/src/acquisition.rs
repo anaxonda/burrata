@@ -4596,7 +4596,8 @@ esac
             Duration::from_millis(50),
         )
         .await;
-        assert!(result.unwrap_err().contains("timed out"));
+        let error = result.unwrap_err();
+        assert!(error.contains("timed out"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 

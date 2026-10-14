@@ -595,9 +595,12 @@ mod tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
         let found = list_local_playlists(&settings(&root)).unwrap();
+        // macOS resolves the system temp directory through /private/tmp, so
+        // compare the scanner's canonical output against the canonical root.
+        let canonical_root = fs::canonicalize(&root).unwrap();
         let mut local: Vec<_> = found
             .iter()
-            .filter(|file| file.path.starts_with(root.to_string_lossy().as_ref()))
+            .filter(|file| Path::new(&file.path).starts_with(&canonical_root))
             .collect();
         local.sort_by(|a, b| a.path.cmp(&b.path));
         assert_eq!(local.len(), 2);
