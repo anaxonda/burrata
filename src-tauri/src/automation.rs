@@ -2336,7 +2336,9 @@ mod tests {
             provider: "local".into(),
             track: Track {
                 id: "recording:stable-id".into(),
-                artwork_url: Some("asset://localhost/%2Fhome%2Flistener%2FMusic%2Fcover.jpg".into()),
+                artwork_url: Some(
+                    "asset://localhost/%2Fhome%2Flistener%2FMusic%2Fcover.jpg".into(),
+                ),
                 local_path: Some("/secret/music/file.flac".into()),
                 provenance: json!({"sourcePath":"/secret/music/file.flac","safe":"kept"}),
                 ..Track::default()
