@@ -1,0 +1,105 @@
+{
+  "scope": "Original failed operation; redacted phase outcomes only",
+  "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+  "phases": [
+    {
+      "phase": "provider_start",
+      "provider": "monochrome",
+      "elapsedMs": 2,
+      "details": {
+        "pinned": false
+      }
+    },
+    {
+      "phase": "provider_start",
+      "provider": "youtube",
+      "elapsedMs": 5,
+      "details": {
+        "pinned": false
+      }
+    },
+    {
+      "phase": "search_end",
+      "provider": "youtube",
+      "elapsedMs": 2471,
+      "details": {
+        "found": 9,
+        "ok": true
+      }
+    },
+    {
+      "phase": "candidate_gate",
+      "provider": "youtube",
+      "elapsedMs": 2478,
+      "details": {
+        "eligible": 1
+      }
+    },
+    {
+      "phase": "search_end",
+      "provider": "monochrome",
+      "elapsedMs": 4014,
+      "details": {
+        "found": 1,
+        "ok": true
+      }
+    },
+    {
+      "phase": "candidate_gate",
+      "provider": "monochrome",
+      "elapsedMs": 4015,
+      "details": {
+        "eligible": 0
+      }
+    },
+    {
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "elapsedMs": 5762,
+      "details": {
+        "catalogDuration": 127.626,
+        "ok": false,
+        "providerIdMatches": true,
+        "requestedVersion": false,
+        "resolvedDuration": 128.0,
+        "resolvedTitlePresent": true,
+        "topicUploader": true
+      }
+    },
+    {
+      "phase": "provider_start",
+      "provider": "soundcloud",
+      "elapsedMs": 5763,
+      "details": {
+        "pinned": false
+      }
+    },
+    {
+      "phase": "search_end",
+      "provider": "soundcloud",
+      "elapsedMs": 7916,
+      "details": {
+        "found": 1,
+        "ok": true
+      }
+    },
+    {
+      "phase": "candidate_gate",
+      "provider": "soundcloud",
+      "elapsedMs": 7918,
+      "details": {
+        "eligible": 0
+      }
+    },
+    {
+      "phase": "resolution_end",
+      "provider": "other",
+      "elapsedMs": 7918,
+      "details": {
+        "cancelled": false,
+        "deadline": false,
+        "ok": false
+      }
+    }
+  ]
+}

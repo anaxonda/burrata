@@ -16,6 +16,8 @@ Preserve user data, credentials and queue state; keep one Burrata GUI. Mobile UI
 
 ## Changes after v0.1.3
 
+- **Artist-alias false rejection:** “To Miroloi Tis Manas” has a strong full-length Lakis Halkias Topic candidate, but the imported credit is Lakis Chalkias. Automatic fallback already tried all three services. Reusable verified alias binding and clearer no-verified-match copy remain open; no fuzzy rewrite or per-recording hardcode. [Investigation](docs/performance-results/2026-10-18-miroloi-match/README.md).
+
 - The Lithium post-start recovery fix is implemented, passes 998 frontend and 1,114 native tests and is running in the normal window. It is **not included in the published v0.1.3 installers**; installer delivery remains for a future release. A later retry exposed an interrupted source transfer and HTTP 429 responses. Bounded backoff and resumed-audio progress checks are implemented; a live retry advances through 73.953s. Complete-recording and future provider availability are not claimed. [Evidence](docs/performance-results/2026-10-18-lithium-recovery/README.md).
 - The public v0.1.3 extension downloads now use clear browser/version filenames and link to the new installation guide. Signed package bytes are unchanged; checksums and provenance were reconciled.
 
