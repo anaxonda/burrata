@@ -1,0 +1,21 @@
+{
+  "guiSha256": "bfa0e232656c33962b7664f38a564786bb1b2d2e8a59c28099e31b76f35b3c21",
+  "scope": "Bounded live read-only public artist check; no UI navigation or writes",
+  "query": "Radiohead",
+  "discovery": {
+    "sourceId": "spotify",
+    "resultCount": 5,
+    "exactArtistId": "4Z8W4fKeB5YxbusRsdQVPb",
+    "artworkPresent": true,
+    "hasWarnings": false
+  },
+  "artistRead": {
+    "attempts": 1,
+    "artistId": "4Z8W4fKeB5YxbusRsdQVPb",
+    "outcome": "PROVIDER_CHANGED",
+    "phase": "catalog_graphql",
+    "httpStatus": 200,
+    "message": "Spotify returned a response that did not match the request."
+  },
+  "qualified": false
+}

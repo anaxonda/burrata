@@ -1,0 +1,49 @@
+{
+  "provider": "bandcamp",
+  "sourcePage": "https://cuneiformrecords.bandcamp.com/track/sorrows-of-the-moon-featuring-mary-halvorson-2",
+  "providerTrackId": 292222166,
+  "title": "Sorrows Of The Moon (featuring Mary Halvorson)",
+  "artist": "Ergo",
+  "album": "If Not Inertia",
+  "releaseDate": "2012-02-14",
+  "trackNumber": 1,
+  "trackDurationSeconds": 310.254,
+  "pageEvidence": {
+    "httpStatus": 200,
+    "contentType": "text/html",
+    "bytes": 209614,
+    "dataTralbum": true,
+    "challengeInterstitial": false,
+    "ldJson": true
+  },
+  "staticFormat": {
+    "formatCode": "mp3-128",
+    "audioHost": "t4.bcbits.com"
+  },
+  "singlePublicMediaGet": {
+    "httpStatus": 200,
+    "contentType": "audio/mpeg",
+    "bytes": 5098066,
+    "redirectsAllowed": false,
+    "elapsedSeconds": 0.813,
+    "attempts": 1
+  },
+  "localDecode": {
+    "durationSeconds": 310.253333,
+    "codec": "mp3",
+    "sampleRateHz": 44100,
+    "channels": 2,
+    "ffmpegDecodeExitCode": 0,
+    "expectedDurationDifferenceSeconds": 0.000667
+  },
+  "durationQualifiedAsFullLength": true,
+  "artistCredits": {
+    "Brett Sroka": "trombone and computer",
+    "Sam Harris": "piano, prepared piano and Fender Rhodes piano",
+    "Shawn Baltazor": "drums",
+    "Mary Halvorson": "guitar",
+    "Sebastian Kruger": "acoustic guitar"
+  },
+  "notes": "No media URL, query string, signed URL, authorization, cookie, or private header is included. Bandcamp static data uses HTML-entity-escaped JSON. Existing native collection_sources.rs extract_tralbum_data data-tralbum entity decoder was simulated against the captured page and decoded this same track ID/title/duration/mp3-128 format successfully. yt-dlp 2026.08.19 fails on this page because it parses the entity-escaped attribute as raw JSON. The single media response was saved privately for local decode only.",
+  "qualificationScope": "One public full-media GET and local external FFmpeg decode only; Burrata playback, seeking, cancellation, expiry and platform qualification remain pending."
+}

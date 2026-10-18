@@ -1,0 +1,29 @@
+{
+  "spotifyListings": 578,
+  "initialKnownDurationsPreserved": 182,
+  "newlyFilledDurations": 396,
+  "newFractionalDurations": 389,
+  "remainingRawMissing": 0,
+  "preservation": {
+    "manualMetadata": {
+      "unchanged": true,
+      "beforeRows": 4898,
+      "afterRows": 4898
+    },
+    "orderedOccurrences": {
+      "unchanged": true,
+      "beforeRows": 5073,
+      "afterRows": 5073
+    },
+    "memberships": {
+      "unchanged": true,
+      "beforeRows": 7357,
+      "afterRows": 7357
+    },
+    "assetDurations": {
+      "unchanged": true,
+      "beforeRows": 15,
+      "afterRows": 15
+    }
+  }
+}

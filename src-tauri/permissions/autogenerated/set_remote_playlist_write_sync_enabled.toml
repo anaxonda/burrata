@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-remote-playlist-write-sync-enabled"
+description = "Enables the set_remote_playlist_write_sync_enabled command without any pre-configured scope."
+commands.allow = ["set_remote_playlist_write_sync_enabled"]
+
+[[permission]]
+identifier = "deny-set-remote-playlist-write-sync-enabled"
+description = "Denies the set_remote_playlist_write_sync_enabled command without any pre-configured scope."
+commands.deny = ["set_remote_playlist_write_sync_enabled"]

@@ -1,0 +1,39 @@
+{
+  "title": "ReleaseView compact controls and accent contrast visual audit",
+  "date": "2026-10-16",
+  "component": "src/ReleaseView.svelte",
+  "source_sha256": "35f8c74f95a0b6db619aaabb6cb5ab69007bc9ba54ffe573a2944e62f36a870d",
+  "fixture": "docs/performance-results/2026-10-16-context-menu/release-view-fixture/",
+  "rendering": "Actual ReleaseView.svelte in isolated headless Chromium with synthetic 14-track release data; no live application runtime or provider interaction.",
+  "screenshots": [
+    "release-view-1280.png",
+    "release-view-707.png",
+    "release-view-707-focus.png"
+  ],
+  "geometry_reports": [
+    "release-view-geometry-1280.json",
+    "release-view-geometry-707.json"
+  ],
+  "contrast": {
+    "accent": "#b8ec8c",
+    "previous_text": "#ffffff",
+    "previous_ratio": 1.36,
+    "new_text": "#101412",
+    "new_ratio": 13.63,
+    "method": "WCAG relative luminance contrast ratio"
+  },
+  "checks": {
+    "707_card_within_viewport": true,
+    "707_controls_height_px": 34,
+    "707_controls_wrap_without_horizontal_overflow": true,
+    "focus_outline_visible": true,
+    "focus_outline_width": "2px"
+  },
+  "commands": [
+    "npm run dev -- --port 5193 --strictPort",
+    "chromium --headless --no-sandbox --disable-gpu --disable-crash-reporter --disable-breakpad --window-size=707,900 --screenshot=release-view-707.png http://127.0.0.1:5193/docs/performance-results/2026-10-16-context-menu/release-view-fixture/",
+    "chromium --headless --no-sandbox --disable-gpu --disable-crash-reporter --disable-breakpad --window-size=707,900 --dump-dom 'http://127.0.0.1:5193/docs/performance-results/2026-10-16-context-menu/release-view-fixture/?geometry=1&focus=1'",
+    "TMPDIR=/tmp npx vitest run --configLoader runner src/ReleaseView.test.ts"
+  ],
+  "test_result": "Blocked before tests loaded by Unknown system error -122 on write. Earlier run loaded tests and exposed a selection-mode setup issue in the new repeated-occurrence test; the test now enters selection mode first but could not be rerun because of the filesystem error."
+}

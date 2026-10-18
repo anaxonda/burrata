@@ -1,25 +1,37 @@
 <script lang="ts">
+  import { getContext } from "svelte";
+  import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
+  import { metadataCount } from "./lib/provider-counts";
   import SourceLink from "./SourceLink.svelte";
+  import SpotifyRecordingIdentityAction from "./SpotifyRecordingIdentityAction.svelte";
   import { call } from "./lib/api";
   import PlaybackQuality from "./PlaybackQuality.svelte";
+  import TrackFiles from "./TrackFiles.svelte";
   import type { Track, Candidate, LocalAsset } from "./lib/types";
 
   let {
     track,
     candidate,
+    artworkDisplayUrl,
+    onArtworkError,
     onClose,
     onArtist,
     onDownload,
     onUpgrade = onDownload,
     asset = null,
     streamQuality = null,
+    availableFiles = [],
+    preferredAssetId = asset?.id ?? null,
+    onPreferredFile,
     onPlaylist,
     onRadio,
     radioBusy = false,
     docked = false,
     activeChapter = "",
     onPlay,
+    onRetryPreview,
     onMoreInfo,
+    onOpenMpv, onIdentifyRadio, onCancelIdentifyRadio, identifyingRadio = false, identifyProgress = 0,
     onFavorite,
     favorite = track.favorite,
     panelWidth = 340,
@@ -27,25 +39,33 @@
   }: {
     track: Track;
     candidate?: Candidate | null;
+    artworkDisplayUrl?: string;
+    onArtworkError?: (track: Track, failedUrl: string) => void;
     onClose: () => void;
     onArtist: () => void;
     onDownload: () => void;
     onUpgrade?: () => void;
     asset?: LocalAsset | null;
-    streamQuality?: { codec?: string; bitrateKbps?: number; live?: boolean } | null;
+    streamQuality?: { codec?: string; bitrateKbps?: number; bitrateOrigin?: string; sampleRate?: number; channels?: number; bitDepth?: number; live?: boolean } | null;
+    availableFiles?: LocalAsset[];
+    preferredAssetId?: string | null;
+    onPreferredFile?: (assetId: string) => void;
     onPlaylist: () => void;
     onRadio?: () => void;
     radioBusy?: boolean;
     docked?: boolean;
     activeChapter?: string;
     onPlay?: () => void;
+    onRetryPreview?: () => void;
     onMoreInfo?: () => void;
+    onOpenMpv?: () => void; onIdentifyRadio?: () => void; onCancelIdentifyRadio?: () => void; identifyingRadio?: boolean; identifyProgress?: number;
     onFavorite?: () => void;
     favorite?: boolean;
     panelWidth?: number;
     onPanelWidthChange?: (width: number) => void;
   } = $props();
 
+  const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
   let resizing = $state(false);
   function resizePanel(event: PointerEvent) {
     if (!docked || event.button !== 0) return;
@@ -60,7 +80,8 @@
   }
   let imageFailed = $state(false);
   let imageUrl = $state("");
-  const coverUrl = $derived(track.artworkUrl || candidate?.artworkUrl || "");
+  const originalCoverUrl = $derived(track.artworkUrl || candidate?.artworkUrl || "");
+  const coverUrl = $derived(artworkDisplayUrl || originalCoverUrl);
   function safeHttpUrl(value: unknown): string {
     if (typeof value !== "string") return "";
     try {
@@ -74,10 +95,18 @@
     const isRadio = provenance.sourceKind === "radio" || Boolean(streamUrl);
     return { isRadio, streamUrl, stationUrl: isRadio ? safeHttpUrl(track.sourceUrl) : "" };
   });
+  const spotifyAlbumIdHint = $derived.by(() => {
+    if (track.provider !== "spotify" || !track.provenance || typeof track.provenance !== "object") return undefined;
+    const context = (track.provenance as { recordingContext?: { albumId?: unknown } }).recordingContext;
+    return typeof context?.albumId === "string" && /^[A-Za-z0-9]{22}$/.test(context.albumId) ? context.albumId : undefined;
+  });
   function openRadioUrl(url: string) {
     const safeUrl = safeHttpUrl(url);
-    if (safeUrl) void call("open_external_url", { url: safeUrl });
+    if (safeUrl) void (sourceOpener ? sourceOpener(track, safeUrl) : call("open_external_url", { url: safeUrl }));
   }
+  const views = $derived(metadataCount(track,candidate,["views", "viewCount", "view_count"]));
+  const plays = $derived(metadataCount(track,candidate,["plays", "playCount", "play_count", "playcount"]));
+  const formatCount = (value: number) => new Intl.NumberFormat().format(value);
   $effect(() => {
     if (imageUrl !== coverUrl) {
       imageUrl = coverUrl;
@@ -121,7 +150,11 @@
     </header>
     <div class="track-hero">
       {#if coverUrl && !imageFailed}
-        <img src={coverUrl} alt={"Artwork for " + track.title} onerror={() => (imageFailed = true)} />
+        {#key coverUrl}<img src={coverUrl} alt={"Artwork for " + track.title} onerror={(event) => {
+          if (!event.currentTarget.isConnected) return;
+          imageFailed = true;
+          if (!artworkDisplayUrl && originalCoverUrl.startsWith("asset:")) onArtworkError?.(track, originalCoverUrl);
+        }} />{/key}
       {:else}
         <div class="cover-placeholder" aria-label="No artwork available">♫</div>
       {/if}
@@ -139,6 +172,7 @@
     {/if}
 
     <PlaybackQuality {track} {asset} {streamQuality} />
+    {#if availableFiles.length}<TrackFiles assets={availableFiles} {preferredAssetId} onPreferred={onPreferredFile} compact />{/if}
 
     {#if radioLinks.isRadio && (radioLinks.stationUrl || radioLinks.streamUrl)}
       <section class="radio-links" aria-label="Internet radio links">
@@ -148,6 +182,8 @@
     {/if}
 
     <dl>
+      {#if views !== null}<div><dt>Views</dt><dd>{formatCount(views)}</dd></div>{/if}
+      {#if plays !== null}<div><dt>Plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
       {#if track.provider}<div><dt>Catalog</dt><dd>{track.provider}</dd></div>{/if}
       {#if candidate?.title}<div><dt>Audio source</dt><dd>{candidate.title}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd>{candidate.uploader}</dd></div>{/if}
@@ -164,16 +200,20 @@
     <div class="actions">
       {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}>{favorite ? "♥ Favorited" : "♡ Add to favorites"}</button>{/if}
       {#if onPlay}<button class="primary" onclick={onPlay}>Play</button>{/if}
+      {#if onOpenMpv}<button onclick={onOpenMpv}>Open in mpv</button>{/if}
+      {#if onIdentifyRadio}<button disabled={identifyingRadio && !onCancelIdentifyRadio} onclick={identifyingRadio ? onCancelIdentifyRadio ?? onIdentifyRadio : onIdentifyRadio}>{identifyingRadio?onCancelIdentifyRadio?`Cancel capture · ${Math.floor(identifyProgress)} / 8 s`:"Identifying…":"Identify song"}</button>{/if}
       {#if !radioLinks.isRadio}<SourceLink {track} />{/if}
+      {#if track.provider === "spotify" && /^[A-Za-z0-9]{22}$/.test(track.providerId) && onRetryPreview}
+        {#key `${track.id}:${spotifyAlbumIdHint ?? ""}`}<SpotifyRecordingIdentityAction trackId={track.providerId} albumIdHint={spotifyAlbumIdHint} {call} onRetryPreview={onRetryPreview} />{/key}
+      {/if}
       {#if candidate?.url && /^https:\/\//.test(candidate.url)}
-        <button onclick={() => void call("open_external_url", { url: candidate!.url })}>Open {candidate.provider} source ↗</button>
+        <button onclick={() => void (sourceOpener ? sourceOpener(track, candidate!.url) : call("open_external_url", { url: candidate!.url }))}>Open {candidate.provider} source ↗</button>
       {/if}
       {#if onMoreInfo}<button onclick={onMoreInfo}>Search for more info</button>{/if}
       {#if track.localPath}<button onclick={() => void call("open_in_file_manager", { path: track.localPath })}>Show local file</button>{/if}
       <button onclick={onPlaylist}>Add to playlist</button>
       {#if onRadio}<button disabled={radioBusy} onclick={onRadio}>{radioBusy ? "Finding radio…" : "Start song radio"}</button>{/if}
       <button class="download" onclick={onDownload}>Download</button>
-      <button class="upgrade" onclick={onUpgrade}>Find higher-quality download</button>
     </div>
   </aside>
 </div>
@@ -190,31 +230,31 @@
   header > div { display: grid; gap: 4px; }
   header strong { font-size: 13px; font-weight: 580; }
   .eyebrow { margin: 0; color: var(--muted); font-size: 9px; font-weight: 650; letter-spacing: .12em; }
-  .close { display: grid; place-items: center; width: 33px; height: 33px; padding: 0; border-radius: 9px; background: transparent; color: var(--muted); }
+  .close { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 40px; padding: 0; border-radius: 9px; background: transparent; color: var(--muted); touch-action: manipulation; }
   .track-hero { display: grid; grid-template-columns: 132px minmax(0, 1fr); align-items: center; gap: 16px; }
   img, .cover-placeholder { display: grid; width: 132px; aspect-ratio: 1; object-fit: cover; border-radius: 11px; box-shadow: 0 8px 24px #0004; }
   .cover-placeholder { place-items: center; background: var(--raised); color: var(--muted); font-size: 54px; }
   .hero-copy { min-width: 0; }
   .hero-copy .eyebrow { margin-bottom: 6px; }
   h2 { margin: 0 0 6px; overflow-wrap: anywhere; font-size: clamp(19px, 2vw, 26px); line-height: 1.15; letter-spacing: -.025em; }
-  .artist-link { display: block; max-width: 100%; padding: 2px 0; overflow-wrap: anywhere; background: transparent; color: var(--accent); text-align: left; font-size: 15px; }
+  .artist-link { display: block; width: 100%; min-width: 0; max-width: 100%; padding: 2px 0; overflow: visible; overflow-wrap: anywhere; white-space: normal; text-overflow: clip; background: transparent; color: var(--accent); text-align: left; font-size: 15px; }
   .unknown-artist { margin:2px 0; color:var(--muted); font-size:13px; }
   .chapter { display:grid; gap:3px; margin:9px 0 0; font-size:11px; }.chapter span { color:var(--muted); }.chapter strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:550; }
-  .album { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+  .album { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
   .downloaded-badge { display:flex;align-items:center;gap:6px;align-self:flex-start;margin:14px 0 0;padding:5px 9px;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:999px;color:var(--accent);font-size:11px;font-weight:650; }
   .downloaded-badge span { display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:color-mix(in srgb,var(--accent) 20%,transparent);font-size:11px; }
-  .actions .upgrade { color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));background:transparent; }
   .radio-links{display:grid;gap:7px;margin-top:14px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--raised)}
   .radio-links>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 9px;align-items:center;min-width:0}
   .radio-links span{grid-column:1/-1;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.04em;text-transform:uppercase}
   .radio-links code{min-width:0;overflow-wrap:anywhere;color:var(--text);font-size:10px}
-  .radio-links button{min-height:28px;padding:4px 8px;color:var(--accent);font-size:10px}
+  .radio-links button{min-height:36px;padding:6px 10px;color:var(--accent);font-size:10px;touch-action:manipulation}
   dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; margin: 18px 0 0; }
   dl > div { display: flex; justify-content: space-between; gap: 10px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
   dt { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
   dd { min-width: 0; margin: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 17px; }
-  .actions button { min-height: 35px; padding: 8px 12px; }
+  .actions { display: flex; flex-wrap: wrap; align-self: stretch; width: 100%; min-width: 0; max-width: 100%; gap: 8px; margin-top: auto; padding-top: 17px; }
+  .actions button { min-width: 0; max-width: 100%; min-height: 40px; padding: 8px 12px; overflow-wrap: anywhere; white-space: normal; touch-action:manipulation; }
+  .playing-info button:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
   @media (max-width: 1199px) {
     .playing-info-backdrop { padding: 8px 8px calc(var(--player-height, 100px) + 8px + env(safe-area-inset-bottom)); }
     .playing-info { width: 100%; padding: 14px; border-radius: 15px; }

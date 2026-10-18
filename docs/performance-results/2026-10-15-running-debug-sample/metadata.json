@@ -1,0 +1,13 @@
+{
+  "durationSeconds": 15.04276159699657,
+  "intervalSeconds": 0.25,
+  "rootPids": [
+    2595595
+  ],
+  "cpuPercentBasis": "100 percent is one logical core",
+  "scope": "root processes and observed descendants; process rows include their threads; do not sum both kinds",
+  "limitations": "Processes born and exited between polls and their CPU are omitted. Newly observed tasks need a second sample. IO bytes are Linux storage counters, not network transfer. No playback state or seek correlation is inferred.",
+  "build": "pre-change development app; process started before current source changes",
+  "playbackState": "unknown; no controlled seek performed",
+  "qualification": false
+}

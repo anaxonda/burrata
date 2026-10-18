@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-automation-queued-playback-update"
+description = "Enables the automation_queued_playback_update command without any pre-configured scope."
+commands.allow = ["automation_queued_playback_update"]
+
+[[permission]]
+identifier = "deny-automation-queued-playback-update"
+description = "Denies the automation_queued_playback_update command without any pre-configured scope."
+commands.deny = ["automation_queued_playback_update"]

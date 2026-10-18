@@ -1,0 +1,232 @@
+{
+  "status": "pass",
+  "build": "debug unoptimized",
+  "scope": "actual Store only, not whole app/audio/release/platform qualification",
+  "elapsedSeconds": 806.52,
+  "open": {
+    "baselineDatabaseBytes": 126918656,
+    "baselineIndexCount": 0,
+    "baselineOpenMicros": 7762,
+    "baselinePageCount": 30986,
+    "baselinePageSize": 4096,
+    "indexedDatabaseBytes": 130506752,
+    "indexedIndexCount": 4,
+    "indexedOpenMicros": 18299103,
+    "indexedPageCount": 31862,
+    "indexedPageSize": 4096,
+    "projectionRows": 50000,
+    "rows": 50000
+  },
+  "fullOrderChecks": [
+    {
+      "coverage": "actual Store",
+      "phase": "seed_begin",
+      "rows": 50000
+    },
+    {
+      "phase": "seed_complete",
+      "rows": 50000
+    },
+    {
+      "phase": "projection_complete",
+      "rows": 50000
+    },
+    {
+      "direction": "asc",
+      "field": "title",
+      "phase": "full_parity_begin"
+    },
+    {
+      "direction": "asc",
+      "field": "title",
+      "phase": "full_parity_complete",
+      "rowsCompared": 50000
+    },
+    {
+      "direction": "desc",
+      "field": "title",
+      "phase": "full_parity_begin"
+    },
+    {
+      "direction": "desc",
+      "field": "title",
+      "phase": "full_parity_complete",
+      "rowsCompared": 50000
+    },
+    {
+      "direction": "asc",
+      "field": "artist",
+      "phase": "full_parity_begin"
+    },
+    {
+      "direction": "asc",
+      "field": "artist",
+      "phase": "full_parity_complete",
+      "rowsCompared": 50000
+    },
+    {
+      "direction": "desc",
+      "field": "artist",
+      "phase": "full_parity_begin"
+    },
+    {
+      "direction": "desc",
+      "field": "artist",
+      "phase": "full_parity_complete",
+      "rowsCompared": 50000
+    }
+  ],
+  "update": {
+    "baselineUpdateAndBackfillMicros": 885320,
+    "includesManualMetadataInvalidationAndProjectionBackfill": true,
+    "indexedUpdateAndBackfillMicros": 1176181,
+    "postUpdateParity": true,
+    "rowsUpdated": 200
+  },
+  "reopen": {
+    "coverage": "actual_store_reopen_existing_indexes_no_index_rebuild_expected",
+    "indexedExistingContractReopenMicros": 8128,
+    "persistedIndexCount": 4
+  },
+  "complete": {
+    "allPhasesComplete": true,
+    "manualUpdates": 200,
+    "parityCases": 4,
+    "readPairs": 160,
+    "rows": 50000
+  },
+  "cases": [
+    {
+      "field": "title",
+      "direction": "asc",
+      "offset": 0,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 1239.81,
+        "p95Ms": 1328.566,
+        "worstMs": 1353.295
+      },
+      "indexed": {
+        "medianMs": 134.6735,
+        "p95Ms": 146.059,
+        "worstMs": 147.738
+      }
+    },
+    {
+      "field": "title",
+      "direction": "asc",
+      "offset": 25000,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 6611.5635,
+        "p95Ms": 7384.59,
+        "worstMs": 7395.209
+      },
+      "indexed": {
+        "medianMs": 242.86649999999997,
+        "p95Ms": 282.052,
+        "worstMs": 386.426
+      }
+    },
+    {
+      "field": "title",
+      "direction": "desc",
+      "offset": 0,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 1173.498,
+        "p95Ms": 1212.062,
+        "worstMs": 1266.756
+      },
+      "indexed": {
+        "medianMs": 132.24450000000002,
+        "p95Ms": 143.874,
+        "worstMs": 156.438
+      }
+    },
+    {
+      "field": "title",
+      "direction": "desc",
+      "offset": 25000,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 6211.028,
+        "p95Ms": 6508.11,
+        "worstMs": 6650.827
+      },
+      "indexed": {
+        "medianMs": 245.792,
+        "p95Ms": 261.796,
+        "worstMs": 262.761
+      }
+    },
+    {
+      "field": "artist",
+      "direction": "asc",
+      "offset": 0,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 1075.708,
+        "p95Ms": 1121.404,
+        "worstMs": 1121.883
+      },
+      "indexed": {
+        "medianMs": 137.8545,
+        "p95Ms": 145.631,
+        "worstMs": 152.864
+      }
+    },
+    {
+      "field": "artist",
+      "direction": "asc",
+      "offset": 25000,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 4583.907999999999,
+        "p95Ms": 4738.553,
+        "worstMs": 4752.386
+      },
+      "indexed": {
+        "medianMs": 241.3415,
+        "p95Ms": 263.018,
+        "worstMs": 288.523
+      }
+    },
+    {
+      "field": "artist",
+      "direction": "desc",
+      "offset": 0,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 978.9415,
+        "p95Ms": 1075.685,
+        "worstMs": 1102.993
+      },
+      "indexed": {
+        "medianMs": 130.77949999999998,
+        "p95Ms": 144.638,
+        "worstMs": 152.058
+      }
+    },
+    {
+      "field": "artist",
+      "direction": "desc",
+      "offset": 25000,
+      "pairs": 20,
+      "baseline": {
+        "medianMs": 4626.988,
+        "p95Ms": 4722.566,
+        "worstMs": 4797.644
+      },
+      "indexed": {
+        "medianMs": 256.026,
+        "p95Ms": 282.47,
+        "worstMs": 288.465
+      }
+    }
+  ],
+  "warmupsPerArm": 3,
+  "pairsPerCase": 20,
+  "p95Method": "nearest rank",
+  "resourceScope": "partial whole-child counters only; not per-arm or final resource qualification"
+}

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "scope": "Bounded context-menu refinement validation: exact-component Chromium captures plus one actual normal-WebKit Library More-menu check. Private runtime screenshot omitted.",
+  "source": "context-menu-polish candidate merged onto normal candidate 51f9347cd3e6",
+  "componentValidation": {
+    "chromiumCaptures": 16,
+    "viewports": [
+      "1280x720",
+      "707x515"
+    ],
+    "themes": [
+      "dark",
+      "light"
+    ],
+    "menuTypes": [
+      "track",
+      "playlist",
+      "queue",
+      "list"
+    ],
+    "minimumRowHeightPx": 32,
+    "iconSizePx": 18,
+    "findings": 0,
+    "testsPassed": 51,
+    "testFiles": 4,
+    "testSeconds": 5.42,
+    "svelteCheck": "0 errors, 0 warnings",
+    "frontendBuildSeconds": 4.16
+  },
+  "actualWebKitValidation": {
+    "window": "1914x515",
+    "openClosedInOwnedProcess": true,
+    "menuBottomPx": 411,
+    "playerFooterTopPx": 416.5,
+    "playerFooterHeightPx": 98.5,
+    "layoutFindings": [],
+    "lowerActions": "scroll within menu; not all actions fit simultaneously"
+  },
+  "normalQueuePreservation": {
+    "fullSnapshotEqualBeforeAfter": true,
+    "occurrences": 13,
+    "currentIndex": 6,
+    "pausedPositionSeconds": 29.087175,
+    "volume": 0.8,
+    "repeat": "off",
+    "shuffle": false
+  },
+  "limitations": [
+    "Private live screenshot and queue contents are not published.",
+    "Menu lower actions require scrolling in the actual narrow view.",
+    "This verifies one actual menu location and two component viewports/themes; broader desktop UI remains open."
+  ]
+}

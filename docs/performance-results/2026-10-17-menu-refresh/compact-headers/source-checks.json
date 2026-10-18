@@ -1,0 +1,16 @@
+{
+  "scope": "CSS-only anchored headers; production source matches staged after captures by hash. Root reviewed half-screen track/playlist captures. Centered track header and meaningful downloaded badge retained.",
+  "sourceSha256": {
+    "src/TrackMenu.svelte": "e0912d2d14b5a6c42a705be7f783e4d92e7994d447ca839eb8694449a681f53b",
+    "src/PlaylistMenu.svelte": "4baa896ae78c9b01b94ac6f6806a43a100f29227ab42061668a4bfcf12ab90a1"
+  },
+  "svelteErrors": 0,
+  "svelteWarnings": 0,
+  "menuTestsPassed": 7,
+  "frontendBuild": "pass",
+  "logSha256": {
+    "compact-menu-header-check.log": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695",
+    "compact-menu-header-tests.log": "2b19a8af45565c53a3d9aa8b17336263b18eacd091fa3dd3cf91708ac3fab834",
+    "compact-menu-header-build.log": "f96ca28df1a4f71a120cf5eaf5965406791df1855b61bcd33fedd3c76fce6a53"
+  }
+}

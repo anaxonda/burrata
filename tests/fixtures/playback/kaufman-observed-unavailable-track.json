@@ -1,0 +1,46 @@
+{
+  "scope": "One exact retained album queue occurrence observed resolver-unavailable; public recording fields only",
+  "source": {
+    "capturedDate": "2026-10-16",
+    "retainedCheckpoint": "d112 pre-restart playback snapshot; only matching public recording and failure fields extracted",
+    "noNewRuntimeOrProviderCalls": true
+  },
+  "track": {
+    "id": "catalog:musicbrainz:4f7f6950-29cc-448d-a25b-445e383612f1:1:2:1:d0b8d1b1-05c3-4422-ae75-a5aae859d8dd",
+    "title": "Duda E Bolna Legnada (Duda Lays Sick)",
+    "artist": "Le Mystère Des Voix Bulgares",
+    "album": "A Portrait of Nikolai Kaufman",
+    "durationSeconds": 162.32,
+    "sourceUrl": "https://musicbrainz.org/release/4f7f6950-29cc-448d-a25b-445e383612f1"
+  },
+  "occurrence": {
+    "queueIndex": 1,
+    "trackId": "catalog:musicbrainz:4f7f6950-29cc-448d-a25b-445e383612f1:1:2:1:d0b8d1b1-05c3-4422-ae75-a5aae859d8dd",
+    "title": "Duda E Bolna Legnada (Duda Lays Sick)",
+    "artist": "Le Mystère Des Voix Bulgares"
+  },
+  "observedFailure": {
+    "status": "idle",
+    "position": 0,
+    "paused": true,
+    "playerMessage": "No playable audio match was found for Le Mystère Des Voix Bulgares — Duda E Bolna Legnada (Duda Lays Sick). No available source matched the requested recording and version. Open th",
+    "lastMediaFailure": "The source could not be loaded because of a network error."
+  },
+  "notes": [
+    "This is a retained actual MusicBrainz album occurrence, not a Spotify album row.",
+    "Unavailable here means an observed no-playable-audio-match failure; no provider availability=false flag is retained.",
+    "Provider/providerId, ISRC, catalog provenance, album track number and per-occurrence entry ID were not retained in this snapshot. Do not invent them.",
+    "The queue index and trackId match the full playing track, unlike older unrelated queue/current-track failure snapshots.",
+    "The retained source is historical. Reproduce independently without copying private queue/session/account state."
+  ],
+  "sourceAudit": {
+    "credentialsPresent": false,
+    "accountIdentifiersPresent": false,
+    "signedOrTransientMediaUrlsPresent": false,
+    "urlKinds": [
+      "public MusicBrainz release URL"
+    ],
+    "providerAvailabilityFalseVerified": false,
+    "acousticMatchVerified": false
+  }
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-remote-playlist-sync-preview"
+description = "Enables the get_remote_playlist_sync_preview command without any pre-configured scope."
+commands.allow = ["get_remote_playlist_sync_preview"]
+
+[[permission]]
+identifier = "deny-get-remote-playlist-sync-preview"
+description = "Denies the get_remote_playlist_sync_preview command without any pre-configured scope."
+commands.deny = ["get_remote_playlist_sync_preview"]

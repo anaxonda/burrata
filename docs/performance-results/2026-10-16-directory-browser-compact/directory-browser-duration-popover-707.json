@@ -1,0 +1,17 @@
+{
+  "viewport": {
+    "width": 707,
+    "height": 515
+  },
+  "durationPopover": {
+    "open": true,
+    "x": 407,
+    "y": 133,
+    "right": 697,
+    "bottom": 206,
+    "width": 290,
+    "height": 73,
+    "overflowRight": false
+  },
+  "horizontalOverflow": false
+}

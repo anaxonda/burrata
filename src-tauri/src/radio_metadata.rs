@@ -10,10 +10,13 @@ use std::net::IpAddr;
 use std::{
     collections::HashMap,
     env, fs,
+    future::Future,
+    path::Path,
     process::Stdio,
     time::{Duration, Instant},
 };
-use tokio::sync::Mutex;
+use tokio::io::AsyncReadExt;
+use tokio::sync::{watch, Mutex};
 
 const HISTORY_KEY: &str = "radioHistory.v1";
 const HISTORY_STATION_LIMIT: usize = 200;
@@ -40,28 +43,77 @@ enum RecognitionPolicy {
     Capture,
 }
 
-fn recognition_policy(state: Option<&RecognitionState>, now: Instant) -> RecognitionPolicy {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecognitionMode {
+    Automatic,
+    Manual,
+}
+
+fn recognition_policy_for(
+    state: Option<&RecognitionState>,
+    now: Instant,
+    mode: RecognitionMode,
+) -> RecognitionPolicy {
     let Some(state) = state else {
         return RecognitionPolicy::Capture;
     };
-    if let Some((track, expires_at)) = &state.cached {
-        if *expires_at > now {
-            return RecognitionPolicy::Cached(track.clone());
+    match mode {
+        RecognitionMode::Automatic => {
+            if let Some((track, expires_at)) = &state.cached {
+                if *expires_at > now {
+                    return RecognitionPolicy::Cached(track.clone());
+                }
+            }
+            if state.in_flight {
+                return RecognitionPolicy::Skip(
+                    "Automatic song recognition is already running for this station.",
+                );
+            }
+            if now.saturating_duration_since(state.attempted_at) < RECOGNITION_COOLDOWN {
+                return RecognitionPolicy::Skip("Song recognition was tried recently; Burrata will retry shortly if stream metadata remains unavailable.");
+            }
         }
-    }
-    if state.in_flight {
-        return RecognitionPolicy::Skip(
-            "Automatic song recognition is already running for this station.",
-        );
-    }
-    if now.saturating_duration_since(state.attempted_at) < RECOGNITION_COOLDOWN {
-        return RecognitionPolicy::Skip("Song recognition was tried recently; Burrata will retry shortly if stream metadata remains unavailable.");
+        RecognitionMode::Manual => {
+            if state.in_flight {
+                return RecognitionPolicy::Skip(
+                    "Song identification is already running for this station.",
+                );
+            }
+            if now.saturating_duration_since(state.attempted_at) < RECOGNITION_COOLDOWN {
+                return RecognitionPolicy::Skip(
+                    "Song identification was tried recently; wait for its cooldown before retrying.",
+                );
+            }
+        }
     }
     RecognitionPolicy::Capture
 }
 
 fn recognition_states() -> &'static std::sync::Mutex<HashMap<String, RecognitionState>> {
     RECOGNITION_STATE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+struct RecognitionFlightGuard {
+    station_id: String,
+    attempted_at: Instant,
+    completed: bool,
+}
+
+impl Drop for RecognitionFlightGuard {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        if let Some(state) = recognition_states()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get_mut(&self.station_id)
+        {
+            if state.attempted_at == self.attempted_at {
+                state.in_flight = false;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -183,6 +235,38 @@ pub async fn poll_radio_station(
         metadata.note = "Showing tracks observed while this station was playing in Burrata. Station metadata and SongRec results are not catalog-verified.".into();
     }
     Ok(metadata)
+}
+
+/// Force a fresh SongRec sample of the selected station's stream. This path is
+/// user initiated and does not depend on the automatic-recognition setting or
+/// the station's current ICY/provider metadata. Per-station cooldown and the
+/// global SongRec gate still prevent duplicate captures.
+pub async fn identify_radio_station(
+    station_id: String,
+    store: &Store,
+) -> Result<RadioMetadata, String> {
+    let station = find_station(&station_id, store)?;
+    let (now_playing, note) =
+        recognize_station_track_with(&station, RecognitionMode::Manual, || {
+            recognize_station_track_uncached(&station, store)
+        })
+        .await?;
+    let note = note.unwrap_or_else(|| {
+        if now_playing.is_some() {
+            "SongRec sampled the current station stream; catalog identity is unverified.".into()
+        } else {
+            "SongRec did not identify a track in this station stream excerpt.".into()
+        }
+    });
+    let history = read_history(store, &station_id)?;
+    Ok(RadioMetadata {
+        station_id,
+        now_playing,
+        seconds_remaining: None,
+        history_available: !history.is_empty(),
+        history,
+        note,
+    })
 }
 
 fn find_station(station_id: &str, store: &Store) -> Result<RadioStation, String> {
@@ -381,7 +465,27 @@ async fn fetch_icy_track(station: &RadioStation) -> Result<Option<RadioTrackMeta
     let Some(title) = parse_icy_stream_title(&block) else {
         return Ok(None);
     };
-    Ok(Some(icy_track_metadata(station, &title)))
+    let metadata = icy_track_metadata(station, &title);
+    if is_station_branding_title(station, &metadata) {
+        return Ok(None);
+    }
+    Ok(Some(metadata))
+}
+
+fn is_station_branding_title(station: &RadioStation, metadata: &RadioTrackMetadata) -> bool {
+    if !metadata.artist.trim().is_empty() {
+        return false;
+    }
+    let normalize = |value: &str| {
+        value
+            .chars()
+            .filter(|ch| ch.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    let station_name = normalize(&station.name);
+    let title = normalize(&metadata.title);
+    station_name.chars().count() >= 4 && title.contains(&station_name)
 }
 
 fn parse_icy_stream_title(block: &str) -> Option<String> {
@@ -484,12 +588,27 @@ async fn recognize_station_track(
     station: &RadioStation,
     store: &Store,
 ) -> Result<(Option<RadioTrackMetadata>, Option<String>), String> {
+    recognize_station_track_with(station, RecognitionMode::Automatic, || {
+        recognize_station_track_uncached(station, store)
+    })
+    .await
+}
+
+async fn recognize_station_track_with<F, Fut>(
+    station: &RadioStation,
+    mode: RecognitionMode,
+    recognize: F,
+) -> Result<(Option<RadioTrackMetadata>, Option<String>), String>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Option<RadioTrackMetadata>, String>>,
+{
     let now = Instant::now();
     {
         let mut states = recognition_states()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match recognition_policy(states.get(&station.id), now) {
+        match recognition_policy_for(states.get(&station.id), now, mode) {
             RecognitionPolicy::Cached(track) => {
                 return Ok((Some(track), Some("Showing a recent SongRec match; it will be refreshed after the cache expires.".into())));
             }
@@ -515,7 +634,12 @@ async fn recognize_station_track(
         );
     }
 
-    let result = recognize_station_track_uncached(station, store).await;
+    let mut flight_guard = RecognitionFlightGuard {
+        station_id: station.id.clone(),
+        attempted_at: now,
+        completed: false,
+    };
+    let result = recognize().await;
     let mut states = recognition_states()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -525,6 +649,7 @@ async fn recognize_station_track(
             state.cached = Some((track.clone(), Instant::now() + RECOGNITION_COOLDOWN));
         }
     }
+    flight_guard.completed = true;
     match result {
         Ok(track) => Ok((track, None)),
         Err(error) => Err(error),
@@ -572,12 +697,163 @@ async fn recognize_station_track_uncached(
             "Could not capture a short audio excerpt from the selected radio stream.".into(),
         );
     }
+    let output = run_songrec(&songrec, &wav).await;
+    let _ = fs::remove_file(&wav);
+    parse_songrec_output(station, output?)
+}
+
+/// Recognize the last audible PCM sample supplied by the playback tap. This
+/// deliberately accepts a WAV path and never opens the station stream. The
+/// same per-station cache/cooldown and global SongRec gate used by automatic
+/// station recognition apply here.
+pub async fn recognize_played_sample(
+    station: &RadioStation,
+    wav_path: &Path,
+    manual: bool,
+) -> Result<(Option<RadioTrackMetadata>, Option<String>), String> {
+    let wav_path = wav_path.to_path_buf();
+    recognize_played_sample_with_capture(station, manual, || async move { Ok(wav_path) }).await
+}
+
+/// Identify a caller-captured WAV without reopening a station stream or
+/// consulting/updating the station-keyed radio metadata cache.
+pub async fn recognize_captured_sample_uncached(
+    station: &RadioStation,
+    wav_path: &Path,
+) -> Result<Option<RadioTrackMetadata>, String> {
+    let Some(songrec) = find_executable(&["songrec", "SongRec"]) else {
+        return Err("SongRec is not installed. Burrata will not install recognition software automatically.".into());
+    };
+    let gate = SONGREC_GATE.get_or_init(|| Mutex::new(()));
+    let _permit = gate.lock().await;
+    let output = run_songrec(&songrec, wav_path).await?;
+    parse_songrec_output(station, output)
+}
+
+/// Uncached recognition with cooperative cancellation. Callers must await this
+/// future after signalling cancellation so child reaping precedes WAV cleanup.
+pub async fn recognize_captured_sample_cancellable(
+    station: &RadioStation,
+    wav_path: &Path,
+    cancel: watch::Receiver<bool>,
+) -> Result<Option<RadioTrackMetadata>, String> {
+    let Some(songrec) = find_executable(&["songrec", "SongRec"]) else {
+        return Err("SongRec is not installed. Burrata will not install recognition software automatically.".into());
+    };
+    let gate = SONGREC_GATE.get_or_init(|| Mutex::new(()));
+    let output =
+        run_songrec_cancellable(&songrec, wav_path, cancel, gate, Duration::from_secs(45)).await?;
+    parse_songrec_output(station, output)
+}
+
+async fn recognition_cancelled(cancel: &mut watch::Receiver<bool>) {
+    loop {
+        if *cancel.borrow() {
+            return;
+        }
+        if cancel.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+async fn run_songrec_cancellable(
+    songrec: &Path,
+    wav: &Path,
+    mut cancel: watch::Receiver<bool>,
+    gate: &Mutex<()>,
+    deadline: Duration,
+) -> Result<Vec<u8>, String> {
+    let _permit = tokio::select! {
+        biased;
+        _ = recognition_cancelled(&mut cancel) => return Err("Audio identification was cancelled".into()),
+        permit = gate.lock() => permit,
+    };
+    if *cancel.borrow() {
+        return Err("Audio identification was cancelled".into());
+    }
+    let mut child = tokio::process::Command::new(songrec)
+        .arg("recognize")
+        .arg("--json")
+        .arg(wav)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|_| "SongRec could not start recognition.".to_owned())?;
+    let stdout = child.stdout.take().ok_or("SongRec output is unavailable")?;
+    // Recognition JSON is small. Bound hostile/broken recognizer output while
+    // reading concurrently so a full pipe cannot prevent child completion.
+    let work = async {
+        let read = async {
+            let mut bytes = Vec::new();
+            stdout.take(1024 * 1024 + 1).read_to_end(&mut bytes).await?;
+            if bytes.len() > 1024 * 1024 {
+                return Err(std::io::Error::other("recognition output exceeded limit"));
+            }
+            Ok(bytes)
+        };
+        tokio::try_join!(child.wait(), read)
+    };
+    let result = tokio::select! {
+        biased;
+        _ = recognition_cancelled(&mut cancel) => Err("Audio identification was cancelled".to_owned()),
+        result = tokio::time::timeout(deadline, work) => match result {
+            Ok(Ok((status, bytes))) if status.success() => Ok(bytes),
+            Ok(_) => Err("SongRec could not recognize this audio excerpt.".to_owned()),
+            Err(_) => Err("SongRec did not return a recognition result in time.".to_owned()),
+        },
+    };
+    if result.is_err() {
+        // Explicit kill+wait is the primary cleanup; kill_on_drop is only the
+        // backup if the owning task itself is forcibly aborted.
+        let _ = child.start_kill();
+        match tokio::time::timeout(Duration::from_secs(2), child.wait()).await {
+            Ok(Ok(_)) => {}
+            _ => return Err("SongRec cleanup did not finish within two seconds.".into()),
+        }
+    }
+    result
+}
+
+/// Variant for callers that must acquire a short PCM snapshot. Recognition
+/// policy is checked before `capture` runs, so cooldown/cache hits do not read
+/// or write another sample.
+pub async fn recognize_played_sample_with_capture<F, Fut>(
+    station: &RadioStation,
+    manual: bool,
+    capture: F,
+) -> Result<(Option<RadioTrackMetadata>, Option<String>), String>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<std::path::PathBuf, String>>,
+{
+    let mode = if manual {
+        RecognitionMode::Manual
+    } else {
+        RecognitionMode::Automatic
+    };
+    recognize_station_track_with(station, mode, || async move {
+        let Some(songrec) = find_executable(&["songrec", "SongRec"]) else {
+            return Err("SongRec is not installed. Burrata will not install recognition software automatically.".into());
+        };
+        let gate = SONGREC_GATE.get_or_init(|| Mutex::new(()));
+        let _permit = gate.lock().await;
+        let wav_path = capture().await?;
+        let output = run_songrec(&songrec, &wav_path).await;
+        parse_songrec_output(station, output?)
+    })
+    .await
+}
+
+async fn run_songrec(songrec: &Path, wav: &Path) -> Result<Vec<u8>, String> {
     let output = tokio::time::timeout(
         Duration::from_secs(45),
         tokio::process::Command::new(songrec)
             .arg("recognize")
             .arg("--json")
-            .arg(&wav)
+            .arg(wav)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -585,19 +861,25 @@ async fn recognize_station_track_uncached(
             .output(),
     )
     .await;
-    let _ = fs::remove_file(&wav);
     let Ok(Ok(output)) = output else {
         return Err("SongRec did not return a recognition result in time.".into());
     };
     if !output.status.success() {
-        return Err("SongRec could not recognize this stream excerpt.".into());
+        return Err("SongRec could not recognize this audio excerpt.".into());
     }
+    Ok(output.stdout)
+}
+
+fn parse_songrec_output(
+    station: &RadioStation,
+    stdout: Vec<u8>,
+) -> Result<Option<RadioTrackMetadata>, String> {
     // SongRec emits no JSON when it has no match. Empty output is a clean
     // no-result; nonempty malformed output is an explicit provider failure.
-    if output.stdout.iter().all(u8::is_ascii_whitespace) {
+    if stdout.iter().all(u8::is_ascii_whitespace) {
         return Ok(None);
     }
-    let Ok(value) = serde_json::from_slice::<Value>(&output.stdout) else {
+    let Ok(value) = serde_json::from_slice::<Value>(&stdout) else {
         return Err("SongRec returned a nonempty response that was not valid JSON.".into());
     };
     let track = value.get("track").unwrap_or(&value);
@@ -643,6 +925,132 @@ fn find_executable(names: &[&str]) -> Option<std::path::PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    async fn fake_songrec_cleanup(cancel_after_ready: bool) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("fake-songrec");
+        let wav = dir.path().join("sample.wav");
+        let marker = dir.path().join("sample.wav.pid");
+        std::fs::write(&wav, b"owned disposable WAV").unwrap();
+        // exec preserves the handshake PID and avoids creating grandchildren.
+        std::fs::write(
+            &script,
+            "#!/bin/sh\necho $$ > \"$3.pid\"\nexec /bin/sleep 3\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (tx, rx) = watch::channel(false);
+        let gate = std::sync::Arc::new(Mutex::new(()));
+        let owned_gate = gate.clone();
+        let owned_wav = wav.clone();
+        let work = tokio::spawn(async move {
+            run_songrec_cancellable(
+                &script,
+                &owned_wav,
+                rx,
+                &owned_gate,
+                if cancel_after_ready {
+                    Duration::from_secs(2)
+                } else {
+                    Duration::from_millis(300)
+                },
+            )
+            .await
+        });
+        let pid = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&marker) {
+                    if let Ok(pid) = text.trim().parse::<libc::pid_t>() {
+                        break pid;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        if cancel_after_ready {
+            tx.send_replace(true);
+        }
+        let result = tokio::time::timeout(Duration::from_secs(3), work)
+            .await
+            .unwrap()
+            .unwrap();
+        let error = result.unwrap_err();
+        assert!(
+            error.contains(if cancel_after_ready {
+                "cancelled"
+            } else {
+                "in time"
+            }),
+            "{error}"
+        );
+        assert_eq!(
+            unsafe { libc::kill(pid, 0) },
+            -1,
+            "owned recognizer must be gone before return"
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+        // waitpid ECHILD additionally proves the owned child was reaped.
+        assert_eq!(
+            unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        std::fs::remove_file(&wav).unwrap();
+        assert!(gate.try_lock().is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellable_songrec_reaps_owned_child_before_wav_cleanup() {
+        fake_songrec_cleanup(true).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timed_out_songrec_reaps_owned_child_before_wav_cleanup() {
+        fake_songrec_cleanup(false).await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_songrec_gate_wait_never_spawns_or_unlocks_other_owner() {
+        let gate = Mutex::new(());
+        let permit = gate.lock().await;
+        let (tx, rx) = watch::channel(false);
+        let work = run_songrec_cancellable(
+            Path::new("nonexistent-owned-fixture"),
+            Path::new("unused"),
+            rx,
+            &gate,
+            Duration::from_secs(1),
+        );
+        tokio::pin!(work);
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(std::future::Future::poll(
+                work.as_mut(),
+                cx
+            )))
+            .await
+            .is_pending()
+        );
+        tx.send_replace(true);
+        assert!(tokio::time::timeout(Duration::from_millis(100), work)
+            .await
+            .unwrap()
+            .unwrap_err()
+            .contains("cancelled"));
+        assert!(gate.try_lock().is_err());
+        drop(permit);
+    }
+
     use super::*;
 
     fn station() -> RadioStation {
@@ -744,6 +1152,22 @@ mod tests {
     }
 
     #[test]
+    fn north_station_branding_is_not_a_current_song_but_artist_tracks_remain() {
+        let mut north = station();
+        north.id = "the-north".into();
+        north.name = "The North 103.3".into();
+        let branding = icy_track_metadata(
+            &north,
+            "The North 103.3 FM. Independent. Intelligent. Diverse. Radio.",
+        );
+        assert!(is_station_branding_title(&north, &branding));
+        let song = icy_track_metadata(&north, "Artist - Song");
+        assert!(!is_station_branding_title(&north, &song));
+        assert_eq!(song.artist, "Artist");
+        assert_eq!(song.title, "Song");
+    }
+
+    #[test]
     fn history_deduplicates_only_adjacent_tracks_and_survives_store_reload() {
         let (_directory, store) = test_store();
         let track = |title: &str| RadioTrackMetadata {
@@ -805,7 +1229,7 @@ mod tests {
             )),
         };
         assert!(matches!(
-            recognition_policy(Some(&recent_match), now),
+            recognition_policy_for(Some(&recent_match), now, RecognitionMode::Automatic),
             RecognitionPolicy::Cached(_)
         ));
 
@@ -814,11 +1238,15 @@ mod tests {
             ..recent_match.clone()
         };
         assert!(matches!(
-            recognition_policy(Some(&no_match_attempt), now),
+            recognition_policy_for(Some(&no_match_attempt), now, RecognitionMode::Automatic),
             RecognitionPolicy::Skip(_)
         ));
         assert!(matches!(
-            recognition_policy(Some(&no_match_attempt), now + RECOGNITION_COOLDOWN),
+            recognition_policy_for(
+                Some(&no_match_attempt),
+                now + RECOGNITION_COOLDOWN,
+                RecognitionMode::Automatic,
+            ),
             RecognitionPolicy::Capture
         ));
 
@@ -827,7 +1255,11 @@ mod tests {
             ..recent_match
         };
         assert!(matches!(
-            recognition_policy(Some(&expired_match), now + RECOGNITION_COOLDOWN),
+            recognition_policy_for(
+                Some(&expired_match),
+                now + RECOGNITION_COOLDOWN,
+                RecognitionMode::Automatic,
+            ),
             RecognitionPolicy::Capture
         ));
     }
@@ -841,9 +1273,186 @@ mod tests {
             cached: None,
         };
         assert!(matches!(
-            recognition_policy(Some(&in_flight), now),
+            recognition_policy_for(Some(&in_flight), now, RecognitionMode::Automatic),
             RecognitionPolicy::Skip(_)
         ));
+    }
+
+    #[test]
+    fn songrec_parser_accepts_mock_result_and_handles_no_match() {
+        let station = station();
+        let parsed = parse_songrec_output(
+            &station,
+            br#"{"track":{"title":"Song","subtitle":"Artist"}}"#.to_vec(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.artist, "Artist");
+        assert_eq!(parsed.title, "Song");
+        assert!(parsed.metadata_confidence.contains("SongRec"));
+        assert!(parse_songrec_output(&station, Vec::new())
+            .unwrap()
+            .is_none());
+        assert!(parse_songrec_output(&station, b"not-json".to_vec()).is_err());
+    }
+
+    #[tokio::test]
+    async fn played_sample_policy_skips_capture_during_automatic_cooldown() {
+        let mut station = station();
+        station.id = format!("played-sample-test-{}", uuid::Uuid::new_v4());
+        recognition_states()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(
+                station.id.clone(),
+                RecognitionState {
+                    attempted_at: Instant::now(),
+                    in_flight: false,
+                    cached: None,
+                },
+            );
+        let captures = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let capture_count = captures.clone();
+        let (_track, note) = recognize_played_sample_with_capture(&station, false, || async move {
+            capture_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(std::path::PathBuf::from("unused.wav"))
+        })
+        .await
+        .unwrap();
+        assert!(note.unwrap().contains("tried recently"));
+        assert_eq!(captures.load(std::sync::atomic::Ordering::SeqCst), 0);
+        recognition_states()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&station.id);
+    }
+
+    #[tokio::test]
+    async fn cancelled_played_sample_releases_station_singleflight() {
+        let mut station = station();
+        station.id = format!("played-sample-cancel-{}", uuid::Uuid::new_v4());
+        let station_id = station.id.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            recognize_station_track_with(&station, RecognitionMode::Automatic, || async move {
+                let _ = started_tx.send(());
+                std::future::pending::<Result<Option<RadioTrackMetadata>, String>>().await
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+        assert!(
+            recognition_states()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .get(&station_id)
+                .unwrap()
+                .in_flight
+        );
+        task.abort();
+        let _ = task.await;
+        assert!(
+            !recognition_states()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .get(&station_id)
+                .unwrap()
+                .in_flight
+        );
+        recognition_states()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&station_id);
+    }
+
+    #[tokio::test]
+    async fn manual_identification_ignores_cached_metadata_and_respects_cooldown_and_singleflight()
+    {
+        let mut station = station();
+        station.id = format!("manual-test-{}", uuid::Uuid::new_v4());
+        let now = Instant::now();
+        let stale = RadioTrackMetadata {
+            station_id: station.id.clone(),
+            artist: "Old artist".into(),
+            title: "Old track".into(),
+            album: None,
+            year: None,
+            artwork_url: None,
+            source_url: station.source_url.clone(),
+            observed_at: None,
+            metadata_confidence: "stale cached result".into(),
+        };
+        recognition_states()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(
+                station.id.clone(),
+                RecognitionState {
+                    attempted_at: now - RECOGNITION_COOLDOWN,
+                    in_flight: false,
+                    cached: Some((stale, now + RECOGNITION_COOLDOWN)),
+                },
+            );
+
+        let captures = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let capture_count = captures.clone();
+        let fresh = RadioTrackMetadata {
+            station_id: station.id.clone(),
+            artist: "Fresh artist".into(),
+            title: "Fresh track".into(),
+            album: None,
+            year: None,
+            artwork_url: None,
+            source_url: station.source_url.clone(),
+            observed_at: None,
+            metadata_confidence: "mock SongRec result".into(),
+        };
+        let (identified, note) =
+            recognize_station_track_with(&station, RecognitionMode::Manual, || async move {
+                capture_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(Some(fresh))
+            })
+            .await
+            .unwrap();
+        assert_eq!(identified.unwrap().title, "Fresh track");
+        assert!(note.is_none());
+        assert_eq!(captures.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let capture_count = captures.clone();
+        let (suppressed, note) =
+            recognize_station_track_with(&station, RecognitionMode::Manual, || async move {
+                capture_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(None)
+            })
+            .await
+            .unwrap();
+        assert!(suppressed.is_none());
+        assert!(note.unwrap().contains("cooldown"));
+        assert_eq!(captures.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        {
+            let mut states = recognition_states()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let state = states.get_mut(&station.id).unwrap();
+            state.in_flight = true;
+            state.attempted_at = now - RECOGNITION_COOLDOWN;
+        }
+        let capture_count = captures.clone();
+        let (suppressed, note) =
+            recognize_station_track_with(&station, RecognitionMode::Manual, || async move {
+                capture_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(None)
+            })
+            .await
+            .unwrap();
+        assert!(suppressed.is_none());
+        assert!(note.unwrap().contains("already running"));
+        assert_eq!(captures.load(std::sync::atomic::Ordering::SeqCst), 1);
+        recognition_states()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&station.id);
     }
 
     #[tokio::test]

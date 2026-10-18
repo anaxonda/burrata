@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-analysis-status-for-assets"
+description = "Enables the get_analysis_status_for_assets command without any pre-configured scope."
+commands.allow = ["get_analysis_status_for_assets"]
+
+[[permission]]
+identifier = "deny-get-analysis-status-for-assets"
+description = "Denies the get_analysis_status_for_assets command without any pre-configured scope."
+commands.deny = ["get_analysis_status_for_assets"]

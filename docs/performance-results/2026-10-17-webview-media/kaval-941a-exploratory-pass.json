@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "engine": "webview",
+  "mode": "kaval-default",
+  "binarySha256": "941a59f361285c3cdd7425d484d4b3dafd8bd5cf078a0fa2c2f65bcff6bf9399",
+  "pass": true,
+  "physicalAudibilityMeasured": false,
+  "steps": [
+    {
+      "step": "startup",
+      "pass": true,
+      "trackId": "spotify:64rvuYgKLuIHqacdZZiwPr",
+      "sessionId": "cae08d3c-3722-40fc-8048-530339d7cdf6",
+      "sourceGeneration": 1792224098153001,
+      "readyState": 4,
+      "actualPaused": false,
+      "actualCurrentTime": 6.384147,
+      "decodedDuration": 131.726,
+      "expectedDuration": 131,
+      "progressed": true,
+      "sustained": {
+        "wallMs": 5548.69623,
+        "advancedMs": 5553.146,
+        "observations": 9,
+        "physicalAudibilityMeasured": false
+      },
+      "localFixtureIdentity": null,
+      "provider": null,
+      "providerId": null,
+      "identityLimitation": "Natural resolver source recording identity is unproven"
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "paused": true,
+      "currentTime": 10,
+      "seekSerialAdvanced": true,
+      "generation": 1792224098153001
+    },
+    {
+      "step": "resume_progress",
+      "pass": true,
+      "sustained": {
+        "wallMs": 5356.354854000001,
+        "advancedMs": 5363.863,
+        "observations": 9,
+        "physicalAudibilityMeasured": false
+      },
+      "paused": false,
+      "currentTime": 16.15164
+    }
+  ],
+  "sourceIdentityQualified": false,
+  "staleMediaSampleRetries": 0,
+  "skewRetryCount": 0,
+  "occurrenceIdsAvailable": true,
+  "singleTrackIdentityOnly": false,
+  "providerPreferences": {
+    "preferredStreamingSource": "monochrome",
+    "streamingFallbackEnabled": true,
+    "streamingFallbackSources": [
+      "youtube",
+      "soundcloud"
+    ],
+    "streamingFallbackDelayMs": 1500
+  },
+  "engineSnapshot": null,
+  "initialMedia": {
+    "engine": "webview",
+    "applicable": true,
+    "currentIndex": 0,
+    "queueTotal": 1,
+    "sourceGeneration": 1792224098153001,
+    "seekSerial": 0,
+    "media": {
+      "currentTime": 0.345354,
+      "duration": 131.726,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "catalogueDurationSeconds": 131,
+    "sourceIdentityQualified": false
+  },
+  "sourceDiagnostics": {
+    "lastResolvedSource": {
+      "headerPolicy": {
+        "authorization": false,
+        "cookie": false,
+        "headerCount": 0,
+        "origin": false,
+        "other": false,
+        "referer": false,
+        "userAgent": false
+      },
+      "id": "monochrome:188668061304786944",
+      "provider": "monochrome"
+    },
+    "lastMediaFailureSource": null,
+    "lastMediaFailure": null,
+    "playerMessage": "Playing monochrome audio",
+    "status": "playing",
+    "queueEntryIds": [
+      "7b6ed704-6970-45f4-ab50-bc632978ba00"
+    ],
+    "entryId": "7b6ed704-6970-45f4-ab50-bc632978ba00"
+  },
+  "pausedFinally": true,
+  "observerOverhead": {
+    "guardCalls": 78,
+    "guardWallMs": 12128.116577,
+    "limits": "Functional observer overhead only; no CPU, latency percentile or performance qualification"
+  },
+  "interpretation": "One isolated muted WebView functional pass with Monochrome candidate identity and zero required headers observed. The prior network failure was not reproduced; this does not prove causality, recording-match correctness, physical audibility, percentile latency or sustained reliability.",
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-provider-dd7294c2caba/burrata",
+  "sha256": "dd7294c2caba9e34c63d00956f439a8e840629033081db7f3442de7239b0b751",
+  "profile": "development GUI unoptimized+debuginfo",
+  "sources": {
+    "src-tauri/src/managed_provider_session.rs": "e66ba6b43d5798660e1528db52f7180d644b54ae62219bc6de649b95742d0888",
+    "src-tauri/src/storage.rs": "60f2e56ab2d9862acb28c0582b213ac1da16fb7a436b8a1208be73f24f3a7c54",
+    "src-tauri/src/automation.rs": "c7d14562dde21e560cdbac0aae7bc7cabc16fe4a39e3cc0d1b7f9a285126d768",
+    "src-tauri/src/main_ui_capture.rs": "b480292eaaa949a57effce13fc3b59f8ca181f852a36f504111e75dca53e48a5",
+    "src-tauri/src/lib.rs": "09ea9a42a5c62a7dd9e9fbc2200265f3207f036074bedf095b26a41ddf88d75c",
+    "src-tauri/Cargo.toml": "264145d64632d6f734d759b2edb23b837daed7fbdf0ea3a5963a7ff9deb6323f",
+    "src-tauri/Cargo.lock": "04d74cafc87766ca38c34726119e0ab6b830696cf0d18753fefaf1457b51961c",
+    "extension/provider-operations.js": "017b6596b793601cf3488eedb7bcb3ec6072b477b11a1c243dc15a2bd7bca165",
+    "scripts/provider-session-worker.mjs": "6787ab3925ac00c441e84e36985e8bee3b31b7d73e56c858f244cf3b29e9dd41",
+    "extension/youtube-session-provider.js": "2ceeb76a3b7ade031e09b7fa97ede8bf8294c0cc853dca97941aa59ccd207c98",
+    "scripts/youtube-session-worker.mjs": "26d4d021b7bd802dd6639ca1614a7f023c239f006e70df5e7f229f36e8d09f2a",
+    "src/App.svelte": "713f055b39e36b03d6a9f2480c1b0b4a249694aaea9dc559e34f75ca8e77239f"
+  },
+  "removedCargoAliases": [
+    "/home/loki/projects/burrata/.cache/verification-target/debug/deps/burrata-1be9a6b8c8597b36"
+  ],
+  "qualification": "Compiled 3m00s32warnings. Native776pass16ignored15.95s;YT45/Spotify22/adapter16/MCP3/contracts7 pass;App206/check0/0/frontendbuild baseline passes. Live current pending."
+}

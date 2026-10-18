@@ -1,0 +1,95 @@
+{
+  "elements": [
+    {
+      "clientWidth": 1914,
+      "height": 168.5,
+      "inViewport": true,
+      "present": true,
+      "role": "footer",
+      "scrollWidth": 1914,
+      "visible": true,
+      "width": 1914,
+      "x": 0,
+      "y": 311.5
+    },
+    {
+      "clientWidth": 704,
+      "height": 77.5,
+      "inViewport": true,
+      "present": true,
+      "role": "now_playing",
+      "scrollWidth": 704,
+      "visible": true,
+      "width": 705.55,
+      "x": 20,
+      "y": 322.5
+    },
+    {
+      "clientWidth": 847,
+      "height": 34,
+      "inViewport": true,
+      "present": true,
+      "role": "transport",
+      "scrollWidth": 847,
+      "visible": true,
+      "width": 846.67,
+      "x": 745.55,
+      "y": 333.25
+    },
+    {
+      "clientWidth": 847,
+      "height": 17,
+      "inViewport": true,
+      "present": true,
+      "role": "scrubber",
+      "scrollWidth": 847,
+      "visible": true,
+      "width": 846.67,
+      "x": 745.55,
+      "y": 372.25
+    },
+    {
+      "clientWidth": 282,
+      "height": 32,
+      "inViewport": true,
+      "present": true,
+      "role": "right",
+      "scrollWidth": 282,
+      "visible": true,
+      "width": 281.78,
+      "x": 1612.22,
+      "y": 345.25
+    },
+    {
+      "clientWidth": 90,
+      "height": 14,
+      "inViewport": true,
+      "present": true,
+      "role": "quality",
+      "scrollWidth": 90,
+      "visible": true,
+      "width": 90.34,
+      "x": 85,
+      "y": 380
+    },
+    {
+      "clientWidth": 1870,
+      "height": 50,
+      "inViewport": true,
+      "present": true,
+      "role": "error",
+      "scrollWidth": 1870,
+      "visible": true,
+      "width": 1874,
+      "x": 20,
+      "y": 420
+    }
+  ],
+  "findings": [],
+  "footerHeight": 168.5,
+  "schemaVersion": 1,
+  "viewport": {
+    "height": 480,
+    "width": 1914
+  }
+}

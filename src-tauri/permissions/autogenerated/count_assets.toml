@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-count-assets"
+description = "Enables the count_assets command without any pre-configured scope."
+commands.allow = ["count_assets"]
+
+[[permission]]
+identifier = "deny-count-assets"
+description = "Denies the count_assets command without any pre-configured scope."
+commands.deny = ["count_assets"]

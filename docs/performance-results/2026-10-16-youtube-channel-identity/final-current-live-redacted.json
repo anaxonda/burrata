@@ -1,0 +1,31 @@
+{
+  "build": "425197c84134bd1484a4e9e16e50092d1fddd5749007907aec9956e6fefa1d5d",
+  "youtube": {
+    "pages": [
+      116,
+      113
+    ],
+    "firstHasCursor": true,
+    "secondHasCursor": false,
+    "complete": [
+      false,
+      false
+    ],
+    "total": [
+      null,
+      null
+    ]
+  },
+  "playback": {
+    "queueTotal": 200,
+    "currentIndex": 5,
+    "position": 15.242102,
+    "paused": true
+  },
+  "artwork": "Valid cached JPEG still displays placeholder in owned screenshot; startup scope fix not qualified.",
+  "layout": {
+    "width": 954,
+    "height": 1036,
+    "findings": []
+  }
+}

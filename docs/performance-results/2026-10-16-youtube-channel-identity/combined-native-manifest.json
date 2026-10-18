@@ -1,0 +1,11 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-tests-provider-ui-219eea6e0462/burrata_lib",
+  "sha256": "219eea6e04623d11fc51a75dbab3d7802aa409af1f3ab40bb17f1f2bb396e2cd",
+  "sources": {
+    "src-tauri/src/managed_provider_session.rs": "e66ba6b43d5798660e1528db52f7180d644b54ae62219bc6de649b95742d0888",
+    "src-tauri/src/storage.rs": "60f2e56ab2d9862acb28c0582b213ac1da16fb7a436b8a1208be73f24f3a7c54",
+    "src-tauri/src/automation.rs": "c7d14562dde21e560cdbac0aae7bc7cabc16fe4a39e3cc0d1b7f9a285126d768",
+    "src-tauri/src/main_ui_capture.rs": "b480292eaaa949a57effce13fc3b59f8ca181f852a36f504111e75dca53e48a5",
+    "src-tauri/Cargo.lock": "04d74cafc87766ca38c34726119e0ab6b830696cf0d18753fefaf1457b51961c"
+  }
+}

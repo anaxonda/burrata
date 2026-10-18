@@ -1,0 +1,17 @@
+{
+  "resumeCalledOnce": true,
+  "resumeRequestOutcome": "MCP request timed out; no retry",
+  "noSeek": true,
+  "noQueueWrites": true,
+  "knownPreRestartPrefixRows": 50,
+  "preRestartTotal": 200,
+  "fullPreRestartQueueProofMissing": true,
+  "entryIdsAbsent": true,
+  "postRestartQueue200Unchanged": true,
+  "currentIdentityUnchanged": true,
+  "beforePosition": 89.003239,
+  "afterPosition": 89.003239,
+  "afterPaused": false,
+  "afterStatus": "buffering",
+  "engineExplicit": null
+}

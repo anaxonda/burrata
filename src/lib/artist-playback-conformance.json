@@ -1,0 +1,49 @@
+{
+  "cases": [
+    {
+      "name": "exact artist title version and duration",
+      "sourceTrack": {"id":"catalog:1","provider":"catalog","providerId":"1","sourceUrl":"https://example.invalid/1","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false},
+      "assets": [{"id":"asset:1","recordingId":"fixture:1","path":"/Music/song.flac","hash":"hash-1","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:1","provider":"local","providerId":"1","sourceUrl":"","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false,"localAvailability":"available","localPath":"/Music/song.flac"}}],
+      "expectedAssetId": "asset:1"
+    },
+    {
+      "name": "duplicate exact copies remain ambiguous",
+      "sourceTrack": {"id":"catalog:1","provider":"catalog","providerId":"1","sourceUrl":"https://example.invalid/1","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false},
+      "assets": [
+        {"id":"asset:1","recordingId":"fixture:1","path":"/Music/one.flac","hash":"hash-1","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:1","provider":"local","providerId":"1","sourceUrl":"","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false,"localAvailability":"available","localPath":"/Music/one.flac"}},
+        {"id":"asset:2","recordingId":"fixture:1","path":"/Music/two.flac","hash":"hash-2","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:1","provider":"local","providerId":"1","sourceUrl":"","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false,"localAvailability":"available","localPath":"/Music/two.flac"}}
+      ],
+      "expectedAssetId": null
+    },
+    {
+      "name": "different version is not a match",
+      "sourceTrack": {"id":"catalog:1","provider":"catalog","providerId":"1","sourceUrl":"https://example.invalid/1","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false},
+      "assets": [{"id":"asset:1","recordingId":"fixture:1","path":"/Music/song.flac","hash":"hash-1","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:1","provider":"local","providerId":"1","sourceUrl":"","artist":"Gillian Welch","title":"Caleb Meyer","version":"Live","durationSeconds":200,"favorite":false,"localAvailability":"available","localPath":"/Music/song.flac"}}],
+      "expectedAssetId": null
+    },
+    {
+      "name": "duration mismatch is not a match",
+      "sourceTrack": {"id":"catalog:1","provider":"catalog","providerId":"1","sourceUrl":"https://example.invalid/1","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false},
+      "assets": [{"id":"asset:1","recordingId":"fixture:1","path":"/Music/song.flac","hash":"hash-1","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:1","provider":"local","providerId":"1","sourceUrl":"","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":204,"favorite":false,"localAvailability":"available","localPath":"/Music/song.flac"}}],
+      "expectedAssetId": null
+    },
+    {
+      "name": "unavailable local track is not a match",
+      "sourceTrack": {"id":"catalog:1","provider":"catalog","providerId":"1","sourceUrl":"https://example.invalid/1","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false},
+      "assets": [{"id":"asset:1","recordingId":"fixture:1","path":"/Music/missing.flac","hash":"hash-1","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:1","provider":"local","providerId":"1","sourceUrl":"","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false,"localAvailability":"missing"}}],
+      "expectedAssetId": null
+    },
+    {
+      "name": "empty local path on an available source still permits a unique match",
+      "sourceTrack": {"id":"catalog:empty-path","provider":"catalog","providerId":"empty-path","sourceUrl":"https://example.invalid/empty-path","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false,"localAvailability":"available","localPath":""},
+      "assets": [{"id":"asset:empty-path","recordingId":"fixture:empty-path","path":"/Music/song.flac","hash":"hash-empty-path","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:empty-path","provider":"local","providerId":"empty-path","sourceUrl":"","artist":"Gillian Welch","title":"Caleb Meyer","version":"","durationSeconds":200,"favorite":false,"localAvailability":"available","localPath":"/Music/song.flac"}}],
+      "expectedAssetId": "asset:empty-path"
+    },
+    {
+      "name": "featured exact credit matches after NFKC whitespace normalization",
+      "sourceTrack": {"id":"catalog:2","provider":"catalog","providerId":"2","sourceUrl":"https://example.invalid/2","artist":"Ａster\u00a0feat. Guest","title":"Song","version":null,"durationSeconds":null,"favorite":false},
+      "assets": [{"id":"asset:featured","recordingId":"fixture:2","path":"/Music/featured.flac","hash":"hash-featured","sourceCodec":"flac","finalCodec":"flac","processing":"fixture","track":{"id":"fixture:2","provider":"local","providerId":"2","sourceUrl":"","artist":"Aster feat. Guest","title":"Song","version":"","durationSeconds":99,"favorite":false,"localAvailability":"available","localPath":"/Music/featured.flac"}}],
+      "expectedAssetId": "asset:featured"
+    }
+  ]
+}

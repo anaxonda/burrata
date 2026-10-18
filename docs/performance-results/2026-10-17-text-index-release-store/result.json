@@ -1,0 +1,83 @@
+{
+  "status": "pass",
+  "build": "release",
+  "scope": "actual Store; not whole-app/audio/platform qualification",
+  "binarySha256": "1bd1b429dbbda8413169acdfef844b21486b7fe8078981a983f7180fdd8910d9",
+  "storageSourceSha256": "bc770b49082a209443b4143aa1b8c5a98e0bbf67e3a3009f5f51c6ea6524f285",
+  "environment": {
+    "tmpdir": "/tmp fresh dedicated scratch",
+    "sqliteTmpdir": "/tmp fresh dedicated scratch",
+    "priorFailureRetained": true
+  },
+  "runtime": {
+    "elapsedSeconds": 171.61,
+    "userSeconds": 131.46,
+    "systemSeconds": 39.27,
+    "maxRssKiB": 154676,
+    "maxRssMiB": 151.05,
+    "fileSystemInputs": 1280,
+    "fileSystemOutputs": 136,
+    "swaps": 0,
+    "exitStatus": 0
+  },
+  "resources": {
+    "sampleCount": 87,
+    "maxScratchBytes": 266550424,
+    "maxSampledFile": {
+      "name": "indexed.sqlite",
+      "bytes": 130949120
+    },
+    "minAvailableBytes": 3220271104
+  },
+  "open": {
+    "baselineDatabaseBytes": 126918656,
+    "baselineIndexCount": 0,
+    "baselineOpenMicros": 1995,
+    "indexedDatabaseBytes": 130506752,
+    "indexedIndexCount": 4,
+    "indexedOpenMicros": 1514501,
+    "projectionRows": 50000,
+    "rows": 50000
+  },
+  "update": {
+    "baselineUpdateAndBackfillMicros": 174154,
+    "indexedUpdateAndBackfillMicros": 264806,
+    "includesManualMetadataInvalidationAndProjectionBackfill": true,
+    "postUpdateParity": true,
+    "rowsUpdated": 200
+  },
+  "reopen": {
+    "coverage": "actual_store_reopen_existing_indexes_no_index_rebuild_expected",
+    "indexedExistingContractReopenMicros": 1964,
+    "persistedIndexCount": 4
+  },
+  "complete": {
+    "allPhasesComplete": true,
+    "manualUpdates": 200,
+    "parityCases": 4,
+    "readPairs": 160,
+    "rows": 50000
+  },
+  "cases": [
+    {"field":"artist","direction":"asc","offset":0,"pairs":20,"baseline":{"medianMicros":328892.0,"p95Micros":347742,"worstMicros":359399},"indexed":{"medianMicros":55368.0,"p95Micros":62286,"worstMicros":63960}},
+    {"field":"artist","direction":"asc","offset":25000,"pairs":20,"baseline":{"medianMicros":755682.5,"p95Micros":825499,"worstMicros":839913},"indexed":{"medianMicros":120653.0,"p95Micros":149142,"worstMicros":158616}},
+    {"field":"artist","direction":"desc","offset":0,"pairs":20,"baseline":{"medianMicros":334955.5,"p95Micros":345591,"worstMicros":367313},"indexed":{"medianMicros":55898.5,"p95Micros":60536,"worstMicros":73270}},
+    {"field":"artist","direction":"desc","offset":25000,"pairs":20,"baseline":{"medianMicros":764998.0,"p95Micros":816675,"worstMicros":856504},"indexed":{"medianMicros":129868.0,"p95Micros":147904,"worstMicros":148610}},
+    {"field":"title","direction":"asc","offset":0,"pairs":20,"baseline":{"medianMicros":342659.5,"p95Micros":378769,"worstMicros":383618},"indexed":{"medianMicros":53663.0,"p95Micros":62601,"worstMicros":62671}},
+    {"field":"title","direction":"asc","offset":25000,"pairs":20,"baseline":{"medianMicros":930064.0,"p95Micros":993446,"worstMicros":1048338},"indexed":{"medianMicros":116694.5,"p95Micros":132130,"worstMicros":132257}},
+    {"field":"title","direction":"desc","offset":0,"pairs":20,"baseline":{"medianMicros":341044.0,"p95Micros":386993,"worstMicros":412595},"indexed":{"medianMicros":54700.0,"p95Micros":57874,"worstMicros":67651}},
+    {"field":"title","direction":"desc","offset":25000,"pairs":20,"baseline":{"medianMicros":895836.5,"p95Micros":935468,"worstMicros":943247},"indexed":{"medianMicros":113109.0,"p95Micros":135248,"worstMicros":136616}}
+  ],
+  "comparisonCaveat": "Within-run baseline/indexed comparison is matched. Do not attribute cross-report debug/release changes solely to optimization: the debug run used workspace TMPDIR, while this retry used fresh /tmp TMPDIR and SQLITE_TMPDIR.",
+  "failedAttempt": {
+    "retainedArtifact": ".cache/qualification-text-index-release/run.log",
+    "observed": "Exited after about 31 seconds with disk I/O error during availability backfill.",
+    "retryOutcome": "Passed after cleanup and fresh temporary storage.",
+    "causeEstablished": false
+  },
+  "adoption": {
+    "defaultOff": true,
+    "productionStoreChanged": false,
+    "promotion": false
+  }
+}

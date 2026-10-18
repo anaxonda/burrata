@@ -1,0 +1,11 @@
+attempt,candidateCount,case,clientName,codec,decodeWallMs,decodedAudioMs,decodedFrames,errorType,extractionMs,failure,firstPcmMs,helperCpuMs,helperRssBytes,infoCacheHit,ok,preparedMs,reason,recordingVerified,searchMs,source,stage,wallMs
+1,10,,,,,,,,,,,,,,True,2891.767363,,False,698.1397969999998,web-attempts.json,,
+2,,,,,,,,,,PROVIDER_FAILED,,,,,False,,,,,web-attempts.json,,
+3,,,,,,,,,,PROVIDER_FAILED,,,,,False,,,,,web-attempts.json,decipher,
+4,,,,,,,,Error,,PROVIDER_FAILED,,,,,False,,,,,web-attempts.json,decipher,
+5,,,,,,,,Error,,PROVIDER_FAILED,,,,,False,,NO_STREAM_URL,,,web-attempts.json,decipher,
+1,,,MWEB,"audio/mp4; codecs=""mp4a.40.2""",504.11792499999956,5000,240000,,218.34398099999999,,452.2175550000002,5834.084,423251968,False,True,5415.894248,,True,,initial-mweb-attempt.json,,6139.033541
+1,,cold-play,MWEB,"audio/mp4; codecs=""mp4a.40.2""",953.0132249999997,5000,240000,,313.65898500000003,,889.0913490000003,5881.683,420585472,False,True,5235.356822,,True,,mweb-attempts.json,,6502.818996
+2,,warm-replay,MWEB,"audio/mp4; codecs=""mp4a.40.2""",491.9552110000004,5000,240000,,1.1200639999988198,,397.1998430000003,22.243,422289408,True,True,0.028647999999520835,,True,,mweb-attempts.json,,493.36959299999944
+3,,warm-seek-middle,MWEB,"audio/mp4; codecs=""mp4a.40.2""",405.6631730000008,5000,240000,,0.7892259999989619,,381.93779299999915,13.651,424386560,True,True,0.032282000000122935,,True,,mweb-attempts.json,,406.66678200000024
+4,,warm-seek-end,MWEB,"audio/mp4; codecs=""mp4a.40.2""",623.7018939999998,5000,240000,,0.764736000000994,,548.7351729999991,18.559,426483712,True,True,0.030936999999539694,,True,,mweb-attempts.json,,624.6458180000009

@@ -23,12 +23,19 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
     ("credential-note", re.compile(r"(?i)^\s*(?:api[ _-]*key|shared[ _-]*secret)\s*(?:[:=]|\t)\s*([A-Za-z0-9_./+=-]{16,})")),
+    # Require a quoted literal. Bare values at line start are handled by
+    # credential-note below. This avoids treating expressions such as
+    # `url.searchParams.get(...)` as if the expression text were a secret.
     ("provider-api-key", re.compile(
-        r"(?i)\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|password|secret)"
-        r"\s*[:=]\s*[\"']?([A-Za-z0-9_./+=-]{16,})"
+        r"(?i)\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|password|secret)\b[\"']?"
+        r"\s*[:=]\s*([\"'])([^\"'\r\n]{16,})\1"
+    )),
+    ("provider-api-key-bare", re.compile(
+        r"(?i)^\s*(?:export\s+)?(?:api[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|password|secret)"
+        r"\s*[:=]\s*([A-Za-z0-9_./+=-]{16,})\s*(?:#.*)?$"
     )),
 )
-PLACEHOLDER = re.compile(r"(?i)(?:example|sample|dummy|fake|change[-_ ]?(?:me|to)|replace[-_ ]?me|redacted|your[-_ ]|\$\{|\$[A-Z_]+|<[^>]+>|\*{3,})")
+PLACEHOLDER = re.compile(r"(?i)(?:example|sample|dummy|fake|test[-_]?fixture[-_]?credential[-_]?[a-f0-9]{10}|change[-_ ]?(?:me|to)|replace[-_ ]?me|redacted|your[-_ ]|\$\{|\$[A-Z_]+|<[^>]+>|\*{3,})")
 
 
 def tracked_paths() -> list[Path] | None:
@@ -71,13 +78,12 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
     for line_number, line in enumerate(content.splitlines(), 1):
         for name, pattern in PATTERNS:
-            match = pattern.search(line)
-            if not match:
-                continue
-            value = match.group(1) if name in {"provider-api-key","credential-note"} else match.group(0)
-            if name in {"provider-api-key","credential-note"} and PLACEHOLDER.search(value):
-                continue
-            findings.append((line_number, name))
+            for match in pattern.finditer(line):
+                value = match.group(2) if name == "provider-api-key" else (match.group(1) if name in {"credential-note", "provider-api-key-bare"} else match.group(0))
+                if name in {"provider-api-key", "provider-api-key-bare", "credential-note"} and PLACEHOLDER.search(value):
+                    continue
+                findings.append((line_number, name))
+                break
     return findings
 
 

@@ -1,0 +1,20 @@
+{
+  "binarySha256": "373849b5cdcbc805568e2c48472676df7c91df2a7894676b31dc1893ba02723f",
+  "engine": "webview",
+  "workload": "one imported recording playback via shared resolver",
+  "qualification": "failed",
+  "observedClientTimeoutMs": 25000,
+  "appExitCode": 139,
+  "signal": "SIGSEGV",
+  "thread": "tokio-rt-worker",
+  "topFrame": "tokio::time::timeout::timeout<playback_sources::resolve_inner future>",
+  "callerFrames": [
+    "playback_sources::within_deadline",
+    "playback_sources::resolve",
+    "resolve_with_playback_budget",
+    "resolve_playback_track"
+  ],
+  "lastSafePhase": "resolution_start",
+  "diagnosis": "Suspected stack exhaustion constructing/moving a large unboxed resolver future; fix and live verification pending. No evidence of SQLite lock contention.",
+  "privacy": "No raw core, arguments, session data, URLs or credentials are included."
+}

@@ -1,0 +1,136 @@
+{
+  "benchmark": "first_page_global_sort_availability",
+  "contentionEnabled": true,
+  "cpuTimeReported": false,
+  "endToEnd": false,
+  "fixtures": [
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 50.322291,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 61.647546999999996,
+        "warmups": 3,
+        "worstMs": 64.921873
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 51.760889999999996,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 56.015648,
+        "warmups": 3,
+        "worstMs": 59.013154
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 1000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 61.248011999999996,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 74.450815,
+        "warmups": 3,
+        "worstMs": 86.224507
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 59.535432,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 72.29833099999999,
+        "warmups": 3,
+        "worstMs": 73.240342
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 5000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 119.775317,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 131.008129,
+        "warmups": 3,
+        "worstMs": 134.09990299999998
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 110.517693,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 119.803297,
+        "warmups": 3,
+        "worstMs": 140.526297
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 20000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": {
+        "fixture": "50,000-row ready source-order page and concurrent favorite write sharing one Store mutex",
+        "measuredPairs": 20,
+        "note": "Contention observations are reported separately and excluded from uncontended qualification samples.",
+        "readerFirstPage": {
+          "measured": 20,
+          "medianMs": 262.129906,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 291.190936,
+          "warmups": 3,
+          "worstMs": 292.778817
+        },
+        "warmups": 3,
+        "writerFavoriteUpdate": {
+          "measured": 20,
+          "medianMs": 6.0347159999999995,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 258.01758800000005,
+          "warmups": 3,
+          "worstMs": 281.961928
+        }
+      },
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 244.934339,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 270.98327,
+        "warmups": 3,
+        "worstMs": 272.28729400000003
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 204.701406,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 231.112913,
+        "warmups": 3,
+        "worstMs": 240.531015
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 50000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    }
+  ],
+  "guiIncluded": false,
+  "scope": "actual Store storage microbenchmark; excludes GUI and end-to-end application work",
+  "sparseFixture": false
+}

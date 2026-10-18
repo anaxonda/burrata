@@ -94,6 +94,11 @@ export function activeChapter(chapters: readonly Chapter[], position: number): C
   return chapters.find((chapter) => validChapterRange(chapter) && position >= chapter.startTime && position < chapter.endTime) ?? null;
 }
 
+/** Match a native chapter report to the candidate's canonical chapter by its exact source range. */
+export function chapterForRange(chapters: readonly Chapter[], range: Pick<PlaybackRange, "startTime" | "endTime">): Chapter | null {
+  return chapters.find((chapter) => chapter.startTime === range.startTime && chapter.endTime === range.endTime) ?? null;
+}
+
 function clamp(value: number, low: number, high: number): number {
   return Math.max(low, Math.min(high, Number.isFinite(value) ? value : low));
 }

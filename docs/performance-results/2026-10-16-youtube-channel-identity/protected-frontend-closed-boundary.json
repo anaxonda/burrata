@@ -1,0 +1,26 @@
+{
+  "mainStopped": true,
+  "externalViteStopped": true,
+  "port1420Free": true,
+  "noBurrataProcess": true,
+  "main": {
+    "pid": 3379608,
+    "uid": 1000,
+    "exe": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-artist-profile-4335018e06a7/burrata",
+    "cwd": "/home/loki/projects/burrata",
+    "cmdline": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-artist-profile-4335018e06a7/burrata ",
+    "startTicks": "38352594",
+    "parent": 3379290,
+    "executableSha256": "4335018e06a7dfb9a64488c0873ac0feeeca347d4ff8e9dcf3f8f4663dfd8034"
+  },
+  "vite": {
+    "pid": 910643,
+    "uid": 1000,
+    "exe": "/usr/bin/node",
+    "cwd": "/home/loki/projects/burrata",
+    "cmdline": "node /home/loki/projects/burrata/node_modules/.bin/vite --configLoader runner --host 127.0.0.1 --strictPort ",
+    "startTicks": "26175811",
+    "parent": 910628,
+    "executableSha256": "63887e4f3f18b4809c06a253352c5c8c3bbe9df6c6ae902b831db7ab80f0401c"
+  }
+}

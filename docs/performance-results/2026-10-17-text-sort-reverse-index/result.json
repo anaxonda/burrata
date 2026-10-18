@@ -1,0 +1,633 @@
+{
+  "version": 1,
+  "scope": "In-memory expression sort microbenchmark only; excludes whole-Store queries, effective metadata preparation, count/index creation/update costs, resource usage, and development/release behavior.",
+  "testArtifactSha256": "c4af88f390a067112dcdc2625591417d69a7532c2f3683477606586248c861d7",
+  "completed": true,
+  "elapsedSeconds": 151.79,
+  "rows": 50000,
+  "cases": [
+    {
+      "field": "title",
+      "direction": "asc",
+      "rows": 50000,
+      "warmups": 3,
+      "timedPairs": 20,
+      "exactFullOrderParityRows": 50000,
+      "fullTempSort": false,
+      "plan": [
+        "SCAN catalog_listings USING INDEX bench_sort_title_asc"
+      ],
+      "candidate": {
+        "medianMs": 0.503603,
+        "p95Ms": 0.590471,
+        "worstMs": 0.6562049999999999
+      },
+      "reference": {
+        "medianMs": 1022.5564539999999,
+        "p95Ms": 1113.733559,
+        "worstMs": 1119.624307
+      },
+      "pairedSamples": [
+        {
+          "candidateMs": 0.5376270000000001,
+          "pair": 1,
+          "referenceMs": 982.146246
+        },
+        {
+          "candidateMs": 0.415286,
+          "pair": 2,
+          "referenceMs": 1011.6772229999999
+        },
+        {
+          "candidateMs": 0.581706,
+          "pair": 3,
+          "referenceMs": 995.4432800000001
+        },
+        {
+          "candidateMs": 0.455755,
+          "pair": 4,
+          "referenceMs": 1010.194563
+        },
+        {
+          "candidateMs": 0.590471,
+          "pair": 5,
+          "referenceMs": 1113.733559
+        },
+        {
+          "candidateMs": 0.470792,
+          "pair": 6,
+          "referenceMs": 1020.6448939999999
+        },
+        {
+          "candidateMs": 0.562646,
+          "pair": 7,
+          "referenceMs": 1032.6259479999999
+        },
+        {
+          "candidateMs": 0.429134,
+          "pair": 8,
+          "referenceMs": 1048.673427
+        },
+        {
+          "candidateMs": 0.571276,
+          "pair": 9,
+          "referenceMs": 1054.913051
+        },
+        {
+          "candidateMs": 0.449013,
+          "pair": 10,
+          "referenceMs": 1011.614885
+        },
+        {
+          "candidateMs": 0.5364140000000001,
+          "pair": 11,
+          "referenceMs": 1119.624307
+        },
+        {
+          "candidateMs": 0.46424299999999996,
+          "pair": 12,
+          "referenceMs": 1055.3133070000001
+        },
+        {
+          "candidateMs": 0.6562049999999999,
+          "pair": 13,
+          "referenceMs": 1022.7981619999999
+        },
+        {
+          "candidateMs": 0.453927,
+          "pair": 14,
+          "referenceMs": 1058.209388
+        },
+        {
+          "candidateMs": 0.556194,
+          "pair": 15,
+          "referenceMs": 1001.452889
+        },
+        {
+          "candidateMs": 0.432524,
+          "pair": 16,
+          "referenceMs": 1022.3147459999999
+        },
+        {
+          "candidateMs": 0.566923,
+          "pair": 17,
+          "referenceMs": 1043.697025
+        },
+        {
+          "candidateMs": 0.462558,
+          "pair": 18,
+          "referenceMs": 1022.3137470000001
+        },
+        {
+          "candidateMs": 0.5625180000000001,
+          "pair": 19,
+          "referenceMs": 981.99895
+        },
+        {
+          "candidateMs": 0.432368,
+          "pair": 20,
+          "referenceMs": 1064.344801
+        }
+      ]
+    },
+    {
+      "field": "title",
+      "direction": "desc",
+      "rows": 50000,
+      "warmups": 3,
+      "timedPairs": 20,
+      "exactFullOrderParityRows": 50000,
+      "fullTempSort": false,
+      "plan": [
+        "SCAN catalog_listings USING INDEX bench_sort_title_desc"
+      ],
+      "candidate": {
+        "medianMs": 0.5315155,
+        "p95Ms": 0.5931569999999999,
+        "worstMs": 0.605641
+      },
+      "reference": {
+        "medianMs": 766.6870765,
+        "p95Ms": 827.925131,
+        "worstMs": 844.498414
+      },
+      "pairedSamples": [
+        {
+          "candidateMs": 0.576406,
+          "pair": 1,
+          "referenceMs": 792.611892
+        },
+        {
+          "candidateMs": 0.456747,
+          "pair": 2,
+          "referenceMs": 844.498414
+        },
+        {
+          "candidateMs": 0.563383,
+          "pair": 3,
+          "referenceMs": 750.4580589999999
+        },
+        {
+          "candidateMs": 0.45923200000000003,
+          "pair": 4,
+          "referenceMs": 720.538658
+        },
+        {
+          "candidateMs": 0.562884,
+          "pair": 5,
+          "referenceMs": 827.925131
+        },
+        {
+          "candidateMs": 0.448241,
+          "pair": 6,
+          "referenceMs": 731.8120759999999
+        },
+        {
+          "candidateMs": 0.5931569999999999,
+          "pair": 7,
+          "referenceMs": 808.131327
+        },
+        {
+          "candidateMs": 0.516613,
+          "pair": 8,
+          "referenceMs": 748.807107
+        },
+        {
+          "candidateMs": 0.5652250000000001,
+          "pair": 9,
+          "referenceMs": 798.874511
+        },
+        {
+          "candidateMs": 0.436411,
+          "pair": 10,
+          "referenceMs": 785.020733
+        },
+        {
+          "candidateMs": 0.605641,
+          "pair": 11,
+          "referenceMs": 741.4951560000001
+        },
+        {
+          "candidateMs": 0.444071,
+          "pair": 12,
+          "referenceMs": 751.249986
+        },
+        {
+          "candidateMs": 0.5801820000000001,
+          "pair": 13,
+          "referenceMs": 818.511979
+        },
+        {
+          "candidateMs": 0.465418,
+          "pair": 14,
+          "referenceMs": 740.5318149999999
+        },
+        {
+          "candidateMs": 0.5675190000000001,
+          "pair": 15,
+          "referenceMs": 779.788098
+        },
+        {
+          "candidateMs": 0.462684,
+          "pair": 16,
+          "referenceMs": 799.6357790000001
+        },
+        {
+          "candidateMs": 0.546418,
+          "pair": 17,
+          "referenceMs": 764.0478069999999
+        },
+        {
+          "candidateMs": 0.42731,
+          "pair": 18,
+          "referenceMs": 769.3263460000001
+        },
+        {
+          "candidateMs": 0.554528,
+          "pair": 19,
+          "referenceMs": 757.75873
+        },
+        {
+          "candidateMs": 0.436078,
+          "pair": 20,
+          "referenceMs": 746.769429
+        }
+      ]
+    },
+    {
+      "field": "artist",
+      "direction": "asc",
+      "rows": 50000,
+      "warmups": 3,
+      "timedPairs": 20,
+      "exactFullOrderParityRows": 50000,
+      "fullTempSort": false,
+      "plan": [
+        "SCAN catalog_listings USING INDEX bench_sort_artist_asc"
+      ],
+      "candidate": {
+        "medianMs": 0.5644635,
+        "p95Ms": 0.988655,
+        "worstMs": 1.058098
+      },
+      "reference": {
+        "medianMs": 770.2368885000001,
+        "p95Ms": 846.1863910000001,
+        "worstMs": 872.7340839999999
+      },
+      "pairedSamples": [
+        {
+          "candidateMs": 0.5733720000000001,
+          "pair": 1,
+          "referenceMs": 766.446355
+        },
+        {
+          "candidateMs": 0.47374,
+          "pair": 2,
+          "referenceMs": 784.88699
+        },
+        {
+          "candidateMs": 0.6917289999999999,
+          "pair": 3,
+          "referenceMs": 774.027422
+        },
+        {
+          "candidateMs": 0.49944400000000005,
+          "pair": 4,
+          "referenceMs": 747.206711
+        },
+        {
+          "candidateMs": 0.587544,
+          "pair": 5,
+          "referenceMs": 801.687304
+        },
+        {
+          "candidateMs": 0.474958,
+          "pair": 6,
+          "referenceMs": 746.8739469999999
+        },
+        {
+          "candidateMs": 0.6222219999999999,
+          "pair": 7,
+          "referenceMs": 775.624004
+        },
+        {
+          "candidateMs": 0.5015459999999999,
+          "pair": 8,
+          "referenceMs": 797.306561
+        },
+        {
+          "candidateMs": 1.058098,
+          "pair": 9,
+          "referenceMs": 846.1863910000001
+        },
+        {
+          "candidateMs": 0.988655,
+          "pair": 10,
+          "referenceMs": 832.396807
+        },
+        {
+          "candidateMs": 0.609245,
+          "pair": 11,
+          "referenceMs": 727.290001
+        },
+        {
+          "candidateMs": 0.472647,
+          "pair": 12,
+          "referenceMs": 757.4842130000001
+        },
+        {
+          "candidateMs": 0.574319,
+          "pair": 13,
+          "referenceMs": 872.7340839999999
+        },
+        {
+          "candidateMs": 0.479317,
+          "pair": 14,
+          "referenceMs": 737.4254689999999
+        },
+        {
+          "candidateMs": 0.619552,
+          "pair": 15,
+          "referenceMs": 784.18566
+        },
+        {
+          "candidateMs": 0.456544,
+          "pair": 16,
+          "referenceMs": 762.34248
+        },
+        {
+          "candidateMs": 0.5987520000000001,
+          "pair": 17,
+          "referenceMs": 745.4983990000001
+        },
+        {
+          "candidateMs": 0.523923,
+          "pair": 18,
+          "referenceMs": 783.399439
+        },
+        {
+          "candidateMs": 0.555555,
+          "pair": 19,
+          "referenceMs": 743.713831
+        },
+        {
+          "candidateMs": 0.454949,
+          "pair": 20,
+          "referenceMs": 752.2523530000001
+        }
+      ]
+    },
+    {
+      "field": "artist",
+      "direction": "desc",
+      "rows": 50000,
+      "warmups": 3,
+      "timedPairs": 20,
+      "exactFullOrderParityRows": 50000,
+      "fullTempSort": false,
+      "plan": [
+        "SCAN catalog_listings USING INDEX bench_sort_artist_desc"
+      ],
+      "candidate": {
+        "medianMs": 0.5525800000000001,
+        "p95Ms": 0.635346,
+        "worstMs": 0.7432460000000001
+      },
+      "reference": {
+        "medianMs": 722.92212,
+        "p95Ms": 811.807193,
+        "worstMs": 823.850289
+      },
+      "pairedSamples": [
+        {
+          "candidateMs": 0.584386,
+          "pair": 1,
+          "referenceMs": 811.807193
+        },
+        {
+          "candidateMs": 0.475325,
+          "pair": 2,
+          "referenceMs": 692.838201
+        },
+        {
+          "candidateMs": 0.611377,
+          "pair": 3,
+          "referenceMs": 775.787377
+        },
+        {
+          "candidateMs": 0.5008210000000001,
+          "pair": 4,
+          "referenceMs": 688.927711
+        },
+        {
+          "candidateMs": 0.577175,
+          "pair": 5,
+          "referenceMs": 708.5483830000001
+        },
+        {
+          "candidateMs": 0.457402,
+          "pair": 6,
+          "referenceMs": 723.2507099999999
+        },
+        {
+          "candidateMs": 0.5530090000000001,
+          "pair": 7,
+          "referenceMs": 823.850289
+        },
+        {
+          "candidateMs": 0.462862,
+          "pair": 8,
+          "referenceMs": 710.344111
+        },
+        {
+          "candidateMs": 0.567536,
+          "pair": 9,
+          "referenceMs": 721.862037
+        },
+        {
+          "candidateMs": 0.458365,
+          "pair": 10,
+          "referenceMs": 699.761894
+        },
+        {
+          "candidateMs": 0.557067,
+          "pair": 11,
+          "referenceMs": 713.654422
+        },
+        {
+          "candidateMs": 0.49514199999999997,
+          "pair": 12,
+          "referenceMs": 731.6822579999999
+        },
+        {
+          "candidateMs": 0.573071,
+          "pair": 13,
+          "referenceMs": 693.0374700000001
+        },
+        {
+          "candidateMs": 0.449124,
+          "pair": 14,
+          "referenceMs": 736.569012
+        },
+        {
+          "candidateMs": 0.552151,
+          "pair": 15,
+          "referenceMs": 726.9169330000001
+        },
+        {
+          "candidateMs": 0.44713400000000003,
+          "pair": 16,
+          "referenceMs": 734.565522
+        },
+        {
+          "candidateMs": 0.635346,
+          "pair": 17,
+          "referenceMs": 722.59353
+        },
+        {
+          "candidateMs": 0.7432460000000001,
+          "pair": 18,
+          "referenceMs": 702.938192
+        },
+        {
+          "candidateMs": 0.600645,
+          "pair": 19,
+          "referenceMs": 741.218157
+        },
+        {
+          "candidateMs": 0.467189,
+          "pair": 20,
+          "referenceMs": 749.148932
+        }
+      ]
+    }
+  ],
+  "separate5kExploratory": {
+    "elapsedSeconds": 7.021,
+    "rows": 5000,
+    "cases": [
+      {
+        "field": "title",
+        "direction": "asc",
+        "warmups": 1,
+        "timedPairs": 1,
+        "exactFullOrderParityRows": 5000,
+        "fullTempSort": false,
+        "plan": [
+          "SCAN catalog_listings USING INDEX bench_sort_title_asc"
+        ],
+        "candidate": {
+          "medianMs": 0.397693,
+          "p95Ms": 0.397693,
+          "worstMs": 0.397693
+        },
+        "reference": {
+          "medianMs": 165.738778,
+          "p95Ms": 165.738778,
+          "worstMs": 165.738778
+        },
+        "pairedSamples": [
+          {
+            "candidateMs": 0.397693,
+            "pair": 1,
+            "referenceMs": 165.738778
+          }
+        ]
+      },
+      {
+        "field": "title",
+        "direction": "desc",
+        "warmups": 1,
+        "timedPairs": 1,
+        "exactFullOrderParityRows": 5000,
+        "fullTempSort": false,
+        "plan": [
+          "SCAN catalog_listings USING INDEX bench_sort_title_desc"
+        ],
+        "candidate": {
+          "medianMs": 0.403711,
+          "p95Ms": 0.403711,
+          "worstMs": 0.403711
+        },
+        "reference": {
+          "medianMs": 146.54963700000002,
+          "p95Ms": 146.54963700000002,
+          "worstMs": 146.54963700000002
+        },
+        "pairedSamples": [
+          {
+            "candidateMs": 0.403711,
+            "pair": 1,
+            "referenceMs": 146.54963700000002
+          }
+        ]
+      },
+      {
+        "field": "artist",
+        "direction": "asc",
+        "warmups": 1,
+        "timedPairs": 1,
+        "exactFullOrderParityRows": 5000,
+        "fullTempSort": false,
+        "plan": [
+          "SCAN catalog_listings USING INDEX bench_sort_artist_asc"
+        ],
+        "candidate": {
+          "medianMs": 0.681207,
+          "p95Ms": 0.681207,
+          "worstMs": 0.681207
+        },
+        "reference": {
+          "medianMs": 132.5572,
+          "p95Ms": 132.5572,
+          "worstMs": 132.5572
+        },
+        "pairedSamples": [
+          {
+            "candidateMs": 0.681207,
+            "pair": 1,
+            "referenceMs": 132.5572
+          }
+        ]
+      },
+      {
+        "field": "artist",
+        "direction": "desc",
+        "warmups": 1,
+        "timedPairs": 1,
+        "exactFullOrderParityRows": 5000,
+        "fullTempSort": false,
+        "plan": [
+          "SCAN catalog_listings USING INDEX bench_sort_artist_desc"
+        ],
+        "candidate": {
+          "medianMs": 0.404296,
+          "p95Ms": 0.404296,
+          "worstMs": 0.404296
+        },
+        "reference": {
+          "medianMs": 125.535796,
+          "p95Ms": 125.535796,
+          "worstMs": 125.535796
+        },
+        "pairedSamples": [
+          {
+            "candidateMs": 0.404296,
+            "pair": 1,
+            "referenceMs": 125.535796
+          }
+        ]
+      }
+    ],
+    "limitation": "One warmup and one timed pair per case; exploratory only."
+  },
+  "interpretation": "All 50k cases used the reverse-binary expression index, avoided full and right-part temporary sorts, and matched the full 50k reference ordering. This does not measure real Store sorting or index lifecycle costs. The production source does not install these indexes; a default-off integration proposal is staged and not merged.",
+  "limitations": [
+    "Index build and update cost are excluded from timed pairs.",
+    "Only in-memory text ordering is timed; no Store hydration, filtering, pagination, or metadata aggregation is included.",
+    "A synthetic reverse-binary expression index in this fixture is not installed in production.",
+    "No whole-app, UI, resource, development build, release build, or user-library performance claim.",
+    "The earlier 5k experiment using the original expression-index plan still used full temporary sorts; it is retained as a separate failed-plan result."
+  ]
+}

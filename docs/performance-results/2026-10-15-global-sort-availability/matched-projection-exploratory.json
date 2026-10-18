@@ -1,0 +1,49 @@
+{
+  "benchmark": "matched_actual_models_track_projection_exploratory",
+  "recordCount": 50000,
+  "warmupsPerMode": 3,
+  "measuredSamplesPerMode": 3,
+  "fixture": "exact src-tauri/src/models.rs Track struct serialized with serde_json::to_string; values copied from sparse storage benchmark; transactionally inserted into SQLite memory table",
+  "rawRowBytes": 638,
+  "rustcOptLevel": 0,
+  "cachedDependencyProfile": "/home/loki/projects/burrata/.cache/verification-target/debug; dependencies rusqlite-112a1b6c8ec74820e1.rlib, serde_json-42ddd4419e7b30e1.rlib, serde-6dd85c8903797356.rlib",
+  "scope": "isolated SQLite query/read/decode; excludes Store joins, temp asset relation, count query, GUI, and end-to-end work",
+  "legacyFullJsonMs": [
+    2091.394803,
+    2103.515176,
+    2133.485364
+  ],
+  "multiPathCompactProjectionMs": [
+    1201.788865,
+    1213.682376,
+    1214.310598
+  ],
+  "medianMs": {
+    "legacyFullJson": 2103.515176,
+    "multiPathCompactProjection": 1213.682376
+  },
+  "sqliteSemanticsChecks": {
+    "duplicatePathOutput": [
+      "known",
+      "known"
+    ],
+    "booleanAndIntegerPathOutput": [
+      true,
+      0
+    ]
+  },
+  "superseded_manual_fieldmap_result": {
+    "rawRowBytes": 642,
+    "legacySamplesMs": [
+      2090.102448,
+      2122.405901,
+      2176.567938
+    ],
+    "multiPathSamplesMs": [
+      986.452014,
+      1050.445904,
+      1057.339712
+    ]
+  },
+  "promotion": "unapplied candidate; not an actual Store result and standalone median remains above the full-query target"
+}

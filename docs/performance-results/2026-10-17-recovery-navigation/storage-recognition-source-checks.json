@@ -1,0 +1,50 @@
+{
+  "platform": "Linux host",
+  "scope": "Merged source tests and successful Linux debug executable build. Separate linked bounded live checks do not establish release, acoustic correctness, or performance qualification.",
+  "native": {
+    "passed": 907,
+    "failed": 0,
+    "ignored": 16,
+    "testSeconds": 60.75,
+    "compileSeconds": 99,
+    "artifactSha256": "89b88ce59a4b66016507aa5ef501b263503c08f530f239512e43d614c8d9bd5e",
+    "initialAttempt": "Two compiler failures retained; fixed Clone bound and watch-ref lifetime before passing retry.",
+    "criticalCoverage": [
+      "actual StreamDownload-to-Rodio injected quota/full-storage errors versus normal EOF",
+      "typed local failure retains current occurrence and source without recovery/skip",
+      "ready-paused failure requires real reader retry",
+      "zero-PCM preload failure waits for selection without first-audio claim",
+      "completed recognition worker false watch closure is not cancellation",
+      "pause/seek/explicit recognition cancellation remains active",
+      "native transport conservative migration, explicit opt-out and stopped-state restart",
+      "artwork observer completion and bounded timeout"
+    ]
+  },
+  "frontend": {
+    "remotePlaylistDetailTestsPassed": 24,
+    "svelteErrors": 0,
+    "svelteWarnings": 0,
+    "productionBuild": "pass",
+    "scope": "Focused component failure/empty/retry rendering; does not replace earlier broader suites."
+  },
+  "sourcePins": {
+    "storage-recognition-native-source-pin.json": "7e18031ea5bfaeebd6e00c89c94f0022ac692e9211fcdffed627cf1a8d87594a",
+    "storage-recognition-frontend-source-pin.json": "d1b7eeadc8a78fa50333907adc19438806adafba33e9e490ebdb34cf0b1c43f7"
+  },
+  "logSha256s": {
+    "native-storage-recognition-optin-tests.log": "68dab40094085cc0905484b61d26982b9d5e77bc87c11f262a15d4f529088ab2",
+    "native-storage-recognition-optin-tests-retry1.log": "f847f470339afe181f1be03512365da64cc9199c4b708323222f7e3914af90d3",
+    "remote-playlist-retry-frontend-build.log": "434ffdfbf81cc6914d2e6fcd5aeee106e57d7b44bba26aa0090a4fc7f8acf7e3"
+  },
+  "executable": {
+    "sha256": "53f6e42ca4b8dd381ee7ee1039c0b5348ba1923363a28e264f70eae0f034cf5c",
+    "build": "pass",
+    "buildSeconds": 120
+  },
+  "boundedLiveEvidence": {
+    "recognition": "../2026-10-17-storage-recognition/fruit-identify.json",
+    "explicitCancellation": "../2026-10-17-storage-recognition/identify-cancel.json",
+    "normalRestart": "../2026-10-17-storage-recognition/restart-proof.json",
+    "desktopLayout": "../2026-10-17-storage-recognition/main-layout53.json"
+  }
+}

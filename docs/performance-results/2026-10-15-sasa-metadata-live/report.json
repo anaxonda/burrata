@@ -1,0 +1,80 @@
+{
+  "scope": "One live request per metadata shape plus muted local controls; no statistical qualification.",
+  "binarySha256": "500f90424ca5507b4996ea15b1669a93deb62cb23f3d57504f4ca1f32668da7b",
+  "providerOrder": [
+    "monochrome",
+    "youtube",
+    "soundcloud"
+  ],
+  "results": [
+    {
+      "kind": "local",
+      "metadataShape": "synthetic_local_control",
+      "outcome": "playing",
+      "elapsedMs": 442,
+      "within20Seconds": true,
+      "durationCorrect": true,
+      "wrongEdition": false,
+      "reasonCategory": null,
+      "visibleReason": null,
+      "engine": "native",
+      "sourceProvider": null,
+      "firstAudioMs": 55,
+      "sourceReadyMs": 3,
+      "operationId": null,
+      "playCommandReportedError": false
+    },
+    {
+      "kind": "sasa",
+      "metadataShape": "separate_fields",
+      "outcome": "unavailable",
+      "elapsedMs": 10325,
+      "within20Seconds": true,
+      "durationCorrect": null,
+      "wrongEdition": false,
+      "reasonCategory": "no_playable_recording_match",
+      "visibleReason": "No playable audio match was found for Timmy Regisford \u2014 Sasa (Main Version (4:41)). No available source matched the requested recording and version. Open the catalog source or choose another source",
+      "engine": "native",
+      "sourceProvider": null,
+      "firstAudioMs": null,
+      "sourceReadyMs": null,
+      "operationId": null,
+      "playCommandReportedError": true
+    },
+    {
+      "kind": "sasa",
+      "metadataShape": "merged_title",
+      "outcome": "unavailable",
+      "elapsedMs": 7809,
+      "within20Seconds": true,
+      "durationCorrect": null,
+      "wrongEdition": false,
+      "reasonCategory": "no_playable_recording_match",
+      "visibleReason": "No playable audio match was found for Timmy Regisford \u2014 Sasa (Main Version (4:41)). No available source matched the requested recording and version. Open the catalog source or choose another source",
+      "engine": "native",
+      "sourceProvider": null,
+      "firstAudioMs": null,
+      "sourceReadyMs": null,
+      "operationId": null,
+      "playCommandReportedError": true
+    },
+    {
+      "kind": "local",
+      "metadataShape": "synthetic_local_control",
+      "outcome": "playing",
+      "elapsedMs": 343,
+      "within20Seconds": true,
+      "durationCorrect": true,
+      "wrongEdition": false,
+      "reasonCategory": null,
+      "visibleReason": null,
+      "engine": "native",
+      "sourceProvider": null,
+      "firstAudioMs": 10,
+      "sourceReadyMs": 3,
+      "operationId": null,
+      "playCommandReportedError": false
+    }
+  ],
+  "reportNote": "Derived from the retained first run: an unavailable playback command returns an MCP tool error as expected; that is distinct from a probe failure. No playback was repeated to relabel it."
+}

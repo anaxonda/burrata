@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-playback-command"
+description = "Enables the playback_command command without any pre-configured scope."
+commands.allow = ["playback_command"]
+
+[[permission]]
+identifier = "deny-playback-command"
+description = "Denies the playback_command command without any pre-configured scope."
+commands.deny = ["playback_command"]

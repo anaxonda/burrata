@@ -1,0 +1,18 @@
+{
+  "guiPid": 3419681,
+  "binarySha256": "4335018e06a7dfb9a64488c0873ac0feeeca347d4ff8e9dcf3f8f4663dfd8034",
+  "profile": "https://open.spotify.com/user/dkkelsh1",
+  "navigation": "navigate_ui.spotifyProfileId",
+  "firstPageVisible": 30,
+  "maxReportedTotal": 110,
+  "loadMoreActions": 4,
+  "terminalAccessibleCheckboxCount": 99,
+  "terminalLoadMoreButtons": 0,
+  "accessibilityNodesVisited": 646,
+  "accessibilityRemaining": 0,
+  "terminalWarning": "bounded or incomplete; may omit playlists",
+  "complete": false,
+  "importsOrSelectionWrites": false,
+  "audioOrQueueWrites": false,
+  "screenshot": "/tmp/burrata-protected-profile-terminal-ui.png"
+}

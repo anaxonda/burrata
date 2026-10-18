@@ -1,0 +1,28 @@
+{
+  "scope": "Muted local duplicate-occurrence transition control only; no statistical qualification.",
+  "binarySha256": "8fb80541d878d735c81ffd90c1168842c4102aec53168dc76d751bc587878d60",
+  "providerOrder": [
+    "monochrome",
+    "youtube",
+    "soundcloud"
+  ],
+  "results": [
+    {
+      "kind": "operation_ids",
+      "outcome": "verified",
+      "startupId": "native-3b87c5e7-04b9-4fdb-93b6-8bfaba9f8709",
+      "seekId": "native-c992144a-d698-4f5e-b2ee-c72cb4902406",
+      "transitionId": "native-00445433-07b7-41c7-ac22-ad9a40799362",
+      "seekCommandSerializedBytes": 33,
+      "seekStatus": "buffering",
+      "seekPosition": 29.5,
+      "seekFirstAudioMs": null,
+      "seekOperationFirstAudioMs": null,
+      "finalStatus": "playing",
+      "finalPosition": 0,
+      "finalIndex": 1,
+      "queueCount": 2,
+      "verified": true
+    }
+  ]
+}

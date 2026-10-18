@@ -1,0 +1,22 @@
+{
+  "applicationProcessTree": {
+    "intervalSamples": 1720,
+    "cpuPercentOneLogicalCore": {
+      "median": 12.46,
+      "p95": 23.619,
+      "worst": 40.418,
+      "cpuSeconds": 244.47
+    },
+    "processGroupRssBytes": {
+      "median": 542044160,
+      "p95": 547717120,
+      "peak": 548900864
+    },
+    "storageIoBytes": {
+      "read": 98304,
+      "write": 0
+    }
+  },
+  "viteServerProcessTree": null,
+  "limitations": "No Vite server is used or sampled for the embedded frontend. Each process-group RSS sums resident pages and can double-count shared memory; storage IO is not network traffic; short-lived children between polls may be missed."
+}

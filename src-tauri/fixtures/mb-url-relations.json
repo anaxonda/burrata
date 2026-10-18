@@ -1,0 +1,13 @@
+{
+  "id": "37f09727-94c8-49f0-a4b1-76c8c8e01423",
+  "resource": "https://open.spotify.com/album/6E4eD35ZrPXH2bF6LnPphg",
+  "relations": [
+    {
+      "target-type": "release",
+      "ended": false,
+      "release": {
+        "id": "b8254485-3b63-4e55-8776-7bd713fe3dd7"
+      }
+    }
+  ]
+}

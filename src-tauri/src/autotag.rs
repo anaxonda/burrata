@@ -180,10 +180,8 @@ impl AutoTagger {
     pub fn queue_new_download(&self, asset_id: &str) -> Result<bool, String> {
         let asset = self
             .store
-            .list_assets()
+            .get_asset_by_id(asset_id)
             .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|asset| asset.id == asset_id)
             .ok_or("Downloaded asset is not yet registered")?;
         let provenance = &asset.track.provenance;
         if asset.processing == "external-readonly"
@@ -266,10 +264,8 @@ impl AutoTagger {
     pub fn retry(&self, asset_id: &str) -> Result<bool, String> {
         let current_hash = self
             .store
-            .list_assets()
+            .get_asset_by_id(asset_id)
             .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|asset| asset.id == asset_id)
             .map(|asset| asset.hash)
             .ok_or("Autotag asset was removed")?;
         let mut job = self
@@ -308,10 +304,8 @@ impl AutoTagger {
     async fn process_asset_inner(&self, asset_id: &str) -> Result<(), String> {
         let asset = self
             .store
-            .list_assets()
+            .get_asset_by_id(asset_id)
             .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|a| a.id == asset_id)
             .ok_or("Autotag asset was removed")?;
         let mut job = self
             .records()?
@@ -444,10 +438,8 @@ impl AutoTagger {
                     let chosen = candidates[0].clone();
                     let latest = self
                         .store
-                        .list_assets()
+                        .get_asset_by_id(&asset.id)
                         .map_err(|e| e.to_string())?
-                        .into_iter()
-                        .find(|saved| saved.id == asset.id)
                         .ok_or("Autotag asset was removed")?;
                     if latest.hash != asset.hash {
                         job.input_hash = latest.hash;
@@ -1034,10 +1026,8 @@ impl AutoTagger {
     pub fn review(&self, asset_id: &str, selected_provider_id: &str) -> Result<AutoTagJob, String> {
         let current_hash = self
             .store
-            .list_assets()
+            .get_asset_by_id(asset_id)
             .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|asset| asset.id == asset_id)
             .map(|asset| asset.hash)
             .ok_or("Autotag asset was removed")?;
         let mut job = self
@@ -1104,10 +1094,8 @@ impl AutoTagger {
         }
         let asset = self
             .store
-            .list_assets()
+            .get_asset_by_id(asset_id)
             .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|a| a.id == asset_id)
             .ok_or("Autotag asset was removed")?;
         let mut selected = candidate.clone();
         if !approved.iter().any(|key| key == "artist") {

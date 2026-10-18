@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-identify-webview-playing-pcm"
+description = "Enables the identify_webview_playing_pcm command without any pre-configured scope."
+commands.allow = ["identify_webview_playing_pcm"]
+
+[[permission]]
+identifier = "deny-identify-webview-playing-pcm"
+description = "Denies the identify_webview_playing_pcm command without any pre-configured scope."
+commands.deny = ["identify_webview_playing_pcm"]

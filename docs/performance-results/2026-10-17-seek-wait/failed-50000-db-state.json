@@ -1,0 +1,10 @@
+{
+  "scope": "Read-only retained failed synthetic50k profile after owned launcher cleanup; migration completion does not identify remaining startup bottleneck.",
+  "userVersion": 9,
+  "listings": 50000,
+  "assets": 50000,
+  "analyses": 53571,
+  "indexes": 35,
+  "invalidationTriggers": 15,
+  "nullProjections": 50000
+}

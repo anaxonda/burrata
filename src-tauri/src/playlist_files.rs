@@ -408,15 +408,87 @@ pub(crate) fn preview_playlist_tracks(
     Ok((tracks, unmatched, metadata_only))
 }
 
-fn effective_directories(settings: &Settings) -> Vec<PathBuf> {
+// Unit tests configure scratch roots explicitly. Never scan the developer's
+// real playlists while exercising imports and synchronization in a test database.
+fn standard_music_root() -> Option<PathBuf> {
+    // A supplied isolation root is authoritative: reject it closed rather
+    // than falling back to the user's real Music directory.
+    if let Some(value) = std::env::var_os("BURRATA_ISOLATED_MUSIC_ROOT") {
+        return value.to_str().and_then(isolated_music_root_from);
+    }
+    #[cfg(not(test))]
+    {
+        dirs::home_dir().map(|home| home.join("Music"))
+    }
+    #[cfg(test)]
+    {
+        None
+    }
+}
+
+fn isolated_music_root_from(value: &str) -> Option<PathBuf> {
+    let supplied = PathBuf::from(value);
+    let root = fs::canonicalize(&supplied).ok()?;
+    // Require the exact canonical spelling and reject symlinks at every
+    // component so an apparently isolated path cannot escape its profile.
+    if root != supplied || fs::canonicalize("/tmp").ok()?.as_path() != Path::new("/tmp") {
+        return None;
+    }
+    let music = root.file_name()?;
+    if music != "Music" || !root.is_dir() {
+        return None;
+    }
+    let fixture = root.parent()?;
+    if fixture.file_name()? != "fixture" {
+        return None;
+    }
+    let profile = fixture.parent()?;
+    if profile.parent()? != Path::new("/tmp") {
+        return None;
+    }
+    let profile_name = profile.file_name()?.to_str()?;
+    let suffix = profile_name.strip_prefix("burrata-launch.")?;
+    if suffix.is_empty()
+        || !suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return None;
+    }
+
+    for path in [profile, fixture, root.as_path()] {
+        let metadata = fs::symlink_metadata(path).ok()?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return None;
+        }
+    }
+    let marker = profile.join(".burrata-isolated-profile");
+    let marker_metadata = fs::symlink_metadata(&marker).ok()?;
+    if marker_metadata.file_type().is_symlink() || !marker_metadata.is_file() {
+        return None;
+    }
+    if fs::read_to_string(marker).ok()?.as_str() != "burrata isolated memory run\n" {
+        return None;
+    }
+    Some(root)
+}
+
+pub(crate) fn effective_directories(settings: &Settings) -> Vec<PathBuf> {
+    effective_directories_with_standard_root(settings, standard_music_root())
+}
+
+fn effective_directories_with_standard_root(
+    settings: &Settings,
+    standard_root: Option<PathBuf>,
+) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = settings
         .playlist_directories
         .iter()
         .filter(|path| !path.trim().is_empty())
         .map(PathBuf::from)
         .collect();
-    if let Some(home_music) = dirs::home_dir().map(|home| home.join("Music")) {
-        dirs.push(home_music);
+    if let Some(standard_root) = standard_root {
+        dirs.push(standard_root);
     }
     if !settings.music_directory.trim().is_empty() {
         dirs.push(PathBuf::from(&settings.music_directory));
@@ -523,6 +595,28 @@ pub(crate) fn repair_placeholder_url_metadata(
     collection_id: &str,
     text: &str,
 ) -> Result<usize> {
+    // Most collections were imported with metadata already populated. Check
+    // whether repair can do anything before reparsing every playlist comment
+    // (which invokes the full tracklist parser) on each watcher reconciliation.
+    let has_comment_hint = text.lines().any(|line| {
+        line.trim().strip_prefix('#').is_some_and(|value| {
+            !value.trim_start().starts_with("EXT")
+                && [" - ", " — ", " – "]
+                    .iter()
+                    .any(|separator| value.contains(separator))
+        })
+    });
+    if !text.contains("://") || !has_comment_hint {
+        return Ok(0);
+    }
+    let collection_tracks = store.list_tracks("collection", Some(collection_id))?;
+    if !collection_tracks.iter().any(|track| {
+        track.provider == "import"
+            && track.artist == "Unknown artist"
+            && track.title == track.source_url
+    }) {
+        return Ok(0);
+    }
     let comments = playlist_entries_with_metadata(text)
         .into_iter()
         .filter_map(|(entry, comment, is_extinf)| {
@@ -537,7 +631,6 @@ pub(crate) fn repair_placeholder_url_metadata(
     if comments.is_empty() {
         return Ok(0);
     }
-    let collection_tracks = store.list_tracks("collection", Some(collection_id))?;
     // Require the bound collection to still contain the stable URL-only placeholder
     // before propagating the same source comment to duplicate catalog rows created
     // by earlier generated-mirror imports.
@@ -556,7 +649,8 @@ pub(crate) fn repair_placeholder_url_metadata(
     if bound_urls.is_empty() {
         return Ok(0);
     }
-    let tracks = store.list_tracks("library", None)?;
+    let urls = bound_urls.iter().cloned().collect::<Vec<_>>();
+    let tracks = store.list_import_tracks_by_source_urls(&urls)?;
     let mut repaired = 0;
     let mut updated_ids = std::collections::HashSet::new();
     for mut track in tracks {
@@ -578,7 +672,7 @@ pub(crate) fn repair_placeholder_url_metadata(
         apply_playlist_comment(&mut track, comment_track);
         // Retain the audio candidate and source evidence already attached at import.
         track.provenance["playlistEntry"] = serde_json::json!(track.source_url);
-        store.save_track(&track)?;
+        store.cache_track(&track)?;
         repaired += 1;
     }
     Ok(repaired)
@@ -643,7 +737,7 @@ fn approved_audio_roots(settings: &Settings) -> Vec<PathBuf> {
             .filter(|p| !p.trim().is_empty())
             .map(PathBuf::from),
     );
-    if let Some(home_music) = dirs::home_dir().map(|home| home.join("Music")) {
+    if let Some(home_music) = standard_music_root() {
         raw.push(home_music);
     }
     raw.into_iter()
@@ -801,6 +895,136 @@ fn resolve_entry(base: &Path, entry: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    fn isolated_profile() -> (tempfile::TempDir, PathBuf) {
+        let profile = tempfile::Builder::new()
+            .prefix("burrata-launch.")
+            .tempdir_in("/tmp")
+            .unwrap();
+        fs::write(
+            profile.path().join(".burrata-isolated-profile"),
+            "burrata isolated memory run\n",
+        )
+        .unwrap();
+        let music = profile.path().join("fixture/Music");
+        fs::create_dir_all(&music).unwrap();
+        (profile, music)
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn isolated_music_root_requires_the_exact_profile_marker() {
+        let (profile, music) = isolated_profile();
+        fs::write(
+            profile.path().join(".burrata-isolated-profile"),
+            "burrata isolated memory run",
+        )
+        .unwrap();
+        assert_eq!(isolated_music_root_from(music.to_str().unwrap()), None);
+        fs::write(
+            profile.path().join(".burrata-isolated-profile"),
+            "burrata isolated memory run\n",
+        )
+        .unwrap();
+        assert_eq!(
+            isolated_music_root_from(music.to_str().unwrap()),
+            Some(music.clone())
+        );
+        fs::remove_file(profile.path().join(".burrata-isolated-profile")).unwrap();
+        assert_eq!(isolated_music_root_from(music.to_str().unwrap()), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn isolated_music_root_accepts_launcher_suffix_underscores_and_hyphens_only() {
+        for prefix in [
+            "burrata-launch.profile_test_",
+            "burrata-launch.profile-test-",
+        ] {
+            let profile = tempfile::Builder::new()
+                .prefix(prefix)
+                .tempdir_in("/tmp")
+                .unwrap();
+            fs::write(
+                profile.path().join(".burrata-isolated-profile"),
+                "burrata isolated memory run\n",
+            )
+            .unwrap();
+            let music = profile.path().join("fixture/Music");
+            fs::create_dir_all(&music).unwrap();
+            assert_eq!(
+                isolated_music_root_from(music.to_str().unwrap()),
+                Some(music)
+            );
+        }
+
+        let dotted_profile = tempfile::Builder::new()
+            .prefix("burrata-launch.profile.test-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        fs::write(
+            dotted_profile.path().join(".burrata-isolated-profile"),
+            "burrata isolated memory run\n",
+        )
+        .unwrap();
+        let dotted_music = dotted_profile.path().join("fixture/Music");
+        fs::create_dir_all(&dotted_music).unwrap();
+        assert_eq!(
+            isolated_music_root_from(dotted_music.to_str().unwrap()),
+            None
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn effective_directories_combine_configured_and_validated_standard_roots() {
+        let (_profile, standard_music) = isolated_profile();
+        let custom = standard_music.parent().unwrap().join("CustomPlaylists");
+        let configured_music = standard_music.parent().unwrap().join("ConfiguredMusic");
+        fs::create_dir_all(&custom).unwrap();
+        fs::create_dir_all(&configured_music).unwrap();
+        let validated_standard = isolated_music_root_from(standard_music.to_str().unwrap());
+        assert_eq!(
+            validated_standard.as_deref(),
+            Some(standard_music.as_path())
+        );
+
+        let settings = Settings {
+            playlist_directories: vec![custom.to_string_lossy().into_owned()],
+            music_directory: configured_music.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        assert_eq!(
+            effective_directories_with_standard_root(&settings, validated_standard),
+            vec![custom, standard_music, configured_music]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn isolated_music_root_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let (_profile, music) = isolated_profile();
+        let alias_profile = tempfile::Builder::new()
+            .prefix("burrata-launch.")
+            .tempdir_in("/tmp")
+            .unwrap();
+        fs::write(
+            alias_profile.path().join(".burrata-isolated-profile"),
+            "burrata isolated memory run\n",
+        )
+        .unwrap();
+        let alias_fixture = alias_profile.path().join("fixture");
+        fs::create_dir_all(&alias_fixture).unwrap();
+        symlink(&music, alias_fixture.join("Music")).unwrap();
+        assert_eq!(
+            isolated_music_root_from(alias_fixture.join("Music").to_str().unwrap()),
+            None
+        );
+    }
     use crate::models::LocalAsset;
 
     fn settings(root: &Path) -> Settings {
@@ -938,6 +1162,12 @@ mod tests {
         store.save_track(&track).unwrap();
         store
             .save_asset(&LocalAsset {
+                sample_rate: None,
+                channels: None,
+                bit_depth: None,
+                duration_seconds: None,
+                size_bytes: None,
+                bitrate_origin: None,
                 id: "asset-1".into(),
                 recording_id: track.id.clone(),
                 path: audio.to_string_lossy().into_owned(),
@@ -1232,6 +1462,12 @@ mod tests {
         store.save_track(&track).unwrap();
         store
             .save_asset(&LocalAsset {
+                sample_rate: None,
+                channels: None,
+                bit_depth: None,
+                duration_seconds: None,
+                size_bytes: None,
+                bitrate_origin: None,
                 id: "asset-repeat".into(),
                 recording_id: track.id.clone(),
                 path: audio.to_string_lossy().into_owned(),

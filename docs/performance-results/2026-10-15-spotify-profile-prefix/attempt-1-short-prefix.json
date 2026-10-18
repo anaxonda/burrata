@@ -1,0 +1,30 @@
+{
+  "scope": "Read-only native Spotify profile prefix collection with alternating ID and official URL references; no confirmation/import/write.",
+  "pages": [
+    {
+      "page": 1,
+      "route": "id",
+      "count": 30,
+      "elapsedMs": 1760,
+      "totalCount": 89,
+      "hasMore": true,
+      "truncated": true,
+      "complete": false
+    },
+    {
+      "page": 2,
+      "route": "url",
+      "count": 29,
+      "elapsedMs": 1575,
+      "totalCount": 118,
+      "hasMore": false,
+      "truncated": true,
+      "complete": false
+    }
+  ],
+  "uniquePlaylists": 59,
+  "duplicates": 0,
+  "complete": false,
+  "hasMore": false,
+  "elapsedMs": 3335
+}

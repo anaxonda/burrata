@@ -1,0 +1,1082 @@
+[
+  {
+    "decodeThreadCpuMs": 1.697471,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.216141,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 2.003862
+  },
+  {
+    "decodeThreadCpuMs": 1.361714,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.829838,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 1.522921
+  },
+  {
+    "decodeThreadCpuMs": 2.084047,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 3.231748,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 4.264494
+  },
+  {
+    "decodeThreadCpuMs": 1.6746619999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.178054,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 1.873845
+  },
+  {
+    "decodeThreadCpuMs": 1.797581,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 5.272491,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 5.990406999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.360891,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.85229,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 1.551055
+  },
+  {
+    "decodeThreadCpuMs": 1.774651,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.960408,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 1.9906160000000002
+  },
+  {
+    "decodeThreadCpuMs": 1.6595929999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.168382,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 1.8940439999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.39491,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.903061,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 1.634852
+  },
+  {
+    "decodeThreadCpuMs": 1.6172389999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.054576,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 1.759826
+  },
+  {
+    "decodeThreadCpuMs": 1.377859,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8719049999999999,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 1.576625
+  },
+  {
+    "decodeThreadCpuMs": 1.6073760000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.082044,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 1.7720399999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.8490280000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.273294,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 2.0431429999999997
+  },
+  {
+    "decodeThreadCpuMs": 1.373503,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8605280000000001,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 1.5621649999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.639006,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.09938,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 1.832406
+  },
+  {
+    "decodeThreadCpuMs": 1.362758,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.843195,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 1.5363099999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.605867,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.088139,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 1.795756
+  },
+  {
+    "decodeThreadCpuMs": 1.36136,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.858812,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 1.582059
+  },
+  {
+    "decodeThreadCpuMs": 1.388526,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.86448,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 1.5672030000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.610207,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.050573,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 1.79091
+  },
+  {
+    "decodeThreadCpuMs": 1.358873,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8373550000000001,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 1.5307520000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.602485,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.077456,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 1.776565
+  },
+  {
+    "decodeThreadCpuMs": 1.370055,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8207139999999999,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 1.550016
+  },
+  {
+    "decodeThreadCpuMs": 1.6012549999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.080067,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 1.79334
+  },
+  {
+    "decodeThreadCpuMs": 1.7827060000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.151813,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 1.9764570000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.383828,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.856752,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 1.5637299999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.624174,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.106028,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 1.818962
+  },
+  {
+    "decodeThreadCpuMs": 1.367045,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8054680000000001,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 1.510515
+  },
+  {
+    "decodeThreadCpuMs": 1.626227,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.092714,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 1.812665
+  },
+  {
+    "decodeThreadCpuMs": 1.3600990000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8390799999999999,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 1.5420900000000002
+  },
+  {
+    "decodeThreadCpuMs": 1.365748,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.851153,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 1.54857
+  },
+  {
+    "decodeThreadCpuMs": 1.607926,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.084346,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 1.786091
+  },
+  {
+    "decodeThreadCpuMs": 1.365529,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8061290000000001,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 1.531343
+  },
+  {
+    "decodeThreadCpuMs": 1.630207,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.08003,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 1.813528
+  },
+  {
+    "decodeThreadCpuMs": 1.366153,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.842498,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 1.547643
+  },
+  {
+    "decodeThreadCpuMs": 1.606528,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.081244,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 1.742587
+  },
+  {
+    "decodeThreadCpuMs": 1.609952,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.084469,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 1.8091769999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.371458,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.847526,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 1.547949
+  },
+  {
+    "decodeThreadCpuMs": 1.610161,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.073589,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 1.788112
+  },
+  {
+    "decodeThreadCpuMs": 1.364938,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.824134,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 1.536133
+  },
+  {
+    "decodeThreadCpuMs": 1.605353,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0776379999999999,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 1.788455
+  },
+  {
+    "decodeThreadCpuMs": 1.3719569999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.874844,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 1.5572789999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.36299,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.79868,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 1.496303
+  },
+  {
+    "decodeThreadCpuMs": 1.600432,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.076139,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 1.7737930000000002
+  },
+  {
+    "decodeThreadCpuMs": 1.3659,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.862997,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 1.559112
+  },
+  {
+    "decodeThreadCpuMs": 1.6262400000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0824319999999998,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 1.812718
+  },
+  {
+    "decodeThreadCpuMs": 1.3799109999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8686609999999999,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 1.557842
+  },
+  {
+    "decodeThreadCpuMs": 1.599168,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.074455,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 1.773432
+  },
+  {
+    "decodeThreadCpuMs": 1.603094,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.057889,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 1.783986
+  },
+  {
+    "decodeThreadCpuMs": 1.380087,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.864282,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 1.5690199999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.606467,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0794240000000002,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 1.783189
+  },
+  {
+    "decodeThreadCpuMs": 1.3687369999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8382269999999999,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 1.502381
+  },
+  {
+    "decodeThreadCpuMs": 1.624734,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.053288,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 1.807587
+  },
+  {
+    "decodeThreadCpuMs": 1.3775410000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8554590000000001,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 1.568486
+  },
+  {
+    "decodeThreadCpuMs": 1.361791,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.833547,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 1.5302580000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.6114920000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.08296,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 1.7948300000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.3635329999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.840001,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 1.535417
+  },
+  {
+    "decodeThreadCpuMs": 1.5998880000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0490110000000001,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 1.7446009999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.389171,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8426469999999999,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 1.5795029999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.633656,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0627080000000002,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 1.818288
+  },
+  {
+    "decodeThreadCpuMs": 1.603767,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.10575,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 1.798543
+  },
+  {
+    "decodeThreadCpuMs": 1.3756380000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.81077,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 1.523556
+  },
+  {
+    "decodeThreadCpuMs": 1.6197780000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.105937,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 1.825899
+  },
+  {
+    "decodeThreadCpuMs": 1.373164,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.851259,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 1.5539239999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.6134609999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0895679999999999,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 1.81199
+  },
+  {
+    "decodeThreadCpuMs": 1.77303,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.087969,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 1.9727970000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.4498980000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.951839,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 1.6729850000000002
+  },
+  {
+    "decodeThreadCpuMs": 1.685212,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.1257089999999998,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 1.85412
+  },
+  {
+    "decodeThreadCpuMs": 1.385341,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8606109999999999,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 1.539901
+  },
+  {
+    "decodeThreadCpuMs": 1.622574,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.071838,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 1.787411
+  },
+  {
+    "decodeThreadCpuMs": 1.371064,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.838608,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 1.536398
+  },
+  {
+    "decodeThreadCpuMs": 1.6206610000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.087864,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 1.828957
+  },
+  {
+    "decodeThreadCpuMs": 1.6209980000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.092262,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 1.802316
+  },
+  {
+    "decodeThreadCpuMs": 1.388299,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.814705,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 1.540147
+  },
+  {
+    "decodeThreadCpuMs": 1.6247200000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.089713,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 1.7952700000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.3759160000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8158949999999999,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 1.542788
+  },
+  {
+    "decodeThreadCpuMs": 1.620336,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.085952,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 1.8041699999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.369348,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.845426,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 1.5438509999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.3714469999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.840734,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 1.5368680000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.471446,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.001198,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 1.6388340000000001
+  },
+  {
+    "decodeThreadCpuMs": 1.214702,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7688309999999999,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 1.377366
+  },
+  {
+    "decodeThreadCpuMs": 1.424718,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.971404,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 1.5941219999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.19669,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.775155,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 1.357643
+  },
+  {
+    "decodeThreadCpuMs": 1.457281,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.9506560000000001,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 1.635518
+  },
+  {
+    "decodeThreadCpuMs": 1.351307,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.930152,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 1.517609
+  },
+  {
+    "decodeThreadCpuMs": 1.136526,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.673706,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 1.256999
+  },
+  {
+    "decodeThreadCpuMs": 1.3654220000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.9434429999999999,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 1.53038
+  },
+  {
+    "decodeThreadCpuMs": 1.227344,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8154520000000001,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 1.3678329999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.38652,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.939924,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 1.55311
+  },
+  {
+    "decodeThreadCpuMs": 1.142232,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.727014,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 1.301996
+  },
+  {
+    "decodeThreadCpuMs": 1.140487,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.732969,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 1.318454
+  },
+  {
+    "decodeThreadCpuMs": 1.3561150000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.939616,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 1.524242
+  },
+  {
+    "decodeThreadCpuMs": 1.1456419999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7490319999999999,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 1.3346639999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.507341,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.896632,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 1.670771
+  },
+  {
+    "decodeThreadCpuMs": 1.2930290000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.705245,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 1.457481
+  },
+  {
+    "decodeThreadCpuMs": 1.347714,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.923801,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 1.508503
+  },
+  {
+    "decodeThreadCpuMs": 1.347822,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.950119,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 1.533253
+  },
+  {
+    "decodeThreadCpuMs": 1.142112,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.69743,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 1.3099889999999998
+  },
+  {
+    "decodeThreadCpuMs": 1.3473419999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.9234650000000001,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 1.511386
+  },
+  {
+    "decodeThreadCpuMs": 1.146759,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7165739999999999,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 1.307568
+  },
+  {
+    "decodeThreadCpuMs": 1.344948,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.92249,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 1.507577
+  },
+  {
+    "decodeThreadCpuMs": 1.133404,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.731246,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 1.26939
+  },
+  {
+    "decodeThreadCpuMs": 1.139911,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7343090000000001,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 1.305318
+  },
+  {
+    "decodeThreadCpuMs": 1.375171,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.958325,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 1.5463689999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.141035,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.726591,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 1.3068929999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.344816,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.9379689999999999,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 1.520519
+  },
+  {
+    "decodeThreadCpuMs": 1.139462,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.679299,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 1.2626169999999999
+  },
+  {
+    "decodeThreadCpuMs": 1.340925,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.921642,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 1.517874
+  },
+  {
+    "decodeThreadCpuMs": 1.339485,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.903299,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.528613
+  },
+  {
+    "decodeThreadCpuMs": 1.1557890000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.727986,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 1.320737
+  },
+  {
+    "decodeThreadCpuMs": 1.441528,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.962178,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.612387
+  },
+  {
+    "decodeThreadCpuMs": 1.259652,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.754108,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 1.42992
+  },
+  {
+    "decodeThreadCpuMs": 1.413392,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.942326,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.59516
+  },
+  {
+    "decodeThreadCpuMs": 1.1379679999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.68055,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 1.25938
+  },
+  {
+    "decodeThreadCpuMs": 1.144583,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.6591,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 1.230046
+  },
+  {
+    "decodeThreadCpuMs": 1.603024,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.9688500000000001,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 1.687074
+  },
+  {
+    "decodeThreadCpuMs": 1.238848,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.661887,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 1.317404
+  },
+  {
+    "decodeThreadCpuMs": 1.472749,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.9199670000000001,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 1.59904
+  },
+  {
+    "decodeThreadCpuMs": 3.101459,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.823311,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 3.259406
+  },
+  {
+    "decodeThreadCpuMs": 3.1491279999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 2.227009,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 3.326044
+  }
+]

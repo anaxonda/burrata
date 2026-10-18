@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "scope": "Sanitized isolated queue-UI semantic interaction run. Synthetic DOM events only; no operating-system input, playback command, live write, or private screenshot is included.",
+  "candidateBinarySha256": "51f9347cd3e6a7cb137ea850f69c3b83a0d9f16cd606fc492158315141cff734",
+  "buildElapsed": "1m58s",
+  "isolatedSemanticCheck": {
+    "passed": true,
+    "steps": 9,
+    "syntheticEvents": true,
+    "trustedGesture": false,
+    "audioCommands": 0,
+    "occurrenceIdentityAndOrderPreserved": true,
+    "currentChapterPositionPreserved": true,
+    "controlsPreserved": true
+  },
+  "shutdown": {
+    "childProcessesRemaining": 0,
+    "forcedKills": 0
+  },
+  "harnessHistory": {
+    "initialChapterChangedRun": "retained, zero steps; harness JSON key-order comparison issue",
+    "correctedSemanticRun": "passes using structural deep equality; chapter range values compare semantically equal"
+  },
+  "visualAcceptance": {
+    "status": "passed for bounded reviewed case",
+    "window": "1914x515",
+    "reviewedCaptures": 3,
+    "findings": [],
+    "onboardingModalPresent": false,
+    "chapterDurationDisplay": "0:30",
+    "queueOrPlayerbarOverlap": false
+  },
+  "normalRuntime": {
+    "candidate": "51f9347cd3e6",
+    "restored": true,
+    "queueStateVerified": true,
+    "snapshotEqualToPreRun": true,
+    "queueEntries": 13,
+    "occurrenceOrderPreserved": true,
+    "currentIndex": 6,
+    "pausedPositionSeconds": 29.087175,
+    "volume": 0.8,
+    "repeat": "off",
+    "shuffle": false,
+    "reserveFlagEnabled": false,
+    "liveWritesOrRetries": false
+  },
+  "limitations": [
+    "The semantic event sequence used synthetic DOM events, not operating-system input.",
+    "Visual review is bounded to three captures at 1914x515; it is not broad UI or playback qualification.",
+    "No playback command was issued.",
+    "Do not infer reserve playback qualification from this queue interaction run."
+  ],
+  "liveQueueVisualCheck": {
+    "passed": true,
+    "steps": 9,
+    "actions": [
+      "select",
+      "arrow",
+      "drag"
+    ],
+    "syntheticEvents": true,
+    "trustedGesture": false,
+    "audioCommands": 0,
+    "occurrenceIdentityAndOrderPreserved": true,
+    "currentChapterPositionPreserved": true,
+    "controlsPreservedAfterOneSecondSettle": true,
+    "operatingSystemInputTested": false
+  }
+}

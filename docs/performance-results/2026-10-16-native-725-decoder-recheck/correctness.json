@@ -1,0 +1,21 @@
+{
+  "testBinarySha256": "03c9d1ffc51d6448b48ee79e8549d36b2a138027904f17c6c0f7c77ad5d97701",
+  "protectedCheckpoint": "725 passed, 14 ignored",
+  "fixture": {
+    "kind": "generated synthetic WAV",
+    "durationSeconds": 300.0,
+    "ffprobeDurationSeconds": 300.0,
+    "sampleRateHz": 48000,
+    "channels": 2,
+    "sizeBytes": 57600078,
+    "sha256": "67d6654cd4cbcecb42985334153c9349e83c5898fe70c4491e9b398a38f3dd58"
+  },
+  "test": "native_output::tests::external_audio_fixture_reports_duration_and_decodes_after_late_seek",
+  "result": "passed",
+  "checks": [
+    "decoder duration within 1 second of independently probed duration",
+    "seek at 95 percent succeeds",
+    "decoded tail within 1 second of expected 15 seconds"
+  ],
+  "scope": "decoder-only correctness; excludes resolver, mixer, output device, renderer and whole application"
+}

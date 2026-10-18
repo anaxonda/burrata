@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-remote-playlist"
+description = "Enables the browse_remote_playlist command without any pre-configured scope."
+commands.allow = ["browse_remote_playlist"]
+
+[[permission]]
+identifier = "deny-browse-remote-playlist"
+description = "Denies the browse_remote_playlist command without any pre-configured scope."
+commands.deny = ["browse_remote_playlist"]

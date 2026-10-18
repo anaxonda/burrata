@@ -1,0 +1,24 @@
+{
+  "recordedAt": "2026-10-16T15:43:38.557871+00:00",
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-tests-collections-c39e1b1aa660/burrata_lib",
+  "sha256": "c39e1b1aa66062e15658fd273cca40885437e60e0e3008c46dd2f9be151d1ebb",
+  "storageSourceSha256": "be177c31fa9cc714b6f84852d5224954821d7beed1e6ab053b1a0591be398546",
+  "profile": "development test executable, not release",
+  "test": "storage::tests::benchmark_first_page_global_sort_availability",
+  "qualificationEnv": {
+    "BURRATA_AVAILABILITY_BENCH_SAMPLES": "20",
+    "BURRATA_AVAILABILITY_BENCH_CONTENTION": "1"
+  },
+  "profileEnv": {
+    "BURRATA_AVAILABILITY_PROFILE": "1",
+    "BURRATA_AVAILABILITY_BENCH_SAMPLES": "3",
+    "BURRATA_AVAILABILITY_BENCH_CONTENTION": "1"
+  },
+  "scope": "Isolated temporary Store fixtures, 200-row sourceOrder pages, known-metadata remote-only 1k/5k/20k/50k. Three warmups per mode. No CPU/network/IPC/GUI/playback/release qualification. Existing GUI remained idle and outside measured process. Source/build/test/browser mutation freeze during both runs.",
+  "platform": "Linux-7.2.9-arch1-1-x86_64-with-glibc2.44",
+  "logicalCpuCount": 8,
+  "qualificationLog": "global-availability-postfix-20.log",
+  "profileLog": "global-availability-postfix-profile.log",
+  "qualificationSeconds": 105.71,
+  "profileSeconds": 85.62
+}

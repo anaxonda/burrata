@@ -1,0 +1,11 @@
+# Managed Downloads backfill comparison — 2026-10-17
+
+This is one baseline and one optimized run against the same 50,000-row synthetic asset-backed fixture. The optimized executable is `a1b8013b10e1733529b6b8c4c1fa742665f37634808342654fd4b9ef999e59fc`; the baseline executable is `c22280913be80ee621e2adcb5f48dc0019698226bf5356251321f6c94e4c495c`.
+
+The reported startup registration wait fell from 32,764.7ms to 15,257.0ms (−17,507.7ms, −53.4%). The phase traces measure Downloads backfill at 21,385ms for baseline and 3,642ms for optimized (an 82.98% decrease in this pair). The optimized trace registers the endpoint at 10,930ms; the harness reports a separate 15,257ms startup/registration wait. The trace therefore does not fully decompose the harness wait, and the overall wait decrease cannot be attributed entirely to backfill. The baseline used an explicit 180-second registration limit; the optimized run used the default 20-second limit, and both registered successfully. Projection readiness took 137,885.6ms before baseline reads and 139,755.5ms before optimized reads; this wait is outside request timing and was slightly longer in the optimized run.
+
+Both matrices completed 140 timed reads across seven scenarios, with zero failures. Each scenario verified its first page and one exact continuation. Six longer-query cases also used middle/tail checks; the short query has no middle/tail check. The optimized p95 values range from 233.2ms to 1,788.0ms. Scenario-by-scenario baseline and optimized median/p95 deltas are in [comparison.json](comparison.json); the full sanitized optimized result is [asset-matrix-50000-optimized.json](asset-matrix-50000-optimized.json). The baseline phases remain in the preceding [startup-trace report](../2026-10-17-startup-trace/); the sanitized optimized phases are in [optimized-startup-phases.json](optimized-startup-phases.json).
+
+Request timings show small mixed changes rather than a broad read-speed gain: title p95 improved 1.8%, duration p95 improved about 1.8–2.1%, BPM p95 was essentially flat, artist p95 rose about 1.2%, and Unicode query p95 rose 11.8%. These are individual-run comparisons, not statistical conclusions.
+
+This bounded comparison is not a whole-app, user-library, startup/release or resource qualification. It does not establish a universal performance improvement.

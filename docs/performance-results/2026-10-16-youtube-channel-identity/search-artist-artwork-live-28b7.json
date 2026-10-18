@@ -1,0 +1,8 @@
+{
+  "build": "28b7ad4096e72f8c3c9f13ae3600d3c99dccaf8da8b8ee0d5922f1f4795c62ba",
+  "method": "Visible Spotify artist search followed by PID/executable-guarded exact Radiohead result action and app-owned capture",
+  "search": {"query": "Radiohead", "kind": "artists", "source": "spotify", "results": 30, "hasMore": true},
+  "observed": {"artistArtwork": "placeholder", "releaseControlsVisible": true, "releaseControlsCompactInline": true, "loadedReleases": 20},
+  "sourceFinding": "DiscoveryResult preserves provider artwork under row.data.artworkUrl; the initial App fallback read only root artworkUrl. The initial fixture did not match the native wire shape.",
+  "status": "Artwork live acceptance failed; frontend correction and representative fixture pending. No playback or queue change."
+}

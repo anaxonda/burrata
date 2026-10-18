@@ -1,0 +1,21 @@
+{
+  "runningBuildSha256": "472b58f8fb436d82d0de1dc196bab6f54e3a0ecd536fb3846ef57c67a766ea86",
+  "userReportedSignedIn": true,
+  "beforeConfirmation": {
+    "mode": "native-login:youtube",
+    "youtubeLoginPage": "music",
+    "confirmedAccounts": {
+      "spotify": false,
+      "youtube": false
+    },
+    "credentialStorage": "not-confirmed"
+  },
+  "operation": "confirm_managed_provider_account",
+  "provider": "youtube",
+  "result": {
+    "code": "OPERATION_FAILED",
+    "providerCode": "SIGN_IN_REQUIRED",
+    "phase": "channel_identity"
+  },
+  "actions": "Read-only account verification failed; owned window retained, no account accepted and no remote write."
+}

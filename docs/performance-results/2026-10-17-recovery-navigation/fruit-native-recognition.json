@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "playbackPass": true,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "68b12f3bb9663ed492d2e6de7ed53e2d80d3a7ca3501eb4a7d5165242628301e",
+  "pass": true,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5191.439554,
+        "advancedMs": 5154.829931972789,
+        "observations": 47
+      },
+      "catalogueSeconds": 181.4,
+      "mediaDeclaredSeconds": 181.4,
+      "playbackDurationSeconds": 181.4,
+      "catalogueDeltaSeconds": 0,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "selectedProvider": "monochrome",
+      "firstMixerMs": 1024
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "postseek",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5052.732275000002,
+        "advancedMs": 5061.700680272109,
+        "observations": 46
+      },
+      "seekFirstMixerMs": 27,
+      "seekReceiptFirstMixerMs": 1344,
+      "resumeLatencyMeasured": false
+    }
+  ],
+  "identify": {
+    "requested": true,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed",
+    "captureReady": true,
+    "captureId": "3e4052a8-76c2-4b74-a5e3-83137f4f55c8",
+    "elapsedMs": 3037,
+    "requestFailed": true,
+    "requestSucceeded": false,
+    "resultPresent": false,
+    "recognizedTitle": null,
+    "recognizedArtist": null,
+    "hasTitle": false,
+    "hasArtist": false,
+    "expectedTitle": "The Bottom of It",
+    "expectedArtist": "Fruit Bats",
+    "normalizedTitleMatchesExpected": null,
+    "normalizedArtistMatchesExpected": null,
+    "exactNormalizedExpectedMatch": false,
+    "normalization": "case_and_whitespace_only",
+    "recordingIdentityQualified": false,
+    "failure": {
+      "code": null,
+      "reason": "Audio identification was cancelled"
+    },
+    "qualification": "Recognition request/result and exact normalized label comparison are separate from playback pass; no acoustic/version/cancellation/child-reap qualification",
+    "postStateReadFailed": false,
+    "sameSession": true,
+    "sameOccurrence": true,
+    "entryIdPreserved": true,
+    "queuePreserved": true,
+    "playingAfter": true,
+    "positionAdvanced": true
+  },
+  "errorCategory": null,
+  "finalBoundedDiagnostics": {
+    "engine": "native",
+    "status": "playing",
+    "paused": false,
+    "position": 22.352766439909296,
+    "generation": 13,
+    "seekSerial": 3,
+    "diagnostics": {
+      "bufferingCount": 3,
+      "recoveryCount": 0,
+      "firstAudioMs": 1024,
+      "seekFirstAudioMs": 27,
+      "lastRecovery": null
+    },
+    "selectedProvider": "monochrome",
+    "selectedProviderId": "239910648984977408"
+  },
+  "pausedFinally": true
+}

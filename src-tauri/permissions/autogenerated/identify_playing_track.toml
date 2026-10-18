@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-identify-playing-track"
+description = "Enables the identify_playing_track command without any pre-configured scope."
+commands.allow = ["identify_playing_track"]
+
+[[permission]]
+identifier = "deny-identify-playing-track"
+description = "Denies the identify_playing_track command without any pre-configured scope."
+commands.deny = ["identify_playing_track"]

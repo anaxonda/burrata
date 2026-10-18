@@ -1,0 +1,9 @@
+# Spotify profile hash-overlap audit — 2026-10-17
+
+The current normal candidate was mounted and its complete saved-state snapshot matched the preserved pre-run snapshot. This audit then made eight read-only profile-page requests and compared privacy-preserving row hashes; it did not perform provider writes, queue changes or audio actions.
+
+The standard page offsets (0, 30, 60 and 90) returned 99 unique rows with no duplicates. Additional boundary probes at offsets 58, 59, 89 and 99 added no unique rows. Around the 60-to-89 boundary, one matching item shifted by 28 positions while the requested offset moved by 29. That is consistent with one omitted returned slot, but does not identify the item or prove the provider's full underlying list. Returned page counts and reported totals varied by offset, so the earlier 99-row observation remains incomplete rather than a completeness claim.
+
+Eight follow-up reads repeated the anchors at offsets 0, 60, 89 and 99 with identical ordered hashes, row counts and reported totals to the prior audit. A repeated zero-offset read also matched exactly. Reads at offsets 100, 110 and 120 returned HTTP 200 with empty bodies, which were not parseable as provider pages and carried no total; treat them as unknown empty responses, not proof that all reported entries exist, are deleted, or are private. The observed offset-89 page overlaps the last returned row at offset 60, so advancing by the requested page span of 30 (to offset 90) avoids a duplicate; advancing by the 29 rows received would not. No production cursor change is indicated by these observations.
+
+The report retains only aggregate counts, offsets and outcome flags. It contains no playlist IDs, row hashes, account identifiers, titles, URLs, credentials or private queue contents. [Sanitized aggregate result](result.json).

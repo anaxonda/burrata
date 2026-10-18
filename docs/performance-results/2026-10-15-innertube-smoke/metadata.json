@@ -1,0 +1,12 @@
+{
+  "youtubeiVersion": "18.1.0",
+  "node": "v24.21.0",
+  "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "videoId": "jNQXAC9IVRw",
+  "scope": "single explicit public smoke clip; decoder PCM, no mixer or device",
+  "qualification": false,
+  "concurrentOptimizedBuild": true,
+  "cpuScope": "helper process only, excludes FFmpeg child",
+  "tokenInputProvided": false,
+  "notes": "WEB failures remain visible; MWEB uses a different client. No p95 or 30% promotion claim."
+}

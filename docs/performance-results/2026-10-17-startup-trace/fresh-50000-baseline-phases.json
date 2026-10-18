@@ -1,0 +1,29 @@
+{
+  "scope": "Fresh50k synthetic Linux debug startup withexplicit180s registrationlimit; phaseclocks start at Tauri setup. Later ready-page matrix stillrunning; original20s timeout retained.",
+  "binarySha256": "c22280913be80ee621e2adcb5f48dc0019698226bf5356251321f6c94e4c495c",
+  "marksMs": {
+    "setup.begin": 0,
+    "store.open.begin": 14,
+    "store.open.end": 872,
+    "store.downloads_backfill.begin": 872,
+    "store.downloads_backfill.end": 22257,
+    "store.recovery.begin": 22271,
+    "store.recovery.end": 22272,
+    "browser_bridge.begin": 28471,
+    "browser_bridge.end": 28471,
+    "automation_endpoint.begin": 28471,
+    "automation_endpoint.registered": 28473
+  },
+  "durationsMs": {
+    "storeOpen": 858,
+    "downloadsBackfill": 21385,
+    "recovery": 1,
+    "assetGrants": 6157
+  },
+  "assetGrants": {
+    "count": 50000,
+    "pages": 100
+  },
+  "endpointRegisteredAtMs": 28473,
+  "limitations": "Single startup, no distribution/whole-app resource/platform qualification; no optimization applied in this baseline."
+}

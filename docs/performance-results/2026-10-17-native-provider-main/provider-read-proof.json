@@ -1,0 +1,77 @@
+{
+  "binarySha256": "68b12f3bb9663ed492d2e6de7ed53e2d80d3a7ca3501eb4a7d5165242628301e",
+  "pid": 733169,
+  "transport": {
+    "enabled": true,
+    "running": true,
+    "mode": "native-ready",
+    "transport": "native-webview-http",
+    "credentialStorage": "os-keyring",
+    "connectionSeen": false,
+    "confirmedAccounts": {
+      "spotify": true,
+      "youtube": true
+    },
+    "accountRevisions": {
+      "spotify": 1,
+      "youtube": 1
+    }
+  },
+  "spotifyProfile": {
+    "bodyBytes": 7797,
+    "contentTypeClass": "other",
+    "decodedRows": 30,
+    "decodedTotal": 110,
+    "failureClass": "none",
+    "httpStatus": 200,
+    "parseClass": "valid",
+    "topLevelFields": [
+      {
+        "count": 30,
+        "field": 1,
+        "wire": 2
+      },
+      {
+        "count": 1,
+        "field": 2,
+        "wire": 0
+      }
+    ],
+    "version": 1
+  },
+  "youtubeLibrary": {
+    "complete": null,
+    "hasCursor": false,
+    "responseShape": {
+      "ambiguous": false,
+      "directCursorItems": 0,
+      "distinctTokens": 0,
+      "invalidCursorItems": 0,
+      "recognizedContainers": 1,
+      "repeatedCursorItems": 0,
+      "terminalObserved": true,
+      "truncated": false,
+      "unrecognizedContinuationNodes": 0,
+      "version": 1,
+      "visitedNodes": 7526,
+      "wrappedCursorItems": 0
+    },
+    "rowCount": 61,
+    "truncated": false
+  },
+  "queuePreservation": {
+    "currentIndex": true,
+    "paused": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "queueEntryIds": true,
+    "orderedQueuePreserved": true
+  },
+  "queueTotal": 13,
+  "manualQueueRestoreSeekResume": false,
+  "newLoginOrAccountConfirmation": false,
+  "providerWrites": false,
+  "scope": "Read-only normal-profile credentials and bounded provider responses with no companion connection. Does not qualify all paging, account switching, session expiry, or writeback."
+}

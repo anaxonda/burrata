@@ -1,0 +1,22 @@
+{
+  "sameProfileRestart": true,
+  "checks": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "paused": true
+  },
+  "occurrenceIdsPresent": true,
+  "queueTotal": 1,
+  "limitations": "Single-entry persisted identity and compact published queue projection; duplicate occurrence persistence tested in source, not by this live check.",
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

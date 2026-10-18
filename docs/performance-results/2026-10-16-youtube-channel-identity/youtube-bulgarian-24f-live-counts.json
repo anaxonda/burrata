@@ -1,0 +1,16 @@
+{
+  "provider": "youtube",
+  "playlistId": "PLAdMFcrJG4Z15O-xQ87_LwNyKfGwW5gxs",
+  "reportedTotal": 62,
+  "loadedTracks": 62,
+  "uniqueVideoIds": 62,
+  "complete": true,
+  "hasCursor": false,
+  "providerAvailableFlags": 62,
+  "positionsOneThrough62": true,
+  "actualUiViewed": true,
+  "durationsKnown": 0,
+  "metadataFixPendingNextBuild": true,
+  "audioDecodeQualification": false,
+  "providerWrites": 0
+}

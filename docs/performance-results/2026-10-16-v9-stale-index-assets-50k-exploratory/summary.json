@@ -1,0 +1,63 @@
+{
+  "run": "isolated-v9-stale-projection-index-asset-backed-bpm-exploratory",
+  "date": "2026-10-16",
+  "sourceSha256": "440f4c1ffb19a4b693ae84fdfdc35b1069e613084153d310b5721f203e1b6472",
+  "binarySha256": "c0023bc4cf00439a1a6c5a3139554ba8435c796b8b1f674eea45dc297064fd2c",
+  "binary": "/tmp/burrata-sorting-target/debug/verified-tests-v9-stale-index-440f4c1f/burrata_lib",
+  "test": "storage::tests::benchmark_bpm_projection_index_pages_and_maintenance",
+  "environment": {
+    "BURRATA_AVAILABILITY_PROFILE": "1",
+    "BURRATA_AVAILABILITY_BENCH_ASSETS": "1",
+    "BURRATA_AVAILABILITY_BENCH_COUNTS": "50000",
+    "BURRATA_AVAILABILITY_BENCH_SAMPLES": "3",
+    "BURRATA_AVAILABILITY_BENCH_INDEX_MAINTENANCE": "0",
+    "fixture": "50,000 varied 80-199 BPM listings, one distinct zero-byte local asset each, sparse remote metadata; no audio decode",
+    "pageSize": 200,
+    "warmupsPerMode": 3,
+    "measuredPerMode": 3,
+    "scope": "actual Store storage microbenchmark; excludes GUI and end-to-end work",
+    "qualification": "exploratory only; 3 samples do not qualify the 20-sample performance gate"
+  },
+  "readyPageMs": {
+    "indexed": {
+      "ascFirst": {"samples": [337.026677, 378.045135, 380.957356], "median": 378.045135, "sampleP95": 380.957356, "worst": 380.957356},
+      "ascLater": {"samples": [319.056979, 319.980995, 369.228512], "median": 319.980995, "sampleP95": 369.228512, "worst": 369.228512},
+      "descFirst": {"samples": [333.625617, 359.251421, 373.498295], "median": 359.251421, "sampleP95": 373.498295, "worst": 373.498295},
+      "descLater": {"samples": [315.349605, 318.593501, 363.220488], "median": 318.593501, "sampleP95": 363.220488, "worst": 363.220488}
+    },
+    "matchedNoBpmIndex": {
+      "ascFirst": {"samples": [930.331258, 933.938668, 996.214694], "median": 933.938668, "sampleP95": 996.214694, "worst": 996.214694},
+      "ascLater": {"samples": [911.352326, 927.257557, 958.929883], "median": 927.257557, "sampleP95": 958.929883, "worst": 958.929883},
+      "descFirst": {"samples": [883.281473, 886.393255, 894.512911], "median": 886.393255, "sampleP95": 894.512911, "worst": 894.512911},
+      "descLater": {"samples": [841.199765, 911.141675, 952.847608], "median": 911.141675, "sampleP95": 952.847608, "worst": 952.847608}
+    }
+  },
+  "pendingPageMs": {
+    "first": {"samples": [213.706958, 228.532137, 245.391544], "median": 228.532137, "sampleP95": 245.391544, "worst": 245.391544},
+    "later": {"samples": [202.807234, 216.662677, 248.276363], "median": 216.662677, "sampleP95": 248.276363, "worst": 248.276363},
+    "contract": "sortPending=true; first page reports availability Pending; no rows are returned until projections are ready"
+  },
+  "maintenance": {
+    "backfillWallMs": 87889.336605,
+    "backfillBatchCount": 100,
+    "backfillBatchSize": 500,
+    "maxBatchWallMs": 984.327677,
+    "populatedBpmIndexBuildMs": 1067.008133,
+    "runtimeBatchSize": 250,
+    "note": "The benchmark uses 500-row backfill batches; runtime currently uses 250-row batches, so the measured maximum is not a runtime-stall estimate."
+  },
+  "profile": {
+    "pendingCheckMicros": "about 150-245 across observations; partial stale-index lookup is no longer dominant",
+    "assetDiscoveryMicros": "about 320-543",
+    "indexedPageSqlMicros": "about 2,200-5,400",
+    "noIndexPageSqlMicros": "about 517,000-629,000",
+    "pageHydrationMicros": "about 89,000-124,000",
+    "firstPageGlobalCountAvailabilityMicros": "about 226,000-277,000",
+    "laterPageCountMicros": "about 198,000-240,000"
+  },
+  "validation": {
+    "focusedStorageSuite": "74 passed, 0 failed, 3 ignored",
+    "fullHostSuite": "719 passed, 0 failed, 16 ignored",
+    "benchmarkTest": "1 passed"
+  }
+}

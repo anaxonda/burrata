@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "scope": "One 50k synthetic asset-backed Linux debug baseline vs one optimized run; not a release or user-library qualification.",
+  "baseline": {
+    "binarySha256": "c22280913be80ee621e2adcb5f48dc0019698226bf5356251321f6c94e4c495c",
+    "startupWaitMs": 32764.7,
+    "startupRegistrationTimeoutSeconds": 180,
+    "projectionReadyWaitMs": 137885.6,
+    "downloadsBackfillMs": 21385,
+    "endpointRegisteredAtMs": 28473
+  },
+  "optimized": {
+    "binarySha256": "a1b8013b10e1733529b6b8c4c1fa742665f37634808342654fd4b9ef999e59fc",
+    "startupWaitMs": 15257.0,
+    "startupRegistrationTimeoutSeconds": 20,
+    "projectionReadyWaitMs": 139755.5,
+    "downloadsBackfillPhaseMs": null,
+    "downloadsBackfillMs": 3642,
+    "endpointRegisteredAtMs": 10930
+  },
+  "startupWaitDeltaMs": -17507.7,
+  "startupWaitDeltaPercent": -53.43,
+  "projectionWaitDeltaMs": 1869.9,
+  "matrix": {
+    "count": 50000,
+    "pageSize": 200,
+    "warmups": 3,
+    "repetitions": 20,
+    "scenarioCount": 7,
+    "totalTimedReads": 140,
+    "p95RangeMs": [
+      233.187,
+      1787.972
+    ],
+    "scenarios": [
+      {
+        "name": "title_asc",
+        "total": 50000,
+        "reads": 20,
+        "failures": 0,
+        "continuationVerified": true,
+        "baselineP95Ms": 1381.056,
+        "optimizedP95Ms": 1356.292,
+        "p95DeltaMs": -24.764,
+        "p95DeltaPercent": -1.79,
+        "baselineMedianMs": 1295.04,
+        "optimizedMedianMs": 1284.311
+      },
+      {
+        "name": "effective_bpm_asc",
+        "total": 50000,
+        "reads": 20,
+        "failures": 0,
+        "continuationVerified": true,
+        "baselineP95Ms": 232.556,
+        "optimizedP95Ms": 233.187,
+        "p95DeltaMs": 0.631,
+        "p95DeltaPercent": 0.27,
+        "baselineMedianMs": 205.253,
+        "optimizedMedianMs": 209.051
+      },
+      {
+        "name": "effective_bpm_desc",
+        "total": 50000,
+        "reads": 20,
+        "failures": 0,
+        "continuationVerified": true,
+        "baselineP95Ms": 233.227,
+        "optimizedP95Ms": 234.562,
+        "p95DeltaMs": 1.335,
+        "p95DeltaPercent": 0.57,
+        "baselineMedianMs": 212.191,
+        "optimizedMedianMs": 210.219
+      },
+      {
+        "name": "artist_asc",
+        "total": 50000,
+        "reads": 20,
+        "failures": 0,
+        "continuationVerified": true,
+        "baselineP95Ms": 1168.044,
+        "optimizedP95Ms": 1181.902,
+        "p95DeltaMs": 13.858,
+        "p95DeltaPercent": 1.19,
+        "baselineMedianMs": 1095.858,
+        "optimizedMedianMs": 1113.292
+      },
+      {
+        "name": "duration_asc",
+        "total": 50000,
+        "reads": 20,
+        "failures": 0,
+        "continuationVerified": true,
+        "baselineP95Ms": 955.422,
+        "optimizedP95Ms": 935.715,
+        "p95DeltaMs": -19.706,
+        "p95DeltaPercent": -2.06,
+        "baselineMedianMs": 919.301,
+        "optimizedMedianMs": 895.897
+      },
+      {
+        "name": "duration_desc",
+        "total": 50000,
+        "reads": 20,
+        "failures": 0,
+        "continuationVerified": true,
+        "baselineP95Ms": 1334.399,
+        "optimizedP95Ms": 1310.275,
+        "p95DeltaMs": -24.124,
+        "p95DeltaPercent": -1.81,
+        "baselineMedianMs": 1253.212,
+        "optimizedMedianMs": 1271.222
+      },
+      {
+        "name": "unicode_query_source_order",
+        "total": 50,
+        "reads": 20,
+        "failures": 0,
+        "continuationVerified": true,
+        "baselineP95Ms": 1598.984,
+        "optimizedP95Ms": 1787.972,
+        "p95DeltaMs": 188.988,
+        "p95DeltaPercent": 11.82,
+        "baselineMedianMs": 1535.899,
+        "optimizedMedianMs": 1600.578
+      }
+    ]
+  },
+  "limitations": [
+    "Only one run per binary; no statistical repeatability or universal speedup claim.",
+    "Baseline used a 180-second endpoint-registration timeout; optimized run used the default 20 seconds. Both completed within the configured limit.",
+    "The optimized phase trace measures Downloads backfill at 3642ms versus 21385ms in the baseline. Its endpoint event registers at 10930ms, while matrix startupWaitMs is 15257ms; these are distinct measurements, and the trace does not fully decompose the harness wait.",
+    "Ready projection wait is outside timed reads and increased slightly in this pair; it should not be mixed with request timings.",
+    "Synthetic fixture uses 50000 asset-backed rows and does not represent a user library or whole-app load.",
+    "Each scenario validates the first page plus one exact continuation; middle/tail checks apply to six longer-query cases, not the short query."
+  ]
+}

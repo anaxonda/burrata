@@ -1,20 +1,26 @@
 /* One persistent desktop shell, including split-screen and phone widths. */
 .app-shell { position:relative; }
-.player-panel-host { grid-column:3;grid-row:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border-left:1px solid var(--line); }
+.player-panel-host { position:relative;grid-column:3;grid-row:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border-left:1px solid var(--line); }
 .player-panel-tabs { display:flex;gap:6px;padding:10px;border-bottom:1px solid var(--line);flex:0 0 auto; }
 .player-panel-tabs button { background:transparent;color:var(--muted);padding:7px 10px; }
 .player-panel-tabs button.active { color:var(--text);background:var(--raised); }
 .player-panel-tabs button:last-child { margin-left:auto; }
 .player-panel-host .playing-info-backdrop.docked { flex:1;min-height:0;position:relative;inset:auto;padding:0;width:100%;overflow:hidden; }
 .player-panel-host .playing-info { height:100%;border:0;border-radius:0;box-shadow:none; }
-.player-panel-host .playback-queue-panel { position:relative;inset:auto;width:100%;flex:1;border:0;border-radius:0;box-shadow:none; }
+.app-shell .player-panel-host .playback-queue-panel { position:relative;inset:auto;width:100%;flex:1;border:0;border-radius:0;box-shadow:none; }
 .player-panel-host .playing-info > header .close,.player-panel-host .playback-queue-panel > header .close { display:none; }
-@media(min-width:1200px) { .app-shell.has-player-panel {grid-template-columns:var(--library-sidebar-width,200px) minmax(320px,1fr) var(--info-panel-width,340px);} }
+@media(min-width:1200px) { .app-shell.has-player-panel {grid-template-columns:var(--library-sidebar-width,200px) minmax(0,1fr) var(--info-panel-width,340px);} }
 @media(max-width:1199px) { .player-panel-host {position:absolute;z-index:35;grid-column:auto;grid-row:auto;left:var(--library-sidebar-width,200px);right:0;top:0;bottom:var(--player-height,96px);width:auto;} }
 @media(max-width:900px) { .player-panel-host {left:64px;} }
-.app-shell { grid-template-columns:var(--library-sidebar-width,200px) minmax(320px,1fr);grid-template-rows:minmax(0,1fr) auto;min-width:320px; }
-.app-shell>main { grid-column:2;grid-row:1;overflow:hidden; }
+.app-shell { grid-template-columns:var(--library-sidebar-width,200px) minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;min-width:320px; }
+.app-shell>main { grid-column:2;grid-row:1;width:100%;min-width:0;max-width:100%;overflow:hidden; }
 .app-shell>.player { grid-column:1/-1;grid-row:2; }
+/* Track details live in the outer player pane or a fixed overlay. The library
+   itself always owns the entire main pane. Give its inline-size query container
+   an explicit width rather than depending on intrinsic sizing. */
+.app-shell > main > .workspace { display:flex; flex:1 1 auto; align-self:stretch; box-sizing:border-box; width:100%; min-width:0; max-width:100%; }
+.app-shell > main > .workspace > .track-area { flex:1 1 0; box-sizing:border-box; width:100%; min-width:0; max-width:none; }
+.app-shell > main > .workspace .desktop-track-list { box-sizing:border-box; width:100%; min-width:0; max-width:none; }
 .workspace,.workspace:has(.details-empty) { grid-template-columns:minmax(0,1fr); }
 .workspace .details { display:none; }
 .workspace.info-docked { display:grid;grid-template-columns:minmax(320px,1fr) minmax(280px,min(420px,var(--info-panel-width,340px)));min-width:0; }
@@ -22,12 +28,13 @@
 .workspace.info-docked .playing-info-backdrop { grid-column:2;grid-row:1; }
 .workspace.track-info-open:not(.other-panel) .details { display:block;position:fixed;z-index:44;right:12px;top:72px;bottom:calc(var(--player-height,90px) + 12px);width:min(340px,calc(100vw - 88px));max-height:none;overflow:auto;border:1px solid var(--line);border-radius:12px;box-shadow:0 15px 50px #0008; }
 .table-tools { flex-wrap:wrap;gap:8px;padding:10px 18px; }
-.table-tools>input:first-child { flex:1;min-width:100px;max-width:240px;width:auto; }
+.table-tools>input[aria-label="Filter tracks"] { flex:1;min-width:100px;max-width:240px;width:auto; }
 .table-tools .local-filter { font-size:0;min-width:0;flex:none; }
 .table-tools .local-filter select { font-size:12px;min-width:0;width:145px; }
 .table-tools>small { display:none; }
-.desktop-track-list { display:block; }
-.desktop-track-list table { table-layout:fixed;width:100%;font-size:13px; }
+.desktop-track-list { display:block;container-type:inline-size;box-sizing:border-box;width:100%;min-width:0;max-width:100%; }
+.desktop-track-list.track-scroll { min-width:0;width:100%; }
+.desktop-track-list table { table-layout:fixed;box-sizing:border-box;width:100%;min-width:0;max-width:100%;font-size:13px; }
 .desktop-track-list th,.desktop-track-list td { padding:8px 10px; }
 .desktop-track-list th { height:38px; }
 .desktop-track-list tbody tr:not(.spacer) { height:60px; }
@@ -51,12 +58,39 @@
 .compact-track-actions input { width:16px;min-width:16px;padding:0; }
 .desktop-track-list:has(input[type=checkbox]) .track-options { width:136px; }
 .desktop-track-list .tag { font-size:9px;margin-left:7px;padding:1px 4px; }
+/* The main library is virtualized at a fixed 60px row height. Use a stable
+   two-line title box and reclaim secondary columns as the actual pane narrows. */
+@container (max-width: 760px) {
+  .desktop-track-list .track-album,.desktop-track-list .track-tempo { display:none; }
+  .desktop-track-list th,.desktop-track-list td { padding-top:4px;padding-bottom:4px; }
+  .desktop-track-list .track-title { display:-webkit-box;max-width:none;overflow:hidden;text-overflow:ellipsis;white-space:normal;overflow-wrap:anywhere;line-height:15px;max-height:30px;-webkit-box-orient:vertical;-webkit-line-clamp:2; }
+  .desktop-track-list .track-subtitle { display:block;max-width:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:12px;margin-top:1px; }
+  .desktop-track-list .track-options { width:108px; }
+  .desktop-track-list:has(input[type=checkbox]) .track-options { width:124px; }
+}
+@container (max-width: 540px) {
+  .desktop-track-list .track-time { display:none; }
+  .desktop-track-list .track-number { width:34px; }
+  .desktop-track-list .track-options { width:104px;padding-left:4px;padding-right:4px; }
+  .desktop-track-list:has(input[type=checkbox]) .track-options { width:120px; }
+  .compact-track-actions { gap:0; }
+  .compact-track-actions button { width:28px;height:28px;min-width:28px; }
+  .desktop-track-list .track-title { font-size:13px;line-height:14px;max-height:28px; }
+  .desktop-track-list .track-subtitle { font-size:11px; }
+}
+@container (max-width: 420px) {
+  .desktop-track-list .track-number { width:32px; }
+  .desktop-track-list .track-number .row-number { opacity:0; }
+  .desktop-track-list .track-number .row-play { opacity:1;pointer-events:auto; }
+  .compact-track-actions button { width:26px;height:28px;min-width:26px; }
+  .desktop-track-list .downloaded-badge { width:15px;height:15px;font-size:10px; }
+}
 .sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
 @media(max-width:1099px) { .app-shell { grid-template-columns:var(--library-sidebar-width,200px) minmax(320px,1fr); }.desktop-track-list .track-tempo { display:none; } }
 @media(max-width:900px) { .app-shell { grid-template-columns:64px minmax(320px,1fr); }.app-shell.has-player-panel { grid-template-columns:64px minmax(320px,1fr); }.workspace.info-docked { grid-template-columns:minmax(320px,1fr); }.workspace.info-docked .playing-info-backdrop { position:fixed;z-index:41;inset:0;grid-column:auto;grid-row:auto; }.desktop-track-list .track-album { display:none; }.table-tools { padding:8px 12px; }.table-tools>span { display:none; }.app-shell>main>header { padding:12px; }.app-shell>main>header h1 { font-size:21px; }.library-overview { padding:8px 12px; }.desktop-track-list .track-title { font-size:13px; }.desktop-track-list .track-subtitle { font-size:11px; } }
-@media(max-width:479px) { .desktop-track-list .track-number { width:32px; }.desktop-track-list .track-time { display:none; }.desktop-track-list .track-options { width:108px;padding:4px; }.table-tools .local-filter select { width:110px; }.table-tools>input:first-child { max-width:none; }.desktop-track-list td.track-name { padding:6px 4px; }.compact-track-actions { gap:0; } }
+@media(max-width:479px) { .desktop-track-list .track-number { width:32px; }.desktop-track-list .track-time { display:none; }.desktop-track-list .track-options { width:108px;padding:4px; }.table-tools .local-filter select { width:110px; }.table-tools>input[aria-label="Filter tracks"] { max-width:none; }.desktop-track-list td.track-name { padding:6px 4px; }.compact-track-actions { gap:0; } }
 .table-tools .track-sort { width:120px;min-width:0;font-size:12px; }
-@media(max-width:599px) { .table-tools .track-sort { width:100px; }.table-tools>input:first-child { flex-basis:100%;max-width:none; } }
+@media(max-width:599px) { .table-tools .track-sort { width:100px; }.table-tools>input[aria-label="Filter tracks"] { flex-basis:100%;max-width:none; } }
 .desktop-track-list .artist-link { border:0;background:transparent;color:var(--muted);padding:0;min-height:0;text-align:left; }
 .desktop-track-list .artist-link:hover { color:var(--text);text-decoration:underline; }
 .app-shell>main>header .eyebrow { display:none; }
@@ -67,24 +101,25 @@
 .app-shell>main>header { padding:14px 18px;gap:12px;min-height:64px; }
 .app-shell>main>header h1 { font-size:24px; }
 .app-shell>main>header>div:nth-child(2) { flex:1;min-width:0; }
-.app-shell>main>header h1 { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.app-shell>main>header h1 { white-space:normal; overflow-wrap:anywhere; line-height:1.25; margin:0; }
 .library-toolbar { padding:8px 18px; }
 @media(max-width:599px) { .app-shell>main>header { padding:10px;gap:7px; }.app-shell>main>header h1 { font-size:19px; }.library-toolbar { padding:8px 12px; }.header-actions button { padding:7px; } }
 .playlist-trash { width:min(440px,calc(100vw - 32px));max-height:75dvh;overflow:auto; }
 .trash-row { display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line); }
 .trash-row>span { flex:1;min-width:0;overflow-wrap:anywhere; }.trash-row small { display:block;color:var(--muted); }
 
-.downloaded-badge{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;margin-left:7px;border-radius:50%;background:var(--accent);color:var(--base);font-size:13px;font-weight:800}.playlist-import-actions{position:relative;font-size:12px}.playlist-import-actions summary{cursor:pointer;padding:7px;border:1px solid var(--line);border-radius:6px}.playlist-import-actions[open]{background:var(--raised);padding:8px;border-radius:8px}.playlist-import-actions button{display:block;margin-top:6px}
+.downloaded-badge{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;margin-left:7px;border-radius:50%;background:var(--accent);color:var(--base);font-size:13px;font-weight:800}
+.playlist-context-trigger { min-width:36px; min-height:36px; padding:0 .5rem; font-size:22px; line-height:1; }
 
 /* Keep a useful browser column alongside the player pane at desktop half-widths. */
 @media(min-width:901px) and (max-width:1199px) {
-  .app-shell.has-player-panel { grid-template-columns:var(--library-sidebar-width,200px) minmax(0,1fr) var(--info-panel-width,340px); }
+  .app-shell.has-player-panel { grid-template-columns:var(--library-sidebar-width,64px) minmax(0,1fr) var(--info-panel-width,340px); }
 }
 @media(min-width:680px) and (max-width:1199px) {
   .player-panel-host { position:relative; grid-column:3; grid-row:1; inset:auto; width:auto; }
 }
 @media(min-width:680px) and (max-width:900px) {
-  .app-shell.has-player-panel { grid-template-columns:64px minmax(0,1fr) minmax(280px,40vw); }
+  .app-shell.has-player-panel { grid-template-columns:64px minmax(0,1fr) var(--info-panel-width,340px); }
 }
 @media(min-width:680px) and (max-width:1199px) {
   .player-panel-host .playing-info { width:100%; }
@@ -95,4 +130,159 @@
   .app-shell,.app-shell.has-player-panel { grid-template-columns:64px minmax(0,1fr); }
   .player-panel-host { left:auto; right:0; width:min(var(--info-panel-width,340px),calc(100% - 64px)); }
   .player-panel-host .playing-info { max-width:100%; }
+}
+
+.playlist-creator { margin: .25rem 0 0; color: var(--muted); font-size: .85rem; }
+.creator-profile-link { border: 0; padding: .15rem .25rem; background: transparent; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: .2em; }
+.creator-profile-link:hover { color: var(--text); }
+
+.playlist-import-actions > summary { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: 0 .5rem; list-style: none; font-size: 1.35rem; cursor: pointer; }
+.playlist-import-actions > summary::marker { content: ""; }
+.playlist-import-actions > summary::-webkit-details-marker { display: none; }
+
+.queue-panel-resize { position:absolute;z-index:50;left:0;top:0;width:8px;height:100%;cursor:col-resize;touch-action:none; }
+.queue-panel-resize:hover,.queue-panel-resize:focus-visible { background:color-mix(in srgb,var(--accent) 35%,transparent);outline:0; }
+
+/* Let short split-window viewports show tracks between the filters and player. */
+@media (max-height: 600px) {
+  .app-shell > main > header { min-height: 44px; padding: 4px 12px; gap: 8px; align-items: center; }
+  .app-shell > main > header h1 { margin: 0; font-size: 20px; line-height: 1.15; }
+  .app-shell > main > header .header-actions button { min-height: 32px; padding: 5px 8px; }
+  .toolbar.library-toolbar { min-height: 36px; padding: 2px 12px 4px; gap: 4px; }
+  .library-tools summary { min-height: 32px; display: flex; align-items: center; padding: 3px 8px; }
+  .table-tools { gap: 6px; padding: 4px 12px 6px; }
+  .table-tools > input[aria-label="Filter tracks"] { min-height: 34px; padding: 6px 8px; }
+  .table-tools label:not(.local-filter) { flex-direction: row; align-items: center; gap: 5px; margin: 0; white-space: nowrap; }
+  .table-tools label:not(.local-filter) input { width: 110px; min-height: 34px; padding: 6px 8px; }
+  .table-tools select, .table-tools button { min-height: 34px; padding: 6px 8px; }
+}
+
+/* Library, Favorites, and collection controls stay on one compact line when
+   the pane is wide enough; duration bounds open over the list on demand. */
+.toolbar.empty-library-toolbar { display:none; }
+.header-library-tools { position:relative;flex:none; }
+.header-library-tools > summary { box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid var(--line);border-radius:7px;font-size:0;list-style:none; }
+.header-library-tools > summary::after { content:"⋯";font-size:20px;line-height:1; }
+.header-library-tools > summary::-webkit-details-marker { display:none; }
+.header-library-tools > div { position:absolute;z-index:40;right:0;top:calc(100% + 6px);width:240px;max-width:calc(100vw - 90px);box-sizing:border-box;flex-direction:column;align-items:stretch;padding:8px;border:1px solid var(--line);border-radius:9px;background:var(--surface);box-shadow:0 10px 28px #0006; }
+.table-tools.compact-tools { position:relative;flex-wrap:nowrap;align-items:center;gap:6px;padding:6px 10px;min-height:46px; }
+.table-tools.compact-tools:has(> input[aria-label="New playlist for selection"]),.table-tools.compact-tools:has(> [aria-live]),.table-tools.compact-tools:has(> [role="status"]) { flex-wrap:wrap; }
+.table-tools.compact-tools > [aria-live] { flex-basis:100%; }
+.table-tools.compact-tools > input[aria-label="Filter tracks"] { flex:1 1 140px;min-width:100px;max-width:240px;width:auto; }
+.table-tools.compact-tools .local-filter { flex:0 1 auto;font-size:0;min-width:0; }
+.table-tools.compact-tools .local-filter select { width:132px;min-width:0;font-size:12px; }
+.table-tools.compact-tools .track-sort { flex:0 1 128px;width:128px;min-width:0;font-size:12px; }
+.table-tools.compact-tools > span:not([aria-live]) { display:none; }
+.table-tools.compact-tools > span.track-count { display:inline-flex;flex:0 0 auto;max-width:110px;overflow:hidden;text-overflow:ellipsis;font-size:10px; }
+.duration-filter-tools { position:static;flex:none; }
+.duration-filter-tools > summary { display:flex;align-items:center;justify-content:center;gap:5px;list-style:none;min-height:34px;padding:5px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer;font-size:12px;white-space:nowrap; }
+.duration-filter-tools > summary::-webkit-details-marker { display:none; }
+.duration-filter-tools > summary::marker { content:""; }
+.active-filter-count { display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:99px;background:color-mix(in srgb,var(--accent) 24%,var(--surface));color:var(--text);font-size:10px; }
+.duration-filter-fields { box-sizing:border-box;position:absolute;z-index:30;top:calc(100% + 4px);right:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;width:min(310px,calc(100% - 20px));padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);box-shadow:0 10px 28px #0006; }
+.duration-filter-fields label { display:flex;flex-direction:column;gap:4px;margin:0;color:var(--muted);font-size:11px; }
+.duration-filter-fields input { box-sizing:border-box;width:100%;min-width:0;font-size:12px; }
+.duration-filter-fields .clear-duration-filters { grid-column:1/-1;justify-self:end;min-height:32px;padding:5px 9px;font-size:11px; }
+.table-tools.compact-tools > .sort-direction { display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none;min-width:59px;min-height:34px;padding:5px 7px;font-size:11px;white-space:nowrap; }
+.table-tools.compact-tools > .sort-direction > span:first-child { font-size:14px;line-height:1; }
+.load-more-row { display:flex;justify-content:center;padding:8px 10px; }
+.load-more-row button { min-height:34px;padding:6px 12px;font-size:12px; }
+.library-toolbar:has(.library-tools:not([open])) { align-items:center;min-height:0;padding-top:4px;padding-bottom:4px; }
+.library-toolbar .library-tools > summary { display:flex;align-items:center;min-height:32px;padding:4px 8px; }
+@media(max-width:900px) {
+  .table-tools.compact-tools > input[aria-label="Filter tracks"] { max-width:180px; }
+  .table-tools.compact-tools .local-filter select { width:120px; }
+  .table-tools.compact-tools .track-sort { flex-basis:120px;width:120px; }
+  .duration-filter-tools > summary { padding-right:7px;padding-left:7px; }
+  .table-tools.compact-tools > .sort-direction { min-width:52px; }
+  .table-tools.compact-tools > span.track-count { display:inline-flex;flex:0 0 60px;max-width:60px;overflow:hidden;text-overflow:ellipsis;font-size:10px; }
+}
+@media(max-width:599px) {
+  .table-tools.compact-tools { flex-wrap:wrap;gap:5px;padding:6px 10px; }
+  .table-tools.compact-tools > input[aria-label="Filter tracks"] { flex:1 1 100%;max-width:none; }
+  .table-tools.compact-tools .local-filter select { width:100px; }
+  .table-tools.compact-tools .track-sort { flex-basis:82px;width:82px; }
+  .table-tools.compact-tools > .sort-direction { min-width:50px; }
+  .table-tools.compact-tools > span.track-count { display:none; }
+}
+@media(max-width:380px) {
+  .table-tools.compact-tools { gap:4px;padding-right:8px;padding-left:8px; }
+  .table-tools.compact-tools .local-filter select { width:80px; }
+  .table-tools.compact-tools .track-sort { flex-basis:68px;width:68px; }
+  .table-tools.compact-tools > .sort-direction { min-width:36px;padding-right:5px;padding-left:5px; }
+  .table-tools.compact-tools > .sort-direction > span:last-child { display:none; }
+  .duration-filter-tools > summary { gap:3px;padding-right:5px;padding-left:5px; }
+}
+
+/* Desktop split panes respond to their remaining content width, not the window. */
+.app-shell > main { container: main-pane / inline-size; }
+@media (min-width: 901px) {
+  .table-tools.compact-tools .local-filter { flex-shrink:0; }
+  .table-tools.compact-tools .local-filter select { min-width:132px; }
+  .table-tools.compact-tools .track-sort { flex-shrink:0; min-width:128px; }
+  @container main-pane (max-width: 600px) {
+    .app-shell > main > header { padding:10px; gap:8px; }
+    .app-shell > main > header h1 { font-size:20px; white-space:nowrap; overflow-wrap:normal; overflow:hidden; text-overflow:ellipsis; }
+    .app-shell > main > header .navigation-controls { flex:none; gap:4px; }
+    .app-shell > main > header .header-actions { flex:none; gap:6px; }
+    .app-shell > main > header .header-actions > button { padding:7px 8px; white-space:nowrap; font-size:12px; }
+    .table-tools.compact-tools { flex-wrap:wrap; gap:6px; }
+    .table-tools.compact-tools > input[aria-label="Filter tracks"] { flex:1 1 calc(100% - 150px); min-width:120px; max-width:none; }
+    .table-tools.compact-tools .local-filter { flex:0 0 144px; }
+    .table-tools.compact-tools .local-filter select { box-sizing:border-box; width:100%; min-width:144px; }
+    .table-tools.compact-tools .track-sort { flex:1 1 128px; min-width:128px; width:auto; }
+    .table-tools.compact-tools > span.track-count { display:inline-flex; flex:0 0 auto; max-width:70px; margin-left:auto; white-space:nowrap; }
+  }
+}
+
+/* Keep download controls and job metadata compact in short desktop windows. */
+@media (min-width: 901px) {
+  .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) { flex:none; gap:6px; padding:6px 12px; }
+  .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) label { display:flex; flex-direction:row; align-items:center; gap:5px; margin:0; min-width:0; font-size:11px; white-space:nowrap; }
+  .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) input { box-sizing:border-box; flex:none; width:100px; min-width:0; height:34px; padding:6px 8px; }
+  .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) select { box-sizing:border-box; flex:none; width:146px; min-width:0; height:auto; min-height:34px; max-height:none; padding:4px 8px; line-height:normal; }
+  .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) select[aria-label="Download sort direction"] { width:112px; }
+  .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) > button { min-height:34px; padding:6px 9px; font-size:11px; }
+  .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) > span { font-size:11px; }
+  .app-shell > main > .queue { min-height:0; padding:0 12px; }
+  .app-shell > main > .queue .job { gap:12px; padding:10px 0; }
+  .app-shell > main > .queue .job > div:first-child { min-width:0; overflow-wrap:anywhere; }
+  .app-shell > main > .queue .job strong { line-height:1.35; }
+  .app-shell > main > .queue .job p { margin:3px 0; line-height:1.35; }
+  .app-shell > main > .queue .job small { display:block; margin-top:4px; line-height:1.35; }
+  .app-shell > main > .queue .job > div:last-child { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; flex:0 0 auto; max-width:40%; }
+  .app-shell > main > .queue .job button { margin:0; min-height:32px; padding:6px 9px; font-size:11px; }
+  @container main-pane (max-width: 600px) {
+    .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) label { flex-direction:column; align-items:stretch; gap:3px; font-size:10px; }
+    .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) label:first-of-type { flex:1 1 140px; }
+    .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) label:nth-of-type(n+3) { flex:1 1 100px; }
+    .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) label input,
+    .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) label:first-of-type select { width:100%; }
+    .app-shell > main > .toolbar:has([aria-label="Sort download jobs"]) { align-items:flex-end; }
+  }
+}
+/* Keep the destination picker in normal flow, including on short desktops. */
+@media (min-width: 901px) {
+  .playlist-picker-dialog footer { position:static; }
+}
+@media (min-width: 901px) and (max-height: 700px) {
+  .playlist-picker-dialog { padding:16px; max-height:calc(100dvh - 32px); }
+  .playlist-picker-dialog header { margin:-16px -16px 10px; padding:12px 16px; }
+  .playlist-picker-dialog header .eyebrow { margin-bottom:4px; }
+  .playlist-picker-dialog header p { margin-top:4px; }
+  .playlist-picker-dialog label { margin:8px 0; }
+  .playlist-picker-dialog input { min-height:34px; padding:7px 10px; }
+  .playlist-picker-dialog select { min-height:34px; height:auto; padding:7px 10px; }
+  .playlist-picker-dialog footer { margin:12px -16px -16px; padding:10px 16px; }
+}
+
+/* Selection actions can precede the filter; wrap by available pane width. */
+@media (min-width:901px) {
+  .table-tools.compact-tools { flex-wrap:wrap; }
+  .table-tools.compact-tools > input[aria-label="Filter tracks"] { box-sizing:border-box; flex:1 1 140px; min-width:120px; max-width:240px; }
+  .table-tools.compact-tools > button:not(.sort-direction) { flex:0 0 auto; max-width:100%; white-space:nowrap; font-size:12px; padding:6px 8px; min-height:34px; }
+  .table-tools.compact-tools select { box-sizing:border-box; height:auto; min-height:34px; line-height:normal; }
+  @container main-pane (max-width:600px) {
+    .table-tools.compact-tools > input[aria-label="Filter tracks"] { flex:1 1 160px; max-width:none; }
+  }
 }

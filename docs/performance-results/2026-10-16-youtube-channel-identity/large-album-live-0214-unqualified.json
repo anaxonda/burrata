@@ -1,0 +1,14 @@
+{
+  "build": "0214b83ff69e",
+  "albumId": "6mKU4mCwPxx6hxSnu6zeGo",
+  "pages": [],
+  "uniqueTracks": 0,
+  "returnedTracks": 0,
+  "terminal": false,
+  "qualified": false,
+  "albumTitle": "69 Love Songs",
+  "outcome": "PROVIDER_CHANGED",
+  "phase": "catalog_graphql",
+  "httpStatus": 200,
+  "scope": "One failed bounded live album request; no pages or track completeness qualification."
+}

@@ -1,0 +1,40 @@
+{
+  "scope": "Unauthenticated static source only; no downloaded JavaScript executed, no Spotify API requests or credentials. Snapshot identities, not runtime qualification.",
+  "sources": [
+    {
+      "url": "https://raw.githubusercontent.com/tr1ckydev/spotifly/4fc289abc02e29c2c60f9fce94c87ab1cfa58982/src/index.ts",
+      "bytes": 13543,
+      "sha256": "1f731cfa19fef6c276f00e74ef5754895f016467416b15a3d5b2e4631f9a9d2d"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/tr1ckydev/spotifly/4fc289abc02e29c2c60f9fce94c87ab1cfa58982/src/types/artist.ts",
+      "bytes": 20080,
+      "sha256": "6f827faab4a36d542fe7fdeb97be33e2e66f2aa6448fcd5b70f4270a816b974e"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/tr1ckydev/spotifly/4fc289abc02e29c2c60f9fce94c87ab1cfa58982/src/types/album.ts",
+      "bytes": 4994,
+      "sha256": "af25f532abb219c8e62d74e1724382ecba1b5620e03c5156253c49738f2a35c1"
+    },
+    {
+      "url": "https://open.spotifycdn.com/cdn/build/web-player/web-player.6b816267.js",
+      "bytes": 4474090,
+      "sha256": "1b9dcc42aeb9c4a7abfc673da946478b100d9fb62acb8bf7f27aa63ef8769602"
+    },
+    {
+      "url": "https://open.spotifycdn.com/cdn/build/web-player/vendor~web-player.f78751f6.js",
+      "bytes": 1580464,
+      "sha256": "ca836c64e7907dcc1d08042e707dc016497a7422e487f8483901e4e7f92a72dd"
+    },
+    {
+      "url": "https://open.spotifycdn.com/cdn/build/web-player/encore~web-player.d53d180b.js",
+      "bytes": 561412,
+      "sha256": "7fdcf7dc53fdca842d17b2e3e3878983a8041c56eba87788da379f183eb97258"
+    },
+    {
+      "url": "https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi/discography/all",
+      "bytes": 166888,
+      "sha256": "7a78fa8313f1b9a6fa4297ea971963137726cc60e2b9ffe7245a973b34dd9f6d"
+    }
+  ]
+}

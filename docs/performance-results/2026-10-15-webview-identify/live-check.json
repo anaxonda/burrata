@@ -1,0 +1,16 @@
+{
+  "binarySha256": "ced6cc73fd2c5b7205ba6650e10edab1d95f0113487da7b73dd2e450b5be6394",
+  "engine": "webview",
+  "muted": true,
+  "physicalAudibilityMeasured": false,
+  "playbackVerified": true,
+  "identificationAttempted": true,
+  "durationSeconds": 250.079,
+  "sourceGenerationPresent": true,
+  "identificationMs": 1746,
+  "identificationReturned": true,
+  "resultPresent": true,
+  "artistPresent": true,
+  "resultTitleMatchesExpected": true,
+  "tagsAutomaticallyEdited": false
+}

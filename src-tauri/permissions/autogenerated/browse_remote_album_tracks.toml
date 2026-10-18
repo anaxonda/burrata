@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-remote-album-tracks"
+description = "Enables the browse_remote_album_tracks command without any pre-configured scope."
+commands.allow = ["browse_remote_album_tracks"]
+
+[[permission]]
+identifier = "deny-browse-remote-album-tracks"
+description = "Denies the browse_remote_album_tracks command without any pre-configured scope."
+commands.deny = ["browse_remote_album_tracks"]

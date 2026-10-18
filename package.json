@@ -1,6 +1,6 @@
 {
   "name": "burrata",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-or-later",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.3.1",
+    "hls.js": "1.7.3",
     "svelte": "^5.55.2"
   },
   "devDependencies": {

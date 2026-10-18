@@ -125,6 +125,7 @@ pub struct YouTubeSupportManager {
     helper_script: Option<PathBuf>,
     plugin_dir: Option<PathBuf>,
     helper: Arc<Mutex<Option<Child>>>,
+    exiting: Arc<AtomicBool>,
     helper_port: Arc<AtomicU64>,
     last_used: Arc<AtomicU64>,
     update_lock: Arc<Mutex<()>>,
@@ -148,6 +149,7 @@ impl YouTubeSupportManager {
             helper_script,
             plugin_dir,
             helper: Arc::new(Mutex::new(None)),
+            exiting: Arc::new(AtomicBool::new(false)),
             helper_port: Arc::new(AtomicU64::new(HELPER_PORT.into())),
             last_used: Arc::new(AtomicU64::new(now_secs())),
             update_lock: Arc::new(Mutex::new(())),
@@ -535,14 +537,16 @@ impl YouTubeSupportManager {
     }
 
     /// Ensure the bundled server is answering at the loopback URL. Caller must
-    /// include `--extractor-args youtubepot-bgutilhttp:base_url=...` and
-    /// `--plugin-dirs <trusted plugin dir>` for yt-dlp invocations.
+    /// include `--extractor-args youtubepot-bgutilhttp:base_url=...` and the
+    /// trusted plugin package search root for yt-dlp invocations.
     pub async fn ensure_provider(&self) -> Result<String, String> {
+        self.ensure_helper_admission()?;
         if !self.provider_assets_ready() {
             return Err("BgUtils provider is unavailable. Install/package the matching 2.0.2 plugin, server build and bundled Node runtime.".into());
         }
         let _ = self.stop_helper_if_idle().await;
         let mut lock = self.helper.lock().await;
+        self.ensure_helper_admission()?;
         if let Some(child) = lock.as_mut() {
             if child
                 .try_wait()
@@ -594,7 +598,9 @@ impl YouTubeSupportManager {
 
     /// Args to append to each yt-dlp invocation that can use YouTube. This
     /// starts the local provider on demand and points yt-dlp at only the
-    /// packaged, trusted plugin directory.
+    /// packaged, trusted plugin package search root. yt-dlp enumerates child
+    /// directories of `--plugin-dirs`, so this must be the parent of the
+    /// packaged `plugin/yt_dlp_plugins` tree.
     pub async fn provider_args(&self) -> Result<Vec<std::ffi::OsString>, String> {
         if !self.provider_assets_present() {
             return Ok(Vec::new());
@@ -603,13 +609,12 @@ impl YouTubeSupportManager {
             return Err("BgUtils provider bundle is incomplete. Package its matching plugin 2.0.2, server build, and bundled Node runtime.".into());
         }
         let url = self.ensure_provider().await?;
-        let plugin_dir = self
-            .plugin_dir
-            .as_ref()
+        let plugin_root = self
+            .plugin_search_root()
             .ok_or("Trusted BgUtils plugin directory is not packaged")?;
         Ok(vec![
             "--plugin-dirs".into(),
-            plugin_dir.as_os_str().to_owned(),
+            plugin_root.as_os_str().to_owned(),
             "--js-runtimes".into(),
             format!(
                 "node:{}",
@@ -813,13 +818,31 @@ impl YouTubeSupportManager {
     /// fallback, while this method gives shutdown code a deterministic stop.
     pub async fn shutdown(&self) -> Result<(), String> {
         let mut guard = self.helper.lock().await;
-        if let Some(child) = guard.as_mut() {
+        if let Some(mut child) = guard.take() {
             child
                 .start_kill()
                 .map_err(|e| format!("Could not stop BgUtils helper during shutdown: {e}"))?;
+            tokio::time::timeout(Duration::from_secs(2), child.wait())
+                .await
+                .map_err(|_| {
+                    "BgUtils helper shutdown exceeded its two-second reap deadline".to_owned()
+                })?
+                .map_err(|e| format!("Could not reap BgUtils helper during shutdown: {e}"))?;
         }
-        *guard = None;
         Ok(())
+    }
+
+    /// Terminal application shutdown, unlike a recoverable provider-start reset.
+    pub async fn shutdown_for_exit(&self) -> Result<(), String> {
+        self.exiting.store(true, Ordering::Release);
+        self.shutdown().await
+    }
+    fn ensure_helper_admission(&self) -> Result<(), String> {
+        if self.exiting.load(Ordering::Acquire) {
+            Err("YouTube support is shutting down".into())
+        } else {
+            Ok(())
+        }
     }
 
     fn provider_assets_ready(&self) -> bool {
@@ -829,6 +852,19 @@ impl YouTubeSupportManager {
                 .plugin_dir
                 .as_ref()
                 .is_some_and(|p| p.is_dir() || p.is_file())
+    }
+    /// True when packaging started shipping BgUtils assets but omitted one or
+    /// more required pieces. Playback may then use a system yt-dlp fallback.
+    pub fn provider_assets_incomplete(&self) -> bool {
+        self.provider_assets_present() && !self.provider_assets_ready()
+    }
+    fn plugin_search_root(&self) -> Option<&Path> {
+        // `plugin_dir` intentionally remains the exact packaged directory
+        // (`.../bgutil/plugin`) used by readiness/presence checks. yt-dlp's
+        // candidate_plugin_paths() enumerates the *children* of each path
+        // passed to --plugin-dirs, so give it `.../bgutil`; its child `plugin`
+        // contains the required `yt_dlp_plugins` namespace folder.
+        self.plugin_dir.as_deref()?.parent()
     }
     fn provider_assets_present(&self) -> bool {
         self.node_executable.as_ref().is_some_and(|p| p.exists())
@@ -1320,6 +1356,174 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn helper_reset_remains_recoverable_but_exit_closes_admission() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager =
+            YouTubeSupportManager::new(dir.path(), dir.path().join("unused"), None, None, None);
+        manager.shutdown().await.unwrap();
+        assert!(
+            manager.ensure_helper_admission().is_ok(),
+            "transient startup reset must allow retries"
+        );
+        manager.shutdown_for_exit().await.unwrap();
+        assert!(manager
+            .ensure_provider()
+            .await
+            .unwrap_err()
+            .contains("shutting down"));
+        tokio::time::timeout(Duration::from_millis(100), manager.shutdown_for_exit())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn exit_blocks_provider_already_waiting_for_helper_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = dir.path().join("non-executable-stub");
+        fs::write(&node, b"must never launch").unwrap();
+        let script = dir.path().join("server.js");
+        fs::write(&script, b"must never launch").unwrap();
+        let plugin = dir.path().join("plugin");
+        fs::create_dir(&plugin).unwrap();
+        let manager = YouTubeSupportManager::new(
+            dir.path(),
+            dir.path().join("unused"),
+            Some(node),
+            Some(script),
+            Some(plugin),
+        );
+        let held = manager.helper.lock().await;
+        let provider = manager.ensure_provider();
+        tokio::pin!(provider);
+        assert!(matches!(
+            futures_util::poll!(provider.as_mut()),
+            std::task::Poll::Pending
+        ));
+        let exit = manager.shutdown_for_exit();
+        tokio::pin!(exit);
+        assert!(matches!(
+            futures_util::poll!(exit.as_mut()),
+            std::task::Poll::Pending
+        ));
+        assert!(manager.exiting.load(Ordering::Acquire));
+        drop(held);
+        let (provider, exit) = tokio::time::timeout(Duration::from_millis(200), async {
+            tokio::join!(provider, exit)
+        })
+        .await
+        .unwrap();
+        assert!(provider.unwrap_err().contains("shutting down"));
+        exit.unwrap();
+        assert!(manager.helper.lock().await.is_none());
+    }
+
+    // Runs with real signals ONLY as the explicitly selected disposable subprocess.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sigterm_handoff_fixture() {
+        if std::env::var("BURRATA_SHUTDOWN_SIGNAL_FIXTURE").as_deref()
+            != Ok("owned-disposable-test")
+            || !std::env::args().any(|arg| arg == "youtube_support::tests::sigterm_handoff_fixture")
+        {
+            return;
+        }
+        let mut termination =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let manager =
+            YouTubeSupportManager::new(dir.path(), dir.path().join("unused"), None, None, None);
+        let child = Command::new("/bin/sleep")
+            .arg("2")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let child_pid = child.id().unwrap();
+        *manager.helper.lock().await = Some(child);
+        let (_cancel, stop) = tokio::sync::watch::channel(false);
+        let (exit_requested, request) = tokio::sync::oneshot::channel();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let called = calls.clone();
+        let listener = tokio::spawn(crate::shutdown_signal::handoff_once(
+            async move { termination.recv().await.is_some() },
+            stop,
+            move || {
+                called.fetch_add(1, Ordering::SeqCst);
+                let _ = exit_requested.send(());
+            },
+        ));
+        // Only this disposable subprocess receives these signals; duplicate TERM
+        // must not bypass the normal cleanup callback or request a second exit.
+        unsafe {
+            assert_eq!(libc::raise(libc::SIGTERM), 0);
+        }
+        tokio::time::timeout(Duration::from_secs(2), request)
+            .await
+            .unwrap()
+            .unwrap();
+        // Deliver the duplicate after handoff, when the listener has consumed
+        // the first signal, while cleanup still has to reap the owned helper.
+        unsafe {
+            assert_eq!(libc::raise(libc::SIGTERM), 0);
+        }
+        manager.shutdown_for_exit().await.unwrap();
+        assert!(listener.await.unwrap());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(manager.helper.lock().await.is_none());
+        assert_eq!(
+            unsafe { libc::kill(child_pid as libc::pid_t, 0) },
+            -1,
+            "helper must be reaped before fixture exit"
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+        assert!(manager
+            .ensure_provider()
+            .await
+            .unwrap_err()
+            .contains("shutting down"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn graceful_sigterm_runs_cleanup_and_reaps_helper_in_disposable_process() {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "youtube_support::tests::sigterm_handoff_fixture",
+                "--nocapture",
+            ])
+            .env("BURRATA_SHUTDOWN_SIGNAL_FIXTURE", "owned-disposable-test")
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(8);
+        loop {
+            if child.try_wait().unwrap().is_some() {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("disposable SIGTERM handoff exceeded its deadline");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "signal cleanup fixture failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     #[test]
     fn verifies_upstream_checksum_manifest_entries() {
         let bytes = b"managed yt-dlp";
@@ -1349,6 +1553,37 @@ mod tests {
             .safe_version_executable(&pointer)
             .as_os_str()
             .is_empty());
+    }
+
+    #[test]
+    fn plugin_search_root_discovers_packaged_bgutil_namespace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bgutil = tmp.path().join("resources/youtube-support/bgutil");
+        let plugin_package = bgutil.join("plugin");
+        let namespace = plugin_package.join("yt_dlp_plugins");
+        let extractor = namespace.join("extractor");
+        fs::create_dir_all(&extractor).unwrap();
+        fs::write(extractor.join("bgutil.py"), "# fixture plugin").unwrap();
+
+        let manager = YouTubeSupportManager::new(
+            tmp.path().join("data"),
+            tmp.path().join("resources/yt-dlp"),
+            None,
+            None,
+            Some(plugin_package.clone()),
+        );
+        let search_root = manager.plugin_search_root().unwrap();
+        assert_eq!(search_root, bgutil);
+
+        // yt-dlp's candidate_plugin_paths implementation enumerates immediate
+        // children of --plugin-dirs, then looks for yt_dlp_plugins beneath
+        // each candidate package directory.
+        let discovered = fs::read_dir(search_root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("yt_dlp_plugins/extractor/bgutil.py"))
+            .any(|path| path.is_file());
+        assert!(discovered);
     }
 
     #[test]
@@ -1498,8 +1733,14 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(failure.contains("reported version wrong.version"));
-        assert!(failure.contains("expected expected.version"));
+        assert!(
+            failure.contains("reported version wrong.version"),
+            "unexpected staging failure: {failure}"
+        );
+        assert!(
+            failure.contains("expected expected.version"),
+            "unexpected staging failure: {failure}"
+        );
         assert_eq!(manager.active_executable(), bundled);
         assert!(manager.read_pointer("current.json").is_none());
         let version_dirs = fs::read_dir(manager.managed_root().join("versions"))

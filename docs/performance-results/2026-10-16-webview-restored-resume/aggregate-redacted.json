@@ -1,0 +1,22 @@
+{
+  "scope": "single muted WebView functional check; not performance qualification",
+  "nativeExecutableSha256": "472b58f8fb436d82d0de1dc196bab6f54e3a0ecd536fb3846ef57c67a766ea86",
+  "success": true,
+  "durationSeconds": 181.4,
+  "readyState": 4,
+  "playheadAdvancedSeconds": 2.2191090000000004,
+  "restored": {
+    "sameTrack": true,
+    "paused": true,
+    "position": 1.222281,
+    "volumeRestored": true,
+    "sameQueue": true
+  },
+  "savedLibraryAfter": {
+    "tracks": 4948,
+    "assets": 15,
+    "playlists": 36
+  },
+  "captures": false,
+  "signInWindowChanged": false
+}

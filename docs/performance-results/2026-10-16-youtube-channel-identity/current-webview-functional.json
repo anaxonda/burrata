@@ -1,0 +1,19 @@
+{
+  "build": "dd7294c2caba9e34c63d00956f439a8e840629033081db7f3442de7239b0b751",
+  "engine": "WebView",
+  "trackId": "spotify:22EdfO6OL8rxritqF2w5qO",
+  "queueTotalBefore": 1,
+  "queueTotalAfter": 1,
+  "muted": true,
+  "seekRequestedSeconds": 10,
+  "progressPositionSeconds": 14.801061,
+  "progressReadyState": 2,
+  "progressStatus": "buffering",
+  "error": null,
+  "restored": {
+    "paused": true,
+    "volume": 0.8,
+    "positionSeconds": 181.858671875
+  },
+  "limits": "One functional run. Does not prove latency, audible output, match correctness or uninterrupted playback. Decoder duration clamps original 181.866666666s end by 0.008s."
+}

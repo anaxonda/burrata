@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeChapter, chapterAbsolutePosition, chapterRelativePosition, validChapterRange, virtualChapterTrack } from "./chapters";
+import { activeChapter, chapterAbsolutePosition, chapterForRange, chapterRelativePosition, validChapterRange, virtualChapterTrack } from "./chapters";
 import type { Candidate, Chapter, Track } from "./types";
 
 const parent = { id: "recording-1", provider: "catalog", providerId: "mb-1", sourceUrl: "catalog-url", artist: "Album Artist", title: "Long Mix", favorite: false, provenance: { sourceKind: "catalog" } } as Track;
@@ -46,5 +46,11 @@ describe("chapter playback helpers", () => {
   it("selects the chapter containing the source position", () => {
     expect(activeChapter([chapter], 120)).toBe(chapter);
     expect(activeChapter([chapter], 240)).toBeNull();
+  });
+
+  it("maps a native range to the exact canonical candidate chapter without title matching", () => {
+    const renamedCandidateChapter = { ...chapter, title: "Different display title" };
+    expect(chapterForRange([renamedCandidateChapter], { startTime: 120, endTime: 240 })).toBe(renamedCandidateChapter);
+    expect(chapterForRange([renamedCandidateChapter], { startTime: 120, endTime: 241 })).toBeNull();
   });
 });

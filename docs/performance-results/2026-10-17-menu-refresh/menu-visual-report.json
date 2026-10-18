@@ -1,0 +1,529 @@
+{
+  "scope": "Synthetic browser fixtures mounting the exact TrackMenu, PlaylistMenu, and TrackList components; no live application state or playback was used.",
+  "captureDate": "2026-10-17T09:46:35.640Z",
+  "environment": {
+    "browser": "Chromium headless via isolated DevTools target",
+    "viewportSizes": [
+      "1280x720",
+      "707x480"
+    ],
+    "playerHeight": 90
+  },
+  "results": [
+    {
+      "component": "TrackMenu",
+      "screenshot": "trackmenu-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "playerHeight": 90,
+      "playerTop": 630,
+      "centered": false,
+      "card": {
+        "x": 944,
+        "y": 63,
+        "width": 320,
+        "height": 561,
+        "scrollHeight": 559,
+        "clientHeight": 559,
+        "bottom": 624,
+        "right": 1264,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "activeElement": "Add to playlist\u2026",
+      "rows": [
+        {
+          "label": "Add to playlist\u2026",
+          "height": 36,
+          "top": 157,
+          "bottom": 193
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 196,
+          "bottom": 232
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 232,
+          "bottom": 268
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 268,
+          "bottom": 304
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 309,
+          "bottom": 345
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 350,
+          "bottom": 389
+        },
+        {
+          "label": "Download options\u2026",
+          "height": 36,
+          "top": 389,
+          "bottom": 425
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 425,
+          "bottom": 461
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 461,
+          "bottom": 497
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 497,
+          "bottom": 533
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 538,
+          "bottom": 574
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 579,
+          "bottom": 615
+        }
+      ]
+    },
+    {
+      "component": "TrackMenu",
+      "screenshot": "trackmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": false,
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "scrollHeight": 559,
+        "clientHeight": 372,
+        "bottom": 384,
+        "right": 691,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "activeElement": "Add to playlist\u2026",
+      "rows": [
+        {
+          "label": "Add to playlist\u2026",
+          "height": 36,
+          "top": 104,
+          "bottom": 140
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 143,
+          "bottom": 179
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 179,
+          "bottom": 215
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 215,
+          "bottom": 251
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 256,
+          "bottom": 292
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 297,
+          "bottom": 336
+        },
+        {
+          "label": "Download options\u2026",
+          "height": 36,
+          "top": 336,
+          "bottom": 372
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 372,
+          "bottom": 408
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 408,
+          "bottom": 444
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 444,
+          "bottom": 480
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 485,
+          "bottom": 521
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 526,
+          "bottom": 562
+        }
+      ]
+    },
+    {
+      "component": "PlaylistMenu",
+      "screenshot": "playlistmenu-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "playerHeight": 90,
+      "playerTop": 630,
+      "centered": false,
+      "card": {
+        "x": 944,
+        "y": 242,
+        "width": 320,
+        "height": 382,
+        "scrollHeight": 380,
+        "clientHeight": 380,
+        "bottom": 624,
+        "right": 1264,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "activeElement": "Open playlist",
+      "rows": [
+        {
+          "label": "Open playlist",
+          "height": 36,
+          "top": 314,
+          "bottom": 350
+        },
+        {
+          "label": "Rename",
+          "height": 36,
+          "top": 353,
+          "bottom": 389
+        },
+        {
+          "label": "Refresh playlist",
+          "height": 36,
+          "top": 389,
+          "bottom": 425
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 430,
+          "bottom": 466
+        },
+        {
+          "label": "Download playlist",
+          "height": 36,
+          "top": 466,
+          "bottom": 502
+        },
+        {
+          "label": "Make editable copy",
+          "height": 36,
+          "top": 502,
+          "bottom": 538
+        },
+        {
+          "label": "Export playlist",
+          "height": 36,
+          "top": 538,
+          "bottom": 574
+        },
+        {
+          "label": "Delete playlist",
+          "height": 36,
+          "top": 579,
+          "bottom": 615
+        }
+      ]
+    },
+    {
+      "component": "PlaylistMenu",
+      "screenshot": "playlistmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": false,
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "scrollHeight": 380,
+        "clientHeight": 372,
+        "bottom": 384,
+        "right": 691,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "activeElement": "Open playlist",
+      "rows": [
+        {
+          "label": "Open playlist",
+          "height": 36,
+          "top": 82,
+          "bottom": 118
+        },
+        {
+          "label": "Rename",
+          "height": 36,
+          "top": 121,
+          "bottom": 157
+        },
+        {
+          "label": "Refresh playlist",
+          "height": 36,
+          "top": 157,
+          "bottom": 193
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 198,
+          "bottom": 234
+        },
+        {
+          "label": "Download playlist",
+          "height": 36,
+          "top": 234,
+          "bottom": 270
+        },
+        {
+          "label": "Make editable copy",
+          "height": 36,
+          "top": 270,
+          "bottom": 306
+        },
+        {
+          "label": "Export playlist",
+          "height": 36,
+          "top": 306,
+          "bottom": 342
+        },
+        {
+          "label": "Delete playlist",
+          "height": 36,
+          "top": 347,
+          "bottom": 383
+        }
+      ]
+    },
+    {
+      "component": "TrackList fallback",
+      "screenshot": "tracklist-fallback-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "menu": {
+        "x": 1068,
+        "y": 244,
+        "width": 184,
+        "height": 362,
+        "bottom": 606,
+        "right": 1252,
+        "scrollHeight": 360
+      },
+      "footerTop": 630,
+      "documentScrollWidth": 1280,
+      "rows": [
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 250,
+          "bottom": 286
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 286,
+          "bottom": 322
+        },
+        {
+          "label": "Add to playlist",
+          "height": 36,
+          "top": 325,
+          "bottom": 361
+        },
+        {
+          "label": "Open artist",
+          "height": 36,
+          "top": 369,
+          "bottom": 405
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 405,
+          "bottom": 441
+        },
+        {
+          "label": "Add to favorites",
+          "height": 36,
+          "top": 446,
+          "bottom": 482
+        },
+        {
+          "label": "Download options\u2026",
+          "height": 36,
+          "top": 482,
+          "bottom": 518
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 523,
+          "bottom": 559
+        },
+        {
+          "label": "More actions\u2026",
+          "height": 36,
+          "top": 564,
+          "bottom": 600
+        }
+      ]
+    },
+    {
+      "component": "TrackList fallback",
+      "screenshot": "tracklist-fallback-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "menu": {
+        "x": 495,
+        "y": 8,
+        "width": 184,
+        "height": 362,
+        "bottom": 370,
+        "right": 679,
+        "scrollHeight": 360
+      },
+      "footerTop": 390,
+      "documentScrollWidth": 707,
+      "rows": [
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 14,
+          "bottom": 50
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 50,
+          "bottom": 86
+        },
+        {
+          "label": "Add to playlist",
+          "height": 36,
+          "top": 89,
+          "bottom": 125
+        },
+        {
+          "label": "Open artist",
+          "height": 36,
+          "top": 133,
+          "bottom": 169
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 169,
+          "bottom": 205
+        },
+        {
+          "label": "Add to favorites",
+          "height": 36,
+          "top": 210,
+          "bottom": 246
+        },
+        {
+          "label": "Download options\u2026",
+          "height": 36,
+          "top": 246,
+          "bottom": 282
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 287,
+          "bottom": 323
+        },
+        {
+          "label": "More actions\u2026",
+          "height": 36,
+          "top": 328,
+          "bottom": 364
+        }
+      ]
+    }
+  ],
+  "sourceSha256": {
+    "src/TrackMenu.svelte": "76b5544518ae988065a7a07442ebdb3f42d6f0fdf54c25055883de5b288fcdf6",
+    "src/PlaylistMenu.svelte": "dc79f2c43c0ac1293297b612b8c6d131697b539596e64903b5afa9dad77014a2",
+    "src/MenuIcon.svelte": "c5a359beff835bdb5a4b7637515b3fab0715cde877cfc46ff28d7498ff467565",
+    "src/SourceLink.svelte": "5700a6395f9efb05d4702e36419583ab686ba0602ac7d480b22fb48d9cac9cb2",
+    "src/TrackList.svelte": "fd0a32bb2831b4aee927f61cd9b5140dad1ee244e7f0cd88bcce73976ff7e679",
+    "src/lib/menu-geometry.ts": "d4cc9cf449d5305f47949949b97c77c96f3723d209a1160d813f73566c600ef5",
+    "src/style.css": "ce13446e0bbee269346274a4362eb763030dec18116906a765081f878df7a6d4"
+  },
+  "findings": [
+    "All measured cards stayed within viewport bounds and above the synthetic 90px player/footer.",
+    "Action rows measured 36px, except the TrackMenu source row at 39px; TrackMenu content scrolls at 707x480.",
+    "TrackList fallback uses the same compact SVG icon gutter and direct Add to playlist action."
+  ],
+  "fixtureSha256": {
+    "docs/performance-results/2026-10-16-context-menu/harness/index.html": "fe7d8855ada3e0ffdae633f6c648a74983668bbf95f97492d6363ec7d046162c",
+    "docs/performance-results/2026-10-16-context-menu/harness/main.js": "fc10cb5c3594edde7c7fb44db35c4042a54e975bf80ab81f9a812b257363e6f2",
+    "docs/performance-results/2026-10-17-menu-refresh/tracklist-fixture/index.html": "b358c00ccb04f1f2cdee750c5b5a751618976295992ee7130dd876e67f236055",
+    "docs/performance-results/2026-10-17-menu-refresh/tracklist-fixture/main.js": "9cc8fdd11e16838b08076c3fab462abad644500937320c5310112c96f8e77340",
+    "docs/performance-results/2026-10-17-menu-refresh/capture-menus-cdp.mjs": "2067200aed4db6ac68b04ae775611240e3e4de3d66cb52304b61cf0d1e3708aa"
+  }
+}

@@ -12,6 +12,11 @@ test('Beatport discards auxiliary unranked tracks and private fields',()=>{
  const s=extract(doc('<h1>House Top 2</h1><script id="__NEXT_DATA__">'+JSON.stringify({token:'secret',data:[{id:9,name:'Related',artists:[{name:'X'}]},{position:2,track:{id:12,name:'Chart',artists:[{name:'Y'}],mix_name:'Radio Edit',length_ms:180000,authorization:'secret'}}]})+'</script>'),'https://www.beatport.com/genre/house/5/top-100');
  assert.equal(s.entries.length,1);assert.equal(s.entries[0].rank,2);assert.equal(s.entries[0].version,'Radio Edit');assert.ok(!JSON.stringify(s).includes('secret'));
 });
+test('Beatport JSON reads nested artist credits and title fallback without inventing names',()=>{
+ const data={position:1,track:{id:17,name:'',title:'Nested title',artists:[{artist:{name:'Nested artist'},role:{name:'Artist'}}]}};
+ const result=extract(doc(`<h1>Afro House</h1><script id="__NEXT_DATA__">${JSON.stringify(data)}</script>`),'https://www.beatport.com/genre/house/5/top-100');
+ assert.equal(result.entries.length,1);assert.equal(result.entries[0].title,'Nested title');assert.equal(result.entries[0].artist,'Nested artist');
+});
 test('Spotify merges virtualized rows and retains repeated occurrences',()=>{
  const make=(position,id)=>extract(doc(`<h1>My playlist</h1><p>3 songs</p><div data-testid="tracklist-row" aria-rowindex="${position}"><a href="/track/${id}">Song</a><a href="/artist/A">Artist</a><a href="/album/B">Album</a>3:10</div>`),'https://open.spotify.com/playlist/PL');
  const s=mergeSnapshots([make(1,'ABC'),make(2,'DEF'),make(3,'ABC'),make(1,'ABC')]);assert.deepEqual(s.entries.map(x=>x.position),[1,2,3]);assert.equal(s.complete,true);assert.equal(s.entries[0].rank,null);
@@ -43,6 +48,25 @@ test('Spotify album name includes only its explicit header artist; playlist name
  assert.equal(extract(playlist,'https://open.spotify.com/playlist/PLAYLIST').title,'Night Drive');
  // If Spotify provides no album-header artist, track-row metadata is not a fallback.
  assert.equal(extract(playlist,'https://open.spotify.com/album/ALBUM').title,'Night Drive');
+});
+test('Spotify album rows inherit only explicit album artists when track credits are absent',()=>{
+ const album=doc('<main><section data-testid="entityTitle"><h1>Night Drive</h1><a href="/artist/ALBUMARTIST">The Album Artist</a></section><div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/ONE">First</a></div></main>');
+ const result=extract(album,'https://open.spotify.com/album/ALBUM');
+ assert.equal(result.entries.length,1);assert.equal(result.entries[0].artist,'The Album Artist');
+ const playlist=doc('<main><h1>Night Drive</h1><div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/ONE">First</a></div></main>');
+ assert.equal(extract(playlist,'https://open.spotify.com/playlist/PLAYLIST').entries.length,0);
+});
+test('Spotify compilation heading is not treated as a missing track performer',()=>{
+ const album=doc('<main><section data-testid="entityTitle"><h1>Compilation</h1><a href="/artist/VARIOUS">Various Artists</a></section><div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/ONE">First</a></div></main>');
+ const result=extract(album,'https://open.spotify.com/album/COMPILATION');
+ assert.equal(result.title,'Compilation');
+ assert.equal(result.entries.length,0);
+});
+test('Spotify album rows may inherit the explicit multi-artist album credit list',()=>{
+ const album=doc('<main><section data-testid="entityTitle"><h1>Shared Record</h1><a href="/artist/FIRST">First Artist</a><a href="/artist/SECOND">Second Artist</a></section><div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/ONE">First</a></div></main>');
+ const result=extract(album,'https://open.spotify.com/album/SHARED');
+ assert.equal(result.entries.length,1);
+ assert.equal(result.entries[0].artist,'First Artist, Second Artist');
 });
 test('Spotify localized playlist and album URLs capture with stable unlocalized source URLs',()=>{
  const page=doc('<main><h1>Localized collection</h1><p>1 song</p><div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/TRACK">Track</a><a href="/artist/ARTIST">Artist</a></div></main>');
@@ -130,6 +154,11 @@ test('Shazam charts use explicit ranked Next data and ignore unranked recommenda
  assert.equal(s.provider,'shazam');assert.equal(s.kind,'chart');assert.equal(s.expectedTotal,200);
  assert.deepEqual(s.entries.map(e=>[e.providerId,e.rank,e.title,e.artist]),[['12345',1,'Loser','Tame Impala']]);
  assert.throws(()=>extract(doc('<h1>Song page</h1>'),'https://www.shazam.com/song/12345/loser'),/chart page/);
+});
+test('Shazam JSON falls through empty primary fields to explicit alternate credits',()=>{
+ const page=doc(`<main><h1>Top 200</h1><script type="application/json">${JSON.stringify({chart:{tracks:[{rank:'',position:2,track:{key:'',id:'12345',title:'',name:'Explicit title',subtitle:'',artists:[{artist:{name:'Nested artist'}}]}}]}})}</script></main>`);
+ const result=extract(page,'https://www.shazam.com/charts/top-200/world');
+ assert.deepEqual(result.entries.map(({providerId,title,artist,rank})=>({providerId,title,artist,rank})),[{providerId:'12345',title:'Explicit title',artist:'Nested artist',rank:2}]);
 });
 
 test('Last.fm chart keeps explicit positions and reports a partial page against the stated total',()=>{

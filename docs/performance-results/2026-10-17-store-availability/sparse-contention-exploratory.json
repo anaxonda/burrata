@@ -1,0 +1,195 @@
+{
+  "benchmark": "first_page_global_sort_availability",
+  "contentionEnabled": true,
+  "cpuTimeReported": false,
+  "endToEnd": false,
+  "fixtures": [
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 26.824038,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 29.5689,
+        "samplesMs": [
+          26.824038,
+          29.5689,
+          25.172666
+        ],
+        "warmups": 3,
+        "worstMs": 29.5689
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 25.436356,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 33.559954000000005,
+        "samplesMs": [
+          25.436356,
+          33.559954000000005,
+          25.177389
+        ],
+        "warmups": 3,
+        "worstMs": 33.559954000000005
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 1000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 36.066449,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 44.611647999999995,
+        "samplesMs": [
+          44.611647999999995,
+          34.489679,
+          36.066449
+        ],
+        "warmups": 3,
+        "worstMs": 44.611647999999995
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 29.342532000000002,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 46.643989,
+        "samplesMs": [
+          46.643989,
+          27.054999,
+          29.342532000000002
+        ],
+        "warmups": 3,
+        "worstMs": 46.643989
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 5000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 61.246312999999994,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 64.968198,
+        "samplesMs": [
+          64.968198,
+          61.246312999999994,
+          60.323103
+        ],
+        "warmups": 3,
+        "worstMs": 64.968198
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 49.772498,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 55.384377,
+        "samplesMs": [
+          49.388725,
+          49.772498,
+          55.384377
+        ],
+        "warmups": 3,
+        "worstMs": 55.384377
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 20000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": {
+        "fixture": "50,000-row ready source-order page and concurrent favorite write sharing one Store mutex",
+        "measuredPairs": 3,
+        "note": "Contention observations are reported separately and excluded from uncontended qualification samples.",
+        "readerFirstPage": {
+          "measured": 3,
+          "medianMs": 181.252983,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 206.132329,
+          "samplesMs": [
+            153.360185,
+            206.132329,
+            181.252983
+          ],
+          "warmups": 3,
+          "worstMs": 206.132329
+        },
+        "warmups": 3,
+        "writerFavoriteUpdate": {
+          "measured": 3,
+          "medianMs": 10.050342,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 11.09913,
+          "samplesMs": [
+            10.050342,
+            11.09913,
+            9.837636999999999
+          ],
+          "warmups": 3,
+          "worstMs": 11.09913
+        }
+      },
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 159.455713,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 182.670388,
+        "samplesMs": [
+          152.483758,
+          182.670388,
+          159.455713
+        ],
+        "warmups": 3,
+        "worstMs": 182.670388
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 124.52261,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 128.188818,
+        "samplesMs": [
+          101.10886099999999,
+          124.52261,
+          128.188818
+        ],
+        "warmups": 3,
+        "worstMs": 128.188818
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 50000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    }
+  ],
+  "guiIncluded": false,
+  "scope": "actual Store storage microbenchmark; excludes GUI and end-to-end application work",
+  "sparseFixture": true,
+  "qualification": {
+    "classification": "exploratory",
+    "build": "debug",
+    "binarySha256": "3775c02c1785cab951b6d9df8283fecbe513ed582f8d07392e9dea2374fc9717",
+    "concurrentWork": "Native compile/test completed before this benchmark. A focused frontend test and later Svelte/frontend suite overlapped; timings are exploratory only. Normal main GUI remained paused; other desktop services were not stopped.",
+    "sourcePin": ".cache/recovery-merged-native-source-pin.json",
+    "endToEnd": false,
+    "cpuTimeMeasured": false
+  }
+}

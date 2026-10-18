@@ -1,0 +1,41 @@
+{
+  "applicationProcessTree": {
+    "intervalSamples": 57,
+    "cpuPercentOneLogicalCore": {
+      "median": 27.619,
+      "p95": 116.043,
+      "worst": 222.912,
+      "cpuSeconds": 32.91
+    },
+    "processGroupRssBytes": {
+      "median": 575270912,
+      "p95": 585818112,
+      "peak": 626348032
+    },
+    "storageIoBytes": {
+      "read": 0,
+      "write": 0
+    }
+  },
+  "viteServerProcessTree": {
+    "intervalSamples": 57,
+    "cpuPercentOneLogicalCore": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.936,
+      "cpuSeconds": 0.01
+    },
+    "processGroupRssBytes": {
+      "median": 434561024,
+      "p95": 434823168,
+      "peak": 434823168
+    },
+    "storageIoBytes": {
+      "read": 0,
+      "write": 0
+    },
+    "ownership": "shared",
+    "attribution": "shared pre-existing server; activity cannot be attributed only to this app"
+  },
+  "limitations": "Application group excludes the separately sampled Vite server. When shared, Vite CPU/RSS/I/O can include unrelated clients and activity and is not attributable only to this app. Each process-group RSS sums resident pages and can double-count shared memory; storage IO is not network traffic; short-lived children between polls may be missed."
+}

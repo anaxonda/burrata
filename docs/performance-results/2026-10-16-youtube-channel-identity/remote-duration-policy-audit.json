@@ -1,0 +1,29 @@
+{
+  "scope": "Read-only retained-artifact and current-source audit; no live queries or playback changes",
+  "overallTrial": {
+    "binaryPrefix": "988a80468c54",
+    "outcome": "playing",
+    "continuedPlaybackReady": true,
+    "durationCorrect": false,
+    "numericDurationsRetainedInOverallReport": false
+  },
+  "sameIsolatedSessionCompanionRemoteCheck": {
+    "expectedSeconds": 245.48,
+    "actualSeconds": 250,
+    "differenceSeconds": 4.52,
+    "provider": "youtube",
+    "sourceClass": "official lyric video"
+  },
+  "fixture": {
+    "catalogDurationSeconds": null,
+    "expectedSecondsHardcodedBySeeder": 245.48
+  },
+  "currentMatchingContract": {
+    "ordinaryToleranceSeconds": 5,
+    "verifiedIntegerExtractorToleranceSeconds": 6,
+    "explicitRegressionAccepts245Point48Versus250": true
+  },
+  "conclusion": "The retained companion check demonstrates source-duration mismatch against the strict one-second qualification expectation. Current matching intentionally accepts this alternate source. No incorrect decoder duration, wrong edition, or truncation is proven; original overall trial has no retained numeric duration fields. Keep its qualification failure visible rather than changing the threshold silently.",
+  "priority": "Resolve qualification policy/fixture source identity before claiming recording-exact performance. This is not evidence of a playback outage and does not justify hiding or postponing genuine functional playback failures behind benchmarks.",
+  "minimalProposal": "Separate sustained decoded playback from recording-exact qualification. For strict qualification use a fixture pinned to an exact provider recording and independently established media duration; retain expected catalogue duration separately. Do not clamp playback timeline to catalogue length or loosen the existing strict gate without an explicit requirement decision."
+}

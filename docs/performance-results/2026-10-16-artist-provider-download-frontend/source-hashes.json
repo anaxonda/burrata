@@ -1,0 +1,12 @@
+{
+  "src/ArtistPage.svelte": "86852dbab1633295ff0eeadd4af541dfb55b4df4ab26c5d3a6233ffe27a1cf70",
+  "src/ArtistPage.test.ts": "2c10ba59a83edf6be2b88e697e857145b6d00bb4b4e2f5ae771e99a0bc84b988",
+  "src/lib/artist-types.ts": "54651497370ede00da6b7e4ae7208a0a73be8de6fb2d7a3533f07303f8ea0f1e",
+  "src/BrowserConnections.svelte": "42fb69cdda668136ab23e374536cec20e7de8862ea4625b2b9bb81b873939670",
+  "src/BrowserConnections.test.ts": "b34b3a2b59002e1c80b79187eda9dfe70874e3bb2f661b73f9c94a1edb264ba2",
+  "src/VirtualResults.svelte": "99ffb67356c4e84f55fe5f1a75cc77cfca5ccd6f3c12daf87fdebc652060afee",
+  "src/VirtualResults.test.ts": "d58b4bdcc8fe515516561bfb4677abc58e7d094b01aaff73a4793ced71b9f612",
+  "src/VirtualResultsTestHost.svelte": "c53a39ce32844a241e27f703b02d0576ce43e5faed4831f9228cc157230f4a9b",
+  "src/App.svelte": "0c1ea1723df2d8152b6c47f6f5b292439823f8fb3bec50a72c2d16b3e9e4ff09",
+  "src-tauri/src/managed_provider_session.rs": "aff258f38ea940c69438e0a8ac02fdf8dd3767b7b07a4afd53fd9404f98221ac"
+}

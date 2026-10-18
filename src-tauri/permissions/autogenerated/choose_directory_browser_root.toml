@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-choose-directory-browser-root"
+description = "Enables the choose_directory_browser_root command without any pre-configured scope."
+commands.allow = ["choose_directory_browser_root"]
+
+[[permission]]
+identifier = "deny-choose-directory-browser-root"
+description = "Denies the choose_directory_browser_root command without any pre-configured scope."
+commands.deny = ["choose_directory_browser_root"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-directory-browser-scan"
+description = "Enables the get_directory_browser_scan command without any pre-configured scope."
+commands.allow = ["get_directory_browser_scan"]
+
+[[permission]]
+identifier = "deny-get-directory-browser-scan"
+description = "Denies the get_directory_browser_scan command without any pre-configured scope."
+commands.deny = ["get_directory_browser_scan"]

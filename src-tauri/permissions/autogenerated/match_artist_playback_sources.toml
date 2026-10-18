@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-match-artist-playback-sources"
+description = "Enables the match_artist_playback_sources command without any pre-configured scope."
+commands.allow = ["match_artist_playback_sources"]
+
+[[permission]]
+identifier = "deny-match-artist-playback-sources"
+description = "Denies the match_artist_playback_sources command without any pre-configured scope."
+commands.deny = ["match_artist_playback_sources"]

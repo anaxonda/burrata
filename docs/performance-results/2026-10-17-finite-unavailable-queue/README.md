@@ -1,0 +1,19 @@
+# Finite unavailable-queue continuation
+
+The three-skip ceiling is replaced by a finite pass over the supplied remaining occurrences. Exact entry IDs, source projection and visited occurrence IDs fence the run. Advancement moves to index+1 only; failure never wraps under repeat-all/one or starts radio. Existing source-exhaustion classification, request cancellation, queue/index/source guards, two-attempt resolver limit and 20-second recording deadline remain. Duplicate tracks retain distinct occurrence IDs. Terminal failure updates the persistent notice to the final occurrence.
+
+Two baseline regressions failed. The focused stage passed27 tests; root full App/queue suites pass328 tests across2files in50.60s. Svelte check0errors/0warnings and production build pass. Coverage includes playable fifth after four unavailable entries, finite exhaustion under all repeat modes, duplicate/visited occurrences, cancellation/new queue/new play, global/rate-limit errors and no radio on failures. This is deterministic evidence; successful Kaufman playback and live cancellation remain unqualified.
+
+The sole normal native candidate remains fc32d24cf4e5 with the new protected frontend, launcher59089. Fresh full queue/settings snapshots match exactly across restart; no manual restoration. The515-input source pin differs only in App, playback-queue and their two test files. Evidence: `.cache/qualification-finite-queue/{source-pin.json,main-restore/after-private.json}` and `.cache/finite-queue-root-{tests,check,build}.log`.
+
+Large unavailable queues take proportional time. Work is sequential and cancellable with per-recording deadlines; no new provider-wide rate limiter is claimed. The previous failed Kaufman run remains retained and did not attempt its remaining15 entries. A fresh live run is still needed.
+
+## Live fifth-occurrence check
+
+A fresh never-launched isolated profile was tested on executable SHA-256 `855b9a7d20745a6e369a655fa71fc7df8fc18ebbd59fa4693e31ddce7d9e11fb`, with protected current frontend SHA-256 `f1d97dd2eb46969659de338f7c7ee05248b2a415a71c2e38a38a6e02fc0e0f1f`. The exact queue contains four duplicate occurrences of Sasa / Timmy Regisford / Main Version / 281 seconds, followed by the verified 360-second synthetic local asset. Five distinct occurrence IDs were preserved. No source was forced unavailable.
+
+The original play request was accepted. Playback reached index 4 and actual WebView media advanced to 5.201251 seconds in the observed stable generation. The owned accessibility reader found one actionable Sasa notice with zero extraction errors. Root reviewed the 954×1036 capture: notice wraps and playback controls do not overlap. The runner finally paused successfully. This is queue resilience for repeated occurrences of one recording, not four different unavailable recordings, successful Sasa playback, acoustic identity, physical audibility or native mixer qualification.
+
+Safe resolver tracing recorded four separate failed resolutions, each with successful YouTube (20 results) and SoundCloud (10 results) searches and zero eligible candidates. None ended by cancellation or the 20-second deadline; no extraction phase was entered. This distinguishes the observed candidate gate from provider-search failure without disclosing titles, URLs or tokens. It does not identify which individual candidate criterion rejected each result.
+
+Private evidence: `.cache/qualification-youtube-readback-diagnostic/finite-fifth-live.json`, its reviewed `.png` capture and `finite-fifth-trace-summary.json`. The original runner marks capture review pending; this parent report records the completed visual review without rewriting the raw result. The normal profile was restored as the sole GUI and its complete fresh pre/post snapshot is exactly equal: 20 occurrences, index 5, paused at 63.804743 seconds, volume 0.8, repeat/shuffle off. Actual Kaufman album playback, cancellation and broader qualification remain open.

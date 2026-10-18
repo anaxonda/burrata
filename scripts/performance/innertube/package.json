@@ -1,0 +1,6 @@
+{
+  "name": "burrata-innertube-experiment",
+  "private": true,
+  "type": "module",
+  "dependencies": { "youtubei.js": "18.1.0" }
+}

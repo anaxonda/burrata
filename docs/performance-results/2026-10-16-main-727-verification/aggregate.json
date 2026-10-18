@@ -1,0 +1,20 @@
+{
+  "native": {
+    "passed": 727,
+    "failed": 0,
+    "ignored": 14,
+    "seconds": 8.39,
+    "sha256": "d94dc04558a3c12a2519d9042d5276c77a4c6bb3e92ab6db4b1c1dbc1bfbbea2"
+  },
+  "frontendFullPassed": 508,
+  "contractsPassed": 7,
+  "normalGuiBuild": {
+    "sha256": "0cd060623c6072ad84a43fab87b75509f464a63937b768d9bb05bc3c711df0e5",
+    "buildKind": "Linux development normal GUI",
+    "nativeTestsPassed": 727,
+    "ignored": 14,
+    "launched": false
+  },
+  "runningGuiUpdated": false,
+  "liveCaptureQualified": false
+}

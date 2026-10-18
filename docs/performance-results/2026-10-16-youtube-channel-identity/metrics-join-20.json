@@ -1,0 +1,181 @@
+{
+  "benchmark": "library_metrics_join_elision",
+  "measuredPerQuery": 20,
+  "phases": [
+    {
+      "eligibleListingsOnly": {
+        "plan": [
+          {
+            "detail": "SCAN l",
+            "id": 3,
+            "parent": 0
+          }
+        ],
+        "sql": "SELECT COUNT(*) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+        "timings": {
+          "medianMs": 80.82031400000001,
+          "p95Ms": 88.072523,
+          "samplesMs": [
+            90.03204600000001,
+            79.552046,
+            74.943432,
+            81.548388,
+            88.072523,
+            83.50989200000001,
+            79.39682300000001,
+            79.244072,
+            79.290588,
+            81.826004,
+            86.954948,
+            80.472163,
+            78.67363300000001,
+            79.292517,
+            80.82031400000001,
+            85.38685699999999,
+            79.15061299999999,
+            81.59926300000001,
+            83.358315,
+            78.606366
+          ],
+          "worstMs": 90.03204600000001
+        }
+      },
+      "identicalResult": [
+        50000,
+        null
+      ],
+      "originalJoined": {
+        "plan": [
+          {
+            "detail": "SCAN l",
+            "id": 4,
+            "parent": 0
+          },
+          {
+            "detail": "SEARCH r USING COVERING INDEX sqlite_autoindex_recordings_1 (id=?)",
+            "id": 11,
+            "parent": 0
+          }
+        ],
+        "sql": "SELECT COUNT(*) FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id=l.recording_id AND l.in_library=1",
+        "timings": {
+          "medianMs": 152.65007699999998,
+          "p95Ms": 169.457272,
+          "samplesMs": [
+            164.366617,
+            169.457272,
+            147.13539,
+            156.17648,
+            155.826462,
+            152.65007699999998,
+            155.53098200000002,
+            175.61319699999999,
+            148.510363,
+            161.950777,
+            168.169218,
+            147.73413,
+            154.034332,
+            151.64092000000002,
+            151.76605600000002,
+            148.943074,
+            145.99584900000002,
+            149.67757600000002,
+            149.10872799999999,
+            149.643583
+          ],
+          "worstMs": 175.61319699999999
+        }
+      },
+      "phase": "count"
+    },
+    {
+      "eligibleListingsOnly": {
+        "plan": [
+          {
+            "detail": "SCAN l",
+            "id": 3,
+            "parent": 0
+          }
+        ],
+        "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+        "timings": {
+          "medianMs": 106.97274499999999,
+          "p95Ms": 124.091797,
+          "samplesMs": [
+            103.366317,
+            105.311361,
+            114.25871599999999,
+            106.212605,
+            104.44165,
+            104.93879,
+            104.201211,
+            104.572214,
+            126.556466,
+            115.012185,
+            116.601588,
+            106.50783799999999,
+            108.46705800000001,
+            107.026201,
+            108.40188500000001,
+            118.883618,
+            124.091797,
+            106.136173,
+            106.97274499999999,
+            105.18338000000001
+          ],
+          "worstMs": 126.556466
+        }
+      },
+      "identicalResult": [
+        50000,
+        1023
+      ],
+      "originalJoined": {
+        "plan": [
+          {
+            "detail": "SCAN l",
+            "id": 4,
+            "parent": 0
+          },
+          {
+            "detail": "SEARCH r USING COVERING INDEX sqlite_autoindex_recordings_1 (id=?)",
+            "id": 11,
+            "parent": 0
+          }
+        ],
+        "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id=l.recording_id AND l.in_library=1",
+        "timings": {
+          "medianMs": 180.83622699999998,
+          "p95Ms": 194.683144,
+          "samplesMs": [
+            174.710417,
+            184.844692,
+            179.286463,
+            180.002726,
+            193.451558,
+            181.186853,
+            177.83499799999998,
+            173.910377,
+            193.528956,
+            204.313786,
+            182.87781999999999,
+            180.83622699999998,
+            174.93258600000001,
+            173.11700399999998,
+            180.181296,
+            180.516263,
+            174.514715,
+            182.187883,
+            188.200545,
+            194.683144
+          ],
+          "worstMs": 204.313786
+        }
+      },
+      "phase": "countAndAvailability"
+    }
+  ],
+  "recordCount": 50000,
+  "scope": "paired SQL aggregates on one actual Store connection; excludes hydration, mutex contention, GUI and end-to-end work",
+  "warmupsPerQuery": 3
+}

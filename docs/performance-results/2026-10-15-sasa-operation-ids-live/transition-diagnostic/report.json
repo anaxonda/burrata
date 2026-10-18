@@ -1,0 +1,28 @@
+{
+  "scope": "One live request per metadata shape plus muted local controls; no statistical qualification.",
+  "binarySha256": "f08620cbe8ffdc2fbd77f374cfb387ea02e89227f0b18f91b3a466616c1313c9",
+  "providerOrder": [
+    "monochrome",
+    "youtube",
+    "soundcloud"
+  ],
+  "results": [
+    {
+      "kind": "operation_ids",
+      "outcome": "failed",
+      "startupId": "native-e69e6cef-05b3-4284-b9be-eacc979766ee",
+      "seekId": "native-2b50b0f4-dd0e-4d29-8388-8c1ea07785e4",
+      "transitionId": "native-e69e6cef-05b3-4284-b9be-eacc979766ee",
+      "seekCommandSerializedBytes": 33,
+      "seekStatus": "buffering",
+      "seekPosition": 29.5,
+      "seekFirstAudioMs": null,
+      "seekOperationFirstAudioMs": null,
+      "finalStatus": "playing",
+      "finalPosition": 0,
+      "finalIndex": 1,
+      "queueCount": 2,
+      "verified": false
+    }
+  ]
+}

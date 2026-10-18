@@ -1,0 +1,9 @@
+# Ergo Bandcamp bounded range checkpoint
+
+On 2026-10-16, a fresh anonymous read of the official Cuneiform Records track page resolved Ergo's “Sorrows Of The Moon (featuring Mary Halvorson)” (track ID 292222166), advertised as a 310.254-second public mp3-128 stream. Three bounded range requests against the freshly resolved stream returned HTTP 206 `audio/mpeg` with valid ranges: the first 65,536 bytes, a 65,536-byte middle range, and the final 65,536 bytes. The reported object size was 5,098,066 bytes.
+
+The retained full MP3 was reused without another full media fetch. FFprobe measured 310.253333 seconds, stereo 44.1 kHz MP3; a complete FFmpeg decode exited successfully. The saved middle and end ranges also decoded as MP3. The start range was validated by response status, MIME, content range, and byte count but was not retained for local decoding. The existing resolver's 75%-of-128-kbps minimum is 3,723,048 bytes, below the observed object size.
+
+The fresh URL and a previously captured URL both answered 206 during this probe. The earlier URL's timestamp was not expired, so expiry semantics were not established. The aggregate contains no signed URL, query values, private file paths, cookies, authorization, or audio bytes. It records only the official public page, redacted stream host/query parameter names, and bounded measurements.
+
+This is transport evidence for resolving an explicitly supplied public track page behind the existing opt-in gate. It does not qualify Burrata playback, seeking, refresh after expiry, cancellation, or cross-platform behavior. Bandcamp remains absent from `source_fallback::provider_order`; normal Ergo playback remains unavailable through the default fallback. The experiment does not provide general Bandcamp catalog/search integration, change the default, or promote a provider.

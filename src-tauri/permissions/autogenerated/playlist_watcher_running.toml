@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-playlist-watcher-running"
+description = "Enables the playlist_watcher_running command without any pre-configured scope."
+commands.allow = ["playlist_watcher_running"]
+
+[[permission]]
+identifier = "deny-playlist-watcher-running"
+description = "Denies the playlist_watcher_running command without any pre-configured scope."
+commands.deny = ["playlist_watcher_running"]

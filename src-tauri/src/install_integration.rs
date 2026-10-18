@@ -122,7 +122,7 @@ fn config_home() -> PathBuf {
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
 }
 
-fn chromium_extension_id() -> Result<String, String> {
+pub(crate) fn chromium_extension_id() -> Result<String, String> {
     let manifest: serde_json::Value =
         serde_json::from_str(CHROMIUM_MANIFEST).map_err(|e| e.to_string())?;
     let key = manifest["key"]

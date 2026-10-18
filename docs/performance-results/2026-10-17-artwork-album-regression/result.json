@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "scope": "Bounded frontend artwork-cache and album-route regression plus current-window visual review.",
+  "tests": {
+    "filesPassed": 2,
+    "testsPassed": 289,
+    "durationSeconds": 40.83,
+    "earlierAssertionFailure": "The first run passed 288 tests and failed one test assertion that included a navigation call. The test was corrected to capture the call count before album Play; focused and complete reruns passed. This was an assertion issue, not evidence of an application failure."
+  },
+  "svelteCheck": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "productionFrontendBuild": "passed",
+  "cacheCoverage": {
+    "cacheCasesPassed": 9,
+    "appCasesPassed": 3,
+    "imageCapacity": 3,
+    "activeFooterArtworkProtected": true,
+    "metadataMutated": false,
+    "activeFooterAndDetailsUrlsProtected": true,
+    "maximumPinnedUrlsTotal": 2,
+    "maximumConcurrentNativeReads": 3
+  },
+  "actualWindowReview": {
+    "viewportWidth": 1914,
+    "viewportHeight": 515,
+    "footerHeightPixels": 98.5,
+    "layoutFindings": 0,
+    "footerArtworkRendered": true,
+    "renderPath": "data fallback"
+  },
+  "sourceScope": {
+    "sourcePin": "513",
+    "frontendCacheRelatedFilesChangedSincePriorPin": 4,
+    "nativeSourceChanged": false
+  },
+  "artifactSha256": {
+    "appArtworkAlbumTestsLogSha256": "3fc4636114c731ccd3b66bb39c5d55721396eeadfcb6d39d38955fc44948b4c9",
+    "svelteCheckLogSha256": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695",
+    "frontendBuildLogSha256": "93559dc22186b05d3df09f506fdab0d4e7b648f4a0babf2ed4dfc01b0d7f94fe",
+    "sourcePinManifestSha256": "45194197d3ff7a2f31174d750de35ea8f75c6a993d8ba4184209ed16bcc9246c"
+  },
+  "limitations": [
+    "The asset protocol failure is not established as fixed; artwork was visible through the data fallback.",
+    "The private screenshot was reviewed but is not included; no queue data or track identifiers are published.",
+    "The raw user request about the A Portrait of Nikolai Kaufman album playback stop remains open; no actual live album playback proof is claimed.",
+    "The same-case Sasa verification on default WebView remains open."
+  ]
+}

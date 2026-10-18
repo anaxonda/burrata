@@ -1,0 +1,35 @@
+{
+  "binarySha256": "e268072f1d1a4d4565a722caffb52015d422bfb535ff7b2359e11d9d5a9aa2e3",
+  "engine": "webview",
+  "scope": "read-only paused actual media sample plus exact synthetic WAV header; not a full startup qualification",
+  "fixture": {
+    "sha256": "1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+    "fileBytes": 15876044,
+    "frames": 7938000,
+    "sampleRate": 22050,
+    "channels": 1,
+    "sampleBytes": 2,
+    "durationSeconds": 360.0
+  },
+  "actualMedia": {
+    "currentTime": 1.681648,
+    "duration": 190.216870749,
+    "errorCode": null,
+    "networkState": 1,
+    "paused": true,
+    "present": true,
+    "readyState": 4,
+    "sourcePresent": true,
+    "sourceStable": true
+  },
+  "expectedSeconds": 360,
+  "decodedSeconds": 190.216870749,
+  "eightMiBPayloadSeconds": 190.21687074829933,
+  "currentSourceFinding": "local_audio select_range clamps full/open-ended response to8MiB; streamed full-range fix in source, not live",
+  "occurrenceIdsAvailable": false,
+  "recognitionOrAcousticIdentityClaim": false,
+  "strictRunnerAttempts": [
+    "startup diagnostic tool race",
+    "sequential snapshot identity skew; both failures retained"
+  ]
+}

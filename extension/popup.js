@@ -1,4 +1,4 @@
-const api=globalThis.browser||chrome,status=document.querySelector('#status'),enable=document.querySelector('#enable'),importButton=document.querySelector('#import');let enabled=false;
+const api=globalThis.browser||chrome,status=document.querySelector('#status'),enable=document.querySelector('#enable'),importButton=document.querySelector('#import'),youtubePairingCode=document.querySelector('#youtube-pairing-code'),youtubeConsent=document.querySelector('#youtube-consent'),youtubeCheckAccount=document.querySelector('#youtube-check-account'),youtubeAccount=document.querySelector('#youtube-account'),youtubeAccountConsentLabel=document.querySelector('#youtube-account-consent-label'),youtubeAccountConsent=document.querySelector('#youtube-account-consent'),youtubeHandoff=document.querySelector('#youtube-handoff');let enabled=false,confirmedYouTubeAccount=null;
 async function send(message){const r=await api.runtime.sendMessage(message);if(!r.ok)throw new Error(r.error);return r;}
 function show(e){status.textContent=e.message||String(e);}
 send({type:'status'}).then(r=>{enabled=r.enabled;enable.textContent=enabled?'Disable app-driven imports':'Enable app-driven imports';status.textContent=r.error||(r.connected?(enabled?'Companion connected; app-driven imports enabled.':'Companion connected; app-driven imports disabled.'):'Companion disconnected. Open Burrata and install the browser host.');}).catch(show);
@@ -6,9 +6,43 @@ importButton.onclick=async()=>{importButton.disabled=true;status.textContent='Co
 enable.onclick=async()=>{
   try{
     const next=!enabled;
-    if(next&&!await api.permissions.request({origins:['https://www.beatport.com/*','https://www.traxsource.com/*','https://open.spotify.com/*','https://www.shazam.com/*','https://shazam.com/*','https://www.last.fm/*','https://last.fm/*','https://bandcamp.com/*','https://*.bandcamp.com/*']}))throw new Error('Provider permission was declined. Current-page imports remain available.');
+    if(next&&!await api.permissions.request({origins:['https://www.beatport.com/*','https://www.traxsource.com/*','https://open.spotify.com/*','https://www.youtube.com/*','https://music.youtube.com/*','https://francescograzioso.github.io/Meld/*','https://api.github.com/gists/*','https://www.shazam.com/*','https://shazam.com/*','https://www.last.fm/*','https://last.fm/*','https://bandcamp.com/*','https://*.bandcamp.com/*']}))throw new Error('Provider permission was declined. Current-page imports remain available.');
     await send({type:'enable',enabled:next});enabled=next;enable.textContent=enabled?'Disable app-driven imports':'Enable app-driven imports';status.textContent=enabled?'App-driven imports enabled.':'App-driven imports disabled.';
   }catch(e){show(e);}
+};
+
+function clearYouTubeAccountConfirmation(){confirmedYouTubeAccount=null;youtubeAccount.hidden=true;youtubeAccount.textContent='';youtubeAccountConsentLabel.hidden=true;youtubeAccountConsent.checked=false;youtubeHandoff.disabled=true;}
+function validPairingCode(value){const match=/^([1-9]\d{0,4})-([a-f0-9]{32})$/.exec(value.trim());return !!match&&Number(match[1])<=65535;}
+function updateYouTubeButtons(){youtubeCheckAccount.disabled=!youtubeConsent.checked||!validPairingCode(youtubePairingCode.value);youtubeHandoff.disabled=!confirmedYouTubeAccount||!youtubeAccountConsent.checked;}
+updateYouTubeButtons();
+youtubePairingCode.oninput=()=>{clearYouTubeAccountConfirmation();updateYouTubeButtons();};
+youtubeConsent.onchange=()=>{clearYouTubeAccountConfirmation();updateYouTubeButtons();};
+youtubeAccountConsent.onchange=updateYouTubeButtons;
+youtubeCheckAccount.onclick=async()=>{
+  clearYouTubeAccountConfirmation();updateYouTubeButtons();youtubeCheckAccount.disabled=true;
+  status.textContent='Reading only the account name shown in the active YouTube tab…';
+  try{
+    const [tab]=await api.tabs.query({active:true,currentWindow:true});
+    const origin=tab?.url?new URL(tab.url).origin:'';
+    if(!['https://www.youtube.com','https://music.youtube.com'].includes(origin))throw new Error('Open a signed-in YouTube or YouTube Music tab, then retry.');
+    if(!await api.permissions.contains({origins:[`${origin}/*`]})&&!await api.permissions.request({origins:[`${origin}/*`]}))throw new Error('YouTube site permission was declined. No session data was shared.');
+    const r=await send({type:'youtubeCheckHandoffAccount',pairingCode:youtubePairingCode.value.trim()});
+    if(!r.account?.accountId||!r.account?.displayName)throw new Error('YouTube did not show a verifiable selected channel account.');
+    confirmedYouTubeAccount=r.account;youtubeAccount.textContent=`Selected YouTube account: ${r.account.displayName}`;youtubeAccount.hidden=false;youtubeAccountConsentLabel.hidden=false;
+    status.textContent='Review the account name, then confirm it below before sending any session data.';
+  }catch(error){show(error);}
+  finally{updateYouTubeButtons();}
+};
+youtubeHandoff.onclick=async()=>{
+  if(!confirmedYouTubeAccount||!youtubeConsent.checked||!youtubeAccountConsent.checked)return;
+  youtubeHandoff.disabled=true;youtubeCheckAccount.disabled=true;
+  status.textContent='Rechecking the confirmed account, then sending the session to the paired Burrata instance…';
+  try{
+    const r=await send({type:'youtubeSessionHandoff',pairingCode:youtubePairingCode.value.trim(),confirmedAccountId:confirmedYouTubeAccount.accountId});
+    status.textContent=r.account?.displayName?`YouTube session connected for ${r.account.displayName}.`:'YouTube session connected.';
+    clearYouTubeAccountConfirmation();youtubePairingCode.value='';youtubeConsent.checked=false;
+  }catch(error){show(error);}
+  finally{updateYouTubeButtons();}
 };
 
 const diagnosticButton=document.querySelector('#diagnostic');

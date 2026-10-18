@@ -1,0 +1,18 @@
+{
+  "build": "3fbb288328f4",
+  "scope": "Normal profile restored after isolated playback and library tests; no manual restoration, seek or resume.",
+  "queueTotal": 13,
+  "checks": {
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "paused": true,
+    "queueTrackIdsAndRanges": true
+  },
+  "engine": null,
+  "nativeProviderTransport": "native-webview-http",
+  "credentialStorage": "os-keyring"
+}

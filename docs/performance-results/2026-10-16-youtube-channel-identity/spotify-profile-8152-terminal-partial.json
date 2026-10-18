@@ -1,0 +1,49 @@
+{
+  "binarySha256": "81524d88ff24a559f534d6f6dbe7c2ee29e6628d0da87b9189a0a6419673c0e3",
+  "pages": [
+    {
+      "count": 30,
+      "total": 110,
+      "complete": false,
+      "truncated": false,
+      "hasMore": true,
+      "progressive": true
+    },
+    {
+      "count": 30,
+      "total": 110,
+      "complete": false,
+      "truncated": false,
+      "hasMore": true,
+      "progressive": true
+    },
+    {
+      "count": 29,
+      "total": 110,
+      "complete": false,
+      "truncated": true,
+      "hasMore": true,
+      "progressive": true
+    },
+    {
+      "count": 11,
+      "total": 110,
+      "complete": false,
+      "truncated": true,
+      "hasMore": true,
+      "progressive": true
+    },
+    {
+      "count": 0,
+      "total": 110,
+      "complete": false,
+      "truncated": true,
+      "hasMore": false,
+      "progressive": true
+    }
+  ],
+  "uniquePlaylists": 99,
+  "duplicateRows": 1,
+  "failure": null,
+  "terminal": true
+}

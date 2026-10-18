@@ -1,0 +1,248 @@
+{
+  "locale": "en-US",
+  "sensitivity": "base",
+  "numeric": true,
+  "queryCases": [
+    {
+      "text": "ΑΘΉΝΑ",
+      "query": "αθή",
+      "matches": true
+    },
+    {
+      "text": "ΟΣ",
+      "query": "ος",
+      "matches": true
+    },
+    {
+      "text": "İstanbul",
+      "query": "i̇s",
+      "matches": true
+    },
+    {
+      "text": "𐐀 Tune",
+      "query": "𐐨",
+      "matches": true
+    },
+    {
+      "text": "Café",
+      "query": "cafe",
+      "matches": false
+    }
+  ],
+  "sortCases": [
+    {
+      "input": [
+        "Track 10",
+        "Track 2"
+      ],
+      "expected": [
+        "Track 2",
+        "Track 10"
+      ]
+    },
+    {
+      "input": [
+        "Track 02",
+        "Track 2"
+      ],
+      "expected": [
+        "Track 02",
+        "Track 2"
+      ]
+    },
+    {
+      "input": [
+        "Café",
+        "Cafe"
+      ],
+      "expected": [
+        "Café",
+        "Cafe"
+      ]
+    },
+    {
+      "input": [
+        "Αθήνα",
+        "Αθηνα"
+      ],
+      "expected": [
+        "Αθήνα",
+        "Αθηνα"
+      ]
+    }
+  ],
+  "equalPairs": [
+    [
+      "Café",
+      "Cafe"
+    ],
+    [
+      "Αθήνα",
+      "Αθηνα"
+    ],
+    [
+      "Track 2",
+      "Track 02"
+    ]
+  ],
+  "stableTies": [
+    "Café",
+    "Cafe",
+    "CAFÉ",
+    "Track 02",
+    "Track 2"
+  ],
+  "sortNormalizationCases": {
+    "numeric": [
+      {
+        "value": "1e3",
+        "valid": false
+      },
+      {
+        "value": ".5",
+        "valid": false
+      },
+      {
+        "value": "1.",
+        "valid": false
+      },
+      {
+        "value": "1play",
+        "valid": true,
+        "expected": 1
+      },
+      {
+        "value": "2 views",
+        "valid": true,
+        "expected": 2
+      },
+      {
+        "value": "1,250",
+        "valid": true,
+        "expected": 1250
+      },
+      {
+        "value": 0,
+        "valid": true,
+        "expected": 0
+      },
+      {
+        "value": "unknown",
+        "valid": false
+      },
+      {
+        "value": "play1view",
+        "valid": false
+      },
+      {
+        "value": "1playsplays",
+        "valid": false
+      },
+      {
+        "value": "3k views",
+        "valid": true,
+        "expected": 3000
+      }
+    ],
+    "camelot": [
+      {
+        "value": "8blahb",
+        "valid": false
+      },
+      {
+        "value": "8A",
+        "valid": true
+      },
+      {
+        "value": "13B",
+        "valid": false
+      },
+      {
+        "value": "08A",
+        "valid": false
+      },
+      {
+        "value": "8\tA",
+        "valid": false
+      },
+      {
+        "value": "\t8A",
+        "valid": false
+      },
+      {
+        "value": "8A\t",
+        "valid": false
+      },
+      {
+        "value": "8 A",
+        "valid": true
+      },
+      {
+        "value": "C Major",
+        "valid": true
+      }
+    ],
+    "dates": [
+      {
+        "value": "2024",
+        "valid": true,
+        "expected": 1704067200000
+      },
+      {
+        "value": "2024-02",
+        "valid": true,
+        "expected": 1706745600000
+      },
+      {
+        "value": "2024-02-29",
+        "valid": true,
+        "expected": 1709164800000
+      },
+      {
+        "value": "2023-02-29",
+        "valid": false
+      },
+      {
+        "value": "2024-13",
+        "valid": false
+      },
+      {
+        "value": "2024-02-30T10:00:00Z",
+        "valid": false
+      },
+      {
+        "value": "2024-02-29T10:30:00+02:00",
+        "valid": true,
+        "expected": 1709195400000
+      },
+      {
+        "value": "Feb 2024",
+        "valid": false
+      },
+      {
+        "value": "2024-2",
+        "valid": false
+      },
+      {
+        "value": "2024-1",
+        "valid": false
+      },
+      {
+        "value": "2024-1-01",
+        "valid": false
+      },
+      {
+        "value": "2024-01-1",
+        "valid": false
+      },
+      {
+        "value": "2024-02-29T1:00:00Z",
+        "valid": false
+      },
+      {
+        "value": "2024-02-29T10:30:00+é:00",
+        "valid": false
+      }
+    ]
+  }
+}

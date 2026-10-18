@@ -8,12 +8,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
+use std::future::Future;
 use std::net::IpAddr;
 use std::time::Duration;
 
 #[path = "radio_metadata.rs"]
 mod radio_metadata;
-pub use radio_metadata::{get_station_details, poll_radio_station, RadioStationDetails};
+pub use radio_metadata::{
+    get_station_details, identify_radio_station, poll_radio_station,
+    recognize_captured_sample_cancellable, recognize_captured_sample_uncached,
+    recognize_played_sample, recognize_played_sample_with_capture, RadioStationDetails,
+};
 
 const RADIO_PARADISE_SOURCE_URL: &str = "https://radioparadise.com/listen/stream-links";
 const RADIO_PARADISE_API_URL: &str = "https://api.radioparadise.com/api/now_playing";
@@ -57,6 +62,18 @@ const RADIO_BROWSER_SERVERS: &[&str] = &[
 const MAX_STATIONS: usize = 200;
 const MAX_PLAYLIST_BYTES: usize = 64 * 1024;
 const RADIO_NAME_CANDIDATES: usize = 50;
+const SONG_RADIO_DEADLINE: Duration = Duration::from_secs(20);
+
+async fn within_song_radio_deadline<T>(
+    duration: Duration,
+    future: impl Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    tokio::time::timeout(duration, future)
+        .await
+        .unwrap_or_else(
+            |_| Err("Song radio recommendations exceeded the 20-second deadline".into()),
+        )
+}
 
 #[derive(Debug, Deserialize)]
 struct RadioBrowserStation {
@@ -990,6 +1007,19 @@ pub async fn start_song_radio(
     settings: &Settings,
     limit: usize,
 ) -> Result<SongRadioResult, String> {
+    within_song_radio_deadline(
+        SONG_RADIO_DEADLINE,
+        start_song_radio_inner(seed_track, seed_candidate, settings, limit),
+    )
+    .await
+}
+
+async fn start_song_radio_inner(
+    seed_track: &Track,
+    seed_candidate: &Candidate,
+    settings: &Settings,
+    limit: usize,
+) -> Result<SongRadioResult, String> {
     if seed_candidate.provider != "youtube" {
         return Err("Song radio currently requires a YouTube seed candidate".into());
     }
@@ -1109,6 +1139,36 @@ fn valid_video_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn song_radio_deadline_drops_the_recommendation_future() {
+        use std::future::pending;
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        struct DropFlag(Arc<AtomicBool>);
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let flag = DropFlag(Arc::clone(&dropped));
+        let result = within_song_radio_deadline(Duration::from_millis(5), async move {
+            let _flag = flag;
+            pending::<Result<(), String>>().await
+        })
+        .await;
+
+        assert_eq!(
+            result.unwrap_err(),
+            "Song radio recommendations exceeded the 20-second deadline"
+        );
+        assert!(dropped.load(Ordering::SeqCst));
+    }
 
     fn test_store() -> (tempfile::TempDir, Store) {
         let directory = tempfile::tempdir().unwrap();

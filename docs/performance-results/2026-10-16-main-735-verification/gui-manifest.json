@@ -1,0 +1,8 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-735-4b0c81a2f388/burrata",
+  "sha256": "4b0c81a2f388887f58f55b99f10efd1231756c4393cfce60bb375eff742a0e29",
+  "profile": "Linux development GUI",
+  "launched": false,
+  "nativeTests": 735,
+  "frontend": "Vite development modules; independently verified, public release on hold"
+}

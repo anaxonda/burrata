@@ -1,0 +1,27 @@
+{
+  "profile": "debug",
+  "features": [
+    "experimental-opus"
+  ],
+  "decoderComparison": true,
+  "system": "Linux",
+  "architecture": "x86_64",
+  "revision": "c8abff1f2ee192fa0ee0cbe04347364fd8cdc26d",
+  "dirty": true,
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28) (Arch Linux rust 1:1.99.0-1)",
+  "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "cargoLockSha256": "7e46fd34eed3555de771f02eba77e8cb5b06435ae9cf976eab4b9ca1e630cfb1",
+  "nativeOutputSha256": "6621cd5902c81c28ed4194bc63580ce1a680ee13c59654512fdbfb7bb30903d5",
+  "durationSeconds": 300,
+  "warmupsPerPath": 3,
+  "repetitionsPerPosition": 20,
+  "fractions": [
+    0.01,
+    0.5,
+    0.95
+  ],
+  "scope": "decoder first PCM; excludes resolver, mixer, device and renderer",
+  "cpuScope": "decode worker thread; reaped FFmpeg child CPU separately on Linux",
+  "failures": [],
+  "cargoTargetDir": "src-tauri/target (Cargo default; initial run)"
+}

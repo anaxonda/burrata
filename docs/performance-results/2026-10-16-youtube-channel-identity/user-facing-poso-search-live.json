@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-16",
+  "build": "9482da37d3b9108581f8ea33975a5bd22c13df5f193c0f497a05f8010c8a611b",
+  "query": "poso s'agapo",
+  "kind": "tracks",
+  "method": "visible app search_ui",
+  "spotify": {"status": "complete", "errorCode": null, "count": 30, "hasMore": true, "incomplete": true},
+  "youtube": {"status": "complete", "errorCode": null, "count": 20, "hasMore": true, "incomplete": true},
+  "limitations": "First-page search only; does not establish playback, matching correctness, or complete pagination. Playback was not changed."
+}

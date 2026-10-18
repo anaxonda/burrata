@@ -1,0 +1,14 @@
+{
+  "src/App.svelte": "bea403216580cabd42c4f8698f14b135ffa6557eabac60315d2161ddf25ec49d",
+  "src/App.integration.test.ts": "f15588b1c8d1d934d6c77940aa460e3fe4f8d29c0ec5f1e1f776fd1c70728528",
+  "src/LibrarySidebar.svelte": "54d5eacd4cccfab5fcd549ca146d339aa40ae33314124593940ed368e4b2efd2",
+  "src/LibrarySidebar.test.ts": "6b790335e2b2be8fa73cc69d3814dc4db5c052bb5d0aad2eb0ad423ec7dad81f",
+  "src/PlaylistSections.svelte": "509531176dd57a33bc0a9918023f7ab28c79c26e7a16cb8b3f3fd97a484e15bd",
+  "src/AccountPlaylistSidebar.svelte": "67a76adfd21dc85c76f68b3a3e55cbae6044a7c809ee6dfdc41f88ca38999266",
+  "src/SearchPanel.svelte": "2e6eaee9882bcd4c69b27bbdf90b39eb5d59f6d76016bf964ad4c55cadd1df04",
+  "src/SearchPanel.test.ts": "ad1086d6216eee08ea5bbecb5f169f8d60f290b5de040d1af10a999d4dfe1e47",
+  "src/lib/search-ui-automation.ts": "13b0e77aed7297f63ffdb0f00a75bc27a3da274b19666156bfaba2250b84fd95",
+  "src-tauri/src/automation.rs": "9b60f416eccf8d38bb0895e55f387d4ceb681cf794903047f260d70da762d75a",
+  "src-tauri/src/lib.rs": "0d071953dc4c8ec94c6e7356fc11f24ae82a488e578b2dcbd0d322cefd8558fb",
+  "src-tauri/src/playback.rs": "ae2dfb54e60f7ee9dfe66d79736ddd8e8e2c9f98dc1c09838e911192c331180e"
+}

@@ -1,0 +1,74 @@
+{
+  "viewport": {
+    "width": 1914,
+    "height": 515
+  },
+  "firstTrackTop": 173,
+  "card": {
+    "x": 246,
+    "y": 44,
+    "width": 1668,
+    "right": 1914,
+    "scrollWidth": 1668,
+    "clientWidth": 1668
+  },
+  "document": {
+    "width": 1914,
+    "bodyWidth": 1914,
+    "horizontalOverflow": false
+  },
+  "controls": [
+    {
+      "name": "Filter directory tracks",
+      "x": 256,
+      "y": 93,
+      "width": 340,
+      "height": 34,
+      "right": 596,
+      "bottom": 127
+    },
+    {
+      "name": "Sort directory tracks",
+      "x": 649,
+      "y": 93,
+      "width": 132,
+      "height": 34,
+      "right": 781,
+      "bottom": 127
+    },
+    {
+      "name": "Toggle directory sort direction",
+      "x": 787,
+      "y": 93,
+      "width": 86,
+      "height": 34,
+      "right": 873,
+      "bottom": 127
+    },
+    {
+      "name": "Duration",
+      "x": 879,
+      "y": 93,
+      "width": 88,
+      "height": 34,
+      "right": 967,
+      "bottom": 127
+    },
+    {
+      "name": "15 files",
+      "x": 1862,
+      "y": 101,
+      "width": 42,
+      "height": 18,
+      "right": 1904,
+      "bottom": 119
+    }
+  ],
+  "selectionToolbar": {
+    "y": 133,
+    "height": 40
+  },
+  "firstRowLabel": "Audio files",
+  "oldHeadingPresent": false,
+  "fileCount": "15 files"
+}

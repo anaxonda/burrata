@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-track-files"
+description = "Enables the list_track_files command without any pre-configured scope."
+commands.allow = ["list_track_files"]
+
+[[permission]]
+identifier = "deny-list-track-files"
+description = "Denies the list_track_files command without any pre-configured scope."
+commands.deny = ["list_track_files"]

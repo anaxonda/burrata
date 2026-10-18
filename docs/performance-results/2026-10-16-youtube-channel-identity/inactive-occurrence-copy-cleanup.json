@@ -1,0 +1,17 @@
+{
+  "removedInactiveIntermediateGuiCopies": [
+    {
+      "directory": "verified-main-occurrence-append-2d1887662c26",
+      "bytes": 339802128,
+      "sha256": "2d1887662c2616bafc968f52dd521b025008dbe429303e0333ae2fd94cd2b941"
+    },
+    {
+      "directory": "verified-main-occurrence-async-c4f8c66f9796",
+      "bytes": 340066392,
+      "sha256": "c4f8c66f97965c67e573c8b15c6c7a9c0cc9b966b5ce91d3ff3fb866f03e8a85"
+    }
+  ],
+  "bytesFreed": 679868520,
+  "preservedCurrentD112AndRollback353": true,
+  "preservedProfilesCredentialsFixturesAndProofs": true
+}

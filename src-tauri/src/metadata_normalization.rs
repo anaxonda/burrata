@@ -90,9 +90,17 @@ fn infer_named_live_version(
     expected_artist: Option<&str>,
     expected_title: Option<&str>,
 ) -> Option<LivePerformanceInference> {
-    let (artist, rest) = [" — ", " – ", " - "]
+    let separators = [" — ", " – ", " - "];
+    let (separator_at, separator) = separators
         .iter()
-        .find_map(|separator| source_title.split_once(separator))?;
+        .filter_map(|separator| {
+            source_title
+                .find(*separator)
+                .map(|index| (index, *separator))
+        })
+        .min_by_key(|(index, _)| *index)?;
+    let artist = &source_title[..separator_at];
+    let rest = &source_title[separator_at + separator.len()..];
     let artist = artist.trim();
     if artist.is_empty() || artist.contains(['|', ':']) {
         return None;
@@ -104,7 +112,7 @@ fn infer_named_live_version(
         return None;
     }
     let (title, version) = rest.rsplit_once(" (")?;
-    let title = title.trim();
+    let title = strip_surrounding_quotes(title.trim());
     let version = version.strip_suffix(')')?.trim();
     let lower = version.to_ascii_lowercase();
     let event = if lower.starts_with("live at ") {
@@ -128,6 +136,19 @@ fn infer_named_live_version(
         version: version.to_owned(),
         confidence: "explicit_artist_track_named_live_version",
     })
+}
+
+fn strip_surrounding_quotes(value: &str) -> &str {
+    let pairs = [("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’")];
+    pairs
+        .iter()
+        .find_map(|(open, close)| {
+            value
+                .strip_prefix(*open)
+                .and_then(|inner| inner.strip_suffix(*close))
+        })
+        .unwrap_or(value)
+        .trim()
 }
 
 /// Add a performance version without replacing any selected/catalog identity.
@@ -273,6 +294,21 @@ mod tests {
             assert_eq!(inferred.title, "Mary");
             assert_eq!(inferred.version, "Live at Pitchfork Music Festival 2018");
         }
+        let mixed_separators = infer_live_performance(
+            "Big Thief – Mary — Part (Live at Pitchfork Music Festival 2018)",
+            Some("Big Thief"),
+            Some("Mary — Part"),
+        )
+        .unwrap();
+        assert_eq!(mixed_separators.artist, "Big Thief");
+        assert_eq!(mixed_separators.title, "Mary — Part");
+        let quoted = infer_live_performance(
+            "Big Thief - ‘Mary’ (Live at Pitchfork Music Festival 2018)",
+            Some("Big Thief"),
+            Some("Mary"),
+        )
+        .unwrap();
+        assert_eq!(quoted.title, "Mary");
         assert!(infer_live_performance("Big Thief - Mary (Live on KEXP)", None, None).is_some());
         for source in [
             "Big Thief - Mary (Live)",

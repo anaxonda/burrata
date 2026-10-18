@@ -1,0 +1,19 @@
+{
+  "oldMain": {
+    "pid": 3419681,
+    "launcher": 3416276,
+    "startTicks": "38415139",
+    "sha256": "4335018e06a7dfb9a64488c0873ac0feeeca347d4ff8e9dcf3f8f4663dfd8034",
+    "exe": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-artist-profile-4335018e06a7/burrata"
+  },
+  "oldOwnedVite": {
+    "pid": 3419559,
+    "startTicks": "38414969",
+    "uid": 1000,
+    "exe": "/usr/bin/node",
+    "cwd": "/home/loki/projects/burrata"
+  },
+  "noGui": true,
+  "port1420Free": true,
+  "externalViteStopPerformed": false
+}

@@ -1,0 +1,76 @@
+{
+  "probedAtUtc": "2026-10-16T15:01:58Z",
+  "source": "unauthenticated public YouTube page config + InnerTube navigation/resolve_url",
+  "client": {
+    "name": "WEB",
+    "version": "2.20260708.00.00"
+  },
+  "target": {
+    "kind": "fixed public channel handle",
+    "handleValueLogged": false,
+    "urlLogged": false,
+    "handleValue": "@YouTubeMusic"
+  },
+  "credentials": {
+    "cookiesSent": false,
+    "authorizationSent": false,
+    "apiKeyPersisted": false
+  },
+  "bounds": {
+    "configReads": 2,
+    "resolveCalls": 4,
+    "maxPageBytes": 1000000,
+    "maxResponseBytes": 512000,
+    "timeoutSeconds": 10
+  },
+  "results": [
+    {
+      "pageConfigHost": "www.youtube.com",
+      "requestHost": "www.youtube.com",
+      "clientName": "WEB",
+      "clientVersion": "2.20260708.00.00",
+      "httpStatus": 200,
+      "endpointKind": "browse",
+      "redirectHost": null,
+      "redirectPathKind": "none",
+      "ucBrowseId": true
+    },
+    {
+      "pageConfigHost": "www.youtube.com",
+      "requestHost": "music.youtube.com",
+      "clientName": "WEB",
+      "clientVersion": "2.20260708.00.00",
+      "httpStatus": 200,
+      "endpointKind": "browse",
+      "redirectHost": null,
+      "redirectPathKind": "none",
+      "ucBrowseId": true
+    },
+    {
+      "pageConfigHost": "music.youtube.com",
+      "requestHost": "www.youtube.com",
+      "clientName": "WEB",
+      "clientVersion": "2.20260708.00.00",
+      "httpStatus": 200,
+      "endpointKind": "browse",
+      "redirectHost": null,
+      "redirectPathKind": "none",
+      "ucBrowseId": true
+    },
+    {
+      "pageConfigHost": "music.youtube.com",
+      "requestHost": "music.youtube.com",
+      "clientName": "WEB",
+      "clientVersion": "2.20260708.00.00",
+      "httpStatus": 200,
+      "endpointKind": "browse",
+      "redirectHost": null,
+      "redirectPathKind": "none",
+      "ucBrowseId": true
+    }
+  ],
+  "sources": [
+    "https://github.com/iv-org/invidious/blob/master/src/invidious/yt_backend/youtube_api.cr (resolve_url example returns endpoint.browseEndpoint.browseId for a channel URL)",
+    "https://github.com/sigma67/ytmusicapi/blob/c412d7ce346304e339712b1737044733a5264b5e/ytmusicapi/mixins/library.py (pinned get_account_info account_menu schema)"
+  ]
+}

@@ -1,0 +1,115 @@
+{
+  "scope": "Selected app and descendant process snapshot only; development build, no isolation or steady-playback qualification. RSS sum may double-count shared pages; PSS provided when available. CPU excludes newly appearing and departed child lifetimes. I/O is kernel storage bytes, not network bytes.",
+  "binarySha256": "a798b5f5f46045e2f3be575ae25af063c98a7485802b2e7027a03bf40f0a701b",
+  "samples": [
+    {
+      "processCount": 3,
+      "rssBytes": 612220928,
+      "pssBytes": 384735232,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.09,
+      "elapsedSeconds": 0.0
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612220928,
+      "pssBytes": 384744448,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.1,
+      "elapsedSeconds": 1.033,
+      "cpuPercentOneCore": 0.97
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612220928,
+      "pssBytes": 384747520,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.11,
+      "elapsedSeconds": 2.092,
+      "cpuPercentOneCore": 0.94
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612220928,
+      "pssBytes": 384737280,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.130000000000003,
+      "elapsedSeconds": 3.149,
+      "cpuPercentOneCore": 1.89
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612352000,
+      "pssBytes": 384850944,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.15,
+      "elapsedSeconds": 4.206,
+      "cpuPercentOneCore": 1.89
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612352000,
+      "pssBytes": 384852992,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.16,
+      "elapsedSeconds": 5.269,
+      "cpuPercentOneCore": 0.94
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612352000,
+      "pssBytes": 384869376,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.16,
+      "elapsedSeconds": 6.329,
+      "cpuPercentOneCore": 0.0
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612352000,
+      "pssBytes": 384885760,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.19,
+      "elapsedSeconds": 7.367,
+      "cpuPercentOneCore": 2.89
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612352000,
+      "pssBytes": 384889856,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.21,
+      "elapsedSeconds": 8.428,
+      "cpuPercentOneCore": 1.88
+    },
+    {
+      "processCount": 3,
+      "rssBytes": 612352000,
+      "pssBytes": 384857088,
+      "pssComplete": true,
+      "readBytes": 79073280,
+      "writeBytes": 2920448,
+      "cpuSeconds": 23.22,
+      "elapsedSeconds": 9.462,
+      "cpuPercentOneCore": 0.97
+    }
+  ]
+}

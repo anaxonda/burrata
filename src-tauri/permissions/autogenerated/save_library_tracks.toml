@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-library-tracks"
+description = "Enables the save_library_tracks command without any pre-configured scope."
+commands.allow = ["save_library_tracks"]
+
+[[permission]]
+identifier = "deny-save-library-tracks"
+description = "Denies the save_library_tracks command without any pre-configured scope."
+commands.deny = ["save_library_tracks"]

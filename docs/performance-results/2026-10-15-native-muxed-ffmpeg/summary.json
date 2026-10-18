@@ -1,0 +1,116 @@
+{
+  "binarySha256": "ced6cc73fd2c5b7205ba6650e10edab1d95f0113487da7b73dd2e450b5be6394",
+  "fixtureDurationSeconds": 250.078912,
+  "volumeSetToZero": true,
+  "setupFailure": null,
+  "failureCount": 0,
+  "counts": {
+    "warmups": 3,
+    "starts": 20,
+    "seeks": 60
+  },
+  "warmups": {
+    "nativeFirstAudioMs": {
+      "count": 3,
+      "median": 398,
+      "p95NearestRank": 435,
+      "max": 435
+    },
+    "wallFirstAudioObservedMs": {
+      "count": 3,
+      "median": 457,
+      "p95NearestRank": 564,
+      "max": 564
+    }
+  },
+  "starts": {
+    "nativeFirstAudioMs": {
+      "count": 20,
+      "median": 397.5,
+      "p95NearestRank": 522,
+      "max": 536
+    },
+    "wallFirstAudioObservedMs": {
+      "count": 20,
+      "median": 448.0,
+      "p95NearestRank": 566,
+      "max": 571
+    },
+    "sourceReadyMs": {
+      "count": 20,
+      "median": 4.0,
+      "p95NearestRank": 7,
+      "max": 11
+    }
+  },
+  "seeksByFraction": {
+    "0.01": {
+      "count": 20,
+      "nativeSeekFirstAudioMs": {
+        "count": 20,
+        "median": 370.0,
+        "p95NearestRank": 507,
+        "max": 578
+      },
+      "wallSeekFirstAudioObservedMs": {
+        "count": 20,
+        "median": 447.5,
+        "p95NearestRank": 571,
+        "max": 663
+      },
+      "wallSeekPlayheadAdvanceMs": {
+        "count": 20,
+        "median": 570.5,
+        "p95NearestRank": 796,
+        "max": 882
+      }
+    },
+    "0.5": {
+      "count": 20,
+      "nativeSeekFirstAudioMs": {
+        "count": 20,
+        "median": 574.5,
+        "p95NearestRank": 732,
+        "max": 732
+      },
+      "wallSeekFirstAudioObservedMs": {
+        "count": 20,
+        "median": 650.0,
+        "p95NearestRank": 767,
+        "max": 776
+      },
+      "wallSeekPlayheadAdvanceMs": {
+        "count": 20,
+        "median": 868.5,
+        "p95NearestRank": 1098,
+        "max": 1101
+      }
+    },
+    "0.95": {
+      "count": 20,
+      "nativeSeekFirstAudioMs": {
+        "count": 20,
+        "median": 612.5,
+        "p95NearestRank": 717,
+        "max": 718
+      },
+      "wallSeekFirstAudioObservedMs": {
+        "count": 20,
+        "median": 657.5,
+        "p95NearestRank": 773,
+        "max": 780
+      },
+      "wallSeekPlayheadAdvanceMs": {
+        "count": 20,
+        "median": 861.5,
+        "p95NearestRank": 980,
+        "max": 1014
+      }
+    }
+  },
+  "pausedSeek": {
+    "failureCategory": null,
+    "remainedPaused": true,
+    "resumedPlayheadAdvanced": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "runId": "v9-stale-index-assets-50k-2026-10-16",
+  "binaryPath": "/tmp/burrata-sorting-target/debug/verified-tests-v9-stale-index-440f4c1f/burrata_lib",
+  "binarySha256": "c0023bc4cf00439a1a6c5a3139554ba8435c796b8b1f674eea45dc297064fd2c",
+  "sourcePath": "/tmp/burrata-availability-native-prototype/src-tauri/src/storage.rs",
+  "sourceSha256": "440f4c1ffb19a4b693ae84fdfdc35b1069e613084153d310b5721f203e1b6472",
+  "command": "BURRATA_AVAILABILITY_PROFILE=1 BURRATA_AVAILABILITY_BENCH_ASSETS=1 BURRATA_AVAILABILITY_BENCH_COUNTS=50000 BURRATA_AVAILABILITY_BENCH_SAMPLES=3 BURRATA_AVAILABILITY_BENCH_INDEX_MAINTENANCE=0 TMPDIR=/home/loki/projects/burrata/.cache/native-test-temp SQLITE_TMPDIR=/home/loki/projects/burrata/.cache/native-test-temp /tmp/burrata-sorting-target/debug/verified-tests-v9-stale-index-440f4c1f/burrata_lib --ignored --exact storage::tests::benchmark_bpm_projection_index_pages_and_maintenance --nocapture",
+  "terminalResult": "1 benchmark test passed; elapsed 156.07 seconds",
+  "samplePolicy": "3 warmups and 3 measured observations per mode; exploratory only, not qualification",
+  "testValidation": {
+    "focusedStorage": "74 passed, 0 failed, 3 ignored",
+    "fullHost": "719 passed, 0 failed, 16 ignored"
+  },
+  "rawToolOutput": "The full per-observation stdout was not redirected to a file during execution. The complete harness summary JSON returned at test completion is archived in summary.json; indexed stage ranges from emitted profile records are archived in indexed-stage-aggregation.json."
+}

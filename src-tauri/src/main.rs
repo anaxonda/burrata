@@ -7,7 +7,7 @@ fn main() {
         }
         return;
     }
-    if std::env::args().any(|arg| arg == "--native-messaging") {
+    if std::env::args().any(|arg| arg == "--native-messaging" || arg == "--browser-native-host") {
         if let Err(error) = burrata_lib::browser_bridge::native_host_main() {
             eprintln!("Burrata native messaging: {error}");
             std::process::exit(1);

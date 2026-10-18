@@ -1,0 +1,31 @@
+{
+  "binary": {
+    "binary": "/home/loki/projects/burrata/.cache/immutable-debug-binaries/seek-wait-ef47b3320b72/burrata",
+    "sha256": "ef47b3320b7220a5073b6b801430b931dcac6893e14a17c206df16ae3f1c42c7"
+  },
+  "nativeTests": {
+    "passed": 916,
+    "failed": 0,
+    "ignored": 16,
+    "seconds": 16.9
+  },
+  "nativeBuild": "dev pass 2m00s",
+  "runningNormalApp": {
+    "binary": "ef47b3320b72",
+    "pid": 998273,
+    "queuePreservation": "main-preservation-proof.json"
+  },
+  "scope": "Seek timing instrumentation and metadata-only synthetic fixture; not playback reliability or release/platform qualification.",
+  "pendingSource": {
+    "startupTraceBuild": "Completed dev build2m01s; runtime50k phase qualification pending",
+    "currentNormalBinary": "ef47 still running pending isolated handoff"
+  },
+  "expandedNativeTests": {
+    "passed": 917,
+    "failed": 0,
+    "ignored": 16,
+    "seconds": 15.77,
+    "boundedStorageFixture": true
+  },
+  "originalConcurrentTestHang": "Retained; focused original rerun passed0.10s. Cause not established; bounded isolated fixture prevents unbounded CI hang."
+}

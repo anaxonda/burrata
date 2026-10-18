@@ -1,0 +1,110 @@
+{
+  "benchmark": "first_page_global_sort_availability",
+  "cpuTimeReported": false,
+  "endToEnd": false,
+  "fixtures": [
+    {
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 71.37084,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 96.79775000000001,
+        "warmups": 3,
+        "worstMs": 96.79775000000001
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 61.209698,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 66.05462,
+        "warmups": 3,
+        "worstMs": 66.05462
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 1000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 67.618095,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 69.37111999999999,
+        "warmups": 3,
+        "worstMs": 69.37111999999999
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 64.725031,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 66.03698299999999,
+        "warmups": 3,
+        "worstMs": 66.03698299999999
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 5000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 103.91955399999999,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 105.087756,
+        "warmups": 3,
+        "worstMs": 105.087756
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 98.493454,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 111.033666,
+        "warmups": 3,
+        "worstMs": 111.033666
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 20000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "firstPageWithGlobalAvailability": {
+        "measured": 3,
+        "medianMs": 184.584384,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 184.958314,
+        "warmups": 3,
+        "worstMs": 184.958314
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 180.170678,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 225.042765,
+        "warmups": 3,
+        "worstMs": 225.042765
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 50000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    }
+  ],
+  "guiIncluded": false,
+  "scope": "actual Store storage microbenchmark; excludes GUI and end-to-end application work",
+  "sparseFixture": false
+}

@@ -1,0 +1,10 @@
+{
+  "errorCode": "request_failed",
+  "kind": "all",
+  "requestId": "d866d320-aa11-466b-915e-13dd1aabc580",
+  "resultCounts": {
+    "youtube": 0
+  },
+  "sourceId": "youtube",
+  "status": "failed"
+}

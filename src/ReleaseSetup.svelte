@@ -192,7 +192,7 @@
   h3{margin:0 0 8px;font-size:15px}.directory-row,.browser-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
   .directory-row{margin:12px 0}.directory-row span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   .browser-list{display:grid;gap:8px}.browser-row{padding:8px 10px;border-radius:7px;background:var(--raised)}.browser-row>div{display:grid;gap:3px}.browser-row small,.paths small,.muted{color:var(--muted)}
-  label{display:grid;gap:6px;margin:12px 0}.check{display:flex;align-items:center;gap:8px}.check input{margin:0}.privacy{font-size:12px}.version{font-size:13px}
+  label{display:grid;gap:6px;margin:12px 0}.check{display:flex;flex-flow:row nowrap;align-items:flex-start;gap:8px;min-width:0}.check input[type="checkbox"]{appearance:auto;flex:0 0 16px;width:16px;height:16px;min-width:16px;margin:2px 0 0;padding:0;border-radius:3px}.privacy{font-size:12px}.version{font-size:13px}
   details{margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:8px}summary{cursor:pointer;font-weight:600}code{overflow-wrap:anywhere}.command{display:block;padding:9px;background:var(--raised);border-radius:6px}
   .paths{padding-left:20px}.paths li{display:grid;gap:3px;margin:10px 0}.paths code{color:var(--muted);font-size:11px}.update-actions{display:grid;justify-items:start;gap:8px;margin-top:12px}
   .quiet{background:transparent}.primary{font-weight:600}.release-setup button{max-width:100%}

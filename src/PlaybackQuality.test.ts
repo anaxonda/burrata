@@ -48,6 +48,45 @@ describe("PlaybackQuality", () => {
     expect(unknown.textContent).not.toContain("OPUS");
   });
 
+  it("shows resolved on-demand stream quality rather than downloaded asset quality", async () => {
+    const target = render({ track, asset, streamQuality: { codec: "opus", bitrateKbps: 129.4, live: false } }); await tick();
+    expect(target.querySelector(".quality-summary")?.textContent).toContain("OPUS");
+    expect(target.textContent).toContain("129 kbps");
+    expect(target.textContent).not.toContain("FLAC");
+    expect(target.textContent).not.toContain("Live stream");
+    expect(target.textContent).not.toContain("No downloaded file");
+  });
+
+  it("shows a known stream codec even when its bitrate is unavailable", async () => {
+    const target = render({ track, streamQuality: { codec: "aac", live: false } }); await tick();
+    expect(target.textContent).toContain("AAC");
+    expect(target.textContent).not.toContain("kbps");
+    expect(target.textContent).not.toContain("Quality unknown");
+  });
+
+  it("does not invent Opus bitrate, sample rate, or channel facts when the host omits them", async () => {
+    const target = render({ track, streamQuality: { codec: "opus", live: false } }); await tick();
+    expect(target.querySelector(".quality-summary")?.textContent).toContain("OPUS");
+    expect(target.querySelector(".quality-summary")?.textContent).not.toContain("kbps");
+    expect(target.querySelector(".quality-summary")?.textContent).not.toContain("kHz");
+    expect(target.querySelector(".quality-summary")?.textContent).not.toContain("stereo");
+  });
+
+  it("marks reported average bitrates as approximate and only shows bit depth for lossless output", async () => {
+    const approxStream = render({ track, streamQuality: { codec: "opus", bitrateKbps: 128, bitrateOrigin: "format_average", bitDepth: 16 } }); await tick();
+    expect(approxStream.querySelector(".quality-summary")?.textContent).toContain("~128 kbps");
+    expect(approxStream.querySelector(".quality-summary")?.textContent).not.toContain("16-bit");
+    destroy?.(); destroy = undefined; document.body.innerHTML = "";
+    const losslessAsset = { ...asset, sourceCodec: "FLAC", finalCodec: "FLAC", bitDepth: 24 };
+    const target = render({ track, asset: losslessAsset }); await tick();
+    expect(target.querySelector(".quality-summary")?.textContent).toContain("24-bit");
+  });
+
+  it("prefixes backend average file bitrate with an approximation marker", async () => {
+    const target = render({ track, asset: { ...asset, sourceCodec: "FLAC", finalCodec: "FLAC", finalBitrate: 900, bitrateOrigin: "file_average" } }); await tick();
+    expect(target.querySelector(".quality-summary")?.textContent).toContain("~900 kbps");
+  });
+
   it("renders a compact bottom-player variant without a heading or box", async () => {
     const target = render({ track, streamQuality: { codec: "AAC", bitrateKbps: 192, live: true }, compact: true }); await tick();
     const quality = target.querySelector<HTMLElement>(".playback-quality")!;

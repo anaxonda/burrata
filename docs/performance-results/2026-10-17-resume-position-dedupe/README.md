@@ -1,0 +1,9 @@
+# Playback resume-position duplicate writes
+
+Routine WebView position notifications previously rewrote local storage even when the track and position were unchanged. The current source skips identical successful routine saves for up to 60 seconds. Changed positions save immediately; explicit pause/stop saves remain forced. Failed writes clear the memo so later notifications retry, and clock rollback does not suppress saving.
+
+Validation: 917 frontend tests across 76 files pass, Svelte reports zero errors/warnings, eight contract checks pass, and the production frontend build passes. The regression covers duplicate notifications, the 60-second boundary, changed position/track, forced pause, storage failure/retry and clock rollback. The test fails against the previous implementation. Logs and exact source pins are retained in `.cache/qualification-resume-position-dedupe/`.
+
+This fixes confirmed redundant writes. It does not establish the cause of the approximately 320 MB of sampled WebKit writes in the earlier playback baseline. That baseline used App `3943b23cfb37`; the new App `da4309cd0191` does not inherit its live qualification. The sole normal window was relaunched through the hash-verifying launcher, Vite module check and authenticated mounted-frontend handshake (99 tools). Complete before/after snapshots compare exactly equal, including all 30 queue entries and playback/settings state. Runtime evidence is retained alongside the validation logs.
+
+A post-rollout app-only screenshot at 1914×515 was visually reviewed: the dark Library toolbar is compact and paused player transport/queue/volume controls do not overlap. Read-only geometry inspection reports no findings. Evidence is under `current-ui/` beside the validation logs. This is bounded to that route, width and state.

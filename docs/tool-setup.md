@@ -15,6 +15,9 @@ uses** and select **Check tools**. Keep the default executable names to use the
 packaged tools. The collapsed **Advanced: use custom executable paths** section
 accepts a full path for a system-installed override.
 
+For browser companion setup, streaming playlist import and sync, and local-file
+quality and replacement behavior, see [Streaming playlists and local files](streaming-playlists.md).
+
 ## YouTube support and updates
 
 The bundled yt-dlp is the tested baseline. Burrata can stage a managed version in
@@ -38,6 +41,17 @@ diagnostic when search or media inspection fails.
 
 Preview resolves a temporary audio stream for playback. It does not download or
 retain the source audio; acquisition happens only after you explicitly start it.
+
+## Optional external player
+
+Burrata can open downloaded audio, a selected YouTube/SoundCloud source, or a
+direct HTTP(S) audio stream in an existing mpv installation. mpv is not bundled
+or installed by Burrata. Install it using its project instructions or your
+platform's package manager; Burrata
+looks for it on `PATH` and in common macOS and Windows install locations. For
+provider URLs, mpv uses the configured yt-dlp executable when it is available.
+Opening a source in mpv delegates playback to that separate application and does
+not start a Burrata acquisition.
 
 ## What each tool does
 

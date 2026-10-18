@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-warm-playback-candidate-search"
+description = "Enables the warm_playback_candidate_search command without any pre-configured scope."
+commands.allow = ["warm_playback_candidate_search"]
+
+[[permission]]
+identifier = "deny-warm-playback-candidate-search"
+description = "Denies the warm_playback_candidate_search command without any pre-configured scope."
+commands.deny = ["warm_playback_candidate_search"]

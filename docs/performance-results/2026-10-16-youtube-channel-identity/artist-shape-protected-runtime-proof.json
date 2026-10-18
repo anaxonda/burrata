@@ -1,0 +1,46 @@
+{
+  "main": {
+    "pid": 3455051,
+    "launcher": 3454542,
+    "sha256": "c45ee5c0da8e13ec7f522a3774bfa1b7ca6beaf350d7df1761e91d989d414361",
+    "protectedFrontend": "1",
+    "providerFlags": [
+      "1",
+      "1"
+    ]
+  },
+  "session": 82174,
+  "vite": {
+    "pid": 3454907,
+    "uid": 1000,
+    "startTicks": "38463192",
+    "ownership": "owned",
+    "protectedEnvironment": "1",
+    "port1420SoleListener": true
+  },
+  "freshBeforeRows": 24,
+  "afterRows": 24,
+  "entryIdsOptionalEmpty": true,
+  "preserved": {
+    "queue": true,
+    "queueEntryIds": true,
+    "track": true,
+    "trackId": true,
+    "currentIndex": true,
+    "position": false,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "beforePaused": false,
+  "beforeStatus": "playing",
+  "afterPaused": true,
+  "afterStatus": "idle",
+  "beforePosition": 161.794374,
+  "afterPosition": 164.047314,
+  "beforeDuration": 259.586666666,
+  "afterDuration": 259.586,
+  "noPlaybackMutations": true,
+  "noHistoricalQueueRestore": true,
+  "engineExplicit": null
+}

@@ -1,0 +1,14 @@
+{
+  "errorCode": null,
+  "kind": "tracks",
+  "requestId": "27f839a0-d006-47e3-a9a6-a28ae91d0f57",
+  "resultCounts": {
+    "monochrome": 6,
+    "musicbrainz": 30,
+    "soulseek": 7,
+    "soundcloud": 30,
+    "youtube": 20
+  },
+  "sourceId": "all",
+  "status": "complete"
+}

@@ -1,0 +1,15 @@
+{
+  "scope": "Normal-main restart preservation after the managed Downloads backfill comparison; no private queue snapshot published.",
+  "binarySha256": "a1b8013b10e1733529b6b8c4c1fa742665f37634808342654fd4b9ef999e59fc",
+  "frontendMounted": true,
+  "queueCount": 13,
+  "orderedQueueAndOccurrenceIdsPreserved": true,
+  "currentIndex": 6,
+  "positionSeconds": 29.087175,
+  "paused": true,
+  "volume": 0.8,
+  "repeat": "off",
+  "shuffle": false,
+  "sourceAndAfterSnapshotsEqual": true,
+  "launcherSession": 29991
+}

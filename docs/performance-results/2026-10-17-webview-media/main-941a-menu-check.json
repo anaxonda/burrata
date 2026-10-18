@@ -1,0 +1,13 @@
+{
+  "runtime": "941a59f36128",
+  "viewport": {
+    "width": 1914,
+    "height": 515
+  },
+  "footerHeight": 98.5,
+  "layoutFindings": [],
+  "liveTrackMenuVisuallyChecked": true,
+  "closedMenu": true,
+  "playbackProjectionUnchangedAfterMenu": true,
+  "limitations": "Live main TrackMenu and footer only; fallback TrackList desktop/half-screen captures are synthetic. No overall all-view UI qualification."
+}

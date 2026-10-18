@@ -1,0 +1,18 @@
+{
+  "queueAndControlsEqual": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "queueTotal": 24,
+  "currentIndex": 11,
+  "beforePosition": 81.782751,
+  "restoredPosition": 83.5306,
+  "restoredPaused": true,
+  "originalPaused": false,
+  "noQueueRestorationWrite": true
+}

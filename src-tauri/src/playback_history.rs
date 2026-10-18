@@ -89,6 +89,14 @@ pub struct PlaybackHistorySearchOptions {
     /// `oldest` sorts oldest-first. Any other value sorts newest-first.
     #[serde(default)]
     pub sort: Option<String>,
+    #[serde(default)]
+    pub sort_field: Option<String>,
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub min_duration_seconds: Option<f64>,
+    #[serde(default)]
+    pub max_duration_seconds: Option<f64>,
     #[serde(default = "default_search_limit")]
     pub limit: u32,
     #[serde(default)]
@@ -114,6 +122,7 @@ impl PlaybackHistory {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let connection = Connection::open(path).map_err(|e| e.to_string())?;
+        crate::track_sort_text::register_sqlite(&connection)?;
         connection.execute_batch(
             "PRAGMA journal_mode = WAL;
              CREATE TABLE IF NOT EXISTS playback_history (
@@ -219,7 +228,7 @@ impl PlaybackHistory {
         // A reusable stable track row lets existing play/queue/playlist tools act
         // on the history item; it represents the identified song, never the live
         // stream URL.
-        store.save_track(&track)?;
+        store.cache_track(&track)?;
         let occurrence_hash = format!(
             "{:x}",
             Sha256::digest(
@@ -333,8 +342,50 @@ impl PlaybackHistory {
             .as_deref()
             .map(str::trim)
             .filter(|p| !p.is_empty());
+        if options
+            .min_duration_seconds
+            .is_some_and(|value| !value.is_finite() || value < 0.0)
+            || options
+                .max_duration_seconds
+                .is_some_and(|value| !value.is_finite() || value < 0.0)
+        {
+            return Err("Duration bounds must be finite and nonnegative".into());
+        }
+        if options
+            .min_duration_seconds
+            .zip(options.max_duration_seconds)
+            .is_some_and(|(min, max)| min > max)
+        {
+            return Err("Minimum duration must not exceed maximum duration".into());
+        }
+        if options.sort_field.as_deref().is_some_and(|field| {
+            !matches!(
+                field,
+                "sourceOrder"
+                    | "title"
+                    | "artist"
+                    | "album"
+                    | "duration"
+                    | "releaseDate"
+                    | "dateAdded"
+                    | "bpm"
+                    | "key"
+                    | "plays"
+                    | "views"
+            )
+        }) {
+            return Err("Unsupported playback history sort field".into());
+        }
+        if options
+            .direction
+            .as_deref()
+            .is_some_and(|direction| !matches!(direction, "asc" | "desc"))
+        {
+            return Err("Playback history sort direction must be asc or desc".into());
+        }
         let mut filters = Vec::new();
         let mut values = Vec::<SqlValue>::new();
+        let duration_sql = crate::track_sort_sql::duration_expression("track_json");
         if let Some(provider) = provider {
             if provider.eq_ignore_ascii_case("non-radio") {
                 filters.push("lower(provider)<>'radio'".to_owned());
@@ -372,20 +423,20 @@ impl PlaybackHistory {
             ));
             values.push(value.into());
         }
+        if let Some(minimum) = options.min_duration_seconds {
+            filters.push(format!("({duration_sql})>=?{}", values.len() + 1));
+            values.push(minimum.into());
+        }
+        if let Some(maximum) = options.max_duration_seconds {
+            filters.push(format!("({duration_sql})<=?{}", values.len() + 1));
+            values.push(maximum.into());
+        }
         let where_sql = if filters.is_empty() {
             String::new()
         } else {
             format!(" WHERE {}", filters.join(" AND "))
         };
-        let order_sql = if options
-            .sort
-            .as_deref()
-            .is_some_and(|sort| sort.eq_ignore_ascii_case("oldest"))
-        {
-            "played_at ASC, rowid ASC"
-        } else {
-            "played_at DESC, rowid DESC"
-        };
+        let order_sql = history_order_sql(&options);
         let sql = format!(
             "SELECT session_id, played_at, provider, track_json, chapter_json FROM playback_history{where_sql} ORDER BY {order_sql}"
         );
@@ -443,6 +494,38 @@ impl PlaybackHistory {
             .map(|value| value.is_some())
             .map_err(|e| e.to_string())
     }
+}
+
+fn history_order_sql(options: &PlaybackHistorySearchOptions) -> String {
+    let chronological = if options
+        .sort
+        .as_deref()
+        .is_some_and(|sort| sort.eq_ignore_ascii_case("oldest"))
+    {
+        "played_at ASC, rowid ASC"
+    } else {
+        "played_at DESC, rowid DESC"
+    };
+    let field = options.sort_field.as_deref().unwrap_or("sourceOrder");
+    if field == "sourceOrder" {
+        if let Some(direction) = options.direction.as_deref() {
+            return if direction == "asc" {
+                "played_at ASC, rowid ASC".to_owned()
+            } else {
+                "played_at DESC, rowid DESC".to_owned()
+            };
+        }
+        return chronological.to_owned();
+    }
+    let Some(expression) = crate::track_sort_sql::expression(field, "track_json") else {
+        return chronological.to_owned();
+    };
+    let direction = if options.direction.as_deref() == Some("desc") {
+        "DESC"
+    } else {
+        "ASC"
+    };
+    format!("({expression}) IS NULL ASC, {expression} {direction}, played_at DESC, rowid DESC")
 }
 
 type RawHistoryEntry = (String, String, String, String, Option<String>);
@@ -550,6 +633,7 @@ fn normalize_date_bound(value: &str, is_to: bool) -> Result<(String, bool), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::PlaybackRange;
     use crate::storage::Store;
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
@@ -695,6 +779,87 @@ mod tests {
     }
 
     #[test]
+    fn history_duration_bounds_and_sort_apply_before_page_window_and_use_chapter_length() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("playback-history.sqlite")).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let mut long = track();
+        long.id = "long".into();
+        long.title = "Zulu".into();
+        long.duration_seconds = Some(180.0);
+        history.record("long", "local", &long, None).unwrap();
+
+        let mut short = track();
+        short.id = "short".into();
+        short.title = "Alpha".into();
+        short.duration_seconds = Some(120.0);
+        history.record("short", "local", &short, None).unwrap();
+
+        let mut chapter = track();
+        chapter.id = "chapter".into();
+        chapter.title = "Beta".into();
+        chapter.duration_seconds = Some(360.0);
+        chapter.playback_range = Some(PlaybackRange {
+            parent_track_id: "mix".into(),
+            chapter_id: "beta".into(),
+            source_url: "https://example.test/mix".into(),
+            start_time: 30.0,
+            end_time: 60.0,
+            parent_title: "Long mix".into(),
+            parent_duration_seconds: Some(600.0),
+        });
+        history
+            .record("chapter", "youtube", &chapter, None)
+            .unwrap();
+
+        let page = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    min_duration_seconds: Some(60.0),
+                    max_duration_seconds: Some(240.0),
+                    sort_field: Some("title".into()),
+                    direction: Some("asc".into()),
+                    limit: 1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert!(page.has_more);
+        assert_eq!(page.items[0].session_id, "short");
+
+        let next = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    min_duration_seconds: Some(60.0),
+                    max_duration_seconds: Some(240.0),
+                    sort_field: Some("title".into()),
+                    direction: Some("asc".into()),
+                    limit: 1,
+                    offset: 1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(next.items[0].session_id, "long");
+
+        let descending = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    sort_field: Some("title".into()),
+                    direction: Some("desc".into()),
+                    limit: 1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(descending.items[0].session_id, "long");
+    }
+
+    #[test]
     fn new_history_records_are_enriched_before_persistence() {
         let dir = tempdir().unwrap();
         let history = PlaybackHistory::open(&dir.path().join("playback-history.sqlite")).unwrap();
@@ -713,6 +878,42 @@ mod tests {
         assert_eq!(saved.track.id, snapshot.id);
         assert_eq!(saved.track.artist, "Cesária Évora");
         assert_eq!(saved.track.title, "Sodade");
+    }
+
+    #[test]
+    fn recording_a_cached_search_result_keeps_it_out_of_the_library() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("playback-history.sqlite")).unwrap();
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let mut search_result = track();
+        search_result.id = "youtube:search-result".into();
+        search_result.provider = "youtube".into();
+        search_result.provider_id = "search-result".into();
+
+        // This is the cache-then-history sequence used by record_playback for
+        // a result that has not otherwise been persisted.
+        assert!(store.get_track(&search_result.id).unwrap().is_none());
+        store.cache_track(&search_result).unwrap();
+        assert!(history
+            .record_enriched(
+                &store,
+                "search-result-session",
+                "youtube",
+                &search_result,
+                None,
+            )
+            .unwrap());
+
+        assert!(store.get_track(&search_result.id).unwrap().is_some());
+        assert_eq!(history.list(10, 0).unwrap().len(), 1);
+        assert!(store.list_tracks("library", None).unwrap().is_empty());
+        assert_eq!(
+            store
+                .search_library_tracks(&["Search".into()], 10, 0)
+                .unwrap()
+                .1,
+            0
+        );
     }
 
     #[test]

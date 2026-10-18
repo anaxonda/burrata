@@ -1,7 +1,7 @@
 [package]
 name = "burrata"
 default-run = "burrata"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first DJ music discovery and acquisition"
 edition = "2021"
 license = "GPL-3.0-or-later"
@@ -9,6 +9,7 @@ license = "GPL-3.0-or-later"
 [features]
 default = []
 custom-protocol = ["tauri/custom-protocol"]
+experimental-opus = ["dep:symphonia-experiment", "dep:symphonia-opus-adapter"]
 
 [lib]
 name = "burrata_lib"
@@ -22,13 +23,18 @@ cmake = "0.1"
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
+log = "=0.4.34"
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
 tokio = { version = "1", features = ["full"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+tempfile = "3"
+rusqlite = { version = "0.32", features = ["bundled", "collation", "functions"] }
+icu_collator = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+icu_locale_core = { version = "=2.3.0", features = ["alloc"] }
 scraper = "0.22"
 async-trait = "0.1"
 uuid = { version = "1", features = ["v4"] }
@@ -44,13 +50,18 @@ axum = "0.8"
 dirs = "7"
 keyring = { version = "=3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 notify = "8.2"
+rodio = { version = "=0.22.2", default-features = false, features = ["playback", "symphonia-all"] }
+stream-download = { version = "=0.24.4", default-features = false, features = ["http", "reqwest", "reqwest-rustls", "temp-storage"] }
+symphonia-experiment = { package = "symphonia", version = "=0.5.5", default-features = false, features = ["all-formats", "all-codecs"], optional = true }
+symphonia-opus-adapter = { package = "symphonia-adapter-libopus", version = "=0.2.9", default-features = false, features = ["bundled"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2"
+cairo-rs = { version = "0.18", features = ["png"] }
 zbus = { version = "4.4", default-features = false, features = ["tokio"] }
 
-[dev-dependencies]
-tempfile = "3"
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+souvlaki = { version = "=0.8.3", default-features = false }
 
 [profile.release]
 strip = "debuginfo"
@@ -61,3 +72,6 @@ debug = 1
 
 [profile.test]
 debug = 0
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

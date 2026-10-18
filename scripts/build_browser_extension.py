@@ -10,7 +10,7 @@ root = Path(__file__).resolve().parents[1]
 source = root / 'extension'
 destination = root / '.cache' / 'browser-companion-chromium'
 destination.mkdir(parents=True, exist_ok=True)
-for name in ('background.js', 'content.js', 'parsers.js', 'popup.js', 'popup.html'):
+for name in ('background.js', 'content.js', 'parsers.js', 'popup.js', 'popup.html', 'spotify-auth.js', 'provider-operations.js'):
     shutil.copyfile(source / name, destination / name)
 manifest = json.loads((source / 'manifest.chromium.json').read_text())
 key = manifest.get('key')

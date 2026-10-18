@@ -1,0 +1,40 @@
+{
+  "build": "966e0c60199a",
+  "pages": [
+    {
+      "page": 1,
+      "tracks": 116,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "cumulative": 116
+    },
+    {
+      "page": 2,
+      "tracks": 0,
+      "total": null,
+      "complete": false,
+      "hasMore": true,
+      "cumulative": 116
+    },
+    {
+      "page": 3,
+      "tracks": 0,
+      "total": null,
+      "complete": false,
+      "hasMore": false,
+      "cumulative": 116
+    }
+  ],
+  "initialTotal": 240,
+  "terminal": true,
+  "loadedTracks": 116,
+  "knownOccurrenceIds": 116,
+  "uniqueOccurrenceIds": 116,
+  "uniqueTrackIds": 116,
+  "totalMatches": false,
+  "elapsedMs": 4123,
+  "qualification": "failed_total_mismatch",
+  "writesPerformed": false,
+  "unavailableCount": "not_established"
+}

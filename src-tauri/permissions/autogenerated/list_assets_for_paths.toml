@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-assets-for-paths"
+description = "Enables the list_assets_for_paths command without any pre-configured scope."
+commands.allow = ["list_assets_for_paths"]
+
+[[permission]]
+identifier = "deny-list-assets-for-paths"
+description = "Denies the list_assets_for_paths command without any pre-configured scope."
+commands.deny = ["list_assets_for_paths"]

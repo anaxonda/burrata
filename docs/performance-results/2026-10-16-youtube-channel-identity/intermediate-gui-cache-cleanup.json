@@ -1,0 +1,64 @@
+{
+  "scope": "Superseded intermediate compiled GUI cache binaries only; sources, manifests, all native test artifacts, resources, current086b, rollbackb4a0 and selected historical GUI baselines retained. No application data or credentials touched.",
+  "removed": [
+    {
+      "cacheBinary": "verified-main-album-youtube-a21733938f82/burrata",
+      "logicalBytes": 338243296
+    },
+    {
+      "cacheBinary": "verified-main-artist-identity-0214b83ff69e/burrata",
+      "logicalBytes": 338237888
+    },
+    {
+      "cacheBinary": "verified-main-youtube-nested-966e0c60199a/burrata",
+      "logicalBytes": 338577072
+    },
+    {
+      "cacheBinary": "verified-main-user-facing-9482da37d3b9/burrata",
+      "logicalBytes": 338237888
+    },
+    {
+      "cacheBinary": "verified-main-youtube-locations-bed1fe89414a/burrata",
+      "logicalBytes": 338738520
+    },
+    {
+      "cacheBinary": "verified-main-youtube-no-params-3740fa0d8139/burrata",
+      "logicalBytes": 338577072
+    },
+    {
+      "cacheBinary": "verified-main-youtube-inspection-6035cc3ffe63/burrata",
+      "logicalBytes": 338577072
+    },
+    {
+      "cacheBinary": "verified-main-album-diagnostic-28b7ad4096e7/burrata",
+      "logicalBytes": 338239200
+    },
+    {
+      "cacheBinary": "verified-main-artwork-fallback-4c482f6328e8/burrata",
+      "logicalBytes": 338231000
+    },
+    {
+      "cacheBinary": "verified-main-provider-dd7294c2caba/burrata",
+      "logicalBytes": 336425160
+    },
+    {
+      "cacheBinary": "verified-main-provider-ec9644ef4094/burrata",
+      "logicalBytes": 336195776
+    },
+    {
+      "cacheBinary": "verified-main-provider-7a3418155adb/burrata",
+      "logicalBytes": 336195776
+    },
+    {
+      "cacheBinary": "verified-main-artdiag-compact-bbe00a024405/burrata",
+      "logicalBytes": 336572104
+    },
+    {
+      "cacheBinary": "verified-main-observer-persist-bfa0e232656c/burrata",
+      "logicalBytes": 336786480
+    }
+  ],
+  "freeBytesBefore": 934694912,
+  "freeBytesAfter": 5658673152,
+  "freedBytes": 4723978240
+}

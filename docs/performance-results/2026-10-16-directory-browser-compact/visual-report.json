@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-16",
+  "component": "src/DirectoryBrowser.svelte",
+  "sourceSha256": {
+    "src/DirectoryBrowser.svelte": "bfb3cdc2398fdaba3efe45057ca8fbda14fd12c5227aa523bedbd4b6c771836f",
+    "harness/main.js": "a33f291db9bce41b6d749931bac481d828cc286084b1b8f6355d18fd6e5ff524"
+  },
+  "fixture": "harness/index.html and harness/main.js mount actual DirectoryBrowser.svelte with synthetic list_directory_browser_roots and browse_directory_browser responses, global app/desktop CSS, a compact App header/sidebar, and simulated player footer.",
+  "screenshots": {
+    "before": ".cache/directory-browser-visual/before-1914x515.png",
+    "desktop": ".cache/directory-browser-visual/after-1914x515.png",
+    "constrained": ".cache/directory-browser-visual/after-707x515.png",
+    "durationPopover": ".cache/directory-browser-visual/after-707-duration-open.png"
+  },
+  "geometry": [
+    "directory-browser-1914x515.json",
+    "directory-browser-707x515.json",
+    "directory-browser-duration-popover-707.json"
+  ],
+  "changes": [
+    "Scoped sort label to a horizontal, margin-free row; all directory view controls are 34px high.",
+    "Filter width is capped at 340px on desktop and wraps at constrained width.",
+    "Moved live file count into the options row and removed the duplicate visible Audio files/count heading; TrackList retains aria-label=Audio files.",
+    "Changed duration filters to a compact popover and compacted the TrackList selection toolbar within DirectoryBrowser only."
+  ],
+  "results": {
+    "baselineFirstRowTop": 294,
+    "desktopFirstRowTop": 173,
+    "desktopFirstRowContentTop": 181,
+    "targetFirstRowTopMax": 190,
+    "desktopHorizontalOverflow": false,
+    "constrainedWidth": 707,
+    "constrainedHorizontalOverflow": false,
+    "durationPopoverHorizontalOverflow": false
+  },
+  "test": "npx vitest run --configLoader runner src/DirectoryBrowser.test.ts",
+  "testResult": "passed: 1 test file, 13 tests"
+}

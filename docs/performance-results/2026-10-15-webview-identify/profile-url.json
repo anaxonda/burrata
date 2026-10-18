@@ -1,0 +1,14 @@
+{
+  "provider": "spotify",
+  "scope": "one public official profile URL read",
+  "mutationPerformed": false,
+  "elapsedMs": 2016,
+  "toolError": false,
+  "playlistCount": 46,
+  "validIdCount": 46,
+  "artworkCount": 46,
+  "hasCursor": false,
+  "totalCount": 1545,
+  "complete": false,
+  "truncated": true
+}

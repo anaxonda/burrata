@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
   import { onMount } from "svelte";
   import { call } from "./lib/api";
   import type { Track } from "./lib/types";
   import TrackList from "./TrackList.svelte";
+  import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
 
   export type RadioStation = {
     id: string; name: string; streamUrl: string; sourceUrl: string;
@@ -22,12 +24,14 @@
   };
 
   let { onPlayStation, onArtist, playingStationId = "", onNowPlaying, selectedStationId: requestedStationId = "", showAdd = false, onStationsChanged, onAddClosed, stationNames={}, savedStations,
-    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onTrackContext, onOpenHistory, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
+    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onTrackContext, onInfoTrack, onOpenHistory, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
   }:
     { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; showAdd?: boolean; onStationsChanged?: (stations: RadioStation[]) => void; onAddClosed?: () => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
       onPlayTrack?: (track: Track, tracks: Track[], index: number) => void | Promise<void>; onDownloadTrack?: (track: Track) => void | Promise<void>; onFavoriteTrack?: (track: Track) => void | Promise<void>;
       onQueueTracks?: (tracks: Track[], mode: "next" | "append") => void | Promise<void>; onAddTrackToPlaylist?: (track: Track) => void | Promise<void>; onTrackContext?: (track: Track, event: MouseEvent) => void;
+      onInfoTrack?: (track: Track) => void | Promise<void>;
       onOpenHistory?: (stationId: string) => void;
+      playingTrack?: Track | null; bufferingTrack?: Track | null;
       playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
       favoriteTrackIds?: string[];
     } = $props();
@@ -63,6 +67,10 @@
   let stationActionError = $state("");
   let historyQuery = $state("");
   let historySort = $state<"newest" | "oldest">("newest");
+  let historyTrackSort = $state<TrackSortField>("sourceOrder");
+  let historyTrackSortDirection = $state<SortDirection>("asc");
+  let historyMinDuration = $state("");
+  let historyMaxDuration = $state("");
   let recognizing = $state(false);
   const selectedStationId = $derived(activeStationId);
   const selectedStation = $derived(stations.find((station) => station.id === selectedStationId) ? {
@@ -183,8 +191,8 @@
     const item = metadataForTrack(track);
     return item ? hydrateRadioSong(item) : track;
   }
-  async function playHistoryTrack(_track: Track, _tracks: Track[], index: number) {
-    const tracks = await Promise.all(visibleHistory.map(hydrateRadioSong));
+  async function playHistoryTrack(_track: Track, displayedTracks: Track[], index: number) {
+    const tracks = await Promise.all(displayedTracks.map(hydrateHistoryTrack));
     if (tracks[index]) await onPlayTrack?.(tracks[index], tracks, index);
   }
   function downloadHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onDownloadTrack?.(canonical)); }
@@ -193,6 +201,7 @@
   function queueHistoryTrack(track: Track, mode: "next" | "append") { void hydrateHistoryTrack(track).then(canonical => onQueueTracks?.([canonical], mode)); }
   function artistHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onArtist(canonical)); }
   function contextHistoryTrack(track: Track, event: MouseEvent) { void hydrateHistoryTrack(track).then(canonical => onTrackContext?.(canonical, event)); }
+  function infoHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onInfoTrack?.(canonical)); }
   function openArtistForMetadata(item: RadioTrackMetadata) {
     void hydrateRadioSong(item).then(track => onArtist(track));
   }
@@ -202,7 +211,14 @@
       if (!radioTracksByIdentity[identity] && !radioTrackLoads.has(identity)) void hydrateRadioSong(item);
     }
   });
-  const stationHistoryTracks = $derived(visibleHistory.map(trackForMetadata));
+  const stationHistoryTracks = $derived.by(() => {
+    const lower = parseDurationBound(historyMinDuration), upper = parseDurationBound(historyMaxDuration);
+    const tracks = filterTracks(visibleHistory.map(trackForMetadata), {
+      ...(lower === null ? {} : { minDurationSeconds: lower }),
+      ...(upper === null ? {} : { maxDurationSeconds: upper }),
+    });
+    return sortTracks(tracks, historyTrackSort, historyTrackSortDirection);
+  });
   function historyTimestamp(track: Track) {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
     const observedAt = provenance.observedAt ?? provenance.radioObservedAt;
@@ -213,6 +229,7 @@
     const label = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
     return { label, full };
   }
+  const sortAvailability = $derived(trackSortAvailability(stationHistoryTracks));
   function rememberPrevious(stationId: string, previous: RadioTrackMetadata | null, next: RadioTrackMetadata | null) {
     if (!previous || !next || metadataKey(previous) === metadataKey(next)) return;
     const history = historyByStation[stationId] ?? [];
@@ -259,7 +276,7 @@
     recognizing = true;
     error = "";
     try {
-      const result = await call<RadioMetadata>("poll_radio_station", { stationId, recognize: true });
+      const result = await call<RadioMetadata>("identify_radio_station", { stationId });
       if (!mounted || selectedStationId !== stationId || playingStationId !== stationId) return;
       if (result.historyAvailable) historyByStation = { ...historyByStation, [stationId]: result.history.slice(0, 20) };
       historyAvailabilityByStation = { ...historyAvailabilityByStation, [stationId]: result.historyAvailable };
@@ -337,7 +354,7 @@
       <div class="add-tabs" role="tablist" aria-label="Add station method"><button role="tab" aria-selected={addMode === "search"} class:active={addMode === "search"} onclick={() => (addMode = "search")}>Search</button><button role="tab" aria-selected={addMode === "url"} class:active={addMode === "url"} onclick={() => (addMode = "url")}>Stream URL</button></div>
       {#if addMode === "search"}
         <form class="station-search" onsubmit={(event) => { event.preventDefault(); void searchStations(); }}><label>Search internet radio <span><input aria-label="Search internet radio" bind:value={searchQuery} placeholder="Station name or keyword" /><button disabled={searching || (!searchQuery.trim() && !countryFilter.trim() && !tagFilter.trim())}>{searching ? "Searching…" : "Search"}</button></span></label><div class="radio-filters"><label>Country<input aria-label="Station country filter" bind:value={countryFilter} placeholder="Any country" /></label><label>Genre<input aria-label="Station genre filter" bind:value={tagFilter} placeholder="Any genre" /></label></div></form>
-        {#if searchResults.length}<ul class="search-results" aria-label="Station search results">{#each searchResults as station (station.id)}<li><div><strong>{station.name}</strong><small>{[station.country, stationTags(station, 3).join(" · "), station.codec, (station.bitrateKbps ?? station.bitrate) ? `${station.bitrateKbps ?? station.bitrate} kbps` : ""].filter(Boolean).join(" · ") || "Internet radio"}</small></div><button disabled={addingStationId === station.id} onclick={() => void addSearchStation(station)}>{addingStationId === station.id ? "Adding…" : "Add"}</button></li>{/each}</ul>{:else if (searchQuery.trim() || countryFilter.trim() || tagFilter.trim()) && !searching}<p class="empty">No matching stations yet. Try a country or genre.</p>{/if}
+        {#if searchResults.length}<ul class="search-results" aria-label="Station search results">{#each searchResults as station (station.id)}<li><div><strong>{station.name}</strong><small>{[station.country, stationTags(station, 3).join(" · "), station.codec, (station.bitrateKbps ?? station.bitrate) ? `${station.bitrateKbps ?? station.bitrate} kbps` : ""].filter(Boolean).join(" · ") || "Internet radio"}</small></div><button disabled={addingStationId === station.id} onclick={() => void addSearchStation(station)}>{addingStationId === station.id ? "Adding…" : "Add"}</button></li>{/each}</ul>{:else if (searchQuery.trim() || countryFilter.trim() || tagFilter.trim()) && !searching}<p class="radio-empty">No matching stations yet. Try a country or genre.</p>{/if}
       {:else}
         <form class="station-search custom-station" onsubmit={(event) => { event.preventDefault(); void addCustomStation(); }}><label>Station name<input aria-label="Station name" bind:value={stationName} /></label><label>Stream URL<input aria-label="Stream URL" type="url" bind:value={stationUrl} placeholder="https://…" /></label><button disabled={!stationName.trim() || !stationUrl.trim()}>Add stream</button><small>Use a direct audio stream URL. HLS playlists are supported when the app can play them.</small></form>
       {/if}
@@ -355,33 +372,35 @@
   </nav>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if selectedStation}
-    <section class="now-playing" aria-label={`Now playing on ${selectedStation.name}`} aria-live="polite">
+    <section class="radio-now-playing" aria-label={`Now playing on ${selectedStation.name}`} aria-live="polite">
       <p class="eyebrow">{showingLastIdentified ? "LAST IDENTIFIED" : "NOW PLAYING"} · {selectedStation.name.toLocaleUpperCase()}</p>
       {#if selectedStation.country || selectedStation.tags?.length || selectedStation.codec || selectedStation.bitrateKbps || selectedStation.bitrate || selectedStation.language}
         <p class="station-details">{[selectedStation.country, selectedStation.language, stationTags(selectedStation).join(" · "), selectedStation.codec, (selectedStation.bitrateKbps ?? selectedStation.bitrate) ? `${selectedStation.bitrateKbps ?? selectedStation.bitrate} kbps` : ""].filter(Boolean).join(" · ")}</p>
       {/if}
       <div class="station-actions"><button class="add-button" onclick={() => onPlayStation(selectedStation)}>▶ Play station</button>{#if removable(selectedStation)}<button class="remove-station" aria-label={`Remove ${selectedStation.name}`} onclick={() => void removeStation(selectedStation)}>Remove station</button>{/if}</div>
+      {#if playingStationId === selectedStation.id}<button class="identify-button" disabled={recognizing} onclick={() => void identifyCurrentSong(selectedStation.id)}>{recognizing ? "Identifying…" : "Identify current song"}</button><small class="recognition-note">Identify the current song manually. A short stream sample is fingerprinted through SongRec and sent to Shazam. No microphone is used.</small>{/if}
       {#if displayedNowPlaying}
         {@const item = displayedNowPlaying}
-        <div class="track-card">
+        <div class="radio-track-card">
           {#if item.artworkUrl}<img src={item.artworkUrl} alt={`Album artwork for ${item.title}`} />{:else}<div class="art-placeholder" aria-label="No artwork available">♫</div>{/if}
-          <div class="track-copy"><h2>{item.title}</h2><button class="artist-link" aria-label={`Search artist information for ${item.artist}`} onclick={() => openArtistForMetadata(item)}>{item.artist}</button>{#if item.album}<p>{item.album}{item.year ? ` · ${item.year}` : ""}</p>{/if}<details class="confidence-details"><summary title={item.metadataConfidence}>Details</summary><small>{item.metadataConfidence}. Catalog identity is unverified.</small></details></div>
+          <div class="radio-track-copy"><h2>{item.title}</h2><button class="artist-link" aria-label={`Search artist information for ${item.artist}`} onclick={() => openArtistForMetadata(item)}>{item.artist}</button>{#if item.album}<p>{item.album}{item.year ? ` · ${item.year}` : ""}</p>{/if}<details class="confidence-details"><summary title={item.metadataConfidence}>Details</summary><small>{item.metadataConfidence}. Catalog identity is unverified.</small></details></div>
         </div>
-      {:else}<p class="empty">{playingStationId === selectedStation.id ? "Current track information is unavailable." : "Play this station to see its current track."}</p>{#if playingStationId === selectedStation.id}<button class="identify-button" disabled={recognizing} onclick={() => void identifyCurrentSong(selectedStation.id)}>{recognizing ? "Identifying…" : "Identify current song"}</button><small class="recognition-note">Songs are identified automatically when station metadata is missing. A short stream sample is fingerprinted through SongRec and sent to Shazam. No microphone is used.</small>{/if}{/if}
+      {:else}<p class="radio-empty">{playingStationId === selectedStation.id ? "Current track information is unavailable." : "Play this station to see its current track."}</p>{/if}
       {#if metadata?.note || stationDetailsById[selectedStationId]?.note}<details class="confidence-details"><summary title={metadata?.note ?? stationDetailsById[selectedStationId]?.note}>Station details</summary><small>{metadata?.note ?? stationDetailsById[selectedStationId]?.note}</small></details>{/if}
     </section>
   {/if}
   {#if selectedStation}
     <section class="history" aria-label={`Recently heard on ${selectedStation?.name ?? "Radio Paradise"}`}>
       <h2>Station history <small>your listening history</small></h2>
-      <div class="history-tools"><label>Search station history<input aria-label="Search station history" type="search" bind:value={historyQuery} placeholder="Title or artist" /></label><label>Sort by<select aria-label="Sort station history" bind:value={historySort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>{#if onOpenHistory}<button class="full-history" onclick={() => onOpenHistory?.(selectedStation.id)}>Full listening history →</button>{/if}</div>
-      {#if stationHistoryTracks.length}<TrackList tracks={stationHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={playHistoryTrack} onDownload={downloadHistoryTrack} onFavorite={favoriteHistoryTrack} onNext={track => queueHistoryTrack(track, "next")} onQueue={track => queueHistoryTrack(track, "append")} onPlaylist={playlistHistoryTrack} onArtist={artistHistoryTrack} onContext={contextHistoryTrack} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="empty">No recent tracks match this filter.</p>{:else}<p class="empty">Songs identified while you listen will appear here.</p>{/if}
+      <div class="history-tools"><label>Search station history<input aria-label="Search station history" type="search" bind:value={historyQuery} placeholder="Title or artist" /></label><label>History order<select aria-label="Sort station history" bind:value={historySort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label><label>Sort tracks<select aria-label="Sort station history tracks" bind:value={historyTrackSort}><option value="sourceOrder">History order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select></label><label>Direction<select aria-label="Sort direction" bind:value={historyTrackSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><label>Duration from<input aria-label="Minimum track duration" inputmode="numeric" placeholder="mm:ss" bind:value={historyMinDuration} /></label><label>to<input aria-label="Maximum track duration" inputmode="numeric" placeholder="mm:ss" bind:value={historyMaxDuration} /></label>{#if onOpenHistory}<button class="full-history" onclick={() => onOpenHistory?.(selectedStation.id)}>Full listening history →</button>{/if}</div>
+      {#if stationHistoryTracks.length}<TrackList tracks={stationHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={playHistoryTrack} onDownload={downloadHistoryTrack} onFavorite={favoriteHistoryTrack} onNext={track => queueHistoryTrack(track, "next")} onQueue={track => queueHistoryTrack(track, "append")} onPlaylist={playlistHistoryTrack} onArtist={artistHistoryTrack} onInfo={infoHistoryTrack} onContext={contextHistoryTrack} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="radio-empty">No recent tracks match this filter.</p>{:else}<p class="radio-empty">Songs identified while you listen will appear here.</p>{/if}
     </section>
   {/if}
 </section>
 
 <style>
-  .radio-page{max-width:1120px;margin:0 auto;padding:clamp(18px,4vw,42px);color:var(--text)}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}.page-heading h1{margin:3px 0;font-size:clamp(24px,4vw,34px)}.page-heading p:not(.eyebrow){margin:5px 0;color:var(--muted)}.heading-actions{display:flex;align-items:center;gap:12px}.heading-actions>a{color:var(--accent);font-size:13px}.add-button,.station-search button,.search-results button,.remove-station{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}.eyebrow{margin:0;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.12em}.stations{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:10px}.station-card{display:flex;align-items:center;gap:12px;min-height:78px;padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--text);text-align:left}.station-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.station-mark{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;background:var(--raised);font-size:22px}.station-copy{display:grid;gap:5px;flex:1;min-width:0}.station-copy small,.track-copy small{color:var(--muted);font-size:11px}.play-icon{color:var(--accent)}.station-add{margin:0 0 18px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.add-tabs{display:flex;gap:5px;margin-bottom:12px}.add-tabs button{border:0;border-radius:6px;padding:8px 12px;background:transparent;color:var(--muted)}.add-tabs button.active{background:var(--raised);color:var(--text)}.station-search label{display:grid;gap:6px;color:var(--muted);font-size:12px}.station-search label span{display:flex;gap:8px}.station-search input{min-width:0;width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text)}.radio-filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px}.custom-station{display:grid;grid-template-columns:1fr 1.4fr auto;align-items:end;gap:10px}.custom-station small{grid-column:1/-1;color:var(--muted)}.search-results{list-style:none;margin:10px 0 0;padding:0;max-height:280px;overflow:auto}.search-results li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line)}.search-results li div{display:grid;gap:3px;min-width:0}.search-results li small{color:var(--muted);font-size:11px}.remove-station{padding:4px 7px;font-size:10px}.now-playing,.history{margin-top:26px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.station-details{margin:7px 0;color:var(--muted);font-size:12px;line-height:1.5}.station-actions{display:flex;gap:8px;margin:10px 0}.track-card{display:grid;grid-template-columns:128px minmax(0,1fr);gap:18px;align-items:center;margin-top:12px}.track-card img,.art-placeholder{width:128px;aspect-ratio:1;object-fit:cover;border-radius:9px;background:var(--raised)}.art-placeholder{display:grid;place-items:center;color:var(--muted);font-size:44px}.track-copy{min-width:0}.track-copy h2{margin:0 0 6px;font-size:22px}.track-copy p{margin:8px 0;color:var(--muted);font-size:13px}.artist-link{border:0;padding:0;background:transparent;color:var(--accent);text-align:left;font-size:16px;text-decoration:underline}.empty{color:var(--muted);font-size:12px;line-height:1.5}.history h2{margin:0 0 9px;font-size:15px}.history h2 small{color:var(--muted);font-weight:400}.error{padding:12px;border:1px solid #a44;border-radius:8px;color:#ff9c9c}@media(max-width:560px){.page-heading{display:block}.heading-actions{margin-top:10px;flex-wrap:wrap}.track-card{grid-template-columns:88px minmax(0,1fr);gap:12px}.track-card img,.art-placeholder{width:88px}.track-copy h2{font-size:18px}.now-playing,.history{padding:13px}.custom-station{grid-template-columns:1fr}.custom-station small{grid-column:auto}.radio-filters{grid-template-columns:1fr}}
+  .radio-page{box-sizing:border-box;flex:1 1 auto;min-height:0;min-width:0;width:100%;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere;max-width:1120px;margin:0 auto;padding:clamp(18px,4vw,42px);color:var(--text);container-type:inline-size}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}.page-heading h1{margin:3px 0;font-size:clamp(24px,4vw,34px)}.page-heading p:not(.eyebrow){margin:5px 0;color:var(--muted)}.heading-actions{display:flex;align-items:center;gap:12px}.heading-actions>a{color:var(--accent);font-size:13px}.add-button,.station-search button,.search-results button,.remove-station{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}.eyebrow{margin:0;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.12em}.stations{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:10px}.station-card{display:flex;align-items:center;gap:12px;min-height:78px;padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--text);text-align:left}.station-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.station-mark{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;background:var(--raised);font-size:22px}.station-copy{display:grid;gap:5px;flex:1;min-width:0}.station-copy small,.radio-track-copy small{color:var(--muted);font-size:11px}.play-icon{color:var(--accent)}.station-add{margin:0 0 18px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.add-tabs{display:flex;gap:5px;margin-bottom:12px}.add-tabs button{border:0;border-radius:6px;padding:8px 12px;background:transparent;color:var(--muted)}.add-tabs button.active{background:var(--raised);color:var(--text)}.station-search label{display:grid;gap:6px;color:var(--muted);font-size:12px}.station-search label span{display:flex;gap:8px}.station-search input{min-width:0;width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text)}.radio-filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px}.custom-station{display:grid;grid-template-columns:1fr 1.4fr auto;align-items:end;gap:10px}.custom-station small{grid-column:1/-1;color:var(--muted)}.search-results{list-style:none;margin:10px 0 0;padding:0;max-height:280px;overflow:auto}.search-results li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line)}.search-results li div{display:grid;gap:3px;min-width:0}.search-results li small{color:var(--muted);font-size:11px}.remove-station{padding:4px 7px;font-size:10px}.radio-now-playing,.history{margin-top:26px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.station-details{margin:7px 0;color:var(--muted);font-size:12px;line-height:1.5}.station-actions{display:flex;gap:8px;margin:10px 0}.radio-track-card{display:grid;grid-template-columns:128px minmax(0,1fr);gap:18px;align-items:center;margin-top:12px}.radio-track-card img,.art-placeholder{width:128px;aspect-ratio:1;object-fit:cover;border-radius:9px;background:var(--raised)}.art-placeholder{display:grid;place-items:center;color:var(--muted);font-size:44px}.radio-track-copy{min-width:0}.radio-track-copy h2{margin:0 0 6px;font-size:22px}.radio-track-copy p{margin:8px 0;color:var(--muted);font-size:13px}.artist-link{border:0;padding:0;background:transparent;color:var(--accent);text-align:left;font-size:16px;text-decoration:underline}.radio-empty{color:var(--muted);font-size:12px;line-height:1.5}.history h2{margin:0 0 9px;font-size:15px}.history h2 small{color:var(--muted);font-weight:400}.error{padding:12px;border:1px solid #a44;border-radius:8px;color:#ff9c9c}@media(max-width:560px){.page-heading{display:block}.heading-actions{margin-top:10px;flex-wrap:wrap}.radio-track-card{grid-template-columns:88px minmax(0,1fr);gap:12px}.radio-track-card img,.art-placeholder{width:88px}.radio-track-copy h2{font-size:18px}.radio-now-playing,.history{padding:13px}.custom-station{grid-template-columns:1fr}.custom-station small{grid-column:auto}.radio-filters{grid-template-columns:1fr}}
+  @container (max-width: 640px){.page-heading{flex-wrap:wrap}.heading-actions{flex-wrap:wrap}.station-identity{flex:1 1 260px}.station-actions{flex-wrap:wrap}.radio-track-card{grid-template-columns:88px minmax(0,1fr);gap:12px}.radio-track-card img,.art-placeholder{width:88px}.radio-track-copy h2{overflow-wrap:anywhere;font-size:18px}.radio-now-playing,.history{padding:13px}}
   .station-identity{display:flex;align-items:center;gap:12px;min-width:0}.station-favicon{width:38px;height:38px;object-fit:contain;border-radius:7px}.station-identity>div{min-width:0}.confidence-details{margin-top:7px;color:var(--muted);font-size:11px}.confidence-details summary{cursor:pointer}.confidence-details small{display:block;margin-top:4px;max-width:42ch}.identify-button{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}.recognition-note{display:block;margin-top:5px;color:var(--muted);font-size:11px}
   .history-tools{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:0 0 12px}.history-tools label{display:grid;gap:4px;color:var(--muted);font-size:11px}.history-tools input,.history-tools select{min-width:145px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text);font:inherit}.full-history{margin-left:auto;border:0;padding:7px 0;background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
 </style>

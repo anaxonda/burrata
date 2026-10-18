@@ -1,0 +1,11 @@
+# Completion-audit correctness and diagnostics follow-up
+
+The combined Linux development native suite passes **748 tests, zero failures, 14 ignored**. The normal GUI build passes and is retained unlaunched at the path/hash in `gui-manifest.json` (SHA-256 `971702210bb6fee8e0ff9e8e0d41e4f7a6ad12afcaf0cfcb42f494f6418f7568`). The single existing GUI and owned login remain preserved.
+
+This checkpoint validates provider-position preservation in Spotify album pages with omitted/unrecognized source rows, including duplicate recording occurrences across pages. Exact YouTube `ACCOUNT_CHANGED` errors use the existing generation/account-scoped reconnect flow, without automatically switching accounts. Opt-in Store connection mutex wait diagnostics report count, total and maximum wait with an explicit global-Store scope; they do not claim to measure SQLite engine busy waits or total playback resource use. The contention regression handshakes inside the timed lock acquisition and verifies a measured minimum wait.
+
+Focused Connections/sidebar tests pass 23 tests. A separate mounted App test passes for searching imported playlist owners from already-loaded bindings without new binding reads. Svelte check caught nullable-session references introduced by a helper refactor; those were corrected using the actual local command result, and the subsequent check reports zero errors/warnings.
+
+History route restoration was merged after those focused checks. Its first combined run passed 233 tests and failed the uncontrolled-list virtual-scroll regression plus the new History Back expectation; those failures are retained. Optional restoration is now omitted by default for uncontrolled lists, and the integration case follows the actual two-step artist picker/profile Back stack. It also defers a restoring second page, changes the query, and verifies that the late page cannot overwrite the new query or reset its scroll.
+
+The corrected complete frontend run passes **546 tests across 59 files**. Svelte checks report zero errors/warnings, the production frontend build passes with the existing chunk advisory, and all seven contracts pass. Provider-native navigation state restoration remains in progress. No live provider writes, new app launch, release build or public release occurred.

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "workload": "actual_burrata_mcp_library_page_matrix",
+  "count": 50000,
+  "tool": "list_tracks_page",
+  "warmups": 3,
+  "repetitions": 20,
+  "pageSize": 200,
+  "scenarios": [
+    {
+      "name": "title_asc",
+      "total": 50000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 2485.609743000001,
+        "p95": 2669.4136899999976,
+        "worst": 2715.5634950000003
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 49340,
+        "perRead": 2467
+      },
+      "ipcJsonBytes": {
+        "median": 129664,
+        "p95": 129664,
+        "worst": 129664
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "artist_asc",
+      "total": 50000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 2128.445934000003,
+        "p95": 2216.5463480000035,
+        "worst": 2235.1593649999995
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 42050,
+        "perRead": 2102.5
+      },
+      "ipcJsonBytes": {
+        "median": 129863,
+        "p95": 129863,
+        "worst": 129863
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "duration_asc",
+      "total": 50000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 2881.552767000001,
+        "p95": 3060.2803039999853,
+        "worst": 3060.714375999989
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 57630,
+        "perRead": 2881.5
+      },
+      "ipcJsonBytes": {
+        "median": 129663,
+        "p95": 129663,
+        "worst": 129663
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "duration_desc",
+      "total": 50000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 3146.4986944999982,
+        "p95": 3326.617552999989,
+        "worst": 3423.8741020000016
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 64959.99999999999,
+        "perRead": 3247.9999999999995
+      },
+      "ipcJsonBytes": {
+        "median": 129863,
+        "p95": 129863,
+        "worst": 129863
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "unicode_query_source_order",
+      "total": 50,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 5078.582101999986,
+        "p95": 5346.7428329999675,
+        "worst": 5353.393006999977
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 121410,
+        "perRead": 6070.5
+      },
+      "ipcJsonBytes": {
+        "median": 32953,
+        "p95": 32953,
+        "worst": 32953
+      },
+      "continuationVerified": true
+    }
+  ],
+  "limitations": [
+    "CPU is the Burrata executable user+system CPU ticks sampled from /proc; includes only time around each MCP call.",
+    "IPC bytes are UTF-8 serialized JSON result size, not framed transport bytes.",
+    "The isolated fixture is synthetic and does not represent a user library."
+  ],
+  "binarySha256": "3c0a8b5d8fccf6800901f26afd807817e24f01d615520c32566224ebf62d63ac",
+  "profileFixture": "isolated synthetic only",
+  "exactBinaryProfileProcessVerified": true
+}

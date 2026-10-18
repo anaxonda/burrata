@@ -1,0 +1,13 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-provider-ec9644ef4094/burrata",
+  "sha256": "ec9644ef4094b6bc9e2dd4b8015f09db230f4b94b9858b14374d1527b275dfe4",
+  "profile": "development GUI unoptimized+debuginfo",
+  "sources": {
+    "src-tauri/src/managed_provider_session.rs": "189aa65839ca0ca0a3278933bd7abfb4bdd34e2e400f1ec8049c6a9d26fe55f3",
+    "extension/youtube-session-provider.js": "1c5bedf24e26e18c13312bcb877fb52b4efd0e29aac15e03648d4aded75f824b",
+    "scripts/youtube-session-worker.mjs": "24e15d4ee415dab89700f270440e54d2096ed7b2667be4fee0b21288815783ae",
+    "src/App.svelte": "713f055b39e36b03d6a9f2480c1b0b4a249694aaea9dc559e34f75ca8e77239f",
+    "src/App.integration.test.ts": "1cd211074dce51b5a407771d791bab190892afecc75b50c17d4162ed950c305b"
+  },
+  "qualification": "Compiled; native768pass15ignored before embeddedJS Musicfeed update;worker41pass;freshliveconfirmationpending."
+}

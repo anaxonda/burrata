@@ -1,0 +1,84 @@
+{
+  "build": "f991afb32bd9",
+  "pages": [
+    {
+      "page": 1,
+      "tracks": 116,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "playability": {
+        "allResponse": {
+          "explicitFalse": 0,
+          "explicitTrue": 106,
+          "invalid": 0,
+          "knownPlaceholder": 10,
+          "missing": 10,
+          "withWatchEndpoint": 116
+        },
+        "recognizedSections": {
+          "explicitFalse": 0,
+          "explicitTrue": 106,
+          "invalid": 0,
+          "knownPlaceholder": 10,
+          "missing": 10,
+          "withWatchEndpoint": 116
+        }
+      },
+      "reportedUnavailable": 0
+    },
+    {
+      "page": 2,
+      "tracks": 113,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "playability": {
+        "allResponse": {
+          "explicitFalse": 0,
+          "explicitTrue": 105,
+          "invalid": 0,
+          "knownPlaceholder": 8,
+          "missing": 8,
+          "withWatchEndpoint": 113
+        },
+        "recognizedSections": {
+          "explicitFalse": 0,
+          "explicitTrue": 105,
+          "invalid": 0,
+          "knownPlaceholder": 8,
+          "missing": 8,
+          "withWatchEndpoint": 113
+        }
+      },
+      "reportedUnavailable": 0
+    },
+    {
+      "page": 3,
+      "tracks": 11,
+      "total": 240,
+      "complete": true,
+      "hasMore": false,
+      "playability": {
+        "allResponse": {
+          "explicitFalse": 0,
+          "explicitTrue": 10,
+          "invalid": 0,
+          "knownPlaceholder": 1,
+          "missing": 1,
+          "withWatchEndpoint": 11
+        },
+        "recognizedSections": {
+          "explicitFalse": 0,
+          "explicitTrue": 10,
+          "invalid": 0,
+          "knownPlaceholder": 1,
+          "missing": 1,
+          "withWatchEndpoint": 11
+        }
+      },
+      "reportedUnavailable": 0
+    }
+  ],
+  "writesPerformed": false
+}

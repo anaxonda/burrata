@@ -1,0 +1,15 @@
+{
+  "scope": "Finite catalog GraphQL diagnostics include getAlbum/queryAlbumTracks only; no adapter or transport contract change",
+  "sources": {
+    "scripts/provider-session-worker.mjs": "ce267538a664ac59dbb4dc308fd1a37a70e5223e3cd7356c10698c8c944b1c81",
+    "scripts/provider-session-worker.test.mjs": "56b41cf017a636f81ae85ea81245011b26f91b3824e55ff2dbfe823dc6b767c3",
+    "src-tauri/src/managed_provider_session.rs": "2dcc5ca743d872e5b36045c2aacf29c9a353d268d6fa11208d1cf8398061d3c6"
+  },
+  "focusedNodeTests": {
+    "passed": 2,
+    "failed": 0,
+    "log": "album-operation-diagnostic-focused.log"
+  },
+  "nativeTestStatus": "New Rust assertions added; not compiled or run pending coordinated native build",
+  "liveGuiStatus": "Untouched"
+}

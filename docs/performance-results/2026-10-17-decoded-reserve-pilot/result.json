@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "scope": "Three exploratory repetitions of a controlled same-WAV native fixture with an independent startup reserve and a bounded 1750ms body-input gap. Mechanism evidence only.",
+  "testArtifactSha256": "4447123906942db8705238a03a4cb6d1ddb5d8921ea1e8b8f604dc096394e300",
+  "nativeSuite": {
+    "passed": 928,
+    "failed": 0,
+    "ignored": 19,
+    "elapsedSeconds": 19.93
+  },
+  "pilotPolicy": {
+    "default": "off",
+    "activation": "native-internal test flag only",
+    "durationHint": "positive finite hint; not verified source duration"
+  },
+  "fixture": {
+    "sameWavBytes": true,
+    "controlledBodyGapMs": 1750
+  },
+  "repetitions": [
+    {
+      "run": 1,
+      "baseline": {
+        "firstRealSampleMs": 20,
+        "postStartZeroSamples": 141516,
+        "consumedSamples": 441878
+      },
+      "reserveEnabled": {
+        "firstRealSampleMs": 1870,
+        "postStartZeroSamples": 0,
+        "consumedSamples": 442764
+      }
+    },
+    {
+      "run": 2,
+      "baseline": {
+        "firstRealSampleMs": 20,
+        "postStartZeroSamples": 141516,
+        "consumedSamples": 441878
+      },
+      "reserveEnabled": {
+        "firstRealSampleMs": 1870,
+        "postStartZeroSamples": 0,
+        "consumedSamples": 442764
+      }
+    },
+    {
+      "run": 3,
+      "baseline": {
+        "firstRealSampleMs": 20,
+        "postStartZeroSamples": 141516,
+        "consumedSamples": 441878
+      },
+      "reserveEnabled": {
+        "firstRealSampleMs": 1870,
+        "postStartZeroSamples": 0,
+        "consumedSamples": 441882
+      }
+    }
+  ],
+  "limitations": [
+    "No speakers or audible check.",
+    "No provider calls or live Fruit playback.",
+    "No end-to-end startup/release qualification or reliability/performance percentile claim.",
+    "Only controlled fixture evidence; do not infer the live interruption cause or fix.",
+    "This source is ahead of the normal GUI and has not been built/live-qualified."
+  ],
+  "runtime": "Normal GUI remains on previously built 45eca63f814d."
+}

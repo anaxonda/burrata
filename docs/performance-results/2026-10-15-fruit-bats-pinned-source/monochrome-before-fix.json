@@ -1,0 +1,10 @@
+{
+  "status": "idle",
+  "elapsedMs": 25070,
+  "firstAudioMs": null,
+  "duration": 0,
+  "sourceProvider": null,
+  "reason": "No playable audio match was found for Fruit Bats \u2014 The Bottom of It. No available source matched the requested recording and version. Open the catalog source or choose another sour",
+  "scope": "Pre-fix Monochrome playback observation; elapsedMs was an observation-window maximum because the original harness expected native generation fields on a WebView snapshot. It is not measured startup/failure duration.",
+  "binary": "f3924ca5"
+}

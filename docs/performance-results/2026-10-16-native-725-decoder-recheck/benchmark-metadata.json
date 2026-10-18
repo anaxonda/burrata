@@ -1,0 +1,14 @@
+{
+  "testBinarySha256": "03c9d1ffc51d6448b48ee79e8549d36b2a138027904f17c6c0f7c77ad5d97701",
+  "test": "native_output::tests::seek_decoder_benchmark",
+  "fixtureSha256": "67d6654cd4cbcecb42985334153c9349e83c5898fe70c4491e9b398a38f3dd58",
+  "durationSeconds": 300,
+  "sampleCount": 120,
+  "samplesPerStrategyAndPosition": 20,
+  "strategies": ["fresh", "retained"],
+  "positions": [0.01, 0.5, 0.95],
+  "scope": "decoder first PCM only; excludes resolver, mixer, output device, renderer and whole application",
+  "timingStatus": "confounded_not_qualification",
+  "timingCaveat": "The run overlapped a separate global-candidate Cargo compilation. Do not promote timing values or use them as a CPU/latency comparison.",
+  "rawBenchmarkSha256": "e5c56f7728bf738c26eabc830f5960b881ab5b9ca3436048e2bf68e91643b6a1"
+}

@@ -1,0 +1,18 @@
+{
+  "build": "a163a359312e",
+  "scope": "Actual normal-profile desktop UI; constrained-size fixture acceptance separate",
+  "viewport": {
+    "height": 515,
+    "width": 1914
+  },
+  "footerHeight": 98.5,
+  "layoutFindings": [],
+  "trackMenuVisuallyAbovePlayer": true,
+  "menuClosedWithoutAction": true,
+  "directoryCompactControlsVisible": true,
+  "folderFilesLoaded": 15,
+  "folderFirstArtworkY": 181,
+  "backToLibrarySucceeded": true,
+  "pausedPlaybackAndFullQueueUnchanged": true,
+  "resumeOrSeekPerformed": false
+}

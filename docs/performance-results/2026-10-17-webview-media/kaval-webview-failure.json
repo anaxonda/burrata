@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "engine": "webview",
+  "mode": "kaval-default",
+  "binarySha256": "39b6ed9626f201f948eb2918cc7b148c182a36a1434707d24be568a95a171a5e",
+  "pass": false,
+  "physicalAudibilityMeasured": false,
+  "steps": [],
+  "sourceIdentityQualified": false,
+  "staleMediaSampleRetries": 1,
+  "skewRetryCount": 0,
+  "occurrenceIdsAvailable": false,
+  "singleTrackIdentityOnly": true,
+  "providerPreferences": {
+    "preferredStreamingSource": "monochrome",
+    "streamingFallbackEnabled": true,
+    "streamingFallbackSources": [
+      "youtube",
+      "soundcloud"
+    ],
+    "streamingFallbackDelayMs": 1500
+  },
+  "engineSnapshot": null,
+  "initialMedia": {
+    "engine": "webview",
+    "applicable": true,
+    "currentIndex": 0,
+    "queueTotal": 1,
+    "sourceGeneration": 1792222155887007,
+    "seekSerial": 5,
+    "media": {
+      "currentTime": 0.356791,
+      "duration": 131.726,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "catalogueDurationSeconds": 131,
+    "sourceIdentityQualified": false
+  },
+  "errorCategory": "bounded_transition_timeout",
+  "toolErrorCode": null,
+  "pausedFinally": false,
+  "observerOverhead": {
+    "guardCalls": 40,
+    "guardWallMs": 6751.058501999998,
+    "limits": "Functional observer overhead only; no CPU, latency percentile or performance qualification"
+  }
+}

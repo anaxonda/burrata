@@ -1,0 +1,13 @@
+{
+  "engine": "webview",
+  "isolatedProfile": true,
+  "muted": true,
+  "freshRequest": true,
+  "verified": true,
+  "verificationElapsedMs": 8371,
+  "durationSeconds": 250.079,
+  "measurement": "MCP request through observed advancing playhead; not first mixer audio",
+  "physicalAudibilityMeasured": false,
+  "restoredPaused": true,
+  "binarySha256": "ced6cc73fd2c5b7205ba6650e10edab1d95f0113487da7b73dd2e450b5be6394"
+}

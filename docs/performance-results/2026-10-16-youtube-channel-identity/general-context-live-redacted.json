@@ -1,0 +1,33 @@
+{
+  "time": "2026-10-16T16:25:30.662532+00:00",
+  "guiPid": 1614084,
+  "launcherPid": 1613953,
+  "launcherSession": 44312,
+  "confirmedAccounts": {
+    "spotify": true,
+    "youtube": true
+  },
+  "credentialStorage": "os-keyring",
+  "transport": "native-webview-http",
+  "generalYoutubeLibrary": {
+    "itemCount": 61,
+    "nextCursor": null,
+    "truncated": false,
+    "complete": null,
+    "includesWatchLaterAndLikedVideos": true,
+    "channelIdentityVerified": true
+  },
+  "generalPlaylistContent": {
+    "status": "not-qualified",
+    "error": "Provider returned more than 100 tracks for one page",
+    "scope": "first ordinary playlist from returned library"
+  },
+  "playbackPreserved": {
+    "queueCount": 1,
+    "paused": true,
+    "position": 181.858671875,
+    "volume": 0.8
+  },
+  "remoteMutationsByThisAgent": 0,
+  "signInWindowsOpened": 0
+}

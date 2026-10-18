@@ -1,0 +1,9 @@
+{
+  "scope": "exact v8 additive migration SQL on a private copy of the main SQLite backup; excludes Store startup reconciliation",
+  "schemaVersion": 8,
+  "tablesCompared": 21,
+  "allExistingColumnsAndRowsUnchanged": true,
+  "allExistingListingsSaved": true,
+  "integrity": "ok",
+  "mainProfileModified": false
+}

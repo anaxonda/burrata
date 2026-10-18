@@ -1,0 +1,19 @@
+{
+  "exactFreshPlaybackPreserved": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "queueTotal": 19,
+  "currentIndex": 1,
+  "paused": true,
+  "position": 0,
+  "noHistoricalQueueRestore": true,
+  "resumePerformed": false
+}

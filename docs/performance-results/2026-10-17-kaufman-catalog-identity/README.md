@@ -1,0 +1,21 @@
+# Kaufman release and recording identity research
+
+Public MusicBrainz release lookup with `inc=artist-credits+recordings+isrcs` returned the exact19 recordings. All19 returned `isrcs: []`; this response supplies no ISRC disambiguator. The compilation's recording credits split into three distinct artist entities: positions1–9 Le Mystère des Voix Bulgares,10–15 Cosmic Voices from Bulgaria,16–19 Choir of Ensemble Pirin. Release-level credit must not replace those recording-level identities.
+
+The artist lookup for MBID `80fb9c75-af15-4a6b-9528-715f9ef4ebea` explicitly associates the Le Mystère spellings with canonical `Bulgarian State Radio & Television Female Vocal Choir`. The separate Spotify fixture's `Bulgarian State Television Female Choir` is not an exact alias in the returned list; resemblance alone does not establish equivalence. No source mapping or credit substitution was applied.
+
+Existing durable `artists.profile.musicbrainz` cache can supply names/aliases by MBID without adding playback-time network requests. A private design preserves ordered recording-credit boundaries, title/version/duration/provider and Topic checks, the two-search foreground cap and shared deadline. Broader acceptance changes require fixture and live recording evidence; this research is not a playback qualification.
+
+The first sandbox API attempt failed DNS before HTTP. Host read-only fallback succeeded; raw public responses, request provenance and SHA-256 pins are under `.tmp/kaufman-catalog-research/`. Release SHA `cf821d960fadded454a6972e388941510ed8dafde83b36fd156a03a071b2b2ff`; artist SHA `b431fca37dbfc0722b6f78d8f2e4281e47ff5060d660be3f977cf41223a4f3f4`. No authenticated provider, user data, remote write or playback-source call was involved.
+
+Primary documentation: [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API), [aliases](https://musicbrainz.org/doc/Aliases), [rate limiting](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting). Exact data: [release](https://musicbrainz.org/release/4f7f6950-29cc-448d-a25b-445e383612f1), [artist](https://musicbrainz.org/artist/80fb9c75-af15-4a6b-9528-715f9ef4ebea).
+
+## Exact-occurrence alias implementation
+
+The cache-only alias overlay is now integrated in the worktree, pending native test and live acceptance. Before expanding an artist credit, it regenerates canonical release rows with the existing MusicBrainz parser and verifies the exact track/recording IDs, medium/position/occurrence, title, duration and ordered credit provenance against the fresh cached release. Missing or mismatched data gives no expansion. Each replacement is a complete explicit alias attached to that credit's verified MBID; similar Spotify wording is not inferred.
+
+The existing second provider-search slot can use one verified alias while retaining requested-version terms. The total remains at most two queries under the existing shared deadline; alias query context participates in the search cache key. Ordinary, Topic/provisional and final extractor checks continue through their existing title/version/duration/provider-ID guards. No playback-time network request is added for aliases.
+
+Eight contract checks pass. The first native compile caught a new test fixture helper returning `Store` instead of its declared `(TempDir, Store)`; root corrected the tuple so the temporary database directory remains alive, and the native retry is in progress. No successful native test result or live matching improvement is claimed yet. The normal running app remains on its previous binary. The actual public release fixture SHA-256 is `cf821d960fadded454a6972e388941510ed8dafde83b36fd156a03a071b2b2ff`; its read-only retrieval provenance is retained in the private overlay manifest.
+
+The alias-only native run completed with 1,005 passed, two failed and 21 ignored. Both failures are the hand-written positive credit fixtures missing the parser's `sourceUrl` provenance field; the actual public-release parser round-trip and ordinary/Topic/extractor/query tests passed. The test-only fixture correction is applied, pending a new native run together with queued-playback integration. Failed logs remain in `.cache/qualification-verified-credit-aliases/`. The current worktree heuristic secret audit and ten scanner regressions pass; this does not audit history or packaged assets.

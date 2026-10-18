@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "mode": "pause",
+  "scope": "One isolated actual-child-observed stale recognition case; no active-job-registry count exposed",
+  "pass": false,
+  "binarySha256": "53f6e42ca4b8dd381ee7ee1039c0b5348ba1923363a28e264f70eae0f034cf5c",
+  "initialGuardPassed": true,
+  "childObserved": false,
+  "activeJobRegistryQualified": false,
+  "audioWasMuted": true,
+  "mutations": [
+    "resume_playback",
+    "pause_playback",
+    "pause_playback"
+  ],
+  "errorCategory": "recognizer_child_not_observed",
+  "baselineWaveCount": 0,
+  "baselineOwnedRecognizerCount": 0,
+  "playingBeforeIdentify": true,
+  "captureId": "47c99276-58a1-49e5-bcfe-ea997fc4f51d",
+  "finalPauseAccepted": true,
+  "pausedFinally": true,
+  "fixtureIdentityFinally": true
+}

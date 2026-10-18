@@ -1,0 +1,67 @@
+{
+  "scope": "Exact retained read-only Spotify artist-track response; public metadata only",
+  "source": {
+    "tool": "browse_remote_artist_tracks",
+    "artistId": "5j3PVTaVrMlssk4IC0kumd",
+    "capturedDate": "2026-10-16",
+    "retainedIn": "Retained read-only artist-track response; public track fields extracted without account response envelope"
+  },
+  "track": {
+    "album": "Le Mystère des Voix Bulgares, Vol. 2",
+    "albumArtist": null,
+    "artist": "Bulgarian State Television Female Choir",
+    "artworkUrl": "https://image-cdn-fa.spotifycdn.com/image/ab67616d000075a0f6602ac2ef4fb8b13f62b638",
+    "assetId": null,
+    "bpm": null,
+    "catalogNumber": null,
+    "discNumber": null,
+    "discTotal": null,
+    "disposition": null,
+    "durationSeconds": 131,
+    "favorite": false,
+    "genre": null,
+    "id": "spotify:64rvuYgKLuIHqacdZZiwPr",
+    "isrc": null,
+    "key": null,
+    "label": null,
+    "localAvailability": "",
+    "localPath": null,
+    "normalizedGenre": null,
+    "previewUrl": null,
+    "provenance": {
+      "artistId": "5j3PVTaVrMlssk4IC0kumd",
+      "available": true,
+      "position": 2,
+      "positionScope": "artist",
+      "remoteEntryId": "artist-5j3PVTaVrMlssk4IC0kumd-1",
+      "remotePlaylist": false
+    },
+    "provider": "spotify",
+    "providerId": "64rvuYgKLuIHqacdZZiwPr",
+    "rank": null,
+    "recordingDate": null,
+    "releaseDate": null,
+    "remixers": null,
+    "sourceUrl": "https://open.spotify.com/track/64rvuYgKLuIHqacdZZiwPr",
+    "title": "Kaval Sviri (The Flute Plays)",
+    "trackNumber": null,
+    "trackTotal": null,
+    "version": null
+  },
+  "notes": [
+    "Artist-track response duration is exactly 131 seconds. Separate cached library row was 131.706 seconds; reproduce the artist-view row with 131.",
+    "Artist page position 2 is not an album track number.",
+    "Do not pin a YouTube candidate or alter default provider ordering for the reproduction.",
+    "Availability true is catalog metadata, not verified playable fallback audio."
+  ],
+  "sourceAudit": {
+    "credentialsPresent": false,
+    "accountIdentifiersPresent": false,
+    "signedOrTransientMediaUrlsPresent": false,
+    "urlKinds": [
+      "public Spotify track URL",
+      "public static Spotify artwork URL"
+    ],
+    "acousticMatchVerified": false
+  }
+}

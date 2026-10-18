@@ -1,0 +1,23 @@
+{
+  "reason": "AT-SPI select_child did not commit HTML select target; save remained source",
+  "sourceRows": [
+    [
+      "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      0
+    ],
+    [
+      "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      1
+    ],
+    [
+      "fixture:local-chapter",
+      2
+    ],
+    [
+      "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      3
+    ]
+  ],
+  "destinationRows": [],
+  "scope": "synthetic isolated fixture only"
+}

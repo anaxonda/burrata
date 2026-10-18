@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "playbackPass": true,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "53f6e42ca4b8dd381ee7ee1039c0b5348ba1923363a28e264f70eae0f034cf5c",
+  "pass": true,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5140.612759,
+        "advancedMs": 5061.950113378684,
+        "observations": 47
+      },
+      "catalogueSeconds": 181.4,
+      "mediaDeclaredSeconds": 181.4,
+      "playbackDurationSeconds": 181.4,
+      "catalogueDeltaSeconds": 0,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "selectedProvider": "monochrome",
+      "firstMixerMs": 2178
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "postseek",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5073.1309120000005,
+        "advancedMs": 5013.151927437642,
+        "observations": 47
+      },
+      "seekFirstMixerMs": 18,
+      "seekReceiptFirstMixerMs": 1372,
+      "resumeLatencyMeasured": false
+    }
+  ],
+  "identify": {
+    "requested": false,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": null,
+  "finalBoundedDiagnostics": {
+    "engine": "native",
+    "status": "playing",
+    "paused": false,
+    "position": 15.013151927437642,
+    "generation": 22,
+    "seekSerial": 8,
+    "diagnostics": {
+      "bufferingCount": 3,
+      "recoveryCount": 0,
+      "firstAudioMs": 2178,
+      "seekFirstAudioMs": 18,
+      "lastRecovery": null,
+      "lastLocalStorageFailure": null
+    },
+    "selectedProvider": "monochrome",
+    "selectedProviderId": "239910648984977408"
+  },
+  "pausedFinally": true
+}

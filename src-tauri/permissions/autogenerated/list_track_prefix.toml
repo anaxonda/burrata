@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-track-prefix"
+description = "Enables the list_track_prefix command without any pre-configured scope."
+commands.allow = ["list_track_prefix"]
+
+[[permission]]
+identifier = "deny-list-track-prefix"
+description = "Denies the list_track_prefix command without any pre-configured scope."
+commands.deny = ["list_track_prefix"]

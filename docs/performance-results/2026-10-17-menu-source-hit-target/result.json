@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "scope": "Source-level menu hit-target and contrast refinement with a bounded post-patch live review of the dark-theme Library More menu.",
+  "changes": {
+    "frontendFilesChanged": 4,
+    "sourceLink": "Optional icon snippet is rendered inside the actual full-width padded button.",
+    "preservesExistingBehavior": [
+      "menu opener",
+      "range action",
+      "callback wiring"
+    ],
+    "lightThemeDangerColor": "#a62c29",
+    "whiteTextContrastRatio": 6.97
+  },
+  "verification": {
+    "frontendTests": {
+      "status": "passed",
+      "tests": 52,
+      "files": 4,
+      "durationSeconds": 4.26,
+      "log": ".cache/menu-hit-target-root-tests.log",
+      "sha256": "d10e092ac09d9b473a59eb3dd946bc7c6498c476257da6f2fd49fd96feebd8f3"
+    },
+    "svelteCheck": {
+      "status": "passed",
+      "errors": 0,
+      "warnings": 0,
+      "log": ".cache/menu-hit-target-root-check.log",
+      "sha256": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695"
+    },
+    "productionFrontendBuild": {
+      "status": "passed",
+      "durationSeconds": 4.42,
+      "log": ".cache/menu-hit-target-root-build.log",
+      "sha256": "52d794acf60592442a2df757eac4ea057ed2475c4a96f6e8e0a6063671334a17"
+    },
+    "postPatchLiveVisualReview": {
+      "status": "passed, bounded to the inspected dark-theme Library More menu",
+      "method": "Opened the first visible Library row More action with PID/executable-guarded AT-SPI; closed via Close track actions.",
+      "observations": [
+        "Source icon and row alignment were visually correct.",
+        "Add to playlist was prominent.",
+        "No player-footer overlap; playback layout reported no findings at 1914\u00d7515 with a 98.5px footer starting at y=416.5."
+      ],
+      "privacy": "Private screenshot was reviewed but is not included."
+    },
+    "priorBoundedMenuReview": "Evidence applies to the earlier menu source version only.",
+    "queuePreservation": {
+      "status": "passed; entire post-UI snapshot exactly matches the pre-UI snapshot",
+      "summary": "13 occurrences, index 6, paused at 29.087175s; no playback/control state change.",
+      "proof": ".cache/qualification-menu-hit-target/after-ui-private.json"
+    }
+  },
+  "limitations": [
+    "The live review covers this dark-theme Library More menu at 1914\u00d7515; it does not establish light-theme live behavior or broad desktop UI acceptance.",
+    "No private screenshot or queue contents are included."
+  ]
+}

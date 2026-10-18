@@ -1,0 +1,190 @@
+{
+  "sourceEvidence": {
+    "package": "youtubei.js 18.1.0",
+    "scope": "Hand-authored structural fixtures from retained parser field contracts, no live response or account data",
+    "paths": [
+      "dist/src/parser/youtube/Playlist.js",
+      "dist/src/parser/classes/PlaylistVideoList.js",
+      "dist/src/parser/classes/PlaylistSidebarPrimaryInfo.js",
+      "dist/src/parser/classes/PlaylistVideo.js",
+      "dist/src/parser/classes/actions/AppendContinuationItemsAction.js",
+      "dist/src/parser/classes/MusicPlaylistShelf.js",
+      "dist/src/parser/classes/commands/CommandExecutorCommand.js"
+    ]
+  },
+  "initial": {
+    "header": {
+      "playlistHeaderRenderer": {
+        "title": {
+          "simpleText": "Sidebar-count fixture"
+        }
+      }
+    },
+    "sidebar": {
+      "playlistSidebarRenderer": {
+        "items": [
+          {
+            "playlistSidebarPrimaryInfoRenderer": {
+              "stats": [
+                {
+                  "runs": [
+                    {
+                      "text": "4 videos"
+                    }
+                  ]
+                },
+                {
+                  "simpleText": "999 views"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "contents": {
+      "sectionListRenderer": {
+        "contents": [
+          {
+            "playlistVideoListRenderer": {
+              "playlistId": "PLfixture123",
+              "contents": [
+                {
+                  "playlistVideoRenderer": {
+                    "videoId": "abcdefghijk",
+                    "setVideoId": "entry-1",
+                    "title": {
+                      "simpleText": "entry-1"
+                    },
+                    "isPlayable": true
+                  }
+                },
+                {
+                  "playlistVideoRenderer": {
+                    "videoId": "abcdefghijk",
+                    "setVideoId": "entry-2",
+                    "title": {
+                      "simpleText": "entry-2"
+                    },
+                    "isPlayable": true
+                  }
+                },
+                {
+                  "continuationItemRenderer": {
+                    "continuationEndpoint": {
+                      "continuationCommand": {
+                        "token": "playlist-next"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "itemSectionRenderer": {
+              "contents": [
+                {
+                  "playlistVideoRenderer": {
+                    "videoId": "abcdefghijk",
+                    "setVideoId": "recommended-entry",
+                    "title": {
+                      "simpleText": "recommended-entry"
+                    },
+                    "style": "PLAYLIST_VIDEO_RENDERER_STYLE_RECOMMENDED_VIDEO",
+                    "isPlayable": true
+                  }
+                },
+                {
+                  "continuationItemRenderer": {
+                    "continuationEndpoint": {
+                      "continuationCommand": {
+                        "token": "recommendation-next"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "continuationItemRenderer": {
+              "continuationEndpoint": {
+                "continuationCommand": {
+                  "token": "outer-unrelated-next"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "secondaryContents": {
+      "playlistVideoRenderer": {
+        "videoId": "abcdefghijk",
+        "setVideoId": "outside-playlist-entry",
+        "title": {
+          "simpleText": "outside-playlist-entry"
+        },
+        "isPlayable": true
+      }
+    }
+  },
+  "append": {
+    "onResponseReceivedActions": [
+      {
+        "appendContinuationItemsAction": {
+          "target": "playlist-video-list",
+          "continuationItems": [
+            {
+              "playlistVideoRenderer": {
+                "videoId": "abcdefghijk",
+                "setVideoId": "entry-3",
+                "title": {
+                  "simpleText": "entry-3"
+                },
+                "isPlayable": true
+              }
+            },
+            {
+              "playlistVideoRenderer": {
+                "setVideoId": "entry-deleted",
+                "title": {
+                  "simpleText": "Deleted video"
+                },
+                "isPlayable": false
+              }
+            }
+          ]
+        }
+      },
+      {
+        "appendContinuationItemsAction": {
+          "target": "recommendations",
+          "continuationItems": [
+            {
+              "playlistVideoRenderer": {
+                "videoId": "abcdefghijk",
+                "setVideoId": "recommended-entry",
+                "title": {
+                  "simpleText": "recommended-entry"
+                },
+                "style": "PLAYLIST_VIDEO_RENDERER_STYLE_RECOMMENDED_VIDEO",
+                "isPlayable": true
+              }
+            },
+            {
+              "continuationItemRenderer": {
+                "continuationEndpoint": {
+                  "continuationCommand": {
+                    "token": "recommendation-next"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

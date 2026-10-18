@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "engine": "webview",
+  "mode": "local",
+  "binarySha256": "941a59f361285c3cdd7425d484d4b3dafd8bd5cf078a0fa2c2f65bcff6bf9399",
+  "pass": true,
+  "physicalAudibilityMeasured": false,
+  "steps": [
+    {
+      "step": "startup",
+      "pass": true,
+      "trackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "sessionId": "4631c723-d53e-40be-bb50-052dc7e5c756",
+      "sourceGeneration": 1792224098153004,
+      "readyState": 4,
+      "actualPaused": false,
+      "actualCurrentTime": 7.017666,
+      "decodedDuration": 360,
+      "expectedDuration": 360,
+      "progressed": true,
+      "sustained": {
+        "wallMs": 5719.700097,
+        "advancedMs": 5722.263,
+        "observations": 8,
+        "physicalAudibilityMeasured": false
+      },
+      "localFixtureIdentity": true,
+      "provider": null,
+      "providerId": null,
+      "identityLimitation": null
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "paused": true,
+      "currentTime": 10,
+      "seekSerialAdvanced": true,
+      "generation": 1792224098153004
+    },
+    {
+      "step": "resume_progress",
+      "pass": true,
+      "sustained": {
+        "wallMs": 5105.906124000001,
+        "advancedMs": 5077.203,
+        "observations": 8,
+        "physicalAudibilityMeasured": false
+      },
+      "paused": false,
+      "currentTime": 15.92881
+    },
+    {
+      "step": "beyond_old_cutoff_seek",
+      "pass": true,
+      "requestedSeconds": 250,
+      "currentTime": 250,
+      "actualPaused": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "beyond_old_cutoff_progress",
+      "pass": true,
+      "currentTime": 256.12519,
+      "sustained": {
+        "wallMs": 5305.261961,
+        "advancedMs": 5328.532999999965,
+        "observations": 9,
+        "physicalAudibilityMeasured": false
+      }
+    }
+  ],
+  "sourceIdentityQualified": true,
+  "staleMediaSampleRetries": 0,
+  "skewRetryCount": 0,
+  "occurrenceIdsAvailable": true,
+  "singleTrackIdentityOnly": false,
+  "engineSnapshot": null,
+  "initialMedia": {
+    "engine": "webview",
+    "applicable": true,
+    "currentIndex": 0,
+    "queueTotal": 1,
+    "sourceGeneration": 1792224098153004,
+    "seekSerial": 2,
+    "media": {
+      "currentTime": 0.537192,
+      "duration": 360,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "catalogueDurationSeconds": 360,
+    "sourceIdentityQualified": false
+  },
+  "sourceDiagnostics": {
+    "lastResolvedSource": {
+      "headerPolicy": {
+        "authorization": false,
+        "cookie": false,
+        "headerCount": 0,
+        "origin": false,
+        "other": false,
+        "referer": false,
+        "userAgent": false
+      },
+      "id": "monochrome:188668061304786944",
+      "provider": "monochrome"
+    },
+    "lastMediaFailureSource": null,
+    "lastMediaFailure": null,
+    "playerMessage": "Playing",
+    "status": "playing",
+    "queueEntryIds": [
+      "325cea1d-2820-4da1-90d7-26651af897f3"
+    ],
+    "entryId": "325cea1d-2820-4da1-90d7-26651af897f3"
+  },
+  "pausedFinally": true,
+  "observerOverhead": {
+    "guardCalls": 111,
+    "guardWallMs": 16071.885748000006,
+    "limits": "Functional observer overhead only; no CPU, latency percentile or performance qualification"
+  },
+  "interpretation": "Single muted isolated WebView functional check.360s synthetic WAV, stable occurrence ID, paused10s/250s seeks and5s progression after each. No physical audibility, startup latency, CPU or reliability percentile claim.",
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

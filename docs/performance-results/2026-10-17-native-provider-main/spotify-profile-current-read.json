@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "scope": "Bounded read-only current-main Spotify public-profile browse; no playlist IDs or titles retained",
+  "provider": "spotify",
+  "pageSize": 30,
+  "pages": [
+    { "requestedOffset": 0, "returnedRows": 30, "reportedTotal": 110, "nextOffset": 30 },
+    { "requestedOffset": 30, "returnedRows": 30, "reportedTotal": 110, "nextOffset": 60 },
+    { "requestedOffset": 60, "returnedRows": 29, "reportedTotal": 110, "nextOffset": 90 },
+    { "requestedOffset": 90, "returnedRows": 10, "reportedTotal": 110, "nextOffset": 120 },
+    { "requestedOffset": 120, "returnedRows": 0, "reportedTotal": 110, "nextOffset": null }
+  ],
+  "returnedRows": 99,
+  "distinctPlaylistIds": 99,
+  "duplicateRows": 0,
+  "complete": false,
+  "truncated": true,
+  "snapshotConsistency": "progressive",
+  "providerWrites": false,
+  "audioOrQueueWrites": false,
+  "binarySha256": null,
+  "binaryIdentityNote": "The list_remote_playlists MCP result does not expose a runtime binary fingerprint."
+}

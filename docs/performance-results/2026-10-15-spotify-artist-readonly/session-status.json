@@ -1,0 +1,8 @@
+{
+  "transport": "native-webview-http",
+  "mode": "native-ready",
+  "confirmedAccounts": {
+    "spotify": true,
+    "youtube": false
+  }
+}

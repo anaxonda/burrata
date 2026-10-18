@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "ergo-pinned",
+  "binarySha256": "ae2636f63df1734e836c88a7fed20b41b7318cee8e12f4085c7deb67eadfb1bd",
+  "pass": true,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5035.737735999999,
+        "advancedMs": 5061.950113378684,
+        "observations": 46
+      },
+      "catalogueSeconds": 310.254,
+      "mediaDeclaredSeconds": 310.254,
+      "playbackDurationSeconds": 310.253333333,
+      "catalogueDeltaSeconds": -0.0006666670000186059,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "firstMixerMs": 1793
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "postseek",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5030.886125000001,
+        "advancedMs": 5011.70068027211,
+        "observations": 47
+      },
+      "seekFirstMixerMs": 32,
+      "seekReceiptFirstMixerMs": 1377,
+      "resumeLatencyMeasured": false
+    }
+  ],
+  "identify": {
+    "requested": false,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": null,
+  "pausedFinally": true
+}

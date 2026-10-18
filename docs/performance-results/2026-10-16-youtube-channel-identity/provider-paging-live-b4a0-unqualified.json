@@ -1,0 +1,50 @@
+{
+  "build": "b4a034cc4a57",
+  "spotify": {
+    "owner": "user-provided public profile",
+    "outcome": "PROVIDER_CHANGED",
+    "phase": "owner_profile",
+    "httpStatus": 200,
+    "qualification": "failed_first_page_validation",
+    "schemaCorrectionApplied": false
+  },
+  "youtube": {
+    "build": "b4a034cc4a57",
+    "provider": "youtube",
+    "pages": [
+      {
+        "page": 1,
+        "tracks": 100,
+        "total": 240,
+        "complete": false,
+        "hasMore": true,
+        "cumulative": 100
+      },
+      {
+        "page": 2,
+        "tracks": 100,
+        "total": null,
+        "complete": false,
+        "hasMore": true,
+        "cumulative": 200
+      },
+      {
+        "page": 3,
+        "tracks": 10,
+        "total": null,
+        "complete": false,
+        "hasMore": false,
+        "cumulative": 210
+      }
+    ],
+    "loaded": 210,
+    "occurrenceIds": 210,
+    "uniqueOccurrenceIds": 210,
+    "elapsedMs": 4258,
+    "initialTotal": 240,
+    "totalMatches": false,
+    "qualification": "failed_total_mismatch",
+    "missingEntryReason": "not_established"
+  },
+  "writesPerformed": false
+}

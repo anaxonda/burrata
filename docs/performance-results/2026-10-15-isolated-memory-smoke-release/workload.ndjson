@@ -1,0 +1,4 @@
+{"operationId":"2fa7f120-fce4-43b4-a3b5-529e61e8ded9","atSeconds":0,"action":"search_page_and_playback_state","offset":0,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":1.66}
+{"operationId":"2fa7f120-fce4-43b4-a3b5-529e61e8ded9","atSeconds":15.1,"action":"search_page_and_playback_state","offset":100,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":16.8}
+{"operationId":"2fa7f120-fce4-43b4-a3b5-529e61e8ded9","atSeconds":30.3,"action":"search_page_and_playback_state","offset":200,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":31.94}
+{"operationId":"2fa7f120-fce4-43b4-a3b5-529e61e8ded9","atSeconds":45.4,"action":"search_page_and_playback_state","offset":300,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":47.07}

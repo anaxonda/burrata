@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "scope": "Finite record of the capped in-memory text-sort expression experiment. This report records only the timeout and missing-result status; no performance conclusion.",
+  "workload": "in_memory_text_sort_expression_experiment",
+  "requestedRows": 50000,
+  "requestedFields": [
+    "title",
+    "artist"
+  ],
+  "requestedDirections": [
+    "asc",
+    "desc"
+  ],
+  "requestedWarmupsPerCase": 3,
+  "requestedPairsPerCase": 20,
+  "testArtifactSha256": "f2ca957620aea48ad9e677e7266c04aa63c52c545b32e974e651b4ea05fe2373",
+  "outerTimeoutSeconds": 180,
+  "exitCode": 124,
+  "aggregateObserved": false,
+  "completedCases": "unknown",
+  "performanceConclusion": "none",
+  "reasonNotEstablished": true,
+  "interpretation": "The process exceeded the outer 180-second limit. No aggregate or completed-case count was retained, so elapsed performance, progress, and cause are unknown. Do not infer resource contention, CPU load, or a sort-index result."
+}

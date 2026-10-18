@@ -1,0 +1,15 @@
+Frontend provider navigation verification (2026-10-16)
+
+Focused tests: 3 files passed, 40 tests passed.
+Svelte check: 0 errors, 0 warnings.
+
+SHA-256 per source file:
+70765996031ca3c501a9d9071f69016abccbb4beee0ceecb4fa360304c3accb4  src/App.svelte
+97aa7bb1fcda9cd61243be88e67799606a40ed52852bb54733fe48ebbd3ed3d0  src/RemotePlaylists.svelte
+a37d60666b5f96c1d2c21a532a6a270b08ac2ee41ca8e2a6995fe91153175763  src/RemotePlaylists.test.ts
+d71001dd739e630ab6dc2a9fb20962c7d154a600a9f02a7662e01c6ae7ec75f0  src/RemotePlaylistDetail.svelte
+306e87c4cbd20e9f54d810995932ffa6eb5c37a968c979d6d0230d6c5baa4e29  src/RemotePlaylistDetail.test.ts
+21912122644f3656742d77d047f660ccc20f806887b3362143cc3c7727418f3c  src/SpotifyArtist.svelte
+fa0660b70474d1da4fd9e707c60355070d5218805288783b9fd331c981593d43  src/SpotifyArtist.test.ts
+4aef235b5ca3b892b8418240e6bdb23c3452001e4e0d8666b0b72b4ee651ad22  src/lib/provider-navigation-snapshots.ts
+728384b0bb14c7b5626c32bde557ab09eb9faffcde929d6515289f2e9f61457b  src/lib/provider-navigation-snapshots.test.ts

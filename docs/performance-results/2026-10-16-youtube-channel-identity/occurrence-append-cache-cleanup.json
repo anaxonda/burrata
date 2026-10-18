@@ -1,0 +1,29 @@
+{
+  "removed": [
+    {
+      "cache": "verified-main-provider-a798b5f5f460",
+      "bytes": 336192048
+    },
+    {
+      "cache": "verified-main-general-context-8bcde823662d",
+      "bytes": 336425160
+    },
+    {
+      "cache": "verified-main-batch-hydration-a8cc7aa1dab2",
+      "bytes": 337875464
+    },
+    {
+      "cache": "verified-main-final-current-425197c84134",
+      "bytes": 336509440
+    },
+    {
+      "cache": "verified-main-profile-cursor-b4a034cc4a57",
+      "bytes": 338757888
+    },
+    {
+      "cache": "verified-main-profile-v4-2308f0c2bc63",
+      "bytes": 339277960
+    }
+  ],
+  "preservedRunningPid": 3505789
+}

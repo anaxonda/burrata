@@ -1,0 +1,7 @@
+# UI and search follow-up verification
+
+Main source now shows canonical main-table Playing, Paused and Buffering states, preserves accurate filtered sidebar empty states and pagination, and cancels a Soulseek job whose initial response arrives after its query was replaced. Search automation also reports optional per-source continuation/incomplete coverage without returning queries or result rows.
+
+The combined frontend run passed 539 tests and failed one existing App assertion because the expected report omitted the new coverage field. After correcting that assertion, all 199 App integration tests passed; the other 58 files had already passed, giving coverage of all 540 tests. The initial failure log is retained. Svelte checks report zero errors/warnings, the production frontend builds (existing large-chunk advisory), and all seven contracts pass. Native compilation of the coverage sanitizer and natural queue-end boundary regression is pending; the previous verified native checkpoint remains 735 tests.
+
+The read-only native layout check reports no findings at 1914×341, with the footer, transport, scrubber and quality elements in view. This measures the existing running 472b58f8 executable with the current development frontend; it does not establish a new native build or full responsive integration qualification. The owned YouTube login window was preserved. Its redacted status still reports Google Accounts and no confirmed provider session.

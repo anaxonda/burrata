@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "68b12f3bb9663ed492d2e6de7ed53e2d80d3a7ca3501eb4a7d5165242628301e",
+  "pass": false,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5016.462344,
+        "advancedMs": 5037.607709750567,
+        "observations": 46
+      },
+      "catalogueSeconds": 181.4,
+      "mediaDeclaredSeconds": 181.4,
+      "playbackDurationSeconds": 181.4,
+      "catalogueDeltaSeconds": 0,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "selectedProvider": "monochrome",
+      "firstMixerMs": 6532
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "postseek",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5026.520068999998,
+        "advancedMs": 5060.272108843538,
+        "observations": 46
+      },
+      "seekFirstMixerMs": 34,
+      "seekReceiptFirstMixerMs": 1317,
+      "resumeLatencyMeasured": false
+    }
+  ],
+  "identify": {
+    "requested": true,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": "guard_or_transport_failure",
+  "finalBoundedDiagnostics": {
+    "engine": "native",
+    "status": "playing",
+    "paused": false,
+    "position": 22.351337868480726,
+    "generation": 3,
+    "seekSerial": 1,
+    "diagnostics": {
+      "bufferingCount": 3,
+      "recoveryCount": 0,
+      "firstAudioMs": 6532,
+      "seekFirstAudioMs": 34,
+      "lastRecovery": null
+    },
+    "selectedProvider": "monochrome",
+    "selectedProviderId": "239910648984977408"
+  },
+  "pausedFinally": true
+}

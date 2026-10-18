@@ -1,0 +1,38 @@
+{
+  "scope": "Deterministic source verification; new native batch not live. Existing protected747 GUI unchanged.",
+  "native": {
+    "passed": 863,
+    "failed": 0,
+    "ignored": 16,
+    "seconds": 13.82,
+    "sandboxRetry": "Same compiled artifact; 23 restricted local fixture failures retained."
+  },
+  "frontend": {
+    "appPassed": 250,
+    "menuPassed": 6,
+    "contractsPassed": 8,
+    "svelteErrors": 0,
+    "svelteWarnings": 0,
+    "buildSeconds": 4.9
+  },
+  "pending": [
+    "Isolated live playback and identification qualification",
+    "Desktop context-menu coverage beyond verified views"
+  ],
+  "logs": {
+    ".cache/native-cancel-stale-assets-full.log": "d3acf7fbd43539df8028b06e3fc91828ac22ee31b915eb8fa3f1d2e9bcbd2608",
+    ".cache/native-cancel-stale-assets-full-retry.log": "2d3a35d4dcb919b046677413f0b75c02a5637d94cfdacfab8a73021d6a08c2ed",
+    ".cache/native-cancel-stale-assets-host-full.log": "4a46d8c05479769c6996e5aef187243dd87c1f86e1d1d46a6f7ef199fb35668d",
+    ".cache/native-identify-app-full.log": "9d2091029088420d3980a717b0b841ece310c8716c464aebbd8b46d846131528",
+    ".cache/native-identification-cancel-check.log": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695",
+    ".cache/native-identify-ui-build.log": "9457c832ca88583a6492298f8c47da243d93b50bdc189c9f024c9a13eda968e0",
+    ".cache/context-menu-current-regression.log": "4534a2f8f1de1125206180c760132430eff6c71b870230f26b6365e3b0f48b7e",
+    ".cache/native-identify-contracts.log": "3f0d2b47191721174b7d8ef553beec53135530296bcdd8bfc8ca4c4a42931c44"
+  },
+  "nativeBuild": {
+    "seconds": 125,
+    "profile": "dev",
+    "binarySha256": "9bf49702384df56a6f525cbb5078c44efd35ce74a9b266a928fc020cc3742050",
+    "launched": false
+  }
+}

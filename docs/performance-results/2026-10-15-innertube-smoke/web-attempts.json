@@ -1,0 +1,31 @@
+[
+  {
+    "ok": true,
+    "preparedMs": 2891.767363,
+    "searchMs": 698.1397969999998,
+    "candidateCount": 10,
+    "recordingVerified": false
+  },
+  {
+    "ok": false,
+    "failure": "PROVIDER_FAILED"
+  },
+  {
+    "ok": false,
+    "failure": "PROVIDER_FAILED",
+    "stage": "decipher"
+  },
+  {
+    "ok": false,
+    "failure": "PROVIDER_FAILED",
+    "stage": "decipher",
+    "errorType": "Error"
+  },
+  {
+    "ok": false,
+    "failure": "PROVIDER_FAILED",
+    "stage": "decipher",
+    "errorType": "Error",
+    "reason": "NO_STREAM_URL"
+  }
+]

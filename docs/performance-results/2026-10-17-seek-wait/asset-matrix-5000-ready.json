@@ -1,0 +1,1232 @@
+{
+  "schemaVersion": 1,
+  "workload": "actual_burrata_mcp_library_page_matrix",
+  "count": 5000,
+  "fixtureMode": "asset-backed",
+  "runMode": "matrix",
+  "projectionState": {
+    "mode": "ready",
+    "waited": true,
+    "ready": true,
+    "revision": 1,
+    "libraryListings": 5000,
+    "assets": 5000,
+    "singleAssetListings": 5000,
+    "pendingSingleAssetProjections": 0,
+    "waitMs": 6520.1
+  },
+  "tool": "list_tracks_page",
+  "warmups": 3,
+  "repetitions": 20,
+  "pageSize": 200,
+  "scenarios": [
+    {
+      "name": "title_asc",
+      "total": 5000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 233.77084000000002,
+        "p95": 249.65783900000042,
+        "worst": 329.84526700000015
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 4560,
+        "perRead": 228
+      },
+      "ipcJsonBytes": {
+        "median": 157035,
+        "p95": 157035,
+        "worst": 157035
+      },
+      "samples": [
+        {
+          "read": 1,
+          "wallMs": 238.26788800000008,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 2,
+          "wallMs": 223.11971400000016,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 3,
+          "wallMs": 234.70782500000018,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 4,
+          "wallMs": 223.01814999999988,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 5,
+          "wallMs": 229.31852500000014,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 6,
+          "wallMs": 241.20045100000016,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 7,
+          "wallMs": 243.12802800000009,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 8,
+          "wallMs": 236.19925600000033,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 9,
+          "wallMs": 329.84526700000015,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 33,
+          "appCpuMs": 330
+        },
+        {
+          "read": 10,
+          "wallMs": 221.48436100000026,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 11,
+          "wallMs": 226.0809589999999,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 12,
+          "wallMs": 228.33178099999986,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 13,
+          "wallMs": 232.83385499999986,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 14,
+          "wallMs": 249.08654899999965,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 15,
+          "wallMs": 221.9273629999998,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 20,
+          "appCpuMs": 200
+        },
+        {
+          "read": 16,
+          "wallMs": 219.4525510000003,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 17,
+          "wallMs": 249.65783900000042,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 18,
+          "wallMs": 225.27850000000035,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 19,
+          "wallMs": 243.63662999999997,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 20,
+          "wallMs": 242.48525700000027,
+          "ipcJsonBytes": 157035,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        }
+      ],
+      "perReadAppCpuMs": {
+        "median": 220,
+        "p95": 240,
+        "worst": 330
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "effective_bpm_asc",
+      "total": 5000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 118.31459049999921,
+        "p95": 136.32215900000028,
+        "worst": 139.15179100000023
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 2260,
+        "perRead": 113
+      },
+      "ipcJsonBytes": {
+        "median": 156862,
+        "p95": 156862,
+        "worst": 156862
+      },
+      "samples": [
+        {
+          "read": 1,
+          "wallMs": 116.59609999999975,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 2,
+          "wallMs": 136.32215900000028,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 13,
+          "appCpuMs": 130
+        },
+        {
+          "read": 3,
+          "wallMs": 125.74883299999965,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 4,
+          "wallMs": 139.15179100000023,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 13,
+          "appCpuMs": 130
+        },
+        {
+          "read": 5,
+          "wallMs": 125.09062000000085,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 6,
+          "wallMs": 117.39443000000028,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 7,
+          "wallMs": 118.19426399999975,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 8,
+          "wallMs": 120.56991599999947,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 9,
+          "wallMs": 132.3491210000002,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 10,
+          "wallMs": 117.57258499999989,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 11,
+          "wallMs": 112.37481299999945,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 12,
+          "wallMs": 114.79146799999944,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 10,
+          "appCpuMs": 100
+        },
+        {
+          "read": 13,
+          "wallMs": 117.02341699999852,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 14,
+          "wallMs": 115.31946499999867,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 10,
+          "appCpuMs": 100
+        },
+        {
+          "read": 15,
+          "wallMs": 116.42608699999982,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 16,
+          "wallMs": 115.84855600000083,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 17,
+          "wallMs": 118.43491699999868,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 18,
+          "wallMs": 120.05968799999937,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 19,
+          "wallMs": 125.74122999999963,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 20,
+          "wallMs": 119.63015300000006,
+          "ipcJsonBytes": 156862,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        }
+      ],
+      "perReadAppCpuMs": {
+        "median": 110,
+        "p95": 130,
+        "worst": 130
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "effective_bpm_desc",
+      "total": 5000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 127.84660750000057,
+        "p95": 136.0041309999997,
+        "worst": 162.39575700000023
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 2370,
+        "perRead": 118.5
+      },
+      "ipcJsonBytes": {
+        "median": 157770,
+        "p95": 157770,
+        "worst": 157770
+      },
+      "samples": [
+        {
+          "read": 1,
+          "wallMs": 123.42890100000113,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 10,
+          "appCpuMs": 100
+        },
+        {
+          "read": 2,
+          "wallMs": 130.5792330000004,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 13,
+          "appCpuMs": 130
+        },
+        {
+          "read": 3,
+          "wallMs": 131.3169570000009,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 4,
+          "wallMs": 126.1789090000002,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 5,
+          "wallMs": 123.23866300000009,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 6,
+          "wallMs": 118.2101590000002,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 7,
+          "wallMs": 118.53012099999978,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 8,
+          "wallMs": 123.24284099999932,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 9,
+          "wallMs": 123.41799299999911,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 10,
+          "wallMs": 134.76347199999873,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 11,
+          "wallMs": 116.08883400000013,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 10,
+          "appCpuMs": 100
+        },
+        {
+          "read": 12,
+          "wallMs": 120.41631400000006,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        },
+        {
+          "read": 13,
+          "wallMs": 162.39575700000023,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 17,
+          "appCpuMs": 170
+        },
+        {
+          "read": 14,
+          "wallMs": 132.72312199999942,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 15,
+          "wallMs": 134.225378000001,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 16,
+          "wallMs": 128.14317500000107,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 17,
+          "wallMs": 129.1161659999998,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 18,
+          "wallMs": 136.0041309999997,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 13,
+          "appCpuMs": 130
+        },
+        {
+          "read": 19,
+          "wallMs": 133.77271099999962,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 12,
+          "appCpuMs": 120
+        },
+        {
+          "read": 20,
+          "wallMs": 127.55004000000008,
+          "ipcJsonBytes": 157770,
+          "appCpuTicks": 11,
+          "appCpuMs": 110
+        }
+      ],
+      "perReadAppCpuMs": {
+        "median": 120,
+        "p95": 130,
+        "worst": 170
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "artist_asc",
+      "total": 5000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 251.52753099999882,
+        "p95": 269.37911800000074,
+        "worst": 279.1965940000009
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 4810,
+        "perRead": 240.5
+      },
+      "ipcJsonBytes": {
+        "median": 157032,
+        "p95": 157032,
+        "worst": 157032
+      },
+      "samples": [
+        {
+          "read": 1,
+          "wallMs": 263.67693900000086,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 27,
+          "appCpuMs": 270
+        },
+        {
+          "read": 2,
+          "wallMs": 232.74014599999828,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 3,
+          "wallMs": 254.21722899999986,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 4,
+          "wallMs": 259.5060290000001,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 5,
+          "wallMs": 246.32247899999857,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 6,
+          "wallMs": 230.93992900000012,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 7,
+          "wallMs": 228.32586600000104,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 8,
+          "wallMs": 255.00550300000032,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 25,
+          "appCpuMs": 250
+        },
+        {
+          "read": 9,
+          "wallMs": 267.37858199999937,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 26,
+          "appCpuMs": 260
+        },
+        {
+          "read": 10,
+          "wallMs": 242.1875089999994,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 11,
+          "wallMs": 279.1965940000009,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 27,
+          "appCpuMs": 270
+        },
+        {
+          "read": 12,
+          "wallMs": 250.36519099999896,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 25,
+          "appCpuMs": 250
+        },
+        {
+          "read": 13,
+          "wallMs": 252.68987099999867,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 14,
+          "wallMs": 254.23762400000123,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 15,
+          "wallMs": 241.7236759999978,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 16,
+          "wallMs": 258.6695609999988,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 17,
+          "wallMs": 269.37911800000074,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 27,
+          "appCpuMs": 270
+        },
+        {
+          "read": 18,
+          "wallMs": 240.63403899999685,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 19,
+          "wallMs": 229.97273900000073,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 20,
+          "wallMs": 234.5308240000013,
+          "ipcJsonBytes": 157032,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        }
+      ],
+      "perReadAppCpuMs": {
+        "median": 240,
+        "p95": 270,
+        "worst": 270
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "duration_asc",
+      "total": 5000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 197.8471995,
+        "p95": 234.22461400000248,
+        "worst": 239.55481300000247
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 3830,
+        "perRead": 191.5
+      },
+      "ipcJsonBytes": {
+        "median": 157015,
+        "p95": 157015,
+        "worst": 157015
+      },
+      "samples": [
+        {
+          "read": 1,
+          "wallMs": 210.20110399999976,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 20,
+          "appCpuMs": 200
+        },
+        {
+          "read": 2,
+          "wallMs": 239.55481300000247,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 3,
+          "wallMs": 189.26938599999994,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 4,
+          "wallMs": 189.84761100000105,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 5,
+          "wallMs": 193.37260600000081,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 6,
+          "wallMs": 205.624874000001,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 20,
+          "appCpuMs": 200
+        },
+        {
+          "read": 7,
+          "wallMs": 187.3297679999996,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 8,
+          "wallMs": 199.41554299999916,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 19,
+          "appCpuMs": 190
+        },
+        {
+          "read": 9,
+          "wallMs": 183.9023010000019,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 10,
+          "wallMs": 201.75658100000146,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 19,
+          "appCpuMs": 190
+        },
+        {
+          "read": 11,
+          "wallMs": 196.27885600000081,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 12,
+          "wallMs": 193.57047299999977,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 19,
+          "appCpuMs": 190
+        },
+        {
+          "read": 13,
+          "wallMs": 210.94191599999976,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 14,
+          "wallMs": 203.8096740000001,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 15,
+          "wallMs": 186.61837000000014,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 16,
+          "wallMs": 234.22461400000248,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 17,
+          "wallMs": 200.45702399999936,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 19,
+          "appCpuMs": 190
+        },
+        {
+          "read": 18,
+          "wallMs": 195.96308599999975,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 19,
+          "appCpuMs": 190
+        },
+        {
+          "read": 19,
+          "wallMs": 204.87452900000062,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 20,
+          "appCpuMs": 200
+        },
+        {
+          "read": 20,
+          "wallMs": 173.38551700000244,
+          "ipcJsonBytes": 157015,
+          "appCpuTicks": 16,
+          "appCpuMs": 160
+        }
+      ],
+      "perReadAppCpuMs": {
+        "median": 190,
+        "p95": 230,
+        "worst": 240
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "duration_desc",
+      "total": 5000,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 226.88198799999918,
+        "p95": 253.3892700000033,
+        "worst": 255.133297999997
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 4420,
+        "perRead": 221
+      },
+      "ipcJsonBytes": {
+        "median": 157039,
+        "p95": 157039,
+        "worst": 157039
+      },
+      "samples": [
+        {
+          "read": 1,
+          "wallMs": 210.6460139999981,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 2,
+          "wallMs": 224.8652779999975,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 3,
+          "wallMs": 227.03121699999974,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 4,
+          "wallMs": 232.77749499999845,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 5,
+          "wallMs": 227.508468,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 6,
+          "wallMs": 251.4307039999985,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        },
+        {
+          "read": 7,
+          "wallMs": 255.133297999997,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 25,
+          "appCpuMs": 250
+        },
+        {
+          "read": 8,
+          "wallMs": 214.04675199999838,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 20,
+          "appCpuMs": 200
+        },
+        {
+          "read": 9,
+          "wallMs": 214.35590199999933,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 10,
+          "wallMs": 215.1631350000025,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 11,
+          "wallMs": 222.22218599999906,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 22,
+          "appCpuMs": 220
+        },
+        {
+          "read": 12,
+          "wallMs": 223.9815090000011,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 13,
+          "wallMs": 242.9049559999985,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 14,
+          "wallMs": 238.86243000000104,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 15,
+          "wallMs": 253.3892700000033,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 25,
+          "appCpuMs": 250
+        },
+        {
+          "read": 16,
+          "wallMs": 230.64193100000193,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 23,
+          "appCpuMs": 230
+        },
+        {
+          "read": 17,
+          "wallMs": 226.73275899999862,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 18,
+          "wallMs": 218.85891099999935,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 21,
+          "appCpuMs": 210
+        },
+        {
+          "read": 19,
+          "wallMs": 211.41313900000023,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 20,
+          "appCpuMs": 200
+        },
+        {
+          "read": 20,
+          "wallMs": 248.51874999999927,
+          "ipcJsonBytes": 157039,
+          "appCpuTicks": 24,
+          "appCpuMs": 240
+        }
+      ],
+      "perReadAppCpuMs": {
+        "median": 220,
+        "p95": 250,
+        "worst": 250
+      },
+      "continuationVerified": true
+    },
+    {
+      "name": "unicode_query_source_order",
+      "total": 5,
+      "reads": 20,
+      "failures": 0,
+      "wallMs": {
+        "median": 152.20192099999986,
+        "p95": 170.19897400000264,
+        "worst": 180.0630560000027
+      },
+      "appCpuMs": {
+        "aggregateForReads": 20,
+        "total": 3050,
+        "perRead": 152.5
+      },
+      "ipcJsonBytes": {
+        "median": 4112,
+        "p95": 4112,
+        "worst": 4112
+      },
+      "samples": [
+        {
+          "read": 1,
+          "wallMs": 165.3801190000013,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 17,
+          "appCpuMs": 170
+        },
+        {
+          "read": 2,
+          "wallMs": 160.62250700000004,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 3,
+          "wallMs": 152.52165800000148,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 16,
+          "appCpuMs": 160
+        },
+        {
+          "read": 4,
+          "wallMs": 147.79124500000034,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 14,
+          "appCpuMs": 140
+        },
+        {
+          "read": 5,
+          "wallMs": 149.8583030000009,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 14,
+          "appCpuMs": 140
+        },
+        {
+          "read": 6,
+          "wallMs": 154.0081109999992,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 16,
+          "appCpuMs": 160
+        },
+        {
+          "read": 7,
+          "wallMs": 151.6076979999998,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 8,
+          "wallMs": 156.54588199999853,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 9,
+          "wallMs": 149.82023099999788,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 10,
+          "wallMs": 152.5225129999999,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 11,
+          "wallMs": 149.19404799999757,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 14,
+          "appCpuMs": 140
+        },
+        {
+          "read": 12,
+          "wallMs": 151.88218399999823,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 13,
+          "wallMs": 143.93784999999843,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 14,
+          "wallMs": 170.19897400000264,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 17,
+          "appCpuMs": 170
+        },
+        {
+          "read": 15,
+          "wallMs": 158.44581999999718,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 16,
+          "appCpuMs": 160
+        },
+        {
+          "read": 16,
+          "wallMs": 180.0630560000027,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 18,
+          "appCpuMs": 180
+        },
+        {
+          "read": 17,
+          "wallMs": 145.78945099999692,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 14,
+          "appCpuMs": 140
+        },
+        {
+          "read": 18,
+          "wallMs": 147.63383500000054,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        },
+        {
+          "read": 19,
+          "wallMs": 144.663577000003,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 14,
+          "appCpuMs": 140
+        },
+        {
+          "read": 20,
+          "wallMs": 155.09833399999843,
+          "ipcJsonBytes": 4112,
+          "appCpuTicks": 15,
+          "appCpuMs": 150
+        }
+      ],
+      "perReadAppCpuMs": {
+        "median": 150,
+        "p95": 170,
+        "worst": 180
+      },
+      "continuationVerified": true
+    }
+  ],
+  "limitations": [
+    "CPU is the Burrata executable user+system CPU ticks sampled from /proc; includes only time around each MCP call.",
+    "IPC bytes are UTF-8 serialized JSON result size, not framed transport bytes.",
+    "Per-read CPU is sampled at process tick resolution and can be zero for short calls; aggregate CPU also includes inter-read validation and sampling overhead.",
+    "The isolated fixture is synthetic and does not represent a user library."
+  ],
+  "fixture": {
+    "kind": "synthetic tiny WAV local_assets",
+    "fileCount": 5000,
+    "uniqueContentCount": 1,
+    "storage": "one tiny valid WAV inode with isolated per-recording hardlinks",
+    "completedCurrentVersionAnalysisCount": 5000,
+    "expectedAnalysisBpmCount": 358,
+    "staleHashAnalysisCount": 357,
+    "analysisState": "steady-state synthetic completed rows at the app-pinned analysis version; no startup analysis contention qualification",
+    "manualTitleCount": 5,
+    "manualBpmCount": 24,
+    "audioQualification": false,
+    "analysisVersion": "burrata-media-analysis-v1-keyfinder-2.2.8-bpm-v1"
+  },
+  "binarySha256": "ef47b3320b7220a5073b6b801430b931dcac6893e14a17c206df16ae3f1c42c7",
+  "profileFixture": "isolated synthetic only",
+  "fixtureSchemaVersion": 3,
+  "fixtureSchemaProvenance": "schema.sql v1 plus Store::open v1\u2192v2\u2192v3 table migrations",
+  "exactBinaryProfileProcessVerified": true
+}

@@ -1,0 +1,38 @@
+{
+  "scope": "Source regression verification; main remains ef766. New source is not live.",
+  "native": {
+    "passed": 870,
+    "failed": 0,
+    "ignored": 16,
+    "seconds": 15.78
+  },
+  "app": {
+    "passed": 250,
+    "testSeconds": 33.39,
+    "totalSeconds": 44.93
+  },
+  "directoryFocusedPassed": 17,
+  "mcpPassed": 4,
+  "contractsPassed": 8,
+  "svelte": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "frontendBuildSeconds": 6.91,
+  "logSha256": {
+    ".cache/directory-identify-seek-native-full.log": "6b84c6118e3235149e27edacb885ba3df1b56360246a945a7e991a26bd8a266c",
+    ".cache/directory-identify-seek-app-full.log": "d4debd0adf53ffce2a98d60ccd2efd684523d2221debca3cb433f8f2cbfca500",
+    ".cache/directory-identify-seek-ui-build.log": "1596f6189ed2efc1bb5b613a34db5590c8e4db52ed84f53515e1867809bce3da",
+    ".cache/identify-mcp-cancel-current-test.log": "edb58ad318d88e4581beb145fe8c9ee64beea61129f254434ec51174d57aeb76",
+    ".cache/directory-identify-seek-contracts.log": "2c2994d15056943222f8e0c83603eaf6cee9bc5b809dbb817ddb11cfe2e7cb7d"
+  },
+  "liveQualification": "pending",
+  "nativeExecutableBuild": {
+    "seconds": 129,
+    "profile": "dev",
+    "sha256": "ae2636f63df1734e836c88a7fed20b41b7318cee8e12f4085c7deb67eadfb1bd",
+    "nativeSourceFiles": 305,
+    "frontendSourceFiles": 193,
+    "launched": false
+  }
+}

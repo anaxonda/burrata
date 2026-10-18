@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "album-native",
+  "binarySha256": "ae2636f63df1734e836c88a7fed20b41b7318cee8e12f4085c7deb67eadfb1bd",
+  "pass": false,
+  "steps": [
+    {
+      "step": "unavailable_middle_advance",
+      "pass": false,
+      "initialOccurrencesDistinct": true,
+      "finalIndex": 2,
+      "finalOccurrenceMatches": true,
+      "failureObserved": true,
+      "failureClass": "no_playable_recording_match",
+      "finalSustained": {
+        "status": "ready",
+        "wallMs": 5187.5386640000015,
+        "advancedMs": 5232.154195011338,
+        "observations": 84
+      },
+      "limits": "MCP polling may miss a transient failure cleared on third-track audio; unobserved is a failed proof, never inferred"
+    }
+  ],
+  "identify": {
+    "requested": false,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": "album_advancement_unqualified",
+  "pausedFinally": true,
+  "qualificationLimitation": "Middle state transition timestamp was not observed; failure reason and final occurrence/mixer progression were observed. No deadline qualification."
+}

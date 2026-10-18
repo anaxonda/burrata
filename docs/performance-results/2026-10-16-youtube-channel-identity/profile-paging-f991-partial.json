@@ -1,0 +1,83 @@
+{
+  "build": "f991afb32bd9",
+  "writesPerformed": false,
+  "spotifyShape": {
+    "bodyBytes": 7797,
+    "contentTypeClass": "other",
+    "decodedRows": 30,
+    "decodedTotal": 110,
+    "failureClass": "none",
+    "httpStatus": 200,
+    "parseClass": "valid",
+    "topLevelFields": [
+      {
+        "count": 30,
+        "field": 1,
+        "wire": 2
+      },
+      {
+        "count": 1,
+        "field": 2,
+        "wire": 0
+      }
+    ],
+    "version": 1
+  },
+  "spotifyError": {
+    "error": {
+      "code": "OPERATION_FAILED",
+      "message": "PROVIDER_CHANGED: Spotify returned a response that did not match the request. (phase=owner_profile, HTTP 200)"
+    }
+  },
+  "spotify": {
+    "pages": [
+      {
+        "page": 1,
+        "items": 30,
+        "total": 110,
+        "complete": false,
+        "truncated": false,
+        "hasMore": true,
+        "consistency": "progressive",
+        "cumulative": 30
+      }
+    ],
+    "loaded": 30,
+    "uniqueIds": 30
+  },
+  "youtubePlayability": {
+    "membership": {
+      "allResponse": {
+        "ordinaryRows": 116,
+        "recommendedRows": 0,
+        "rowsWithOccurrenceId": 116,
+        "unavailableRows": 0
+      },
+      "recognizedSections": {
+        "ordinaryRows": 116,
+        "recommendedRows": 0,
+        "rowsWithOccurrenceId": 116,
+        "unavailableRows": 0
+      }
+    },
+    "playability": {
+      "allResponse": {
+        "explicitFalse": 0,
+        "explicitTrue": 106,
+        "invalid": 0,
+        "knownPlaceholder": 10,
+        "missing": 10,
+        "withWatchEndpoint": 116
+      },
+      "recognizedSections": {
+        "explicitFalse": 0,
+        "explicitTrue": 106,
+        "invalid": 0,
+        "knownPlaceholder": 10,
+        "missing": 10,
+        "withWatchEndpoint": 116
+      }
+    },
+    "ambiguous": false
+  }
+}

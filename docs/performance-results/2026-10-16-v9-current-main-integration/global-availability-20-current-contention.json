@@ -1,0 +1,136 @@
+{
+  "benchmark": "first_page_global_sort_availability",
+  "contentionEnabled": true,
+  "cpuTimeReported": false,
+  "endToEnd": false,
+  "fixtures": [
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 49.22761,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 53.783036,
+        "warmups": 3,
+        "worstMs": 66.295829
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 48.649037,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 56.294126999999996,
+        "warmups": 3,
+        "worstMs": 73.498429
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 1000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 63.066764,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 69.563439,
+        "warmups": 3,
+        "worstMs": 79.86892800000001
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 61.012005,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 67.124833,
+        "warmups": 3,
+        "worstMs": 81.74049
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 5000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 108.578822,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 119.022503,
+        "warmups": 3,
+        "worstMs": 123.587556
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 98.148741,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 105.070972,
+        "warmups": 3,
+        "worstMs": 107.25973599999999
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 20000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": {
+        "fixture": "50,000-row ready source-order page and concurrent favorite write sharing one Store mutex",
+        "measuredPairs": 20,
+        "note": "Contention observations are reported separately and excluded from uncontended qualification samples.",
+        "readerFirstPage": {
+          "measured": 20,
+          "medianMs": 1065.164049,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 1224.61427,
+          "warmups": 3,
+          "worstMs": 1318.684387
+        },
+        "warmups": 3,
+        "writerFavoriteUpdate": {
+          "measured": 20,
+          "medianMs": 10.717585,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 12.014766,
+          "warmups": 3,
+          "worstMs": 282.769004
+        }
+      },
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 242.504311,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 345.960594,
+        "warmups": 3,
+        "worstMs": 352.539765
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 208.41291,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 272.69854599999996,
+        "warmups": 3,
+        "worstMs": 340.953493
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 50000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    }
+  ],
+  "guiIncluded": false,
+  "scope": "actual Store storage microbenchmark; excludes GUI and end-to-end application work",
+  "sparseFixture": false
+}

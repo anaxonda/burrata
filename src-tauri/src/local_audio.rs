@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-const MAX_CHUNK: u64 = 8 * 1024 * 1024;
+const STREAM_CHUNK: u64 = 64 * 1024;
 
 pub struct LocalAudioManager {
     store: Arc<Store>,
@@ -73,7 +73,7 @@ async fn audio_asset(
         || !constant_time_eq(&auth.token, &manager.token)
         || !allowed_origin(&headers)
     {
-        return empty(StatusCode::NOT_FOUND).map(Body::from);
+        return empty(StatusCode::NOT_FOUND);
     }
     let mut response = serve(&manager.store, &id, &headers, method == Method::HEAD).await;
     if let Some(origin) = headers.get(header::ORIGIN) {
@@ -87,7 +87,7 @@ async fn audio_asset(
             );
         }
     }
-    response.map(Body::from)
+    response
 }
 
 fn allowed_origin(headers: &HeaderMap) -> bool {
@@ -113,18 +113,11 @@ fn valid_asset_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 80 && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
 }
 
-async fn serve(
-    store: &Store,
-    id: &str,
-    request_headers: &HeaderMap,
-    head: bool,
-) -> Response<Vec<u8>> {
-    let assets = match store.list_assets() {
-        Ok(v) => v,
+async fn serve(store: &Store, id: &str, request_headers: &HeaderMap, head: bool) -> Response<Body> {
+    let asset = match store.get_asset_by_id(id) {
+        Ok(Some(asset)) => asset,
+        Ok(None) => return empty(StatusCode::NOT_FOUND),
         Err(_) => return empty(StatusCode::INTERNAL_SERVER_ERROR),
-    };
-    let Some(asset) = assets.into_iter().find(|a| a.id == id) else {
-        return empty(StatusCode::NOT_FOUND);
     };
     let path = PathBuf::from(asset.path);
     let metadata = match tokio::fs::symlink_metadata(&path).await {
@@ -149,7 +142,7 @@ async fn serve(
     if size == 0 {
         let mut response = Response::builder()
             .status(StatusCode::OK)
-            .body(Vec::new())
+            .body(Body::empty())
             .unwrap();
         let h = response.headers_mut();
         let _ = h.insert(
@@ -179,24 +172,38 @@ async fn serve(
             } else {
                 StatusCode::OK
             })
-            .body(Vec::new())
+            .body(Body::empty())
             .unwrap()
     } else {
-        let mut bytes = vec![0u8; count as usize];
         let mut file = file;
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
-        if file.seek(std::io::SeekFrom::Start(start)).await.is_err()
-            || file.read_exact(&mut bytes).await.is_err()
-        {
+        if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
             return empty(StatusCode::NOT_FOUND);
         }
+        let stream =
+            futures_util::stream::try_unfold((file, count), |(mut file, remaining)| async move {
+                if remaining == 0 {
+                    return Ok::<_, std::io::Error>(None);
+                }
+                let chunk_size = remaining.min(STREAM_CHUNK) as usize;
+                let mut bytes = vec![0u8; chunk_size];
+                let read = file.read(&mut bytes).await?;
+                if read == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "registered audio file ended before the selected range",
+                    ));
+                }
+                bytes.truncate(read);
+                Ok(Some((bytes, (file, remaining - read as u64))))
+            });
         Response::builder()
             .status(if partial {
                 StatusCode::PARTIAL_CONTENT
             } else {
                 StatusCode::OK
             })
-            .body(bytes)
+            .body(Body::from_stream(stream))
             .unwrap()
     };
     let h = response.headers_mut();
@@ -250,7 +257,7 @@ fn select_range(raw: Option<&str>, size: u64) -> Option<(u64, u64, bool)> {
         return None;
     }
     let Some(raw) = raw else {
-        return Some((0, size.min(MAX_CHUNK) - 1, size > MAX_CHUNK));
+        return Some((0, size - 1, false));
     };
     let value = raw.strip_prefix("bytes=")?;
     if value.contains(',') {
@@ -258,7 +265,7 @@ fn select_range(raw: Option<&str>, size: u64) -> Option<(u64, u64, bool)> {
     }
     let (start, end) = value.split_once('-')?;
     if start.is_empty() {
-        let suffix = end.parse::<u64>().ok()?.min(MAX_CHUNK).min(size);
+        let suffix = end.parse::<u64>().ok()?.min(size);
         if suffix == 0 {
             return None;
         }
@@ -276,9 +283,7 @@ fn select_range(raw: Option<&str>, size: u64) -> Option<(u64, u64, bool)> {
     if requested_end < start {
         return None;
     }
-    let end = requested_end
-        .min(size - 1)
-        .min(start.saturating_add(MAX_CHUNK - 1));
+    let end = requested_end.min(size - 1);
     Some((start, end, true))
 }
 
@@ -301,8 +306,11 @@ fn mime_type(path: &Path) -> &'static str {
     }
 }
 
-fn empty(status: StatusCode) -> Response<Vec<u8>> {
-    Response::builder().status(status).body(Vec::new()).unwrap()
+fn empty(status: StatusCode) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .body(Body::empty())
+        .unwrap()
 }
 
 #[cfg(test)]
@@ -326,13 +334,18 @@ mod tests {
         }
     }
     #[test]
-    fn ranges_are_satisfiable_and_bounded() {
+    fn ranges_are_satisfiable_and_cover_requested_bytes() {
         assert_eq!(select_range(None, 3), Some((0, 2, false)));
         assert_eq!(select_range(Some("bytes=2-"), 10), Some((2, 9, true)));
         assert_eq!(select_range(Some("bytes=-3"), 10), Some((7, 9, true)));
         assert_eq!(
-            select_range(Some("bytes=0-99999999"), MAX_CHUNK * 4),
-            Some((0, MAX_CHUNK - 1, true))
+            select_range(Some("bytes=0-99999999"), 10_485_883),
+            Some((0, 10_485_882, true))
+        );
+        assert_eq!(select_range(None, 10_485_883), Some((0, 10_485_882, false)));
+        assert_eq!(
+            select_range(Some("bytes=-99999999"), 10_485_883),
+            Some((0, 10_485_882, true))
         );
         assert_eq!(select_range(Some("bytes=10-"), 10), None);
         assert_eq!(select_range(Some("bytes=1-2,4-5"), 10), None);
@@ -357,7 +370,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn loopback_endpoint_authenticates_and_serves_ranges_and_head() {
+    async fn loopback_endpoint_streams_large_files_and_serves_exact_ranges_and_head() {
         use crate::{
             models::{LocalAsset, Track},
             storage::Store,
@@ -366,7 +379,11 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let audio_path = directory.path().join("fixture.opus");
-        tokio::fs::write(&audio_path, b"0123456789").await.unwrap();
+        let size = 10 * 1024 * 1024 + 123;
+        let source = (0..size)
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        tokio::fs::write(&audio_path, &source).await.unwrap();
         let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
         let track = Track {
             id: "fixture:recording-1".into(),
@@ -378,6 +395,12 @@ mod tests {
         store.save_track(&track).unwrap();
         store
             .save_asset(&LocalAsset {
+                sample_rate: None,
+                channels: None,
+                bit_depth: None,
+                duration_seconds: None,
+                size_bytes: None,
+                bitrate_origin: None,
                 id: "asset-fixture-1".into(),
                 recording_id: track.id.clone(),
                 path: audio_path.to_string_lossy().into_owned(),
@@ -430,13 +453,101 @@ mod tests {
             "audio/ogg"
         );
         assert_eq!(
-            response.headers().get(header::CONTENT_RANGE).unwrap(),
-            "bytes 1-3/10"
+            response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            format!("bytes 1-3/{size}")
         );
-        assert_eq!(response.bytes().await.unwrap().as_ref(), b"123");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), &source[1..4]);
+
+        let response = client.get(&audio_url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_LENGTH)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            size.to_string()
+        );
+        assert_eq!(response.bytes().await.unwrap().as_ref(), source.as_slice());
+
+        let open_start = 8 * 1024 * 1024;
+        let response = client
+            .get(&audio_url)
+            .header(header::RANGE, format!("bytes={open_start}-"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            format!("bytes {open_start}-{}/{}", size - 1, size)
+        );
+        assert_eq!(
+            response.bytes().await.unwrap().as_ref(),
+            &source[open_start..]
+        );
+
+        let response = client
+            .get(&audio_url)
+            .header(header::RANGE, "bytes=-321")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            format!("bytes {}-{}/{size}", size - 321, size - 1)
+        );
+        assert_eq!(
+            response.bytes().await.unwrap().as_ref(),
+            &source[size - 321..]
+        );
+
+        let response = client
+            .get(&audio_url)
+            .header(header::RANGE, "bytes=100-199")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            format!("bytes 100-199/{size}")
+        );
+        assert_eq!(response.bytes().await.unwrap().as_ref(), &source[100..200]);
 
         let response = client.head(&audio_url).send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_LENGTH)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            size.to_string()
+        );
         assert!(response.bytes().await.unwrap().is_empty());
         server.abort();
     }

@@ -1,0 +1,41 @@
+{
+  "scope": "Two bounded anonymous metadata-only GET attempts; no auth, no stream URL endpoint, no signed URL, no media fetch or decode.",
+  "recording": {
+    "title": "Sasa",
+    "artist": "Timmy Regisford",
+    "version": "Main Version",
+    "durationSeconds": 281,
+    "isrc": null,
+    "source": "tests/fixtures/playback/sasa-unavailable.json"
+  },
+  "providerSource": {
+    "repository": "FrancescoGrazioso/Meld",
+    "revision": "dc7a27224acee33fa475ab70e1935dc03d3ef4ef",
+    "fileSha256": "c61d8657fa23f218005389b9c02f87f8b885d8c5547b4247d3fc5fb50f9e4e21",
+    "fileBytes": 67823
+  },
+  "attempts": [
+    {
+      "host": "qobuz.squid.wtf",
+      "endpoint": "/api/get-music",
+      "query": "Sasa Timmy Regisford Main Version",
+      "offset": 0,
+      "countryHeader": "US",
+      "httpStatus": null,
+      "result": "DNS resolution failed locally; no HTTP request reached provider",
+      "responseBytes": 0
+    },
+    {
+      "host": "trypt-hifi-dl-456461932686.us-west1.run.app",
+      "endpoint": "/api/get-music",
+      "query": "Sasa Timmy Regisford Main Version",
+      "offset": 0,
+      "countryHeader": "US",
+      "httpStatus": 503,
+      "contentType": "text/html; charset=UTF-8",
+      "responseBytes": 302,
+      "body": "redacted HTML error body"
+    }
+  ],
+  "outcome": "No catalog response was retrieved, so exact candidate presence, ISRC agreement, and version matching remain unknown. This is unavailable-provider evidence, not evidence the track is absent."
+}

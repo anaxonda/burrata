@@ -1,30 +1,39 @@
 <script lang="ts">
   import type { LocalAsset, Track } from "./lib/types";
 
-  type StreamQuality = { codec?: string; bitrateKbps?: number; live?: boolean };
+  type StreamQuality = { codec?: string; bitrateKbps?: number; bitrateOrigin?: string; sampleRate?: number; channels?: number; bitDepth?: number; live?: boolean };
   let { track = null, asset = null, compact = false, streamQuality = null }: {
     track?: Track | null; asset?: LocalAsset | null; compact?: boolean; streamQuality?: StreamQuality | null;
   } = $props();
   const actual = $derived(asset && (!track || asset.track.id === track.id || asset.recordingId === track.id || track.assetId === asset.id || (track.localPath != null && track.localPath === asset.path)) ? asset : null);
-  const liveStream = $derived(Boolean(streamQuality?.live));
-  const codec = $derived(liveStream ? streamQuality?.codec?.trim() : actual?.finalCodec?.trim());
-  const bitrate = $derived(liveStream ? streamQuality?.bitrateKbps : actual?.finalBitrate);
+  const streaming = $derived(streamQuality != null);
+  const codec = $derived(streaming ? streamQuality?.codec?.trim() : actual?.finalCodec?.trim());
+  const bitrate = $derived(streaming ? streamQuality?.bitrateKbps : actual?.finalBitrate);
+  const assetFacts = $derived(actual as (LocalAsset & { sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string }) | null);
+  const sampleRate = $derived(streaming ? streamQuality?.sampleRate : assetFacts?.sampleRate);
+  const channels = $derived(streaming ? streamQuality?.channels : assetFacts?.channels);
+  const bitDepth = $derived(streaming ? streamQuality?.bitDepth : assetFacts?.bitDepth);
+  const bitrateOrigin = $derived(streaming ? streamQuality?.bitrateOrigin : assetFacts?.bitrateOrigin);
   const sourceCodec = $derived(actual?.sourceCodec?.trim() ?? "");
   const losslessCodec = $derived(codec ? /^(flac|alac|wav|aiff|ape|wv|tta|pcm)$/i.test(codec) : false);
   const lossySource = $derived(Boolean(actual && losslessCodec && /(?:mp3|mpeg|aac|opus|vorbis|wma|lossy)/i.test(sourceCodec)));
   const showLossless = $derived(losslessCodec && !lossySource);
+  const approximateBitrate = $derived(Boolean(bitrateOrigin && /(?:average|approx|estim)/i.test(bitrateOrigin)));
   const hasFacts = $derived(Boolean(codec || (bitrate != null && bitrate > 0)));
   const summaryLabel = $derived(lossySource ? `${codec!.toUpperCase()} · lossy source` : showLossless ? `${codec?.toUpperCase()} · lossless` : codec?.toUpperCase() ?? "Audio");
 </script>
 
 <section class="playback-quality" class:compact style:padding={compact ? "0" : undefined} style:border={compact ? "0" : undefined} style:border-radius={compact ? "0" : undefined} style:background={compact ? "transparent" : undefined} aria-label="Playback quality">
   {#if !compact}<h3>Playback quality</h3>{/if}
-  {#if liveStream}
+  {#if streaming}
     <p class="quality-summary" style:font-size={compact ? "10px" : undefined} style:font-weight={compact ? "400" : undefined} style:gap={compact ? "3px" : undefined}>
       <span class="quality-icon" style:font-size={compact ? "10px" : undefined} aria-hidden="true">♫</span>
       {#if hasFacts}
         <strong style:font-size={compact ? "10px" : undefined} style:font-weight={compact ? "400" : undefined}>{summaryLabel}</strong>
-        {#if bitrate != null && bitrate > 0}<span>{Math.round(bitrate)} kbps</span>{/if}
+        {#if bitrate != null && bitrate > 0}<span>{approximateBitrate ? "~" : ""}{Math.round(bitrate)} kbps</span>{/if}
+        {#if sampleRate}<span>{(sampleRate / 1000).toFixed(sampleRate % 1000 ? 1 : 0)} kHz</span>{/if}
+        {#if channels}<span>{channels === 2 ? "stereo" : `${channels} ch`}</span>{/if}
+        {#if bitDepth && losslessCodec}<span>{bitDepth}-bit</span>{/if}
         {#if streamQuality?.live}<span class="live-label">Live stream</span>{/if}
       {:else}
         <strong style:font-size={compact ? "10px" : undefined}>Quality unknown</strong>{#if streamQuality?.live}<span class="live-label">Live stream</span>{/if}
@@ -35,7 +44,10 @@
       <span class="quality-icon" style:font-size={compact ? "10px" : undefined} aria-hidden="true">{showLossless ? "◆" : "♫"}</span>
       {#if hasFacts}
         <strong style:font-size={compact ? "10px" : undefined} style:font-weight={compact ? "400" : undefined}>{summaryLabel}</strong>
-        {#if bitrate != null && bitrate > 0}<span>{Math.round(bitrate)} kbps</span>{/if}
+        {#if bitrate != null && bitrate > 0}<span>{approximateBitrate ? "~" : ""}{Math.round(bitrate)} kbps</span>{/if}
+        {#if sampleRate}<span>{(sampleRate / 1000).toFixed(sampleRate % 1000 ? 1 : 0)} kHz</span>{/if}
+        {#if channels}<span>{channels === 2 ? "stereo" : `${channels} ch`}</span>{/if}
+        {#if bitDepth && showLossless}<span>{bitDepth}-bit</span>{/if}
         {#if showLossless}<span class="lossless">Lossless file</span>{/if}
       {:else}
         <strong style:font-size={compact ? "10px" : undefined}>Quality unknown</strong>
@@ -46,7 +58,7 @@
     {/if}
   {:else}
     <p class="quality-summary" style:font-size={compact ? "10px" : undefined} style:font-weight={compact ? "400" : undefined} style:gap={compact ? "3px" : undefined}><span class="quality-icon" style:font-size={compact ? "10px" : undefined} aria-hidden="true">♫</span><strong style:font-size={compact ? "10px" : undefined} style:font-weight={compact ? "400" : undefined}>Quality unknown</strong></p>
-    <p class="source-note">No downloaded file details are available.</p>
+    <p class="source-note">Audio quality details are unavailable.</p>
   {/if}
 </section>
 

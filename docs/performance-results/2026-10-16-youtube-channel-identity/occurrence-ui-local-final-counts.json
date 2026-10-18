@@ -1,0 +1,41 @@
+{
+  "scope": "Bounded actual isolated local duplicate/chapter UI save",
+  "sourceCount": 3,
+  "destinationCount": 4,
+  "destinationKinds": [
+    "full",
+    "full",
+    "full",
+    "canonicalChapter"
+  ],
+  "sourceUnchanged": true,
+  "integrity": "ok",
+  "foreignKeyViolations": 0,
+  "initialChapterFailure": "Malformed isolated fixture identity; correct application rejection",
+  "repairScope": "isolated fixture only; atomic reference migration",
+  "repairChecks": {
+    "rangeUnchanged": {
+      "parentTrackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "chapterId": "local-10-25",
+      "sourceUrl": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "startTime": 10,
+      "endTime": 25,
+      "parentTitle": "Synthetic Playback Fixture",
+      "parentDurationSeconds": 360
+    },
+    "recordingAssetMappingUnchanged": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+    "integrity": "ok",
+    "foreignKeyViolations": 0,
+    "initialFailureRetained": true
+  },
+  "runtimeAfter": {
+    "queueTotal": 0,
+    "currentIndex": -1,
+    "paused": true,
+    "status": "idle",
+    "position": 0
+  },
+  "audioStarted": false,
+  "mainRestored": false,
+  "limits": "Remote imports and all-view UI acceptance remain pending; overall bulk feature open."
+}

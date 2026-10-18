@@ -1,0 +1,396 @@
+[
+  {
+    "resolutionId": "d5529e52-e9bd-4367-8584-7e1c3609aca6",
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "resolutionId": "d5529e52-e9bd-4367-8584-7e1c3609aca6",
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "d5529e52-e9bd-4367-8584-7e1c3609aca6",
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "resolutionId": "d5529e52-e9bd-4367-8584-7e1c3609aca6",
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 1,
+    "nativeOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "provider_start",
+    "provider": "monochrome",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "search_start",
+    "provider": "monochrome",
+    "elapsedMs": 1,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "provider_start",
+    "provider": "youtube",
+    "elapsedMs": 2,
+    "nativeOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "search_start",
+    "provider": "youtube",
+    "elapsedMs": 4,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "search_end",
+    "provider": "monochrome",
+    "elapsedMs": 1487,
+    "nativeOperationId": null,
+    "details": {
+      "found": 0,
+      "ok": true
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "candidate_gate",
+    "provider": "monochrome",
+    "elapsedMs": 1488,
+    "nativeOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "search_end",
+    "provider": "youtube",
+    "elapsedMs": 4036,
+    "nativeOperationId": null,
+    "details": {
+      "found": 20,
+      "ok": true
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "candidate_gate",
+    "provider": "youtube",
+    "elapsedMs": 4036,
+    "nativeOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "provider_start",
+    "provider": "soundcloud",
+    "elapsedMs": 4037,
+    "nativeOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "search_start",
+    "provider": "soundcloud",
+    "elapsedMs": 4037,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "search_end",
+    "provider": "soundcloud",
+    "elapsedMs": 10206,
+    "nativeOperationId": null,
+    "details": {
+      "found": 10,
+      "ok": true
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "candidate_gate",
+    "provider": "soundcloud",
+    "elapsedMs": 10206,
+    "nativeOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "resolutionId": "55dee196-f292-458c-9f81-95f8eb4b3d66",
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 10207,
+    "nativeOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": false
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 1,
+    "nativeOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "provider_start",
+    "provider": "monochrome",
+    "elapsedMs": 2,
+    "nativeOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "search_start",
+    "provider": "monochrome",
+    "elapsedMs": 2,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "provider_start",
+    "provider": "youtube",
+    "elapsedMs": 4,
+    "nativeOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "search_start",
+    "provider": "youtube",
+    "elapsedMs": 4,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "search_end",
+    "provider": "monochrome",
+    "elapsedMs": 739,
+    "nativeOperationId": null,
+    "details": {
+      "found": 0,
+      "ok": true
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "candidate_gate",
+    "provider": "monochrome",
+    "elapsedMs": 739,
+    "nativeOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "search_end",
+    "provider": "youtube",
+    "elapsedMs": 3632,
+    "nativeOperationId": null,
+    "details": {
+      "found": 20,
+      "ok": true
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "candidate_gate",
+    "provider": "youtube",
+    "elapsedMs": 3633,
+    "nativeOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "provider_start",
+    "provider": "soundcloud",
+    "elapsedMs": 3633,
+    "nativeOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "search_start",
+    "provider": "soundcloud",
+    "elapsedMs": 3634,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "search_end",
+    "provider": "soundcloud",
+    "elapsedMs": 7739,
+    "nativeOperationId": null,
+    "details": {
+      "found": 10,
+      "ok": true
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "candidate_gate",
+    "provider": "soundcloud",
+    "elapsedMs": 7740,
+    "nativeOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "resolutionId": "db50bab6-d8ec-4ab8-966b-9941aac57f7e",
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 7740,
+    "nativeOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": false
+    }
+  },
+  {
+    "resolutionId": "0725120f-5fd0-4597-8f41-9bc17070ed99",
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "resolutionId": "0725120f-5fd0-4597-8f41-9bc17070ed99",
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {}
+  },
+  {
+    "resolutionId": "0725120f-5fd0-4597-8f41-9bc17070ed99",
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "nativeOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "resolutionId": "0725120f-5fd0-4597-8f41-9bc17070ed99",
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 1,
+    "nativeOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  }
+]

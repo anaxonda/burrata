@@ -1,0 +1,7 @@
+{
+  "scope": "Linux debug exact-source isolated muted playback; stopped on failed third exploratory, no 20 measured samples; old intermittent failure reproduced, not fixed.",
+  "failure": "After first audio754ms, input read waiting824ms, download no progress1908ms, PCM produced equals consumed172032, no local storage fault observed. Input starvation established; underlying network/storage scheduling cause not independently separated.",
+  "runnerSha256": "0f805b8f19e3eeae68a0650380430b5b5bba7091e1c617c1069cfdaf221bc313",
+  "seekTiming": "Paused-seek receipt timing includes paused/harness interval, not resume-click latency.",
+  "normalQueue": "Fresh normal queue preserved separately; fixture profile contains no copied user credentials."
+}

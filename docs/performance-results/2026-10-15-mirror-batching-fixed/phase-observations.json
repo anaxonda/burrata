@@ -1,0 +1,123 @@
+{
+  "binarySha256": "43e62627eeb2c0509d72a6a9576d0a72c03a7d74cfb94c3ac2800581e21f9118",
+  "durationSeconds": 120.0,
+  "phases": [
+    {
+      "observedAtSeconds": 13.963,
+      "line": "[perf] playlist_sync.watcher_health running=true"
+    },
+    {
+      "observedAtSeconds": 15.52,
+      "line": "[perf] playlist_sync.scan files=4 warnings=0 elapsed_ms=51"
+    },
+    {
+      "observedAtSeconds": 15.52,
+      "line": "[perf] playlist_sync.lock_wait elapsed_ms=0"
+    },
+    {
+      "observedAtSeconds": 15.52,
+      "line": "[perf] playlist_sync.read_state sources=60 elapsed_ms=11"
+    },
+    {
+      "observedAtSeconds": 15.52,
+      "line": "[perf] playlist_sync.migration migrated=0 elapsed_ms=0"
+    },
+    {
+      "observedAtSeconds": 15.57,
+      "line": "[perf] playlist_sync.source_reconcile sources=4 elapsed_ms=16"
+    },
+    {
+      "observedAtSeconds": 15.621,
+      "line": "[perf] playlist_sync.persist_state pass=before_mirrors elapsed_ms=49"
+    },
+    {
+      "observedAtSeconds": 15.621,
+      "line": "[perf] playlist_sync.mirror_collections count=36"
+    },
+    {
+      "observedAtSeconds": 17.073,
+      "line": "[perf] playlist_sync.mirror_collections_elapsed elapsed_ms=1450"
+    },
+    {
+      "observedAtSeconds": 17.073,
+      "line": "[perf] playlist_sync.mirror_write elapsed_ms=1450"
+    },
+    {
+      "observedAtSeconds": 17.123,
+      "line": "[perf] playlist_sync.persist_state pass=after_mirrors elapsed_ms=56"
+    },
+    {
+      "observedAtSeconds": 17.123,
+      "line": "[perf] playlist_sync.reconcile_counts sources=4 collections_bound=4 migrated=0 repaired=0 elapsed_ms=1586"
+    },
+    {
+      "observedAtSeconds": 17.123,
+      "line": "[perf] playlist_sync.total outcome=ok elapsed_ms=1638"
+    },
+    {
+      "observedAtSeconds": 17.123,
+      "line": "[perf] playlist_sync.reconcile_lock_inclusive elapsed_ms=1586"
+    },
+    {
+      "observedAtSeconds": 73.968,
+      "line": "[perf] playlist_sync.watcher_health running=true"
+    },
+    {
+      "observedAtSeconds": 77.18,
+      "line": "[perf] playlist_sync.scan files=4 warnings=0 elapsed_ms=51"
+    },
+    {
+      "observedAtSeconds": 77.18,
+      "line": "[perf] playlist_sync.lock_wait elapsed_ms=0"
+    },
+    {
+      "observedAtSeconds": 77.18,
+      "line": "[perf] playlist_sync.read_state sources=60 elapsed_ms=11"
+    },
+    {
+      "observedAtSeconds": 77.18,
+      "line": "[perf] playlist_sync.migration migrated=0 elapsed_ms=0"
+    },
+    {
+      "observedAtSeconds": 77.18,
+      "line": "[perf] playlist_sync.source_reconcile sources=4 elapsed_ms=16"
+    },
+    {
+      "observedAtSeconds": 77.23,
+      "line": "[perf] playlist_sync.persist_state pass=before_mirrors elapsed_ms=48"
+    },
+    {
+      "observedAtSeconds": 77.23,
+      "line": "[perf] playlist_sync.mirror_collections count=36"
+    },
+    {
+      "observedAtSeconds": 78.683,
+      "line": "[perf] playlist_sync.mirror_collections_elapsed elapsed_ms=1427"
+    },
+    {
+      "observedAtSeconds": 78.683,
+      "line": "[perf] playlist_sync.mirror_write elapsed_ms=1427"
+    },
+    {
+      "observedAtSeconds": 78.733,
+      "line": "[perf] playlist_sync.persist_state pass=after_mirrors elapsed_ms=53"
+    },
+    {
+      "observedAtSeconds": 78.733,
+      "line": "[perf] playlist_sync.reconcile_counts sources=4 collections_bound=4 migrated=0 repaired=0 elapsed_ms=1558"
+    },
+    {
+      "observedAtSeconds": 78.733,
+      "line": "[perf] playlist_sync.total outcome=ok elapsed_ms=1609"
+    },
+    {
+      "observedAtSeconds": 78.733,
+      "line": "[perf] playlist_sync.reconcile_lock_inclusive elapsed_ms=1558"
+    }
+  ],
+  "limitations": [
+    "Phase observation times are polling times, not application timestamps.",
+    "This observes only the chosen process and its descendants.",
+    "Group RSS can double-count shared pages; IO counters are storage, not network."
+  ]
+}

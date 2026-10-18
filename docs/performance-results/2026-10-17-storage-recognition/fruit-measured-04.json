@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "playbackPass": false,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "53f6e42ca4b8dd381ee7ee1039c0b5348ba1923363a28e264f70eae0f034cf5c",
+  "pass": false,
+  "steps": [],
+  "identify": {
+    "requested": false,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": "sustained_playback_failed",
+  "sustainedFailures": [
+    {
+      "phase": "startup",
+      "category": "sustained_playback_failed",
+      "failureCategory": "continued_playback_interrupted",
+      "elapsedMs": 4945,
+      "progress": {
+        "status": "failed",
+        "wallMs": null,
+        "advancedMs": null,
+        "observations": null
+      },
+      "snapshot": {
+        "engine": "native",
+        "status": "buffering",
+        "paused": true,
+        "position": 2.414875283446712,
+        "generation": 24,
+        "seekSerial": 8,
+        "diagnostics": {
+          "bufferingCount": 4,
+          "recoveryCount": 0,
+          "firstAudioMs": 2393,
+          "seekFirstAudioMs": null,
+          "lastRecovery": null,
+          "lastLocalStorageFailure": null
+        },
+        "selectedProvider": "monochrome",
+        "selectedProviderId": "239910648984977408"
+      }
+    }
+  ],
+  "finalBoundedDiagnostics": {
+    "engine": "native",
+    "status": "buffering",
+    "paused": true,
+    "position": 2.414875283446712,
+    "generation": 24,
+    "seekSerial": 8,
+    "diagnostics": {
+      "bufferingCount": 4,
+      "recoveryCount": 0,
+      "firstAudioMs": 2393,
+      "seekFirstAudioMs": null,
+      "lastRecovery": null,
+      "lastLocalStorageFailure": null
+    },
+    "selectedProvider": "monochrome",
+    "selectedProviderId": "239910648984977408"
+  },
+  "pausedFinally": true
+}

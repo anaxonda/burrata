@@ -1,0 +1,99 @@
+{
+  "scope": "Linux debug native exact-source same-profile warm/cache-enabled repetitions; not click-to-audio, cold-start, full-resource, acoustic, release or platform qualification.",
+  "path": "fruit-pinned",
+  "warmupsRequired": 3,
+  "measuredRequired": 20,
+  "attempts": [
+    {
+      "phase": "exploratory",
+      "index": 1,
+      "file": "fruit-exploratory-01.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 1329,
+      "seekFirstMixerMs": 19,
+      "seekReceiptFirstMixerMs": 1454
+    },
+    {
+      "phase": "exploratory",
+      "index": 2,
+      "file": "fruit-exploratory-02.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 785,
+      "seekFirstMixerMs": 32,
+      "seekReceiptFirstMixerMs": 1351,
+      "runnerExitCode": 0,
+      "runnerWallSeconds": 22.107
+    },
+    {
+      "phase": "exploratory",
+      "index": 3,
+      "file": "fruit-exploratory-03.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 835,
+      "seekFirstMixerMs": 9,
+      "seekReceiptFirstMixerMs": 1343,
+      "runnerExitCode": 0,
+      "runnerWallSeconds": 22.298
+    },
+    {
+      "phase": "measured",
+      "index": 1,
+      "file": "fruit-measured-01.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 925,
+      "seekFirstMixerMs": 37,
+      "seekReceiptFirstMixerMs": 1389,
+      "runnerExitCode": 0,
+      "runnerWallSeconds": 22.768
+    },
+    {
+      "phase": "measured",
+      "index": 2,
+      "file": "fruit-measured-02.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 6183,
+      "seekFirstMixerMs": 18,
+      "seekReceiptFirstMixerMs": 1369,
+      "runnerExitCode": 0,
+      "runnerWallSeconds": 27.781
+    },
+    {
+      "phase": "measured",
+      "index": 3,
+      "file": "fruit-measured-03.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 2178,
+      "seekFirstMixerMs": 18,
+      "seekReceiptFirstMixerMs": 1372,
+      "runnerExitCode": 0,
+      "runnerWallSeconds": 23.842
+    },
+    {
+      "phase": "measured",
+      "index": 4,
+      "file": "fruit-measured-04.json",
+      "pass": false,
+      "errorCategory": "sustained_playback_failed",
+      "runnerExitCode": 1,
+      "runnerWallSeconds": 12.302
+    }
+  ],
+  "complete": false,
+  "failures": 1,
+  "runnerSha256": "13f2f093b03da2d759c57d0483b1b8924b5ea4174c0cec4acb777c73c7476a00",
+  "binarySha256": "53f6e42ca4b8dd381ee7ee1039c0b5348ba1923363a28e264f70eae0f034cf5c",
+  "timingDefinitions": {
+    "firstMixerMs": "Backend playback request to first mixer consumption; excludes renderer click and IPC transit.",
+    "seekFirstMixerMs": "Paused-seek decoder timer armed at Resume; not playing-seek or UI Resume latency.",
+    "seekReceiptFirstMixerMs": "Original seek receipt to later mixer consumption INCLUDING paused hold and harness delay before Resume; not a latency target."
+  },
+  "stoppedAtFirstFailure": true,
+  "statisticalQualification": false,
+  "reason": "Measured attempt4 buffered during startup progress; only3successful measured attempts, so20attempt target/p95qualification not reached."
+}

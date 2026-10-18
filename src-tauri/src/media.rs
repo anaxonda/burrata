@@ -1,5 +1,5 @@
 //! Media validation, selected metadata tagging and collision-safe library publication.
-use crate::models::{Candidate, Chapter, LocalAsset, Settings, Track};
+use crate::models::{AudioFacts, Candidate, Chapter, LocalAsset, Settings, Track};
 use lofty::{
     config::WriteOptions,
     file::{AudioFile, FileType, TaggedFileExt},
@@ -575,7 +575,48 @@ fn tag_title(track: &Track) -> String {
 struct MediaInfo {
     codec: String,
     bitrate: Option<f64>,
+    bitrate_origin: Option<String>,
+    sample_rate: Option<u32>,
+    channels: Option<u32>,
+    bit_depth: Option<u32>,
     duration: f64,
+    size_bytes: Option<u64>,
+}
+
+pub async fn inspect_quality_facts(path: &Path, settings: &Settings) -> Result<AudioFacts, String> {
+    let info = probe(path, settings).await?;
+    Ok(AudioFacts {
+        codec: info.codec,
+        bitrate_kbps: info.bitrate,
+        bitrate_origin: info.bitrate_origin,
+        sample_rate: info.sample_rate,
+        channels: info.channels,
+        bit_depth: info.bit_depth,
+        duration_seconds: Some(info.duration),
+        size_bytes: info.size_bytes,
+    })
+}
+
+fn resolve_bitrate(
+    stream_bitrate_kbps: Option<f64>,
+    format_bitrate_kbps: Option<f64>,
+    size_bytes: Option<u64>,
+    duration_seconds: f64,
+) -> (Option<f64>, Option<String>) {
+    if let Some(value) = stream_bitrate_kbps.filter(|value| value.is_finite() && *value > 0.0) {
+        (Some(value), Some("stream".into()))
+    } else if let Some(value) =
+        format_bitrate_kbps.filter(|value| value.is_finite() && *value > 0.0)
+    {
+        (Some(value), Some("format-average".into()))
+    } else if let (Some(size), duration) = (size_bytes, duration_seconds) {
+        (
+            Some(size as f64 * 8.0 / duration / 1000.0),
+            Some("file-size-estimate".into()),
+        )
+    } else {
+        (None, None)
+    }
 }
 
 pub async fn verify_lossless_fallback(path: &Path, settings: &Settings) -> Result<(), String> {
@@ -604,7 +645,7 @@ async fn probe(path: &Path, settings: &Settings) -> Result<MediaInfo, String> {
             "-select_streams",
             "a:0",
             "-show_entries",
-            "stream=codec_name,bit_rate,duration:format=duration,bit_rate",
+            "stream=codec_name,bit_rate,duration,sample_rate,channels,bits_per_sample,bits_per_raw_sample:format=duration,bit_rate",
             "-of",
             "json",
         ])
@@ -641,14 +682,63 @@ async fn probe(path: &Path, settings: &Settings) -> Result<MediaInfo, String> {
         .filter(|s| !s.is_empty())
         .ok_or("Audio codec is missing")?
         .to_owned();
-    let bitrate = number(&stream["bit_rate"])
+    let stream_bitrate = number(&stream["bit_rate"])
         .filter(|n| n.is_finite() && *n > 0.0)
         .map(|n| n / 1000.0);
+    let format_bitrate = number(&value["format"]["bit_rate"])
+        .filter(|n| n.is_finite() && *n > 0.0)
+        .map(|n| n / 1000.0);
+    let size_bytes = std::fs::metadata(path).ok().map(|metadata| metadata.len());
+    let (bitrate, bitrate_origin) =
+        resolve_bitrate(stream_bitrate, format_bitrate, size_bytes, duration);
+    let parse_u32 = |value: &serde_json::Value| {
+        value
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .or_else(|| value.as_str()?.parse().ok())
+    };
+    let sample_rate =
+        parse_u32(&stream["sample_rate"]).or_else(|| (codec == "opus").then_some(48_000));
+    let channels = parse_u32(&stream["channels"]).or_else(|| (codec == "opus").then_some(2));
+    let bit_depth = parse_u32(&stream["bits_per_raw_sample"])
+        .filter(|value| *value > 0)
+        .or_else(|| parse_u32(&stream["bits_per_sample"]).filter(|value| *value > 0));
     Ok(MediaInfo {
         codec,
         bitrate,
+        bitrate_origin,
+        sample_rate,
+        channels,
+        bit_depth,
         duration,
+        size_bytes,
     })
+}
+
+/// Return the canonical library extension for a probed audio codec.
+pub fn published_audio_extension(codec: &str, source_path: &Path) -> Result<&'static str, String> {
+    match codec {
+        "mp3" => Ok("mp3"),
+        "aac" | "alac" => Ok("m4a"),
+        "flac" => Ok("flac"),
+        "opus" => Ok("opus"),
+        "vorbis" => Ok("ogg"),
+        value if value.starts_with("pcm_") => {
+            if value.ends_with("be")
+                || source_path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| {
+                        matches!(extension.to_ascii_lowercase().as_str(), "aif" | "aiff")
+                    })
+            {
+                Ok("aiff")
+            } else {
+                Ok("wav")
+            }
+        }
+        _ => Err(format!("Unsupported tagging codec: {codec}")),
+    }
 }
 
 fn safe_component(value: &str) -> String {
@@ -1346,7 +1436,7 @@ pub async fn autotag_asset(
     }
     result
 }
-fn hash_file(path: &Path) -> Result<String, String> {
+pub fn hash_file(path: &Path) -> Result<String, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut digest = Sha256::new();
     let mut buffer = [0u8; 65536];
@@ -1641,26 +1731,7 @@ pub async fn finalize_download(
     }
     let tagged_track = analyze_missing_fields(path, &source_track, settings).await;
     let stage = staging(settings, job_id)?;
-    let extension = match original.codec.as_str() {
-        "mp3" => "mp3",
-        "aac" | "alac" => "m4a",
-        "flac" => "flac",
-        "opus" => "opus",
-        "vorbis" => "ogg",
-        c if c.starts_with("pcm_") => {
-            if c.ends_with("be")
-                || path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| matches!(e.to_lowercase().as_str(), "aif" | "aiff"))
-            {
-                "aiff"
-            } else {
-                "wav"
-            }
-        }
-        _ => return Err(format!("Unsupported tagging codec: {}", original.codec)),
-    };
+    let extension = published_audio_extension(&original.codec, path)?;
     let staged = stage.join(format!("tagged-{}.{}", uuid::Uuid::new_v4(), extension));
     let remux = path
         .extension()
@@ -1704,6 +1775,12 @@ pub async fn finalize_download(
             final_codec: final_info.codec,
             source_bitrate: original.bitrate,
             final_bitrate: final_info.bitrate,
+            sample_rate: final_info.sample_rate,
+            channels: final_info.channels,
+            bit_depth: final_info.bit_depth,
+            duration_seconds: Some(final_info.duration),
+            size_bytes: final_info.size_bytes,
+            bitrate_origin: final_info.bitrate_origin.clone(),
             processing: if remux {
                 "remuxed; original audio codec preserved".into()
             } else {
@@ -2217,6 +2294,12 @@ pub async fn export_mp3(asset: &LocalAsset, settings: &Settings) -> Result<Local
             final_codec: info.codec,
             source_bitrate: original.bitrate,
             final_bitrate: info.bitrate,
+            sample_rate: info.sample_rate,
+            channels: info.channels,
+            bit_depth: info.bit_depth,
+            duration_seconds: Some(info.duration),
+            size_bytes: info.size_bytes,
+            bitrate_origin: info.bitrate_origin.clone(),
             processing: export_processing(&original.codec, &asset.path),
             track,
         };
@@ -2290,6 +2373,17 @@ pub async fn open_in_file_manager(path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn missing_opus_stream_bitrate_is_reported_as_estimated_when_available() {
+        let (bitrate, origin) = super::resolve_bitrate(None, None, Some(1_200_000), 60.0);
+        assert_eq!(bitrate, Some(160.0));
+        assert_eq!(origin.as_deref(), Some("file-size-estimate"));
+
+        let (bitrate, origin) = super::resolve_bitrate(None, Some(128.0), Some(1_200_000), 60.0);
+        assert_eq!(bitrate, Some(128.0));
+        assert_eq!(origin.as_deref(), Some("format-average"));
+    }
+
     #[tokio::test]
     async fn release_and_recording_dates_round_trip_without_legacy_date_confusion() {
         let dir = tempfile::tempdir().unwrap();
@@ -2542,6 +2636,12 @@ mod tests {
             final_codec: "mp3".into(),
             source_bitrate: None,
             final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
             processing: "preserved".into(),
             track: Track::default(),
         };
@@ -2589,6 +2689,12 @@ mod tests {
             final_codec: "mp3".into(),
             source_bitrate: None,
             final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
             processing: String::new(),
             track: Track::default(),
         };
@@ -2804,6 +2910,12 @@ mod tests {
                     final_codec: "mp3".into(),
                     source_bitrate: None,
                     final_bitrate: None,
+                    sample_rate: None,
+                    channels: None,
+                    bit_depth: None,
+                    duration_seconds: None,
+                    size_bytes: None,
+                    bitrate_origin: None,
                     processing: "fixture".into(),
                     track: track.clone(),
                 };
@@ -2937,6 +3049,12 @@ mod tests {
             final_codec: "wav".into(),
             source_bitrate: None,
             final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
             processing: "preserved".into(),
             track: Track {
                 id: "recording-1".into(),
@@ -3012,6 +3130,12 @@ mod tests {
             final_codec: "wav".into(),
             source_bitrate: None,
             final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
             processing: String::new(),
             track: Track {
                 id: "recording-2".into(),

@@ -1,0 +1,21 @@
+{
+  "build": "ec45ee8086e3",
+  "scope": "Actual normal-profile desktop UI; synthetic constrained-size reports separate",
+  "viewport": {
+    "height": 515,
+    "width": 1914
+  },
+  "footerHeight": 98.5,
+  "layoutFindings": [],
+  "trackCheckboxesBeforeSelect": 0,
+  "visibleTrackCheckboxesAfterSelect": 5,
+  "checkboxesHiddenAfterCancel": true,
+  "trackMenuVisuallyAbovePlayer": true,
+  "menuClosedWithoutAction": true,
+  "folderGlobalOptionsVisible": true,
+  "folderFilesLoaded": 15,
+  "folderWhitespaceIssueStillOpen": true,
+  "backToLibrarySucceeded": true,
+  "pausedPlaybackAndFullQueueUnchanged": true,
+  "resumeOrSeekPerformed": false
+}

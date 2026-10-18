@@ -1,0 +1,32 @@
+{
+  "source": "BURRATA_AVAILABILITY_STAGE_PROFILE records emitted by immutable c002 binary; ranges summarize emitted indexed observations only, not all warmup/sample records were retained individually",
+  "indexedFirstPage": {
+    "projectionPendingCheckMs": {"min": 0.150, "max": 0.245},
+    "assetDiscoveryMs": {"min": 0.0003, "max": 0.00055},
+    "pageSqlMs": {"min": 2.2, "max": 3.95},
+    "hydrationMs": {"min": 89.2, "max": 110.9},
+    "globalCountAndAvailabilityMs": {"min": 226.356, "max": 277.310},
+    "totalMs": {"min": 318.841, "max": 380.433}
+  },
+  "indexedLaterPage": {
+    "projectionPendingCheckMs": {"min": 0.150, "max": 0.248},
+    "assetDiscoveryMs": {"min": 0.0004, "max": 0.00055},
+    "pageSqlMs": {"min": 3.5, "max": 5.4},
+    "hydrationMs": {"min": 90.8, "max": 123.5},
+    "countMs": {"min": 197.845, "max": 240.605},
+    "totalMs": {"min": 301.360, "max": 368.770}
+  },
+  "queryPlanComparison": {
+    "indexedPageSqlMs": "approximately 2-5ms",
+    "matchedNoIndexPageSqlMs": "approximately 517-629ms",
+    "conclusion": "the partial stale index makes pending detection negligible; the BPM order index removes the full-sort cost. Remaining page time is dominated by global count/availability work and hydration."
+  },
+  "maintenance": {
+    "backfillWallMs": 87889.336605,
+    "backfillBatches": 100,
+    "benchmarkRowsPerBatch": 500,
+    "maxObservedBatchMs": 984.327677,
+    "runtimeRowsPerBatch": 250,
+    "populatedIndexBuildMs": 1067.008133
+  }
+}

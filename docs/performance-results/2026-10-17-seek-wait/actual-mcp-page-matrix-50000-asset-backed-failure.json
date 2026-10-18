@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "workload": "actual_burrata_mcp_library_page_matrix",
+  "count": 50000,
+  "failureCount": 1,
+  "failureCategory": "launcher_startup_failed"
+}

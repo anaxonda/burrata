@@ -1,0 +1,650 @@
+{
+  "assetFixtureEnabled": false,
+  "assetLimitation": "No local files, preferred-file or analysis-backed latency qualification; correctness remains covered separately by page_batch_hydration tests",
+  "benchmark": "paired_page_hydration_metrics_index",
+  "bpmDistribution": "constant 128 BPM, tie-heavy; not varied-BPM qualification",
+  "candidateIndexName": "bench_paired_metrics_coverage_r1",
+  "candidateProductionAdopted": false,
+  "contention": {
+    "measuredPairsPerVariant": 3,
+    "scope": "separate reader/favorite-writer observations on the same Store mutex, excludes DDL; favorite toggles each write; not merged with uncontended page samples",
+    "sortField": "sourceOrder",
+    "variantOrderByIteration": [
+      [
+        0,
+        1,
+        2,
+        3
+      ],
+      [
+        1,
+        2,
+        3,
+        0
+      ],
+      [
+        2,
+        3,
+        0,
+        1
+      ],
+      [
+        3,
+        0,
+        1,
+        2
+      ],
+      [
+        0,
+        1,
+        2,
+        3
+      ],
+      [
+        1,
+        2,
+        3,
+        0
+      ]
+    ],
+    "variants": [
+      {
+        "readerFirstPage": {
+          "measured": 3,
+          "medianMs": 271.643653,
+          "p95Ms": 273.403975,
+          "samplesMs": [
+            269.92319999999995,
+            271.643653,
+            273.403975
+          ],
+          "worstMs": 273.403975
+        },
+        "variant": "individualIndexOff",
+        "writerFavoriteUpdate": {
+          "measured": 3,
+          "medianMs": 1.169268,
+          "p95Ms": 1.882786,
+          "samplesMs": [
+            1.169268,
+            1.882786,
+            1.162445
+          ],
+          "worstMs": 1.882786
+        }
+      },
+      {
+        "readerFirstPage": {
+          "measured": 3,
+          "medianMs": 236.931995,
+          "p95Ms": 262.601997,
+          "samplesMs": [
+            262.601997,
+            236.931995,
+            201.208619
+          ],
+          "worstMs": 262.601997
+        },
+        "variant": "batchIndexOff",
+        "writerFavoriteUpdate": {
+          "measured": 3,
+          "medianMs": 4.1166290000000005,
+          "p95Ms": 9.988319,
+          "samplesMs": [
+            2.925621,
+            9.988319,
+            4.1166290000000005
+          ],
+          "worstMs": 9.988319
+        }
+      },
+      {
+        "readerFirstPage": {
+          "measured": 3,
+          "medianMs": 134.94564400000002,
+          "p95Ms": 142.40313700000002,
+          "samplesMs": [
+            142.40313700000002,
+            129.789235,
+            134.94564400000002
+          ],
+          "worstMs": 142.40313700000002
+        },
+        "variant": "individualIndexOn",
+        "writerFavoriteUpdate": {
+          "measured": 3,
+          "medianMs": 1.172713,
+          "p95Ms": 2.298279,
+          "samplesMs": [
+            1.172713,
+            2.298279,
+            1.170295
+          ],
+          "worstMs": 2.298279
+        }
+      },
+      {
+        "readerFirstPage": {
+          "measured": 3,
+          "medianMs": 98.567539,
+          "p95Ms": 100.137134,
+          "samplesMs": [
+            98.567539,
+            88.62969,
+            100.137134
+          ],
+          "worstMs": 100.137134
+        },
+        "variant": "batchIndexOn",
+        "writerFavoriteUpdate": {
+          "measured": 3,
+          "medianMs": 2.214478,
+          "p95Ms": 10.172486,
+          "samplesMs": [
+            1.837516,
+            10.172486,
+            2.214478
+          ],
+          "worstMs": 10.172486
+        }
+      }
+    ],
+    "warmupsPerVariant": 3
+  },
+  "exploratoryRun": true,
+  "foreignKeyErrors": 0,
+  "indexOperationsOutsidePageTiming": [
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 242.531022
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 11.635015000000001
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 285.540264
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.220583999999999
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 273.09123800000003
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.489405999999999
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 321.814822
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.405964
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 245.10247099999998
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 3.023041
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 252.336662
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 3.7028659999999998
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 264.762172
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.642248
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 261.43017699999996
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 2.5732939999999997
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 256.153982
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 3.4755789999999998
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 269.274584
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 2.917611
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 263.648239
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.192734999999999
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 277.98659799999996
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 11.745728
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 289.68166299999996
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 11.892457
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 273.946293
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.761679999999998
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 307.924236
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.467044999999999
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 249.820581
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 11.81916
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 254.98566
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 3.08286
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 246.559496
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.833386
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 277.487213
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.232846
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 259.553294
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 2.646267
+    },
+    {
+      "enabled": true,
+      "indexBytesIfDbstatAvailable": 622592,
+      "wallMs": 260.603812
+    },
+    {
+      "enabled": false,
+      "indexBytesIfDbstatAvailable": null,
+      "wallMs": 12.228601000000001
+    }
+  ],
+  "limitations": [
+    "Index creation/deletion between samples changes cache state; no claim of cold filesystem or independent index warm-state equivalence.",
+    "Index-operation samples are unpaired diagnostic observations, not build-cost qualification.",
+    "Environment mode mutation requires this exact ignored test alone with --test-threads=1."
+  ],
+  "measuredPerVariant": 3,
+  "pageSize": 200,
+  "phases": [
+    {
+      "direction": "asc",
+      "fixtureMetricsPlansOutsideTiming": [
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l"
+          ],
+          "variant": "individualIndexOff"
+        },
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l"
+          ],
+          "variant": "batchIndexOff"
+        },
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l USING INDEX bench_paired_metrics_coverage_r1"
+          ],
+          "variant": "individualIndexOn"
+        },
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l USING INDEX bench_paired_metrics_coverage_r1"
+          ],
+          "variant": "batchIndexOn"
+        }
+      ],
+      "fullHydratedOutputIdentical": true,
+      "offset": 0,
+      "sortField": "sourceOrder",
+      "variantOrderByIteration": [
+        [
+          0,
+          1,
+          2,
+          3
+        ],
+        [
+          1,
+          2,
+          3,
+          0
+        ],
+        [
+          2,
+          3,
+          0,
+          1
+        ],
+        [
+          3,
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          2,
+          3
+        ],
+        [
+          1,
+          2,
+          3,
+          0
+        ]
+      ],
+      "variants": [
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 256.23273,
+            "p95Ms": 261.675383,
+            "samplesMs": [
+              247.863406,
+              256.23273,
+              261.675383
+            ],
+            "worstMs": 261.675383
+          },
+          "variant": "individualIndexOff"
+        },
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 192.324321,
+            "p95Ms": 231.297685,
+            "samplesMs": [
+              187.16959699999998,
+              192.324321,
+              231.297685
+            ],
+            "worstMs": 231.297685
+          },
+          "variant": "batchIndexOff"
+        },
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 153.918584,
+            "p95Ms": 198.07021799999998,
+            "samplesMs": [
+              128.51617000000002,
+              198.07021799999998,
+              153.918584
+            ],
+            "worstMs": 198.07021799999998
+          },
+          "variant": "individualIndexOn"
+        },
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 107.878454,
+            "p95Ms": 133.880726,
+            "samplesMs": [
+              107.878454,
+              133.880726,
+              97.196783
+            ],
+            "worstMs": 133.880726
+          },
+          "variant": "batchIndexOn"
+        }
+      ]
+    },
+    {
+      "direction": "asc",
+      "fixtureMetricsPlansOutsideTiming": [
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision=1 AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l"
+          ],
+          "variant": "individualIndexOff"
+        },
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision=1 AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l"
+          ],
+          "variant": "batchIndexOff"
+        },
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision=1 AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l USING INDEX bench_paired_metrics_coverage_r1"
+          ],
+          "variant": "individualIndexOn"
+        },
+        {
+          "fixtureMetricsSql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision=1 AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1",
+          "plan": [
+            "SCAN l USING INDEX bench_paired_metrics_coverage_r1"
+          ],
+          "variant": "batchIndexOn"
+        }
+      ],
+      "fullHydratedOutputIdentical": true,
+      "offset": 0,
+      "sortField": "bpm",
+      "variantOrderByIteration": [
+        [
+          0,
+          1,
+          2,
+          3
+        ],
+        [
+          1,
+          2,
+          3,
+          0
+        ],
+        [
+          2,
+          3,
+          0,
+          1
+        ],
+        [
+          3,
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          2,
+          3
+        ],
+        [
+          1,
+          2,
+          3,
+          0
+        ]
+      ],
+      "variants": [
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 338.483919,
+            "p95Ms": 343.576014,
+            "samplesMs": [
+              338.483919,
+              343.576014,
+              302.437752
+            ],
+            "worstMs": 343.576014
+          },
+          "variant": "individualIndexOff"
+        },
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 278.134556,
+            "p95Ms": 280.902017,
+            "samplesMs": [
+              252.801771,
+              278.134556,
+              280.902017
+            ],
+            "worstMs": 280.902017
+          },
+          "variant": "batchIndexOff"
+        },
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 151.190733,
+            "p95Ms": 152.10085,
+            "samplesMs": [
+              151.190733,
+              152.10085,
+              143.491244
+            ],
+            "worstMs": 152.10085
+          },
+          "variant": "individualIndexOn"
+        },
+        {
+          "timing": {
+            "measured": 3,
+            "medianMs": 115.067707,
+            "p95Ms": 127.365286,
+            "samplesMs": [
+              115.067707,
+              127.365286,
+              98.90007100000001
+            ],
+            "worstMs": 127.365286
+          },
+          "variant": "batchIndexOn"
+        }
+      ]
+    }
+  ],
+  "recordCount": 50000,
+  "scope": "paired 2x2 actual Store whole-page reads, same ready 50k metadata-only fixture; excludes GUI, IPC, audio, fixture setup and index DDL",
+  "sharedAvailabilityAndProjectionRevision": 1,
+  "sqliteVersion": "3.46.0",
+  "warmupsPerVariant": 3,
+  "executionLimitations": [
+    "Sole normal GUI a8cc remained open and paused during exploration; no concurrent build, test, provider job or MCP calls were dispatched. Not qualification."
+  ],
+  "binarySha256": "63312b595ca1c1ec08f4934f3a6e09034632e52ebe980881136c5ece9f1f7621"
+}

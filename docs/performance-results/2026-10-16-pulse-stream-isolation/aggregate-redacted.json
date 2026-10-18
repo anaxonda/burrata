@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "scope": "two-disposable-generated-tones-in-owned-null-sink",
+  "captureSeconds": 8,
+  "success": true,
+  "bytes": 768000,
+  "selected440Amplitude": 0.24997250189757755,
+  "excluded880Amplitude": 4.3948775204668796e-16,
+  "ownedNullSinkRemoved": true,
+  "cleanupVerified": true
+}

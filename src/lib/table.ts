@@ -5,8 +5,9 @@ export function rowWindow(
   viewportHeight: number,
   rowHeight = 60,
   overscan = 8,
+  virtualizationThreshold = 1000,
 ): { start: number; end: number } {
-  if (count <= 1000) return { start: 0, end: count };
+  if (count <= virtualizationThreshold) return { start: 0, end: count };
   const visible = Math.max(1, Math.ceil(viewportHeight / rowHeight));
   const start = Math.max(
     0,

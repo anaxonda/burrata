@@ -1,0 +1,13 @@
+{
+  "build": "74788300db6e",
+  "scope": "Actual normal-profile desktop UI; one read-only Spotify metadata query qualified separately",
+  "spotifyArtistId": "5j3PVTaVrMlssk4IC0kumd",
+  "explicitMusicBrainzArtistSearchOpened": true,
+  "exactArtistQueryPreserved": true,
+  "artistAutomaticallySelected": false,
+  "backRestoredSpotifyArtist": true,
+  "backReturnedToLibrary": true,
+  "fullQueueAndPausedPlaybackUnchanged": true,
+  "resumeOrSeekPerformed": false,
+  "providerWritesPerformed": false
+}

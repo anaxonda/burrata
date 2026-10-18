@@ -1,0 +1,10 @@
+{
+  "build": "0214b83ff69e378ded590b461bb53860f7227c80295ca10b19b22bad61f047dc",
+  "viewport": {"width": 954, "height": 1036},
+  "captures": "Private app-owned PNGs in .cache/private-ui-checks; visually inspected by root.",
+  "libraryQueueOpen": {"headerSingleLine": true, "filterAndSortLabelsLegible": true, "toolbarRows": 2, "queueAndFooterVisible": true},
+  "libraryQueueClosed": {"toolbarRows": 1, "countVisible": true, "footerVisible": true},
+  "spotifyArtist": {"headerCompactAndLeftAligned": true, "releaseTitlesBounded": true, "datesHumanReadable": true, "directIdArtistImage": "placeholder; search artwork preservation pending"},
+  "playbackAfter": {"paused": true, "status": "idle", "queueTotal": 1, "currentIndex": 0, "position": 699.309783, "volume": 0.8, "repeat": "off", "shuffle": false},
+  "limitations": "Bounded desktop visual checks only. Album tracks failed a separate live request. Live Identify cancellation not exercised while playback is paused."
+}

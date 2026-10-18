@@ -1,0 +1,18 @@
+{
+  "guiPid": 3505789,
+  "binarySha256": "e1d129a632e552f47502d41a3d2cccae1f260a13db44857f7eb67425637694eb",
+  "artistId": "4Z8W4fKeB5YxbusRsdQVPb",
+  "initialVisibleStatus": "30 matching \u00b7 30 loaded of 50",
+  "loadMoreActions": 1,
+  "terminalVisibleStatus": "50 matching \u00b7 50 loaded of 50",
+  "terminalLoadMoreButtons": 0,
+  "terminalAccessibility50ChildPanels": 1,
+  "screenshot": "/tmp/burrata-e1d-top-tracks-terminal-ui.png",
+  "viewport": {
+    "width": 1914,
+    "height": 515
+  },
+  "queueOrAudioWrites": false,
+  "imports": false,
+  "limitation": "artist header too tall at short desktop height; compact CSS pending"
+}

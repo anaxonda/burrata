@@ -1,0 +1,15 @@
+{
+  "scope": "one live UUID-scoped native recognition cancellation; isolated actual Fruit PCM",
+  "pass": true,
+  "childObserved": true,
+  "childGoneBeforeResult": true,
+  "temporaryWavGone": true,
+  "requestWasError": true,
+  "cancelledReason": true,
+  "cancelAccepted": true,
+  "sameTrack": true,
+  "sameEntry": true,
+  "playingAfter": true,
+  "elapsedMs": 1146,
+  "pausedFinally": true
+}

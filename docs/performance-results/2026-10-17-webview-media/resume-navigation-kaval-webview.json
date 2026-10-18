@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "engine": "webview",
+  "mode": "kaval-default",
+  "binarySha256": "941a59f361285c3cdd7425d484d4b3dafd8bd5cf078a0fa2c2f65bcff6bf9399",
+  "pass": true,
+  "physicalAudibilityMeasured": false,
+  "steps": [
+    {
+      "step": "startup",
+      "pass": true,
+      "trackId": "spotify:64rvuYgKLuIHqacdZZiwPr",
+      "sessionId": "ef6b6d38-0929-4f2f-b389-f9029ad90d5b",
+      "sourceGeneration": 1792225020395001,
+      "readyState": 4,
+      "actualPaused": false,
+      "actualCurrentTime": 23.182019,
+      "decodedDuration": 131.726,
+      "expectedDuration": 131,
+      "progressed": true,
+      "sustained": {
+        "wallMs": 5560.683488999999,
+        "advancedMs": 5701.575999999999,
+        "observations": 9,
+        "physicalAudibilityMeasured": false
+      },
+      "localFixtureIdentity": null,
+      "provider": null,
+      "providerId": null,
+      "identityLimitation": "Natural resolver source recording identity is unproven"
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "paused": true,
+      "currentTime": 10,
+      "seekSerialAdvanced": true,
+      "generation": 1792225020395001
+    },
+    {
+      "step": "resume_progress",
+      "pass": true,
+      "sustained": {
+        "wallMs": 5161.730582000002,
+        "advancedMs": 5174.306,
+        "observations": 9,
+        "physicalAudibilityMeasured": false
+      },
+      "paused": false,
+      "currentTime": 15.932865
+    }
+  ],
+  "sourceIdentityQualified": false,
+  "staleMediaSampleRetries": 0,
+  "skewRetryCount": 0,
+  "occurrenceIdsAvailable": true,
+  "singleTrackIdentityOnly": false,
+  "providerPreferences": {
+    "preferredStreamingSource": "monochrome",
+    "streamingFallbackEnabled": true,
+    "streamingFallbackSources": [
+      "youtube",
+      "soundcloud"
+    ],
+    "streamingFallbackDelayMs": 1500
+  },
+  "engineSnapshot": null,
+  "initialMedia": {
+    "engine": "webview",
+    "applicable": true,
+    "currentIndex": 0,
+    "queueTotal": 1,
+    "sourceGeneration": 1792225020395001,
+    "seekSerial": 1,
+    "media": {
+      "currentTime": 16.879455783,
+      "duration": 131.726,
+      "errorCode": null,
+      "networkState": 2,
+      "paused": false,
+      "present": true,
+      "readyState": 2,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "catalogueDurationSeconds": 131,
+    "sourceIdentityQualified": false
+  },
+  "sourceDiagnostics": {
+    "lastResolvedSource": {
+      "headerPolicy": {
+        "authorization": false,
+        "cookie": false,
+        "headerCount": 0,
+        "origin": false,
+        "other": false,
+        "referer": false,
+        "userAgent": false
+      },
+      "id": "monochrome:188668061304786944",
+      "provider": "monochrome"
+    },
+    "lastMediaFailureSource": null,
+    "lastMediaFailure": null,
+    "playerMessage": "Playing monochrome audio",
+    "status": "playing",
+    "queueEntryIds": [
+      "d0a8f74d-7714-4f58-ae79-35006ba162d6"
+    ],
+    "entryId": "d0a8f74d-7714-4f58-ae79-35006ba162d6"
+  },
+  "pausedFinally": true,
+  "observerOverhead": {
+    "guardCalls": 78,
+    "guardWallMs": 11732.624493000018,
+    "limits": "Functional observer overhead only; no CPU, latency percentile or performance qualification"
+  },
+  "frontendSourcePin": ".cache/resume-navigation-frontend-source-pin.json",
+  "launchSession": 21791,
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

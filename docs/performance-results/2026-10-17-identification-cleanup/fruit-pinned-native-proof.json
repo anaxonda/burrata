@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "ef76646fbc0684752c95e7417c00ac5de06209e455f7f1c83a88cf787299fc33",
+  "pass": false,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5228.177738,
+        "advancedMs": 5247.7097505668935,
+        "observations": 48
+      },
+      "catalogueSeconds": 181.4,
+      "mediaDeclaredSeconds": 181.4,
+      "playbackDurationSeconds": 181.4,
+      "catalogueDeltaSeconds": 0,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "firstMixerMs": 3443
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": true,
+      "seekSerialAdvanced": true
+    }
+  ],
+  "identify": {
+    "requested": true,
+    "cancelVerification": "unsupported_by_current_MCP_schema",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": "bounded_playback_timeout",
+  "pausedFinally": true
+}

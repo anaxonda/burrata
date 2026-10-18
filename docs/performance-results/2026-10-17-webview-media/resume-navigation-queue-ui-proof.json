@@ -1,0 +1,19 @@
+{
+  "exactIsolatedProfile": true,
+  "duplicateCount": 3,
+  "queueTotal": 4,
+  "selectedSecondGrip": true,
+  "pressedGripCount": 1,
+  "secondOccurrenceMoveDown": true,
+  "exactOccurrenceOrderChangedAsExpected": true,
+  "currentOccurrenceAndPlaybackUnchanged": true,
+  "observerLimitation": "Initial immediate MCP snapshot preceded1s UI-state publication and was stale; retained. Later settled snapshot matches the live screenshot and expected IDs. Publication latency was not measured.",
+  "scope": "Live exact-PID/exe guarded AT-SPI grip selection and More->Move down, observed through MCP; Ctrl/Shift/arrow/drag remain source-tested rather than live-qualified.",
+  "frontendSourcePin": ".cache/resume-navigation-frontend-source-pin.json",
+  "launchSession": 21791,
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "benchmark": "first_page_global_sort_availability",
+  "contentionEnabled": true,
+  "cpuTimeReported": false,
+  "endToEnd": false,
+  "fixtures": [
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 53.769946,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 60.789898,
+        "warmups": 3,
+        "worstMs": 76.980411
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 53.755685,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 60.642557,
+        "warmups": 3,
+        "worstMs": 68.432069
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 1000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 63.08552400000001,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 76.656593,
+        "warmups": 3,
+        "worstMs": 80.021122
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 60.69116,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 70.04924999999999,
+        "warmups": 3,
+        "worstMs": 74.34555499999999
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 5000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": null,
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 93.479984,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 95.743659,
+        "warmups": 3,
+        "worstMs": 110.78317799999999
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 82.923225,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 85.525751,
+        "warmups": 3,
+        "worstMs": 90.191356
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 20000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    },
+    {
+      "contention": {
+        "fixture": "50,000-row ready source-order page and concurrent favorite write sharing one Store mutex",
+        "measuredPairs": 20,
+        "note": "Contention observations are reported separately and excluded from uncontended qualification samples.",
+        "readerFirstPage": {
+          "measured": 20,
+          "medianMs": 161.286366,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 177.10683999999998,
+          "warmups": 3,
+          "worstMs": 177.65070799999998
+        },
+        "warmups": 3,
+        "writerFavoriteUpdate": {
+          "measured": 20,
+          "medianMs": 11.053267,
+          "metric": "wall_elapsed_ms",
+          "p95Ms": 161.90304,
+          "warmups": 3,
+          "worstMs": 169.576058
+        }
+      },
+      "firstPageWithGlobalAvailability": {
+        "measured": 20,
+        "medianMs": 155.20069,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 165.594965,
+        "warmups": 3,
+        "worstMs": 172.545709
+      },
+      "fixture": "remote metadata-only canonical listings; all sort metadata values are known",
+      "legacyFirstPage": {
+        "measured": 20,
+        "medianMs": 129.87812200000002,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 148.774485,
+        "warmups": 3,
+        "worstMs": 175.099586
+      },
+      "measuredPerMode": 20,
+      "pageSize": 200,
+      "recordCount": 50000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmupsPerMode": 3
+    }
+  ],
+  "guiIncluded": false,
+  "scope": "actual Store storage microbenchmark; excludes GUI and end-to-end application work",
+  "sparseFixture": false
+}

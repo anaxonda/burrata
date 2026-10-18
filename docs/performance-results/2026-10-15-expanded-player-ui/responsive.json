@@ -1,0 +1,556 @@
+{
+  "schemaVersion": 1,
+  "original": {
+    "innerSize": {
+      "height": 900,
+      "width": 1440
+    },
+    "maximized": false
+  },
+  "restored": true,
+  "reports": [
+    {
+      "requested": {
+        "width": 500,
+        "height": 800
+      },
+      "actual": {
+        "innerSize": {
+          "height": 800,
+          "width": 500
+        },
+        "maximized": false
+      },
+      "requestedSizeApplied": true,
+      "layout": {
+        "elements": [
+          {
+            "clientWidth": 500,
+            "height": 88,
+            "inViewport": true,
+            "present": true,
+            "role": "footer",
+            "scrollWidth": 500,
+            "visible": true,
+            "width": 500,
+            "x": 0,
+            "y": 712
+          },
+          {
+            "clientWidth": 272,
+            "height": 49,
+            "inViewport": true,
+            "present": true,
+            "role": "now_playing",
+            "scrollWidth": 272,
+            "visible": true,
+            "width": 274,
+            "x": 9,
+            "y": 715.5
+          },
+          {
+            "clientWidth": 201,
+            "height": 36,
+            "inViewport": true,
+            "present": true,
+            "role": "transport",
+            "scrollWidth": 201,
+            "visible": true,
+            "width": 201,
+            "x": 290,
+            "y": 722
+          },
+          {
+            "clientWidth": 274,
+            "height": 11,
+            "inViewport": true,
+            "present": true,
+            "role": "scrubber",
+            "scrollWidth": 274,
+            "visible": true,
+            "width": 274,
+            "x": 9,
+            "y": 772.5
+          },
+          {
+            "clientWidth": 201,
+            "height": 32,
+            "inViewport": true,
+            "present": true,
+            "role": "right",
+            "scrollWidth": 201,
+            "visible": true,
+            "width": 201,
+            "x": 290,
+            "y": 762
+          },
+          {
+            "clientWidth": 221,
+            "height": 14,
+            "inViewport": true,
+            "present": true,
+            "role": "quality",
+            "scrollWidth": 221,
+            "visible": true,
+            "width": 221,
+            "x": 59,
+            "y": 747.5
+          },
+          {
+            "clientWidth": 0,
+            "height": 0,
+            "inViewport": false,
+            "present": false,
+            "role": "error",
+            "scrollWidth": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "clientWidth": 279,
+            "height": 659,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_panel",
+            "scrollWidth": 279,
+            "visible": true,
+            "width": 279,
+            "x": 221,
+            "y": 54
+          },
+          {
+            "clientWidth": 279,
+            "height": 62,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_header",
+            "scrollWidth": 279,
+            "visible": true,
+            "width": 279,
+            "x": 221,
+            "y": 54
+          },
+          {
+            "clientWidth": 79,
+            "height": 22,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_title",
+            "scrollWidth": 79,
+            "visible": true,
+            "width": 78.97,
+            "x": 235,
+            "y": 83
+          },
+          {
+            "clientWidth": 90,
+            "height": 34,
+            "inViewport": true,
+            "present": true,
+            "role": "identify",
+            "scrollWidth": 90,
+            "visible": true,
+            "width": 92.25,
+            "x": 393.75,
+            "y": 68.5
+          },
+          {
+            "clientWidth": 0,
+            "height": 0,
+            "inViewport": false,
+            "present": true,
+            "role": "queue_close",
+            "scrollWidth": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "clientWidth": 27,
+            "height": 33,
+            "inViewport": true,
+            "present": true,
+            "role": "panel_close",
+            "scrollWidth": 27,
+            "visible": true,
+            "width": 28.88,
+            "x": 461.13,
+            "y": 10
+          }
+        ],
+        "findings": [],
+        "footerHeight": 88,
+        "schemaVersion": 1,
+        "viewport": {
+          "height": 800,
+          "width": 500
+        }
+      }
+    },
+    {
+      "requested": {
+        "width": 360,
+        "height": 640
+      },
+      "actual": {
+        "innerSize": {
+          "height": 640,
+          "width": 360
+        },
+        "maximized": false
+      },
+      "requestedSizeApplied": true,
+      "layout": {
+        "elements": [
+          {
+            "clientWidth": 360,
+            "height": 88,
+            "inViewport": true,
+            "present": true,
+            "role": "footer",
+            "scrollWidth": 360,
+            "visible": true,
+            "width": 360,
+            "x": 0,
+            "y": 552
+          },
+          {
+            "clientWidth": 141,
+            "height": 49,
+            "inViewport": true,
+            "present": true,
+            "role": "now_playing",
+            "scrollWidth": 141,
+            "visible": true,
+            "width": 143,
+            "x": 6,
+            "y": 555.5
+          },
+          {
+            "clientWidth": 201,
+            "height": 36,
+            "inViewport": true,
+            "present": true,
+            "role": "transport",
+            "scrollWidth": 201,
+            "visible": true,
+            "width": 201,
+            "x": 153,
+            "y": 562
+          },
+          {
+            "clientWidth": 143,
+            "height": 11,
+            "inViewport": true,
+            "present": true,
+            "role": "scrubber",
+            "scrollWidth": 143,
+            "visible": true,
+            "width": 143,
+            "x": 6,
+            "y": 611.5
+          },
+          {
+            "clientWidth": 201,
+            "height": 32,
+            "inViewport": true,
+            "present": true,
+            "role": "right",
+            "scrollWidth": 201,
+            "visible": true,
+            "width": 201,
+            "x": 153,
+            "y": 601
+          },
+          {
+            "clientWidth": 94,
+            "height": 14,
+            "inViewport": true,
+            "present": true,
+            "role": "quality",
+            "scrollWidth": 94,
+            "visible": true,
+            "width": 94,
+            "x": 52,
+            "y": 587.5
+          },
+          {
+            "clientWidth": 0,
+            "height": 0,
+            "inViewport": false,
+            "present": false,
+            "role": "error",
+            "scrollWidth": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "clientWidth": 279,
+            "height": 499,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_panel",
+            "scrollWidth": 279,
+            "visible": true,
+            "width": 279,
+            "x": 81,
+            "y": 54
+          },
+          {
+            "clientWidth": 279,
+            "height": 62,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_header",
+            "scrollWidth": 279,
+            "visible": true,
+            "width": 279,
+            "x": 81,
+            "y": 54
+          },
+          {
+            "clientWidth": 79,
+            "height": 22,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_title",
+            "scrollWidth": 79,
+            "visible": true,
+            "width": 78.97,
+            "x": 95,
+            "y": 83
+          },
+          {
+            "clientWidth": 90,
+            "height": 34,
+            "inViewport": true,
+            "present": true,
+            "role": "identify",
+            "scrollWidth": 90,
+            "visible": true,
+            "width": 92.25,
+            "x": 253.75,
+            "y": 68.5
+          },
+          {
+            "clientWidth": 0,
+            "height": 0,
+            "inViewport": false,
+            "present": true,
+            "role": "queue_close",
+            "scrollWidth": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "clientWidth": 27,
+            "height": 33,
+            "inViewport": true,
+            "present": true,
+            "role": "panel_close",
+            "scrollWidth": 27,
+            "visible": true,
+            "width": 28.88,
+            "x": 321.13,
+            "y": 10
+          }
+        ],
+        "findings": [],
+        "footerHeight": 88,
+        "schemaVersion": 1,
+        "viewport": {
+          "height": 640,
+          "width": 360
+        }
+      }
+    },
+    {
+      "requested": {
+        "width": 1000,
+        "height": 650
+      },
+      "actual": {
+        "innerSize": {
+          "height": 650,
+          "width": 1000
+        },
+        "maximized": false
+      },
+      "requestedSizeApplied": true,
+      "layout": {
+        "elements": [
+          {
+            "clientWidth": 1000,
+            "height": 94.5,
+            "inViewport": true,
+            "present": true,
+            "role": "footer",
+            "scrollWidth": 1000,
+            "visible": true,
+            "width": 1000,
+            "x": 0,
+            "y": 555.5
+          },
+          {
+            "clientWidth": 362,
+            "height": 77.5,
+            "inViewport": true,
+            "present": true,
+            "role": "now_playing",
+            "scrollWidth": 362,
+            "visible": true,
+            "width": 364.08,
+            "x": 12,
+            "y": 564.5
+          },
+          {
+            "clientWidth": 437,
+            "height": 34,
+            "inViewport": true,
+            "present": true,
+            "role": "transport",
+            "scrollWidth": 437,
+            "visible": true,
+            "width": 436.91,
+            "x": 384.08,
+            "y": 575.25
+          },
+          {
+            "clientWidth": 437,
+            "height": 17,
+            "inViewport": true,
+            "present": true,
+            "role": "scrubber",
+            "scrollWidth": 437,
+            "visible": true,
+            "width": 436.91,
+            "x": 384.08,
+            "y": 614.25
+          },
+          {
+            "clientWidth": 159,
+            "height": 32,
+            "inViewport": true,
+            "present": true,
+            "role": "right",
+            "scrollWidth": 159,
+            "visible": true,
+            "width": 159.02,
+            "x": 828.98,
+            "y": 587.25
+          },
+          {
+            "clientWidth": 302,
+            "height": 14,
+            "inViewport": true,
+            "present": true,
+            "role": "quality",
+            "scrollWidth": 302,
+            "visible": true,
+            "width": 302.08,
+            "x": 68,
+            "y": 622
+          },
+          {
+            "clientWidth": 0,
+            "height": 0,
+            "inViewport": false,
+            "present": false,
+            "role": "error",
+            "scrollWidth": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "clientWidth": 339,
+            "height": 501.5,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_panel",
+            "scrollWidth": 339,
+            "visible": true,
+            "width": 339,
+            "x": 661,
+            "y": 54
+          },
+          {
+            "clientWidth": 339,
+            "height": 67,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_header",
+            "scrollWidth": 339,
+            "visible": true,
+            "width": 339,
+            "x": 661,
+            "y": 54
+          },
+          {
+            "clientWidth": 79,
+            "height": 22,
+            "inViewport": true,
+            "present": true,
+            "role": "queue_title",
+            "scrollWidth": 79,
+            "visible": true,
+            "width": 78.97,
+            "x": 678,
+            "y": 86
+          },
+          {
+            "clientWidth": 90,
+            "height": 34,
+            "inViewport": true,
+            "present": true,
+            "role": "identify",
+            "scrollWidth": 90,
+            "visible": true,
+            "width": 92.25,
+            "x": 890.75,
+            "y": 71.5
+          },
+          {
+            "clientWidth": 0,
+            "height": 0,
+            "inViewport": false,
+            "present": true,
+            "role": "queue_close",
+            "scrollWidth": 0,
+            "visible": false,
+            "width": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "clientWidth": 27,
+            "height": 33,
+            "inViewport": true,
+            "present": true,
+            "role": "panel_close",
+            "scrollWidth": 27,
+            "visible": true,
+            "width": 28.88,
+            "x": 961.13,
+            "y": 10
+          }
+        ],
+        "findings": [],
+        "footerHeight": 94.5,
+        "schemaVersion": 1,
+        "viewport": {
+          "height": 650,
+          "width": 1000
+        }
+      }
+    }
+  ]
+}

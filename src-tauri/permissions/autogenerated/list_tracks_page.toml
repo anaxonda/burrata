@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-tracks-page"
+description = "Enables the list_tracks_page command without any pre-configured scope."
+commands.allow = ["list_tracks_page"]
+
+[[permission]]
+identifier = "deny-list-tracks-page"
+description = "Denies the list_tracks_page command without any pre-configured scope."
+commands.deny = ["list_tracks_page"]

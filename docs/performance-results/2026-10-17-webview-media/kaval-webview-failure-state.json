@@ -1,0 +1,12 @@
+{
+  "status": "idle",
+  "paused": true,
+  "position": 2.222395,
+  "duration": 131.726,
+  "readyState": null,
+  "previewKind": null,
+  "lastStartupFailure": null,
+  "lastMediaFailure": "The source could not be loaded because of a network error.",
+  "mediaError": null,
+  "playerMessage": "The verified source could not be decoded. Choose another source."
+}

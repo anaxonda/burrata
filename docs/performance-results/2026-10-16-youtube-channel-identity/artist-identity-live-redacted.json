@@ -1,0 +1,24 @@
+{
+  "playbackStateFieldsEqual": true,
+  "queueEqual": true,
+  "paused": true,
+  "volume": 0.8,
+  "pages": [
+    {
+      "count": 20,
+      "nextCursor": "20",
+      "totalAlbums": 45
+    },
+    {
+      "count": 20,
+      "nextCursor": "40",
+      "totalAlbums": 45
+    },
+    {
+      "count": 5,
+      "nextCursor": null,
+      "totalAlbums": 45
+    }
+  ],
+  "uniqueReleases": 45
+}

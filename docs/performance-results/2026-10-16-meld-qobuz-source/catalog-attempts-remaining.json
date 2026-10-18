@@ -1,0 +1,40 @@
+{
+  "scope": "Two bounded anonymous metadata-only GET attempts to the remaining pinned-source search hosts. No credentials, streams, signed URLs, media fetch, or decode.",
+  "recording": {
+    "title": "Sasa",
+    "artist": "Timmy Regisford",
+    "version": "Main Version",
+    "durationSeconds": 281,
+    "isrc": null
+  },
+  "providerSource": {
+    "repository": "FrancescoGrazioso/Meld",
+    "revision": "dc7a27224acee33fa475ab70e1935dc03d3ef4ef",
+    "fileSha256": "c61d8657fa23f218005389b9c02f87f8b885d8c5547b4247d3fc5fb50f9e4e21"
+  },
+  "attempts": [
+    {
+      "host": "jumo-dl.pages.dev",
+      "endpoint": "/search",
+      "query": "Sasa Timmy Regisford Main Version",
+      "offset": 0,
+      "limit": 30,
+      "region": "US",
+      "httpStatus": 200,
+      "contentType": "text/html; charset=utf-8",
+      "responseBytes": 53791,
+      "classification": "HTML page titled Jumo-DL, not the JSON search contract expected by pinned client",
+      "body": "redacted; privately retained"
+    },
+    {
+      "host": "qobuz.kennyy.com.br",
+      "endpoint": "/api/get-music",
+      "query": "Sasa Timmy Regisford Main Version",
+      "offset": 0,
+      "httpStatus": null,
+      "classification": "10-second request timed out with zero response bytes",
+      "responseBytes": 0
+    }
+  ],
+  "outcome": "No catalog response was received from either host. Track presence and version/ISRC agreement remain unknown. This is provider endpoint unavailability/mismatch evidence, not evidence of absence."
+}

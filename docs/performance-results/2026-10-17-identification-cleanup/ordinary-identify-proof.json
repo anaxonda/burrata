@@ -1,0 +1,16 @@
+{
+  "scope": "one native PCM identification of actual pinned Fruit playback; catalog identity unverified",
+  "binarySha256": "ef76646fbc0684752c95e7417c00ac5de06209e455f7f1c83a88cf787299fc33",
+  "requestSucceeded": false,
+  "elapsedMs": 18,
+  "hasTitle": false,
+  "hasArtist": false,
+  "sameQueue": true,
+  "sameTrack": true,
+  "sameGeneration": true,
+  "positionAdvanced": false,
+  "playingAfter": true,
+  "newTemporaryWavs": 0,
+  "cancelQualified": false,
+  "pausedFinally": true
+}

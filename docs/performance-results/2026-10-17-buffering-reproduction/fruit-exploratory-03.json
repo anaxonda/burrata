@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "playbackPass": false,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "ebf96f8fceb05c8eb803c21686e07d7d4c4e842a850b31d212de2b7d1fe4471e",
+  "pass": false,
+  "steps": [],
+  "identify": {
+    "requested": false,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": "sustained_playback_failed",
+  "sustainedFailures": [
+    {
+      "phase": "startup",
+      "category": "sustained_playback_failed",
+      "failureCategory": "continued_playback_interrupted",
+      "elapsedMs": 2840,
+      "progress": {
+        "status": "failed",
+        "wallMs": null,
+        "advancedMs": null,
+        "observations": null
+      },
+      "snapshot": {
+        "engine": "native",
+        "status": "buffering",
+        "paused": true,
+        "position": 1.811156462585034,
+        "generation": 8,
+        "seekSerial": 2,
+        "diagnostics": {
+          "bufferingCount": 4,
+          "recoveryCount": 0,
+          "firstAudioMs": 754,
+          "seekFirstAudioMs": null,
+          "lastBuffering": {
+            "generation": 8,
+            "seekSerial": 2,
+            "stream": {
+              "readerObserved": true,
+              "networkReader": true,
+              "bytesRead": 98304,
+              "downloadedRangeEnd": 103832,
+              "downloadProgressAgeMs": 1908,
+              "readInFlightMs": 824,
+              "maxReadMs": 272,
+              "pcmProducedSamples": 172032,
+              "pcmConsumedSamples": 172032,
+              "syntheticSilenceSamples": 68260
+            }
+          },
+          "lastRecovery": null,
+          "lastLocalStorageFailure": null
+        },
+        "selectedProvider": "monochrome",
+        "selectedProviderId": "239910648984977408"
+      }
+    }
+  ],
+  "finalBoundedDiagnostics": {
+    "engine": "native",
+    "status": "buffering",
+    "paused": true,
+    "position": 1.811156462585034,
+    "generation": 8,
+    "seekSerial": 2,
+    "diagnostics": {
+      "bufferingCount": 4,
+      "recoveryCount": 0,
+      "firstAudioMs": 754,
+      "seekFirstAudioMs": null,
+      "lastBuffering": {
+        "generation": 8,
+        "seekSerial": 2,
+        "stream": {
+          "readerObserved": true,
+          "networkReader": true,
+          "bytesRead": 98304,
+          "downloadedRangeEnd": 103832,
+          "downloadProgressAgeMs": 1908,
+          "readInFlightMs": 824,
+          "maxReadMs": 272,
+          "pcmProducedSamples": 172032,
+          "pcmConsumedSamples": 172032,
+          "syntheticSilenceSamples": 68260
+        }
+      },
+      "lastRecovery": null,
+      "lastLocalStorageFailure": null
+    },
+    "selectedProvider": "monochrome",
+    "selectedProviderId": "239910648984977408"
+  },
+  "pausedFinally": true,
+  "observedBuffering": {
+    "events": [
+      {
+        "observedGeneration": 8,
+        "observedSeekSerial": 2,
+        "bufferingCount": 3,
+        "lastBuffering": {
+          "generation": 8,
+          "seekSerial": 2,
+          "stream": {
+            "readerObserved": false,
+            "networkReader": true,
+            "bytesRead": 0,
+            "downloadedRangeEnd": 0,
+            "downloadProgressAgeMs": null,
+            "readInFlightMs": null,
+            "maxReadMs": 0,
+            "pcmProducedSamples": 0,
+            "pcmConsumedSamples": 0,
+            "syntheticSilenceSamples": 2724
+          }
+        }
+      },
+      {
+        "observedGeneration": 8,
+        "observedSeekSerial": 2,
+        "bufferingCount": 4,
+        "lastBuffering": {
+          "generation": 8,
+          "seekSerial": 2,
+          "stream": {
+            "readerObserved": true,
+            "networkReader": true,
+            "bytesRead": 98304,
+            "downloadedRangeEnd": 103832,
+            "downloadProgressAgeMs": 1908,
+            "readInFlightMs": 824,
+            "maxReadMs": 272,
+            "pcmProducedSamples": 172032,
+            "pcmConsumedSamples": 172032,
+            "syntheticSilenceSamples": 68260
+          }
+        }
+      },
+      {
+        "observedGeneration": 9,
+        "observedSeekSerial": 2,
+        "bufferingCount": 4,
+        "lastBuffering": {
+          "generation": 8,
+          "seekSerial": 2,
+          "stream": {
+            "readerObserved": true,
+            "networkReader": true,
+            "bytesRead": 98304,
+            "downloadedRangeEnd": 103832,
+            "downloadProgressAgeMs": 1908,
+            "readInFlightMs": 824,
+            "maxReadMs": 272,
+            "pcmProducedSamples": 172032,
+            "pcmConsumedSamples": 172032,
+            "syntheticSilenceSamples": 68260
+          }
+        }
+      }
+    ],
+    "dropped": 0
+  }
+}

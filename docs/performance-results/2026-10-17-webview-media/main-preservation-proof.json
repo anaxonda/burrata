@@ -1,0 +1,21 @@
+{
+  "freshMainPreservation": {
+    "queue": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "queueTotal": 13,
+  "currentIndex": 6,
+  "paused": true,
+  "position": 29.087175,
+  "occurrenceIdsAvailableBefore": false,
+  "occurrenceIdsAvailableAfter": false,
+  "limitation": "WebView publishes no occurrence IDs yet; equality of empty ID arrays is not occurrence-identity qualification. The full ordered published queue projection (id, artist and title) and duplicate positions are preserved; other Track fields were not compared by this snapshot.",
+  "historicalRestore": false,
+  "seekOrResumeMain": false,
+  "normalMainBinarySha256": "39b6ed9626f201f948eb2918cc7b148c182a36a1434707d24be568a95a171a5e"
+}

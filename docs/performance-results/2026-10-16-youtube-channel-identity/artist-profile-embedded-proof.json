@@ -1,0 +1,14 @@
+{
+  "extension/provider-operations.js": {
+    "sha256": "9abd5d781b6616c18091dec48eb5a8f01b0018b11c5f7f3ee462385f57d30881",
+    "fullSourceBytesEmbedded": true
+  },
+  "scripts/provider-session-worker.mjs": {
+    "sha256": "ae1e1fa48bed988e38a0384686eb54ac1bfd47bac30f221af598762e839d8ad8",
+    "fullSourceBytesEmbedded": true
+  },
+  "extension/background.js": {
+    "sha256": "cfef6928bdd88d5d36943c49f3087104be5f9a7619ab2128488ed8f9ed80e059",
+    "fullSourceBytesEmbedded": true
+  }
+}

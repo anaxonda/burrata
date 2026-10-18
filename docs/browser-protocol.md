@@ -66,14 +66,42 @@ The app emits `browser-imported` with that result after transactional persistenc
 ## App-driven requests
 
 Extension connects native port while browser is running, polls at most once per two
-seconds while enabled: `{ "type": "poll" }`. Reply:
+seconds while enabled: `{ "type": "poll", "providerProtocolVersion": 2 }`. Reply:
 `{ "ok": true, "requests": [{ "id": "UUID", "url": "...", "provider": "..." }] }`.
 The extension opens a dedicated inactive provider tab. A normal verification/login gate
 is presented by bringing that tab forward; never solve challenges automatically.
 
-When app-driven requests are disabled, the extension sends `{ "type": "heartbeat" }`
+When app-driven requests are disabled, the extension sends
+`{ "type": "heartbeat", "providerProtocolVersion": 2 }`
 over native messaging every two seconds. This keeps manual companion status current
 without polling or opening provider pages. The popup status check also heartbeats.
+The protocol version gates provider operations; older companions can still import
+browser snapshots but cannot receive remote playlist operations.
+
+## Provider operations (protocol version 2)
+
+The app may queue a fixed `providerOperation` request through the same poll response:
+
+```json
+{
+  "id": "request UUID",
+  "kind": "providerOperation",
+  "operationId": "correlation UUID",
+  "provider": "spotify",
+  "operation": "search",
+  "args": { "query": "Example", "kind": "playlist", "limit": 25 }
+}
+```
+
+Provider values are `spotify` and `youtube`. Operations are limited to `connect`,
+`status`, `search`, `listPlaylists`, `getPlaylist`, and Spotify-only
+`addTracks`, `removeTracks`, and `moveTracks`. The extension performs the operation
+using the matching provider tab's existing session and returns a native
+`providerResult` message with both `requestId` and `operationId`, `ok`, and either
+`result` or `{ "code": "...", "message": "..." }` in `error`. The native app
+correlates both IDs, bounds the wait and response size, validates provider IDs and
+URLs, and rejects unsupported operations. Provider credentials and arbitrary
+endpoints or scripts are never sent to the native app.
 
 Bandcamp Discover does not expose song rows. The extension collects at most 20
 rendered artist-hosted `/album/{slug}` links from the current `/discover/{tag}`

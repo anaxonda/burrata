@@ -1,0 +1,59 @@
+{
+  "sourcePage": "https://cuneiformrecords.bandcamp.com/track/sorrows-of-the-moon-featuring-mary-halvorson-2",
+  "track": {
+    "id": 292222166,
+    "title": "Sorrows Of The Moon (featuring Mary Halvorson)",
+    "artist": "Ergo",
+    "durationSeconds": 310.254,
+    "publicStreaming": true,
+    "format": "mp3-128"
+  },
+  "freshPage": {
+    "status": 200,
+    "contentType": null,
+    "bytes": 209561,
+    "elapsedSeconds": 0.947
+  },
+  "streamDescriptor": {
+    "host": "t4.bcbits.com",
+    "pathPatternValid": true,
+    "queryParameterNames": ["p", "t", "token", "ts"],
+    "hasToken": true,
+    "hasTimestamp": true
+  },
+  "rangeRequests": {
+    "rangeStart": {"status": 206, "contentType": "audio/mpeg", "contentRangePresent": true, "rangeValid": true, "bytes": 65536, "elapsedSeconds": 0.268},
+    "rangeMiddle": {"status": 206, "contentType": "audio/mpeg", "rangeValid": true, "bytes": 65536, "elapsedSeconds": 0.138},
+    "rangeEnd": {"status": 206, "contentType": "audio/mpeg", "rangeValid": true, "bytes": 65536, "elapsedSeconds": 0.14}
+  },
+  "totalBytesFromContentRange": 5098066,
+  "fullLengthThreshold": {"bandcampResolverMinimumBytes": 3723048, "observedBytesPass": true},
+  "localDecode": {
+    "retainedFull": {"bytes": 5098066, "decodeExitCode": 0, "diagnosticCount": 0, "durationSeconds": 310.253333, "audioStreams": [{"codec_name": "mp3", "sample_rate": "44100", "channels": 2, "side_data_list": [{}]}]},
+    "endRange": {"bytes": 65536, "decodeExitCode": 0, "diagnosticCount": 0},
+    "middleRange": {"bytes": 65536, "decodeExitCode": 0, "diagnosticCount": 0}
+  },
+  "previouslyCapturedSignedUrlReprobe": {
+    "status": 206,
+    "rangeAccepted": true,
+    "timestampPresent": true,
+    "timestampWasExpired": false,
+    "expirationSemantics": "not conclusively verified; both fresh and earlier-captured URL answered 206 during this probe"
+  },
+  "privacyAndScope": {
+    "cookiesSent": false,
+    "authorizationSent": false,
+    "signedUrlIncluded": false,
+    "onlyBoundedRangeGetsForLiveMedia": true,
+    "fullMediaRefetched": false,
+    "sourcePagePublicTrack": true
+  },
+  "qualification": {
+    "explicitPublicTrackResolution": "verified once",
+    "mp3RangeStartMiddleEnd": "verified 206 partial content",
+    "fullRetainedFileDecode": "verified",
+    "burrataPlaybackAndSeek": "not verified",
+    "cancelExpiryRefresh": "not verified",
+    "crossPlatform": "not verified"
+  }
+}

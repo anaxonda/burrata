@@ -1,0 +1,44 @@
+{
+  "surface": "Chrome local Vite UI preview",
+  "widthsVisuallyInspected": [
+    1920,
+    500
+  ],
+  "narrowViewport": {
+    "width": 500,
+    "height": 800
+  },
+  "narrowRects": {
+    "nowPlaying": {
+      "x": 9,
+      "y": 715.5,
+      "width": 274,
+      "height": 49
+    },
+    "transport": {
+      "x": 290,
+      "y": 722,
+      "width": 201,
+      "height": 36
+    },
+    "scrubber": {
+      "x": 9,
+      "y": 772.5,
+      "width": 274,
+      "height": 11
+    },
+    "right": {
+      "x": 290,
+      "y": 762,
+      "width": 201,
+      "height": 32
+    }
+  },
+  "controlZoneOverlapObserved": false,
+  "viewportRestored": true,
+  "temporaryTabClosed": true,
+  "limitations": [
+    "Browser preview has no native provider connection.",
+    "Retained short radio metadata only; actual native playing/buffering/error and long-title geometry checks still required."
+  ]
+}

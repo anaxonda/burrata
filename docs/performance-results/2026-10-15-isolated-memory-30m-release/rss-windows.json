@@ -1,0 +1,9 @@
+{
+  "method": "median app-group summed RSS, first and last five measured minutes",
+  "firstWindowMedianBytes": 546156544,
+  "lastWindowMedianBytes": 542101504,
+  "medianDifferenceBytes": -4055040,
+  "firstWindowSamples": 287,
+  "lastWindowSamples": 287,
+  "limitations": "Single synthetic Linux run; shared resident pages may be counted more than once; not proof against leaks."
+}

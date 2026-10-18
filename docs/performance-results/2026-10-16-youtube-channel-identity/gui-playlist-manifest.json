@@ -1,0 +1,6 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-provider-1d0af32d1864/burrata",
+  "sha256": "1d0af32d18646a097a14422cc888a2ac1e95c7dd92675abe52218f47edf00971",
+  "profile": "development GUI",
+  "qualification": "Compiled; not launched. Playlist parse fix worker40pass. Spotify current login preserved in running ecGUI."
+}

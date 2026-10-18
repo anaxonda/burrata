@@ -1,0 +1,9 @@
+{
+  "changedOnly": [
+    "src-tauri/capabilities/main.json"
+  ],
+  "before": "b13676f91a596eb812adca205530869b760a2d44b9fd14794d1c58a26ddd33fc",
+  "after": "7878ff0e57ecf474232d7879ac31f14590e2bdb53f0892efee468a86766f38f8",
+  "permission": "allow-browse-remote-artist-tracks",
+  "nativeRustAndEmbeddedSourcesUnchangedSince808TestRun": true
+}

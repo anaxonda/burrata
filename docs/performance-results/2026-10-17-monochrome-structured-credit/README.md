@@ -1,0 +1,11 @@
+# Monochrome whole artist-credit playback matching
+
+Monochrome catalog entries flatten artist arrays into display text. A request credited to `Artist feat. Guest` can survive search scoring but fail the final text identity check against `Artist, Guest - Song`, even when the source lists the same ordered artists and exact title/duration.
+
+The reviewed fix retains the provider's structured `artistNames` array and adds a playback-only full-credit comparison. It compares every ordered name, normalizes existing credit joiners, never accepts a single-name subset, and keeps a single provider artist name indivisible. The new path requires nonempty exact normalized catalog title, supported requested version, finite positive durations within the existing five-second search rule, acceptable permission/confidence, no version-conflict flag and no contradictory nonempty ISRCs. Download matching is unchanged. Structured artist metadata is an additive serialization change for other catalog-entry consumers.
+
+Regressions cover the demonstrated join-phrase case, the verified alias path, wrong/reordered guests, wrong titles/versions/durations, restricted/low-confidence sources, conflicting ISRCs, empty/malformed credits, a single comma-containing artist name, punctuation-only title and unchanged download matching. Independent static review passed; the initial private patch had contradictory tests and an overly broad download insertion, both corrected before integration. Full native validation passes 1,064 tests, zero failures and 21 ignored in 15.99 seconds. All 541 pinned inputs remain unchanged. The development/debug executable build passes in 131 seconds, with all source pins unchanged. The immutable binary is `7a43ea0c8def`; live playback acceptance remains pending.
+
+This is a demonstrated multiartist-credit fix, not an established explanation for the Kaufman album failures. That album's three Monochrome candidates showed no exact canonical/verified-alias credit counters. No title-only matching, inferred transliteration or guessed recording IDs were introduced.
+
+Private source snapshots, reviewed patch manifest, source pins, test log and exact cache-cleanup ledgers are under `.cache/qualification-monochrome-structured-credit/`.

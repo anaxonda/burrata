@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "scope": "Three isolated native playback queue runs for a known-version-unavailable entry followed by a duplicate local recording occurrence.",
+  "runs": [
+    {
+      "run": 1,
+      "passed": true,
+      "transitionUpperBoundMs": 4735,
+      "duplicateLocalOccurrenceSustainedSeconds": 5,
+      "decodedConsumptionAndWallTimeVerified": true,
+      "pausedAtEnd": true
+    },
+    {
+      "run": 2,
+      "passed": true,
+      "transitionUpperBoundMs": 133,
+      "duplicateLocalOccurrenceSustainedSeconds": 5,
+      "decodedConsumptionAndWallTimeVerified": true,
+      "pausedAtEnd": true
+    },
+    {
+      "run": 3,
+      "passed": true,
+      "transitionUpperBoundMs": 113,
+      "duplicateLocalOccurrenceSustainedSeconds": 5,
+      "decodedConsumptionAndWallTimeVerified": true,
+      "pausedAtEnd": true
+    }
+  ],
+  "playbackNoticeReview": "A separate private live capture showed the unavailable reason and an Open catalog action while the following local occurrence was playing. The existing notice expires after about 5.5 seconds; a later capture after expiry correctly showed no notice.",
+  "limitations": [
+    "These are native playback runs, not the default WebView path; verify the same case in WebView before closing Sasa playback acceptance.",
+    "Although each run used a fresh profile, provider and preparation state were not controlled. Transition times are not cold-start measurements or p95 data.",
+    "Successful advancement to a duplicate local occurrence does not prove the unavailable candidate was the correct recording version.",
+    "The separate album playback issue remains open.",
+    "The report contains no track IDs, account identifiers, URLs, credentials or private screenshots."
+  ]
+}

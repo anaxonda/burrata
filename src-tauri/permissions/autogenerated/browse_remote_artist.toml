@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-remote-artist"
+description = "Enables the browse_remote_artist command without any pre-configured scope."
+commands.allow = ["browse_remote_artist"]
+
+[[permission]]
+identifier = "deny-browse-remote-artist"
+description = "Denies the browse_remote_artist command without any pre-configured scope."
+commands.deny = ["browse_remote_artist"]

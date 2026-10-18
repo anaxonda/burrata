@@ -59,13 +59,16 @@ function parseJsonScripts(doc, selectors='script#__NEXT_DATA__,script[type="appl
 }
 function shazamTrack(value){
   const track=value?.track&&typeof value.track==='object'?value.track:value;
-  const id=String(track?.key??track?.id??track?.shazamId??'');
-  const title=track?.title??track?.name;
-  const artist=track?.subtitle??track?.artist?.name??(Array.isArray(track?.artists)?track.artists.map(a=>typeof a==='string'?a:a?.name).filter(Boolean).join(', '):null);
-  const rank=rankNumber(value?.rank??value?.position??value?.chart_position??value?.chartRank??track?.rank??track?.position??track?.chart_position??track?.chartRank);
+  const id=[track?.key,track?.id,track?.shazamId].map(value=>String(value??'').trim()).find(value=>/^\d{1,20}$/.test(value))||'';
+  const title=[track?.title,track?.name].find(value=>typeof value==='string'&&value.trim())?.trim();
+  const artist=[track?.subtitle,track?.artist?.name,track?.artist?.['#text'],track?.artist?.artistName,
+    ...(Array.isArray(track?.artists)?[track.artists.map(a=>typeof a==='string'?a:a?.name??a?.artist?.name).filter(v=>typeof v==='string'&&v.trim()).join(', ')]:[])]
+    .find(value=>typeof value==='string'&&value.trim())?.trim();
+  const rank=[value?.rank,value?.position,value?.chart_position,value?.chartRank,track?.rank,track?.position,track?.chart_position,track?.chartRank]
+    .map(rankNumber).find(value=>value!==null);
   const href=track?.url??value?.url;
-  if(!/^\d{1,20}$/.test(id)||!rank||rank>10000||typeof title!=='string'||!title.trim()||typeof artist!=='string'||!artist.trim())return null;
-  return {id,title:title.trim(),artist:artist.trim(),rank,href:typeof href==='string'?href:null,artwork:track?.images?.coverart??track?.images?.coverArt??null};
+  if(!id||!rank||rank>10000||!title||!artist)return null;
+  return {id,title,artist,rank,href:typeof href==='string'?href:null,artwork:track?.images?.coverart??track?.images?.coverArt??null};
 }
 function shazamJsonEntries(doc,url){
   const found=[],seen=new Set(),scripts=parseJsonScripts(doc);
@@ -247,6 +250,20 @@ export function extract(doc, url) {
   const sourceUrl=provider==='spotify' ? canonicalSpotifyUrl(url) : url;
   const spotifyKind=provider==='spotify' ? (new URL(sourceUrl).pathname.match(/^\/(playlist|album)\/[^/]+\/?$/)?.[1] || null) : null;
   if (provider==='spotify' && !spotifyKind) throw new Error('Open a Spotify playlist or album.');
+  // Use album-level artist credits only when Spotify explicitly provides them
+  // in the album heading. They are a safe fallback for rows whose own artist
+  // links are absent, but must never leak into playlist entries.
+  let spotifyAlbumArtist='';
+  if(provider==='spotify'&&spotifyKind==='album') {
+    const heading=doc.querySelector('main h1,[role="main"] h1,h1');
+    for(let node=heading?.parentElement;node&&!spotifyAlbumArtist;node=node.parentElement) {
+      if(node.querySelector('[data-testid="tracklist-row"], [role="grid"] [role="row"]'))break;
+      const artists=[...node.querySelectorAll('a[href*="/artist/"]')]
+        .map(a=>a.textContent.trim())
+        .filter(name=>name&&!/^(?:various(?:\s+artists?)?|v\.?\s*a\.?)$/i.test(name));
+      spotifyAlbumArtist=[...new Set(artists)].join(', ');
+    }
+  }
   let entries=[];
   if (provider==='traxsource') {
     for (const row of doc.querySelectorAll('.trk-row')) {
@@ -257,15 +274,20 @@ export function extract(doc, url) {
       entries.push(entry(providerId,sourceUrl,artists,a.textContent.trim(),entries.length+1,{rank:rankNumber(text(row,'.tnum,.position,.rank')?.replace(/^#/,'')),version:text(row,'.version,.mix,.mix-name'),durationSeconds:time(text(row,'.title')),label:text(row,'.label'),genre:text(row,'.genre'),releaseDate:text(row,'.r-date'),bpm:num(text(row,'.bpm')),key:text(row,'.key'),artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url)}));
     }
   } else if (provider==='beatport') {
-    const named=v=>typeof v==='string'?v:v?.name||null;
+    const named=v=>{
+      if(typeof v==='string')return v.trim()||null;
+      const candidate=v?.name??v?.artist?.name??v?.artist?.artist_name??v?.artist_name;
+      return typeof candidate==='string'?candidate.trim()||null:null;
+    };
     const walk=(v,depth=0)=>{
       if(depth>30 || !v || typeof v!=='object') return;
       if(Array.isArray(v)){v.forEach(x=>walk(x,depth+1));return;}
       const t=v.track||v; const rank=rankNumber(v.position??v.rank??t.chart_position);
+      const trackTitle=[t.name,t.title].find(value=>typeof value==='string'&&value.trim());
       // Require explicit chart rank, avoiding related tracks and recommendations.
-      if(rank && /^\d+$/.test(String(t.id)) && typeof t.name==='string' && Array.isArray(t.artists)) {
+      if(rank && /^\d+$/.test(String(t.id)) && trackTitle && Array.isArray(t.artists)) {
         const artist=t.artists.map(named).filter(Boolean).join(', ');
-        if(artist) entries.push(entry(String(t.id),`https://www.beatport.com/track/${t.slug||'track'}/${t.id}`,artist,t.name,rank,{rank,version:t.mix_name||null,durationSeconds:num(t.length_ms)?t.length_ms/1000:num(t.duration),bpm:num(t.bpm),key:named(t.key),label:named(t.release?.label??t.label),album:named(t.release),genre:named(t.genre),releaseDate:t.publish_date||null,artworkUrl:link(t.release?.image?.uri??t.image?.uri,url),isrc:t.isrc||null,catalogNumber:t.release?.catalog_number||null})); return;
+        if(artist) entries.push(entry(String(t.id),`https://www.beatport.com/track/${t.slug||'track'}/${t.id}`,artist,trackTitle.trim(),rank,{rank,version:t.mix_name||null,durationSeconds:num(t.length_ms)?t.length_ms/1000:num(t.duration),bpm:num(t.bpm),key:named(t.key),label:named(t.release?.label??t.label),album:named(t.release),genre:named(t.genre),releaseDate:t.publish_date||null,artworkUrl:link(t.release?.image?.uri??t.image?.uri,url),isrc:t.isrc||null,catalogNumber:t.release?.catalog_number||null})); return;
       }
       Object.values(v).forEach(x=>walk(x,depth+1));
     };
@@ -344,7 +366,7 @@ export function extract(doc, url) {
     const spotifyRows=new Set([...doc.querySelectorAll('[data-testid="tracklist-row"], [role="row"][aria-rowindex]')].map(row=>row.querySelector('[data-testid="tracklist-row"]') || row));
     for(const row of spotifyRows) {
       const a=row.querySelector('a[href*="/track/"]');const sourceUrl=link(a?.getAttribute('href'),url);const id=sourceUrl?.match(/\/track\/([a-zA-Z0-9]+)/)?.[1];
-      const artist=[...row.querySelectorAll('a[href*="/artist/"]')].map(a=>a.textContent.trim()).filter(Boolean).join(', ');
+      const artist=[...row.querySelectorAll('a[href*="/artist/"]')].map(a=>a.textContent.trim()).filter(Boolean).join(', ') || spotifyAlbumArtist;
       // aria-rowindex counts every row in its grid, including a column header.
       // Spotify commonly marks that header as row 1, making the first track 2.
       const grid=row.closest('[role="grid"], [role="table"]');
@@ -360,17 +382,7 @@ export function extract(doc, url) {
   // Spotify album pages expose the album artist beside the album heading.
   // Keep this strictly tied to that header metadata; track-row artists describe
   // individual recordings and must never be used as an album-level fallback.
-  if(provider==='spotify'&&spotifyKind==='album') {
-    const heading=doc.querySelector('main h1,[role="main"] h1,h1');
-    let node=heading?.parentElement, albumArtist='';
-    while(node&&!albumArtist) {
-      if(node.querySelector('[data-testid="tracklist-row"], [role="grid"] [role="row"]'))break;
-      albumArtist=[...node.querySelectorAll('a[href*="/artist/"]')]
-        .map(a=>a.textContent.trim()).find(Boolean)||'';
-      node=node.parentElement;
-    }
-    if(albumArtist)title=`${albumArtist} — ${title}`;
-  }
+  if(spotifyAlbumArtist)title=`${spotifyAlbumArtist} — ${title}`;
   const albumArtwork=provider==='spotify'&&spotifyKind==='album' ? link(doc.querySelector('main img[src], [role="main"] img[src]')?.getAttribute('src'),url) : null;
   // A chart title Top 100 describes its extent; playlists need explicit track-count text.
   const metadataText=[...(doc.querySelector('main')||doc.body).querySelectorAll('p,span')].map(e=>e.textContent).join(' ');

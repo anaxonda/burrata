@@ -1,4 +1,5 @@
 import type { Track } from "./types";
+import type { TrackSortField, SortDirection } from "./track-sort";
 
 export type ArtistProvider = "musicbrainz" | "discogs";
 
@@ -182,6 +183,26 @@ export interface MetadataReview {
   warnings: string[];
 }
 
+export interface ArtistLocalAssetsPageRequest {
+  names: string[];
+  limit: number;
+  offset: number;
+  query: string;
+  sortField: TrackSortField;
+  direction: SortDirection;
+  minDurationSeconds?: number;
+  maxDurationSeconds?: number;
+  availability: "all" | "on-device" | "not-on-device";
+}
+
+export interface ArtistLocalAssetsPage {
+  items: Track[];
+  total: number;
+  limit: number;
+  offset: number;
+  sortAvailability?: Partial<Record<TrackSortField, boolean>> | null;
+}
+
 export interface ArtistPageProps {
   activeTrack: Track | null;
   artistName?: string | null;
@@ -192,6 +213,7 @@ export interface ArtistPageProps {
   onArtistSelected?: (artist: ArtistRef | null, name?: string) => void;
   onScroll?: (position: number) => void;
   localTracks: Track[];
+  onLoadLocalAssetsPage?: (request: ArtistLocalAssetsPageRequest) => Promise<ArtistLocalAssetsPage>;
   searchArtists: (query: string, page: number) => Promise<ArtistSearchPage>;
   getArtistProfile: (artist: ArtistRef) => Promise<ArtistProfile>;
   getArtistReleases: (artist: ArtistRef, cursor?: string | null) => Promise<ArtistReleasePage>;
@@ -206,7 +228,10 @@ export interface ArtistPageProps {
   onDownloadTrack?: (track: Track) => void | Promise<void>;
   onFavoriteTrack?: (track: Track) => void | Promise<void>;
   onAddTrackToPlaylist?: (track: Track) => void | Promise<void>;
+  onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
   onArtistNavigate?: (artist: ArtistRef) => void | Promise<void>;
+  playingTrack?: Track | null;
+  bufferingTrack?: Track | null;
   playingTrackId?: string;
   bufferingTrackId?: string;
   paused?: boolean;

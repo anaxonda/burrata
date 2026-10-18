@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "engine": "webview",
+  "mode": "local",
+  "binarySha256": "68b12f3bb9663ed492d2e6de7ed53e2d80d3a7ca3501eb4a7d5165242628301e",
+  "pass": true,
+  "physicalAudibilityMeasured": false,
+  "steps": [
+    {
+      "step": "startup",
+      "pass": true,
+      "trackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "sessionId": "99365b3a-a3c5-4857-b053-98428123c0bd",
+      "sourceGeneration": 1792228111146001,
+      "readyState": 4,
+      "actualPaused": false,
+      "actualCurrentTime": 6.097671,
+      "decodedDuration": 360,
+      "expectedDuration": 360,
+      "progressed": true,
+      "sustained": {
+        "wallMs": 5064.615202000001,
+        "advancedMs": 5127.028,
+        "observations": 8,
+        "physicalAudibilityMeasured": false
+      },
+      "localFixtureIdentity": true,
+      "provider": null,
+      "providerId": null,
+      "identityLimitation": null
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "paused": true,
+      "currentTime": 10,
+      "seekSerialAdvanced": true,
+      "generation": 1792228111146001
+    },
+    {
+      "step": "resume_progress",
+      "pass": true,
+      "sustained": {
+        "wallMs": 5236.751653000001,
+        "advancedMs": 5270.580000000001,
+        "observations": 8,
+        "physicalAudibilityMeasured": false
+      },
+      "paused": false,
+      "currentTime": 16.091404
+    },
+    {
+      "step": "beyond_old_cutoff_seek",
+      "pass": true,
+      "requestedSeconds": 250,
+      "currentTime": 250,
+      "actualPaused": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "beyond_old_cutoff_progress",
+      "pass": true,
+      "currentTime": 256.424583,
+      "sustained": {
+        "wallMs": 5698.0922500000015,
+        "advancedMs": 5656.445999999988,
+        "observations": 9,
+        "physicalAudibilityMeasured": false
+      }
+    }
+  ],
+  "sourceIdentityQualified": true,
+  "staleMediaSampleRetries": 0,
+  "skewRetryCount": 0,
+  "occurrenceIdsAvailable": true,
+  "singleTrackIdentityOnly": false,
+  "engineSnapshot": null,
+  "initialMedia": {
+    "engine": "webview",
+    "applicable": true,
+    "currentIndex": 0,
+    "queueTotal": 1,
+    "sourceGeneration": 1792228111146001,
+    "seekSerial": 0,
+    "media": {
+      "currentTime": 0.406013,
+      "duration": 360,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "catalogueDurationSeconds": 360,
+    "sourceIdentityQualified": false
+  },
+  "sourceDiagnostics": {
+    "lastResolvedSource": null,
+    "lastMediaFailureSource": null,
+    "lastMediaFailure": null,
+    "playerMessage": "Playing verified audio",
+    "status": "playing",
+    "queueEntryIds": [
+      "3b2ec34a-cf65-4d1a-9b76-613321ce7eda"
+    ],
+    "entryId": "3b2ec34a-cf65-4d1a-9b76-613321ce7eda"
+  },
+  "pausedFinally": true,
+  "observerOverhead": {
+    "guardCalls": 111,
+    "guardWallMs": 18181.267350999984,
+    "limits": "Functional observer overhead only; no CPU, latency percentile or performance qualification"
+  }
+}

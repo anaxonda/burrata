@@ -1,0 +1,31 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-tests-v9-contract-38a8f3dde06f/burrata_lib",
+  "binarySha256": "38a8f3dde06fbceb8b3cc0f53751fafdee992ee2ac48fc00ab1c02d009c9bbd9",
+  "sourceManifest": "native-contract-manifest.json",
+  "test": "storage::tests::benchmark_first_page_global_sort_availability",
+  "runs": [
+    {
+      "samples": 3,
+      "warmups": 3,
+      "contention": false,
+      "log": "global-availability-exploratory-current.log",
+      "elapsedSeconds": 76.66
+    },
+    {
+      "samples": 20,
+      "warmups": 3,
+      "contention": true,
+      "log": "global-availability-20-current-contention.log",
+      "elapsedSeconds": 111.24
+    }
+  ],
+  "environment": {
+    "TMPDIR": "/home/loki/projects/burrata/.cache/native-test-temp",
+    "SQLITE_TMPDIR": "/home/loki/projects/burrata/.cache/native-test-temp",
+    "BURRATA_AVAILABILITY_BENCH_SAMPLES": "3 then 20",
+    "BURRATA_AVAILABILITY_BENCH_CONTENTION": "unset then 1"
+  },
+  "build": "unoptimized development test",
+  "isolation": "No compiler/test/browser fixture jobs or shared frontend/native source changes during either timing run. Existing main GUI/login remains idle and preserved.",
+  "scope": "Store sourceOrder first-page compatibility reads,200rows,known remote metadata,noassets; fixture construction/backfill warmup outside reported page samples. Contention separately pairs one reader and favorite writer; not GUI,IPC,playback,CPU or release qualification."
+}

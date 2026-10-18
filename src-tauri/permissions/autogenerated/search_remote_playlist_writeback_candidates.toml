@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-search-remote-playlist-writeback-candidates"
+description = "Enables the search_remote_playlist_writeback_candidates command without any pre-configured scope."
+commands.allow = ["search_remote_playlist_writeback_candidates"]
+
+[[permission]]
+identifier = "deny-search-remote-playlist-writeback-candidates"
+description = "Denies the search_remote_playlist_writeback_candidates command without any pre-configured scope."
+commands.deny = ["search_remote_playlist_writeback_candidates"]

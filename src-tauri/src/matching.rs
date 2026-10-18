@@ -1,6 +1,6 @@
 //! Conservative recording matching. A known version mismatch is never a recommendation.
 use crate::models::{Candidate, Track};
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 
 pub fn normalize(value: &str) -> String {
     value
@@ -11,6 +11,123 @@ pub fn normalize(value: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Split one balanced parenthetical group at the end of a display string.
+/// Returns the trimmed prefix and the full parenthetical contents without delimiters.
+pub fn split_balanced_trailing_parenthetical(value: &str) -> Option<(&str, &str)> {
+    let value = value.trim_end();
+    if !value.ends_with(')') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut opening = None;
+    for (index, character) in value.char_indices().rev() {
+        match character {
+            ')' => depth = depth.checked_add(1)?,
+            '(' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    opening = Some(index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let opening = opening?;
+    let prefix = value[..opening].trim_end();
+    let mut prefix_depth = 0usize;
+    for character in prefix.chars() {
+        match character {
+            '(' => prefix_depth = prefix_depth.checked_add(1)?,
+            ')' => prefix_depth = prefix_depth.checked_sub(1)?,
+            _ => {}
+        }
+    }
+    if prefix_depth != 0 {
+        return None;
+    }
+    let contents = value[opening + 1..value.len() - 1].trim();
+    (!prefix.is_empty() && !contents.is_empty()).then_some((prefix, contents))
+}
+
+fn parse_display_runtime(value: &str) -> Option<f64> {
+    let (minutes, seconds) = value.split_once(':')?;
+    if minutes.is_empty()
+        || !minutes.bytes().all(|byte| byte.is_ascii_digit())
+        || seconds.len() != 2
+        || !seconds.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let minutes = minutes.parse::<u64>().ok()?;
+    let seconds = seconds.parse::<u64>().ok()?;
+    if seconds >= 60 {
+        return None;
+    }
+    let total = minutes.checked_mul(60)?.checked_add(seconds)?;
+    (total > 0 && total <= 86_400).then_some(total as f64)
+}
+
+fn strict_display_version(value: &str) -> bool {
+    let normalized = value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "main version" | "original version" | "album version"
+    )
+}
+
+/// Parse only an explicit, whitelisted version label with a balanced trailing m:ss
+/// display runtime, such as `Main Version (4:41)`.
+pub fn parse_strict_version_runtime(value: &str) -> Option<(String, f64)> {
+    let (label, runtime) = split_balanced_trailing_parenthetical(value)?;
+    if !strict_display_version(label) {
+        return None;
+    }
+    Some((label.to_owned(), parse_display_runtime(runtime)?))
+}
+
+/// Build a transient matching view for legacy/imported titles that contain a known
+/// display version and runtime. This clone is never persisted and respects manual tags.
+pub fn ephemeral_playback_identity(track: &Track) -> Cow<'_, Track> {
+    let manual = &track.provenance["manualFields"];
+    if track.playback_range.is_some()
+        || track.duration_seconds.is_some()
+        || manual["title"] == true
+        || manual["version"] == true
+        || manual["durationSeconds"] == true
+        || track.provenance["chapters"]
+            .as_array()
+            .is_some_and(|values| !values.is_empty())
+    {
+        return Cow::Borrowed(track);
+    }
+
+    if let Some(version) = track.version.as_deref() {
+        let Some((_, seconds)) = parse_strict_version_runtime(version) else {
+            return Cow::Borrowed(track);
+        };
+        let mut identity = track.clone();
+        identity.duration_seconds = Some(seconds);
+        return Cow::Owned(identity);
+    }
+    let Some((title, suffix)) = split_balanced_trailing_parenthetical(&track.title) else {
+        return Cow::Borrowed(track);
+    };
+    let Some((_, seconds)) = parse_strict_version_runtime(suffix) else {
+        return Cow::Borrowed(track);
+    };
+    let mut identity = track.clone();
+    identity.title = title.to_owned();
+    identity.version = Some(suffix.to_owned());
+    identity.duration_seconds = Some(seconds);
+    // Do not add inferred fields to persisted provenance.
+    Cow::Owned(identity)
 }
 
 /// Catalog imports sometimes store a displayed run time at the end of the version label.
@@ -83,11 +200,19 @@ pub fn score_candidate(track: &Track, candidate: &mut Candidate) {
     let uploader = normalize(candidate.uploader.as_deref().unwrap_or(""));
     let expected = normalize_version(track.version.as_deref().unwrap_or(""));
     let title_match = coverage(&title, &upload);
-    let artist_match = coverage(&artist, &format!("{upload} {uploader}"));
+    let artist_match = coverage(&artist, &upload);
     let mut reasons = vec![
         format!("Title token match: {:.0}%", title_match * 100.0),
         format!("Artist token match: {:.0}%", artist_match * 100.0),
     ];
+    if !artist.is_empty()
+        && contains_phrase(&uploader, &artist)
+        && !contains_phrase(&upload, &artist)
+    {
+        reasons.push(
+            "Uploader name resembles the artist but is not counted as artist identity".into(),
+        );
+    }
     let mut mismatch = false;
     let mut version_verified = false;
     // Artist/title words may include "Radio" or "Live" without describing the version.
@@ -149,7 +274,7 @@ pub fn score_candidate(track: &Track, candidate: &mut Candidate) {
         && title_match == 1.0
         && artist_match == 1.0
         && contains_phrase(&upload, &title)
-        && contains_phrase(&format!("{upload} {uploader}"), &artist)
+        && contains_phrase(&upload, &artist)
         && version_verified
         && duration_verified
     {
@@ -182,6 +307,22 @@ mod tests {
             duration_seconds: Some(duration),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn uploader_name_alone_does_not_verify_the_artist() {
+        let mut candidate = Candidate {
+            title: "Night Drive Extended Mix".into(),
+            uploader: Some("Artist One".into()),
+            duration_seconds: Some(360.0),
+            ..Candidate::default()
+        };
+        score_candidate(&track(), &mut candidate);
+        assert_eq!(candidate.confidence, "low");
+        assert!(candidate
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("not counted as artist identity")));
     }
     #[test]
     fn exact_version_and_duration_are_high() {
@@ -264,6 +405,92 @@ mod tests {
         let mut c = candidate("Artist One - Live Radio (Extended Mix)", 360.0);
         score_candidate(&t, &mut c);
         assert_eq!(c.confidence, "high");
+    }
+
+    #[test]
+    fn nested_main_version_runtime_is_parsed_only_for_a_strict_balanced_suffix() {
+        assert_eq!(
+            split_balanced_trailing_parenthetical("Sasa (Main Version (4:41))"),
+            Some(("Sasa", "Main Version (4:41)"))
+        );
+        assert_eq!(
+            parse_strict_version_runtime("Main Version (4:41)"),
+            Some(("Main Version".into(), 281.0))
+        );
+        for rejected in [
+            "Radio Edit (4:41)",
+            "Radio Version (4:41)",
+            "Remix Version (4:41)",
+            "Main Mix (4:41)",
+            "Main Version (4:60)",
+            "Main Version (4:41",
+            "Sasa (Unclosed (Main Version (4:41))",
+        ] {
+            assert!(
+                parse_strict_version_runtime(rejected).is_none(),
+                "{rejected}"
+            );
+        }
+    }
+
+    #[test]
+    fn ephemeral_playback_identity_preserves_original_id_and_manual_or_chapter_fields() {
+        let track = Track {
+            id: "import:stable".into(),
+            title: "Sasa (Main Version (4:41))".into(),
+            version: None,
+            duration_seconds: None,
+            provenance: serde_json::json!({"sourceRank":7}),
+            ..Track::default()
+        };
+        let identity = ephemeral_playback_identity(&track);
+        assert!(matches!(&identity, Cow::Owned(_)));
+        assert_eq!(identity.id, track.id);
+        assert_eq!(identity.title, "Sasa");
+        assert_eq!(identity.version.as_deref(), Some("Main Version (4:41)"));
+        assert_eq!(identity.duration_seconds, Some(281.0));
+        assert_eq!(identity.provenance, track.provenance);
+        assert_eq!(track.duration_seconds, None);
+        let manually_titled = Track {
+            provenance: serde_json::json!({"manualFields":{"title":true}}),
+            ..track.clone()
+        };
+        assert!(matches!(
+            ephemeral_playback_identity(&manually_titled),
+            Cow::Borrowed(_)
+        ));
+        let chapter = Track {
+            provenance: serde_json::json!({"chapters":[{"id":"chapter"}]}),
+            ..track.clone()
+        };
+        assert!(matches!(
+            ephemeral_playback_identity(&chapter),
+            Cow::Borrowed(_)
+        ));
+        let has_duration = Track {
+            duration_seconds: Some(280.0),
+            ..track.clone()
+        };
+        assert!(matches!(
+            ephemeral_playback_identity(&has_duration),
+            Cow::Borrowed(_)
+        ));
+        for field in ["title", "version", "durationSeconds"] {
+            let manual = Track {
+                provenance: serde_json::json!({"manualFields":{field:true}}),
+                ..track.clone()
+            };
+            assert!(matches!(
+                ephemeral_playback_identity(&manual),
+                Cow::Borrowed(_)
+            ));
+        }
+        assert_eq!(
+            parse_strict_version_runtime("Main Version (1440:00)"),
+            Some(("Main Version".into(), 86_400.0))
+        );
+        assert!(parse_strict_version_runtime("Main Version (1440:01)").is_none());
+        assert!(parse_strict_version_runtime("Main[Version] (4:41)").is_none());
     }
 
     #[test]

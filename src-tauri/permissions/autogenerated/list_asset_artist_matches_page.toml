@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-asset-artist-matches-page"
+description = "Enables the list_asset_artist_matches_page command without any pre-configured scope."
+commands.allow = ["list_asset_artist_matches_page"]
+
+[[permission]]
+identifier = "deny-list-asset-artist-matches-page"
+description = "Denies the list_asset_artist_matches_page command without any pre-configured scope."
+commands.deny = ["list_asset_artist_matches_page"]

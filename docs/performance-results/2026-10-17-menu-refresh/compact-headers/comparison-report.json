@@ -1,0 +1,1199 @@
+{
+  "scope": "Synthetic exact-component fixture only. Before uses untouched production copies; after uses staged CSS copies in the workspace `.tmp` directory. No live application or playback was used.",
+  "viewportSizes": [
+    "1280x720",
+    "707x480"
+  ],
+  "syntheticPlayerHeight": 90,
+  "results": [
+    {
+      "variant": "before",
+      "component": "TrackMenu",
+      "screenshot": "before-trackmenu-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "playerHeight": 90,
+      "playerTop": 630,
+      "centered": false,
+      "card": {
+        "x": 944,
+        "y": 63,
+        "width": 320,
+        "height": 561,
+        "scrollHeight": 559,
+        "clientHeight": 559,
+        "bottom": 624,
+        "right": 1264,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 81,
+        "title": "A Long Example Track Title for Rendering",
+        "dialogAriaLabel": "Actions for A Long Example Track Title for Rendering",
+        "titleClientWidth": 242,
+        "titleScrollWidth": 242,
+        "artistText": "The Example Band",
+        "artistBox": {
+          "width": 242,
+          "height": 18
+        },
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Add to playlist…",
+      "rows": [
+        {
+          "label": "Add to playlist…",
+          "height": 36,
+          "top": 157,
+          "bottom": 193
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 196,
+          "bottom": 232
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 232,
+          "bottom": 268
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 268,
+          "bottom": 304
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 309,
+          "bottom": 345
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 350,
+          "bottom": 389
+        },
+        {
+          "label": "Download options…",
+          "height": 36,
+          "top": 389,
+          "bottom": 425
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 425,
+          "bottom": 461
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 461,
+          "bottom": 497
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 497,
+          "bottom": 533
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 538,
+          "bottom": 574
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 579,
+          "bottom": 615
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "component": "TrackMenu",
+      "screenshot": "before-trackmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": false,
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "scrollHeight": 559,
+        "clientHeight": 372,
+        "bottom": 384,
+        "right": 691,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 81,
+        "title": "A Long Example Track Title for Rendering",
+        "dialogAriaLabel": "Actions for A Long Example Track Title for Rendering",
+        "titleClientWidth": 227,
+        "titleScrollWidth": 227,
+        "artistText": "The Example Band",
+        "artistBox": {
+          "width": 227,
+          "height": 18
+        },
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Add to playlist…",
+      "rows": [
+        {
+          "label": "Add to playlist…",
+          "height": 36,
+          "top": 104,
+          "bottom": 140
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 143,
+          "bottom": 179
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 179,
+          "bottom": 215
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 215,
+          "bottom": 251
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 256,
+          "bottom": 292
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 297,
+          "bottom": 336
+        },
+        {
+          "label": "Download options…",
+          "height": 36,
+          "top": 336,
+          "bottom": 372
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 372,
+          "bottom": 408
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 408,
+          "bottom": 444
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 444,
+          "bottom": 480
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 485,
+          "bottom": 521
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 526,
+          "bottom": 562
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "component": "PlaylistMenu",
+      "screenshot": "before-playlistmenu-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "playerHeight": 90,
+      "playerTop": 630,
+      "centered": false,
+      "card": {
+        "x": 944,
+        "y": 242,
+        "width": 320,
+        "height": 382,
+        "scrollHeight": 380,
+        "clientHeight": 380,
+        "bottom": 624,
+        "right": 1264,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 59,
+        "title": "A Long Collection Name for Rendering",
+        "dialogAriaLabel": "Actions for playlist A Long Collection Name for Rendering",
+        "titleClientWidth": 242,
+        "titleScrollWidth": 242,
+        "artistText": null,
+        "artistBox": null,
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Open playlist",
+      "rows": [
+        {
+          "label": "Open playlist",
+          "height": 36,
+          "top": 314,
+          "bottom": 350
+        },
+        {
+          "label": "Rename",
+          "height": 36,
+          "top": 353,
+          "bottom": 389
+        },
+        {
+          "label": "Refresh playlist",
+          "height": 36,
+          "top": 389,
+          "bottom": 425
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 430,
+          "bottom": 466
+        },
+        {
+          "label": "Download playlist",
+          "height": 36,
+          "top": 466,
+          "bottom": 502
+        },
+        {
+          "label": "Make editable copy",
+          "height": 36,
+          "top": 502,
+          "bottom": 538
+        },
+        {
+          "label": "Export playlist",
+          "height": 36,
+          "top": 538,
+          "bottom": 574
+        },
+        {
+          "label": "Delete playlist",
+          "height": 36,
+          "top": 579,
+          "bottom": 615
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "component": "PlaylistMenu",
+      "screenshot": "before-playlistmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": false,
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "scrollHeight": 380,
+        "clientHeight": 372,
+        "bottom": 384,
+        "right": 691,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 59,
+        "title": "A Long Collection Name for Rendering",
+        "dialogAriaLabel": "Actions for playlist A Long Collection Name for Rendering",
+        "titleClientWidth": 227,
+        "titleScrollWidth": 227,
+        "artistText": null,
+        "artistBox": null,
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Open playlist",
+      "rows": [
+        {
+          "label": "Open playlist",
+          "height": 36,
+          "top": 82,
+          "bottom": 118
+        },
+        {
+          "label": "Rename",
+          "height": 36,
+          "top": 121,
+          "bottom": 157
+        },
+        {
+          "label": "Refresh playlist",
+          "height": 36,
+          "top": 157,
+          "bottom": 193
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 198,
+          "bottom": 234
+        },
+        {
+          "label": "Download playlist",
+          "height": 36,
+          "top": 234,
+          "bottom": 270
+        },
+        {
+          "label": "Make editable copy",
+          "height": 36,
+          "top": 270,
+          "bottom": 306
+        },
+        {
+          "label": "Export playlist",
+          "height": 36,
+          "top": 306,
+          "bottom": 342
+        },
+        {
+          "label": "Delete playlist",
+          "height": 36,
+          "top": 347,
+          "bottom": 383
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "component": "TrackMenu",
+      "screenshot": "after-trackmenu-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "playerHeight": 90,
+      "playerTop": 630,
+      "centered": false,
+      "card": {
+        "x": 944,
+        "y": 107,
+        "width": 320,
+        "height": 517,
+        "scrollHeight": 515,
+        "clientHeight": 515,
+        "bottom": 624,
+        "right": 1264,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 37,
+        "title": "A Long Example Track Title for Rendering",
+        "dialogAriaLabel": "Actions for A Long Example Track Title for Rendering",
+        "titleClientWidth": 258,
+        "titleScrollWidth": 328,
+        "closeBox": {
+          "width": 28,
+          "height": 28
+        },
+        "artistText": "The Example Band",
+        "artistBox": {
+          "width": 1,
+          "height": 1
+        },
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Add to playlist…",
+      "rows": [
+        {
+          "label": "Add to playlist…",
+          "height": 36,
+          "top": 157,
+          "bottom": 193
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 196,
+          "bottom": 232
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 232,
+          "bottom": 268
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 268,
+          "bottom": 304
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 309,
+          "bottom": 345
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 350,
+          "bottom": 389
+        },
+        {
+          "label": "Download options…",
+          "height": 36,
+          "top": 389,
+          "bottom": 425
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 425,
+          "bottom": 461
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 461,
+          "bottom": 497
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 497,
+          "bottom": 533
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 538,
+          "bottom": 574
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 579,
+          "bottom": 615
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "component": "TrackMenu",
+      "screenshot": "after-trackmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": false,
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "scrollHeight": 515,
+        "clientHeight": 372,
+        "bottom": 384,
+        "right": 691,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 37,
+        "title": "A Long Example Track Title for Rendering",
+        "dialogAriaLabel": "Actions for A Long Example Track Title for Rendering",
+        "titleClientWidth": 243,
+        "titleScrollWidth": 328,
+        "closeBox": {
+          "width": 28,
+          "height": 28
+        },
+        "artistText": "The Example Band",
+        "artistBox": {
+          "width": 1,
+          "height": 1
+        },
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Add to playlist…",
+      "rows": [
+        {
+          "label": "Add to playlist…",
+          "height": 36,
+          "top": 60,
+          "bottom": 96
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 99,
+          "bottom": 135
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 135,
+          "bottom": 171
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 171,
+          "bottom": 207
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 212,
+          "bottom": 248
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 253,
+          "bottom": 292
+        },
+        {
+          "label": "Download options…",
+          "height": 36,
+          "top": 292,
+          "bottom": 328
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 328,
+          "bottom": 364
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 364,
+          "bottom": 400
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 400,
+          "bottom": 436
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 441,
+          "bottom": 477
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 482,
+          "bottom": 518
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "component": "PlaylistMenu",
+      "screenshot": "after-playlistmenu-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "playerHeight": 90,
+      "playerTop": 630,
+      "centered": false,
+      "card": {
+        "x": 944,
+        "y": 264,
+        "width": 320,
+        "height": 360,
+        "scrollHeight": 358,
+        "clientHeight": 358,
+        "bottom": 624,
+        "right": 1264,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 37,
+        "title": "A Long Collection Name for Rendering",
+        "dialogAriaLabel": "Actions for playlist A Long Collection Name for Rendering",
+        "titleClientWidth": 258,
+        "titleScrollWidth": 305,
+        "closeBox": {
+          "width": 28,
+          "height": 28
+        },
+        "artistText": null,
+        "artistBox": null,
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Open playlist",
+      "rows": [
+        {
+          "label": "Open playlist",
+          "height": 36,
+          "top": 314,
+          "bottom": 350
+        },
+        {
+          "label": "Rename",
+          "height": 36,
+          "top": 353,
+          "bottom": 389
+        },
+        {
+          "label": "Refresh playlist",
+          "height": 36,
+          "top": 389,
+          "bottom": 425
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 430,
+          "bottom": 466
+        },
+        {
+          "label": "Download playlist",
+          "height": 36,
+          "top": 466,
+          "bottom": 502
+        },
+        {
+          "label": "Make editable copy",
+          "height": 36,
+          "top": 502,
+          "bottom": 538
+        },
+        {
+          "label": "Export playlist",
+          "height": 36,
+          "top": 538,
+          "bottom": 574
+        },
+        {
+          "label": "Delete playlist",
+          "height": 36,
+          "top": 579,
+          "bottom": 615
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "component": "PlaylistMenu",
+      "screenshot": "after-playlistmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": false,
+      "card": {
+        "x": 371,
+        "y": 24,
+        "width": 320,
+        "height": 360,
+        "scrollHeight": 358,
+        "clientHeight": 358,
+        "bottom": 384,
+        "right": 691,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 37,
+        "title": "A Long Collection Name for Rendering",
+        "dialogAriaLabel": "Actions for playlist A Long Collection Name for Rendering",
+        "titleClientWidth": 258,
+        "titleScrollWidth": 305,
+        "closeBox": {
+          "width": 28,
+          "height": 28
+        },
+        "artistText": null,
+        "artistBox": null,
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Open playlist",
+      "rows": [
+        {
+          "label": "Open playlist",
+          "height": 36,
+          "top": 74,
+          "bottom": 110
+        },
+        {
+          "label": "Rename",
+          "height": 36,
+          "top": 113,
+          "bottom": 149
+        },
+        {
+          "label": "Refresh playlist",
+          "height": 36,
+          "top": 149,
+          "bottom": 185
+        },
+        {
+          "label": "Open source",
+          "height": 36,
+          "top": 190,
+          "bottom": 226
+        },
+        {
+          "label": "Download playlist",
+          "height": 36,
+          "top": 226,
+          "bottom": 262
+        },
+        {
+          "label": "Make editable copy",
+          "height": 36,
+          "top": 262,
+          "bottom": 298
+        },
+        {
+          "label": "Export playlist",
+          "height": 36,
+          "top": 298,
+          "bottom": 334
+        },
+        {
+          "label": "Delete playlist",
+          "height": 36,
+          "top": 339,
+          "bottom": 375
+        }
+      ]
+    },
+    {
+      "variant": "after-centered",
+      "component": "TrackMenu",
+      "screenshot": "after-centered-trackmenu-1280x720.png",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "playerHeight": 90,
+      "playerTop": 630,
+      "centered": true,
+      "card": {
+        "x": 480,
+        "y": 35,
+        "width": 320,
+        "height": 561,
+        "scrollHeight": 559,
+        "clientHeight": 559,
+        "bottom": 596,
+        "right": 800,
+        "overlapsPlayer": false,
+        "playerGap": 35
+      },
+      "header": {
+        "height": 81,
+        "title": "A Long Example Track Title for Rendering",
+        "dialogAriaLabel": "Actions for A Long Example Track Title for Rendering",
+        "titleClientWidth": 242,
+        "titleScrollWidth": 242,
+        "closeBox": {
+          "width": 34,
+          "height": 34
+        },
+        "artistText": "The Example Band",
+        "artistBox": {
+          "width": 242,
+          "height": 18
+        },
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Add to playlist…",
+      "rows": [
+        {
+          "label": "Add to playlist…",
+          "height": 36,
+          "top": 129,
+          "bottom": 165
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 168,
+          "bottom": 204
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 204,
+          "bottom": 240
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 240,
+          "bottom": 276
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 281,
+          "bottom": 317
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 322,
+          "bottom": 361
+        },
+        {
+          "label": "Download options…",
+          "height": 36,
+          "top": 361,
+          "bottom": 397
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 397,
+          "bottom": 433
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 433,
+          "bottom": 469
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 469,
+          "bottom": 505
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 510,
+          "bottom": 546
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 551,
+          "bottom": 587
+        }
+      ]
+    },
+    {
+      "variant": "after-centered",
+      "component": "TrackMenu",
+      "screenshot": "after-centered-trackmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": true,
+      "card": {
+        "x": 194,
+        "y": 8,
+        "width": 320,
+        "height": 374,
+        "scrollHeight": 559,
+        "clientHeight": 372,
+        "bottom": 382,
+        "right": 514,
+        "overlapsPlayer": false,
+        "playerGap": 8
+      },
+      "header": {
+        "height": 81,
+        "title": "A Long Example Track Title for Rendering",
+        "dialogAriaLabel": "Actions for A Long Example Track Title for Rendering",
+        "titleClientWidth": 227,
+        "titleScrollWidth": 227,
+        "closeBox": {
+          "width": 34,
+          "height": 34
+        },
+        "artistText": "The Example Band",
+        "artistBox": {
+          "width": 227,
+          "height": 18
+        },
+        "downloadedText": null,
+        "downloadedBox": null
+      },
+      "activeElement": "Add to playlist…",
+      "rows": [
+        {
+          "label": "Add to playlist…",
+          "height": 36,
+          "top": 102,
+          "bottom": 138
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 141,
+          "bottom": 177
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 177,
+          "bottom": 213
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 213,
+          "bottom": 249
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 254,
+          "bottom": 290
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 295,
+          "bottom": 334
+        },
+        {
+          "label": "Download options…",
+          "height": 36,
+          "top": 334,
+          "bottom": 370
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 370,
+          "bottom": 406
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 406,
+          "bottom": 442
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 442,
+          "bottom": 478
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 483,
+          "bottom": 519
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 524,
+          "bottom": 560
+        }
+      ]
+    },
+    {
+      "variant": "after-downloaded",
+      "component": "TrackMenu",
+      "screenshot": "after-downloaded-trackmenu-707x480.png",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "centered": false,
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "scrollHeight": 515,
+        "clientHeight": 372,
+        "bottom": 384,
+        "right": 691,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "header": {
+        "height": 37,
+        "title": "A Long Example Track Title for Rendering",
+        "dialogAriaLabel": "Actions for A Long Example Track Title for Rendering",
+        "titleClientWidth": 138,
+        "titleScrollWidth": 328,
+        "closeBox": {
+          "width": 28,
+          "height": 28
+        },
+        "artistText": "The Example Band",
+        "artistBox": {
+          "width": 1,
+          "height": 1
+        },
+        "downloadedText": "✓ Downloaded",
+        "downloadedBox": {
+          "width": 97,
+          "height": 22
+        }
+      },
+      "activeElement": "Add to playlist…",
+      "rows": [
+        {
+          "label": "Add to playlist…",
+          "height": 36,
+          "top": 60,
+          "bottom": 96
+        },
+        {
+          "label": "Add to Liked Songs",
+          "height": 36,
+          "top": 99,
+          "bottom": 135
+        },
+        {
+          "label": "Add to queue",
+          "height": 36,
+          "top": 135,
+          "bottom": 171
+        },
+        {
+          "label": "Play next",
+          "height": 36,
+          "top": 171,
+          "bottom": 207
+        },
+        {
+          "label": "Start song radio",
+          "height": 36,
+          "top": 212,
+          "bottom": 248
+        },
+        {
+          "label": "Open on Spotify",
+          "height": 39,
+          "top": 253,
+          "bottom": 292
+        },
+        {
+          "label": "Download options…",
+          "height": 36,
+          "top": 292,
+          "bottom": 328
+        },
+        {
+          "label": "Track information",
+          "height": 36,
+          "top": 328,
+          "bottom": 364
+        },
+        {
+          "label": "Open in mpv",
+          "height": 36,
+          "top": 364,
+          "bottom": 400
+        },
+        {
+          "label": "Search for more info",
+          "height": 36,
+          "top": 400,
+          "bottom": 436
+        },
+        {
+          "label": "Select for batch actions",
+          "height": 36,
+          "top": 441,
+          "bottom": 477
+        },
+        {
+          "label": "Remove from playlist",
+          "height": 36,
+          "top": 482,
+          "bottom": 518
+        }
+      ]
+    }
+  ],
+  "sourceSha256": {
+    "before": {
+      "TrackMenu.svelte": "76b5544518ae988065a7a07442ebdb3f42d6f0fdf54c25055883de5b288fcdf6",
+      "PlaylistMenu.svelte": "dc79f2c43c0ac1293297b612b8c6d131697b539596e64903b5afa9dad77014a2",
+      "MenuIcon.svelte": "c5a359beff835bdb5a4b7637515b3fab0715cde877cfc46ff28d7498ff467565",
+      "SourceLink.svelte": "5700a6395f9efb05d4702e36419583ab686ba0602ac7d480b22fb48d9cac9cb2"
+    },
+    "after": {
+      "TrackMenu.svelte": "e0912d2d14b5a6c42a705be7f783e4d92e7994d447ca839eb8694449a681f53b",
+      "PlaylistMenu.svelte": "4baa896ae78c9b01b94ac6f6806a43a100f29227ab42061668a4bfcf12ab90a1",
+      "MenuIcon.svelte": "c5a359beff835bdb5a4b7637515b3fab0715cde877cfc46ff28d7498ff467565",
+      "SourceLink.svelte": "5700a6395f9efb05d4702e36419583ab686ba0602ac7d480b22fb48d9cac9cb2"
+    }
+  },
+  "checks": [
+    "Header title remains full in DOM; track dialog accessible name includes the full title.",
+    "Anchored TrackMenu title visually ellipsizes while the full title remains in DOM and dialog accessible name.",
+    "Anchored TrackMenu hides artist visually with a 1px clipped node, retaining its text for assistive technology.",
+    "Anchored close buttons are 28px; centered TrackMenu close button remains 34px.",
+    "Centered TrackMenu is unchanged because the compact override is scoped to `.context-menu`.",
+    "The optional Downloaded badge remains visible beside the single-line title.",
+    "Primary action focus and menu action row heights remain unchanged."
+  ]
+}

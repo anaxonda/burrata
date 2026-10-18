@@ -58,10 +58,22 @@ fn m3u_tracks(text: &str) -> Result<Vec<Track>, String> {
     Ok(tracks)
 }
 fn make_track(artist: &str, title: &str, version: Option<String>) -> Result<Track, String> {
+    make_track_with_missing_artist(artist, title, version, false)
+}
+fn make_track_with_missing_artist(
+    artist: &str,
+    title: &str,
+    version: Option<String>,
+    allow_missing_artist: bool,
+) -> Result<Track, String> {
     let artist = artist.trim();
     let title = title.trim();
-    if artist.is_empty() || title.is_empty() {
-        return Err("Artist and title are required".into());
+    if (!allow_missing_artist && artist.is_empty()) || title.is_empty() {
+        return Err(if title.is_empty() {
+            "Track title is required".into()
+        } else {
+            "Artist is required".into()
+        });
     }
     let identity = format!(
         "{}\n{}\n{}",
@@ -83,25 +95,27 @@ fn make_track(artist: &str, title: &str, version: Option<String>) -> Result<Trac
 }
 fn split_version(title: &str) -> (String, Option<String>) {
     let title = title.trim();
-    if title.ends_with(')') {
-        if let Some(index) = title.rfind('(') {
-            let version = title[index + 1..title.len() - 1].trim();
-            let lower = version.to_lowercase();
-            if [
-                "mix",
-                "remix",
-                "edit",
-                "version",
-                "dub",
-                "instrumental",
-                "extended",
-                "original",
-            ]
-            .iter()
-            .any(|v| lower.contains(v))
-            {
-                return (title[..index].trim().into(), Some(version.into()));
-            }
+    if let Some((prefix, version)) = crate::matching::split_balanced_trailing_parenthetical(title) {
+        let tokens = version
+            .to_lowercase()
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if [
+            "mix",
+            "remix",
+            "edit",
+            "version",
+            "dub",
+            "instrumental",
+            "extended",
+            "original",
+        ]
+        .iter()
+        .any(|marker| tokens.iter().any(|token| token == marker))
+        {
+            return (prefix.into(), Some(version.into()));
         }
     }
     (title.into(), None)
@@ -166,6 +180,8 @@ fn csv_tracks(text: &str) -> Result<Vec<Track>, String> {
     let artwork = column(&["artwork_url", "album image url"]);
     let isrc = column(&["isrc"]);
     let duration_ms = column(&["track duration (ms)", "duration (ms)", "duration_ms"]);
+    let rank = column(&["rank", "chart rank", "chart position"]);
+    let position = column(&["position", "track position", "track number", "track no."]);
     let spotify_export = spotify_uri.is_some() || column(&["artist name(s)"]).is_some();
     let version = column(&["version", "remix", "mix"]);
     let label = column(&["label"]);
@@ -184,14 +200,31 @@ fn csv_tracks(text: &str) -> Result<Vec<Track>, String> {
                 .map(str::to_string)
         };
         let (title, parsed_version) = split_version(row.get(title).unwrap_or(""));
-        let mut t = make_track(
+        // Real exports may leave artist credits blank for individual rows. Keep
+        // the missing value empty instead of inventing an artist or rejecting
+        // otherwise usable rows from the entire file.
+        let mut t = make_track_with_missing_artist(
             row.get(artist).unwrap_or(""),
             &title,
             value(version).or(parsed_version),
+            true,
         )?;
         t.album = value(album);
         t.release_date = value(release_date);
         t.isrc = value(isrc);
+        if let Some(raw_rank) = value(rank) {
+            t.provenance["sourceRank"] = serde_json::json!(raw_rank);
+            if let Ok(value) = raw_rank.parse::<u32>() {
+                if value > 0 {
+                    t.rank = Some(value);
+                }
+            }
+        }
+        if let Some(raw_position) = value(position) {
+            // Keep source notation such as Discogs' A1/B2 intact; it is not a
+            // verified catalog rank and must not be replaced by row order.
+            t.provenance["sourcePosition"] = serde_json::json!(raw_position);
+        }
         if spotify_export {
             t.provenance["importFormat"] = serde_json::json!("spotify-csv");
             t.provenance["playlistPosition"] = serde_json::json!(n + 1);
@@ -322,6 +355,26 @@ fn spotify_track_id(reference: &str) -> Result<Option<String>, String> {
 mod tests {
     use super::*;
     #[test]
+    fn csv_splits_a_balanced_nested_main_version_without_inventing_duration() {
+        let rows = parse(
+            "Artist,Title\nTimmy Regisford,\"Sasa (Main Version (4:41))\"",
+            "csv",
+        )
+        .unwrap();
+        assert_eq!(rows[0].title, "Sasa");
+        assert_eq!(rows[0].version.as_deref(), Some("Main Version (4:41)"));
+        assert_eq!(rows[0].duration_seconds, None);
+        assert_eq!(rows[0].provenance["identity"], "unverified user import");
+    }
+
+    #[test]
+    fn import_version_markers_must_be_whole_tokens() {
+        let rows = parse("Artist,Title\nArtist,\"Song (Diversion (4:41))\"", "csv").unwrap();
+        assert_eq!(rows[0].title, "Song (Diversion (4:41))");
+        assert_eq!(rows[0].version, None);
+    }
+
+    #[test]
     fn duplicates_are_exact_and_versions_distinct() {
         let t = parse(
             "1. A - B (Extended Mix)\nA - B (Extended Mix)\nA - B (Radio Edit)",
@@ -365,6 +418,33 @@ mod tests {
         assert_eq!(t[0].artist, "Artist, Other");
         assert_eq!(t[0].bpm, Some(123.5));
         assert_eq!(t[0].duration_seconds, None);
+    }
+    #[test]
+    fn csv_preserves_title_when_artist_credit_is_blank_without_guessing() {
+        let tracks = parse(
+            "Artist,Title,Position\n,Uncredited recording,1\nKnown Artist,Known recording,2",
+            "csv",
+        )
+        .unwrap();
+        assert_eq!(tracks.len(), 2);
+        assert!(tracks[0].artist.is_empty());
+        assert_eq!(tracks[0].title, "Uncredited recording");
+        assert_eq!(tracks[0].provenance["identity"], "unverified user import");
+        assert_eq!(tracks[1].artist, "Known Artist");
+        assert!(parse("Artist,Title\nArtist,\n", "csv").is_err());
+    }
+    #[test]
+    fn csv_preserves_explicit_rank_and_disc_position_notation() {
+        let tracks = parse(
+            "Artist,Title,Rank,Position\nArtist,Track one,3,A1\nArtist,Track two,0,B2",
+            "csv",
+        )
+        .unwrap();
+        assert_eq!(tracks[0].rank, Some(3));
+        assert_eq!(tracks[0].provenance["sourceRank"], "3");
+        assert_eq!(tracks[0].provenance["sourcePosition"], "A1");
+        assert_eq!(tracks[1].rank, None);
+        assert_eq!(tracks[1].provenance["sourcePosition"], "B2");
     }
     #[test]
     fn bad_row_fails_without_partial_import() {

@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "ae2636f63df1734e836c88a7fed20b41b7318cee8e12f4085c7deb67eadfb1bd",
+  "pass": false,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5097.115597999999,
+        "advancedMs": 5024.036281179138,
+        "observations": 46
+      },
+      "catalogueSeconds": 181.4,
+      "mediaDeclaredSeconds": 181.4,
+      "playbackDurationSeconds": 181.4,
+      "catalogueDeltaSeconds": 0,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "firstMixerMs": 2128
+    },
+    {
+      "step": "paused_seek",
+      "pass": false,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": false,
+      "seekSerialAdvanced": true
+    }
+  ],
+  "identify": {
+    "requested": true,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": "paused_seek_failed",
+  "pausedFinally": true
+}

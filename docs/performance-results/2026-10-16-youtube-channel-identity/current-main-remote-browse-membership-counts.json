@@ -1,0 +1,30 @@
+{
+  "scope": "Read-only remote playlist browsing; does not qualify playback-cache behavior or intentional saves",
+  "before": {
+    "assets": 15,
+    "playlists": 36,
+    "tracks": 4951
+  },
+  "after": {
+    "assets": 15,
+    "playlists": 36,
+    "tracks": 4951
+  },
+  "reads": [
+    {
+      "provider": "spotify",
+      "tracksReturned": 3,
+      "complete": true,
+      "hasMore": false
+    },
+    {
+      "provider": "youtube",
+      "tracksReturned": 116,
+      "complete": false,
+      "hasMore": true
+    }
+  ],
+  "libraryCountsUnchanged": true,
+  "providerWrites": 0,
+  "imports": 0
+}

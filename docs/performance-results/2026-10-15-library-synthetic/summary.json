@@ -1,0 +1,115 @@
+{
+  "workload": "synthetic in-memory SQLite and JSON library discovery/hydration",
+  "python": "3.14.8",
+  "measurements": [
+    {
+      "rows": 1000,
+      "matches": 1,
+      "page_size": 50,
+      "warmups": 3,
+      "repetitions": 20,
+      "failures": 0,
+      "old_hydration_reads": 1000,
+      "sql_hydration_reads": 1,
+      "old_hydrate_all": {
+        "wall_median_seconds": 0.01323875249363482,
+        "wall_p95_seconds": 0.014418124017538503,
+        "wall_worst_seconds": 0.016676619998179376,
+        "cpu_median_seconds": 0.0131502025,
+        "cpu_p95_seconds": 0.01429968399999998,
+        "cpu_worst_seconds": 0.01649839
+      },
+      "sql_paged": {
+        "wall_median_seconds": 0.005141452493262477,
+        "wall_p95_seconds": 0.006026393006322905,
+        "wall_worst_seconds": 0.0075362540083006024,
+        "cpu_median_seconds": 0.0050802954999999705,
+        "cpu_p95_seconds": 0.0059919560000000205,
+        "cpu_worst_seconds": 0.007432296000000005
+      }
+    },
+    {
+      "rows": 5000,
+      "matches": 5,
+      "page_size": 50,
+      "warmups": 3,
+      "repetitions": 20,
+      "failures": 0,
+      "old_hydration_reads": 5000,
+      "sql_hydration_reads": 5,
+      "old_hydrate_all": {
+        "wall_median_seconds": 0.06976966999354772,
+        "wall_p95_seconds": 0.07932667300337926,
+        "wall_worst_seconds": 0.09198267801548354,
+        "cpu_median_seconds": 0.06909098300000016,
+        "cpu_p95_seconds": 0.07857795300000014,
+        "cpu_worst_seconds": 0.09059379400000012
+      },
+      "sql_paged": {
+        "wall_median_seconds": 0.025515380999422632,
+        "wall_p95_seconds": 0.03103352797916159,
+        "wall_worst_seconds": 0.033484689018223435,
+        "cpu_median_seconds": 0.025323615000000244,
+        "cpu_p95_seconds": 0.0307298450000002,
+        "cpu_worst_seconds": 0.03324028999999973
+      }
+    },
+    {
+      "rows": 20000,
+      "matches": 20,
+      "page_size": 50,
+      "warmups": 3,
+      "repetitions": 20,
+      "failures": 0,
+      "old_hydration_reads": 20000,
+      "sql_hydration_reads": 20,
+      "old_hydrate_all": {
+        "wall_median_seconds": 0.4575599605013849,
+        "wall_p95_seconds": 0.5157872160198167,
+        "wall_worst_seconds": 0.5427802949852776,
+        "cpu_median_seconds": 0.4536464624999992,
+        "cpu_p95_seconds": 0.51161105,
+        "cpu_worst_seconds": 0.5370431279999996
+      },
+      "sql_paged": {
+        "wall_median_seconds": 0.12144077551783994,
+        "wall_p95_seconds": 0.15582330399774946,
+        "wall_worst_seconds": 0.1562697220069822,
+        "cpu_median_seconds": 0.12076827050000016,
+        "cpu_p95_seconds": 0.15335958200000022,
+        "cpu_worst_seconds": 0.15475963099999923
+      }
+    },
+    {
+      "rows": 50000,
+      "matches": 50,
+      "page_size": 50,
+      "warmups": 3,
+      "repetitions": 20,
+      "failures": 0,
+      "old_hydration_reads": 50000,
+      "sql_hydration_reads": 50,
+      "old_hydrate_all": {
+        "wall_median_seconds": 0.7861711305013159,
+        "wall_p95_seconds": 0.8614497460075654,
+        "wall_worst_seconds": 0.8748683530138806,
+        "cpu_median_seconds": 0.7780122300000016,
+        "cpu_p95_seconds": 0.8530155489999984,
+        "cpu_worst_seconds": 0.8570037729999953
+      },
+      "sql_paged": {
+        "wall_median_seconds": 0.28513440550887026,
+        "wall_p95_seconds": 0.32615372599684633,
+        "wall_worst_seconds": 0.33352252599433996,
+        "cpu_median_seconds": 0.28239705050000197,
+        "cpu_p95_seconds": 0.324161617999998,
+        "cpu_worst_seconds": 0.33115313700000115
+      }
+    }
+  ],
+  "limitations": [
+    "does not execute Burrata Rust Store code or the desktop application",
+    "does not measure renderer, IPC, real user libraries, filesystem, or steady-state app memory",
+    "process CPU is this benchmark process only, not application CPU"
+  ]
+}

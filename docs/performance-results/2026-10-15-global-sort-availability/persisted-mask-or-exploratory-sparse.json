@@ -1,0 +1,310 @@
+{
+  "benchmark": "first_page_global_sort_availability",
+  "cpuTimeReported": false,
+  "endToEnd": false,
+  "fixtures": [
+    {
+      "backfillBatchCountMedian": 2,
+      "coldBackfillAllBatches": {
+        "measured": 3,
+        "medianMs": 143.49394900000001,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 144.176997,
+        "samplesMs": [
+          140.478998,
+          143.49394900000001,
+          144.176997
+        ],
+        "warmups": 3,
+        "worstMs": 144.176997
+      },
+      "coldFirstPageWithPendingState": {
+        "measured": 3,
+        "medianMs": 47.121589,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 49.752332,
+        "samplesMs": [
+          44.254703,
+          47.121589,
+          49.752332
+        ],
+        "warmups": 3,
+        "worstMs": 49.752332
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 44.122752,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 60.920750000000005,
+        "samplesMs": [
+          43.859075,
+          44.122752,
+          60.920750000000005
+        ],
+        "warmups": 3,
+        "worstMs": 60.920750000000005
+      },
+      "maxBackfillBatchWall": {
+        "measured": 3,
+        "medianMs": 73.85156900000001,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 74.366772,
+        "samplesMs": [
+          73.643288,
+          73.85156900000001,
+          74.366772
+        ],
+        "warmups": 3,
+        "worstMs": 74.366772
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 1000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmFirstPageReadyMetadata": {
+        "measured": 3,
+        "medianMs": 47.830626,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 51.805147000000005,
+        "samplesMs": [
+          47.147603000000004,
+          47.830626,
+          51.805147000000005
+        ],
+        "warmups": 3,
+        "worstMs": 51.805147000000005
+      },
+      "warmupsPerMode": 3
+    },
+    {
+      "backfillBatchCountMedian": 10,
+      "coldBackfillAllBatches": {
+        "measured": 3,
+        "medianMs": 732.864449,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 748.0005910000001,
+        "samplesMs": [
+          704.104081,
+          732.864449,
+          748.0005910000001
+        ],
+        "warmups": 3,
+        "worstMs": 748.0005910000001
+      },
+      "coldFirstPageWithPendingState": {
+        "measured": 3,
+        "medianMs": 53.096302,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 64.829843,
+        "samplesMs": [
+          51.623419,
+          53.096302,
+          64.829843
+        ],
+        "warmups": 3,
+        "worstMs": 64.829843
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 53.401197999999994,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 59.864723000000005,
+        "samplesMs": [
+          52.805251999999996,
+          53.401197999999994,
+          59.864723000000005
+        ],
+        "warmups": 3,
+        "worstMs": 59.864723000000005
+      },
+      "maxBackfillBatchWall": {
+        "measured": 3,
+        "medianMs": 82.359438,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 83.300368,
+        "samplesMs": [
+          78.678952,
+          82.359438,
+          83.300368
+        ],
+        "warmups": 3,
+        "worstMs": 83.300368
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 5000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmFirstPageReadyMetadata": {
+        "measured": 3,
+        "medianMs": 72.790243,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 79.07629100000001,
+        "samplesMs": [
+          70.42382599999999,
+          72.790243,
+          79.07629100000001
+        ],
+        "warmups": 3,
+        "worstMs": 79.07629100000001
+      },
+      "warmupsPerMode": 3
+    },
+    {
+      "backfillBatchCountMedian": 40,
+      "coldBackfillAllBatches": {
+        "measured": 3,
+        "medianMs": 3287.952134,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 3311.114244,
+        "samplesMs": [
+          3282.674974,
+          3287.952134,
+          3311.114244
+        ],
+        "warmups": 3,
+        "worstMs": 3311.114244
+      },
+      "coldFirstPageWithPendingState": {
+        "measured": 3,
+        "medianMs": 87.689375,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 93.87483,
+        "samplesMs": [
+          85.457642,
+          87.689375,
+          93.87483
+        ],
+        "warmups": 3,
+        "worstMs": 93.87483
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 85.662002,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 86.288657,
+        "samplesMs": [
+          85.562623,
+          85.662002,
+          86.288657
+        ],
+        "warmups": 3,
+        "worstMs": 86.288657
+      },
+      "maxBackfillBatchWall": {
+        "measured": 3,
+        "medianMs": 103.967691,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 106.761578,
+        "samplesMs": [
+          94.800468,
+          103.967691,
+          106.761578
+        ],
+        "warmups": 3,
+        "worstMs": 106.761578
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 20000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmFirstPageReadyMetadata": {
+        "measured": 3,
+        "medianMs": 162.585159,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 165.41736,
+        "samplesMs": [
+          162.551152,
+          162.585159,
+          165.41736
+        ],
+        "warmups": 3,
+        "worstMs": 165.41736
+      },
+      "warmupsPerMode": 3
+    },
+    {
+      "backfillBatchCountMedian": 100,
+      "coldBackfillAllBatches": {
+        "measured": 3,
+        "medianMs": 9569.348452,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 9632.590942,
+        "samplesMs": [
+          9528.66729,
+          9569.348452,
+          9632.590942
+        ],
+        "warmups": 3,
+        "worstMs": 9632.590942
+      },
+      "coldFirstPageWithPendingState": {
+        "measured": 3,
+        "medianMs": 159.658222,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 167.954266,
+        "samplesMs": [
+          155.653146,
+          159.658222,
+          167.954266
+        ],
+        "warmups": 3,
+        "worstMs": 167.954266
+      },
+      "fixture": "remote metadata-only canonical listings; releaseDate, BPM, key, plays, and views are absent",
+      "legacyFirstPage": {
+        "measured": 3,
+        "medianMs": 158.261347,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 172.865385,
+        "samplesMs": [
+          157.291812,
+          158.261347,
+          172.865385
+        ],
+        "warmups": 3,
+        "worstMs": 172.865385
+      },
+      "maxBackfillBatchWall": {
+        "measured": 3,
+        "medianMs": 132.30454799999998,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 132.438846,
+        "samplesMs": [
+          129.82661000000002,
+          132.30454799999998,
+          132.438846
+        ],
+        "warmups": 3,
+        "worstMs": 132.438846
+      },
+      "measuredPerMode": 3,
+      "pageSize": 200,
+      "recordCount": 50000,
+      "sortField": "sourceOrder",
+      "view": "library",
+      "warmFirstPageReadyMetadata": {
+        "measured": 3,
+        "medianMs": 354.204833,
+        "metric": "wall_elapsed_ms",
+        "p95Ms": 388.916022,
+        "samplesMs": [
+          353.72189,
+          354.204833,
+          388.916022
+        ],
+        "warmups": 3,
+        "worstMs": 388.916022
+      },
+      "warmupsPerMode": 3
+    }
+  ],
+  "guiIncluded": false,
+  "scope": "actual Store storage microbenchmark; excludes GUI and end-to-end application work",
+  "sparseFixture": true
+}

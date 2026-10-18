@@ -26,8 +26,12 @@ describe("RadioView", () => {
       if (command === "get_station_details") return { stationId: args?.stationId };
       if (command === "get_radio_song_track") {
         const item = args?.metadata as RadioTrackMetadata;
-        return { id: "radio_song:canonical", provider: "radio_song", providerId: "canonical", sourceUrl: "", artist: item.artist, title: item.title, album: item.album, favorite: false, provenance: { sourceKind: "radioSong", identity: "unverified station metadata", radioStationId: item.stationId } };
+        return { id: "radio_song:canonical", provider: "radio_song", providerId: "canonical", sourceUrl: "", artist: item.artist, title: item.title, album: item.album, durationSeconds: item.title === "Earlier Song" ? 180 : undefined, favorite: false, provenance: { sourceKind: "radioSong", identity: "unverified station metadata", radioStationId: item.stationId } };
       }
+      if (command === "identify_radio_station") return {
+        stationId: args?.stationId, nowPlaying: { stationId: args?.stationId, artist: "Radio Artist", title: "Live Song", album: "Current Album", year: "2025", artworkUrl: "https://img.radioparadise.com/covers/l/current.jpg", sourceUrl: stations[0]!.sourceUrl, metadataConfidence: "station-reported; catalog identity unverified" },
+        secondsRemaining: 40, history: [{ stationId: args?.stationId, artist: "Older Artist", title: "Earlier Song", sourceUrl: stations[0]!.sourceUrl, metadataConfidence: "station-reported", observedAt: "2026-10-13T20:34:00.000Z" }], historyAvailable: true, note: "Station history is available.",
+      };
       if (command === "poll_radio_station") return {
         stationId: args?.stationId, nowPlaying: {
           stationId: args?.stationId, artist: "Radio Artist", title: "Live Song", album: "Current Album", year: "2025",
@@ -40,18 +44,29 @@ describe("RadioView", () => {
       };
       throw new Error(`Unexpected command ${command}`);
     });
-    const onPlayStation = vi.fn(), onArtist = vi.fn(), onNowPlaying = vi.fn(), onPlayTrack = vi.fn(), onFavoriteTrack = vi.fn(), onOpenHistory = vi.fn();
-    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onNowPlaying, onPlayTrack, onFavoriteTrack, onOpenHistory, playingStationId: "main" } });
+    const onPlayStation = vi.fn(), onArtist = vi.fn(), onNowPlaying = vi.fn(), onPlayTrack = vi.fn(), onFavoriteTrack = vi.fn(), onInfoTrack = vi.fn(), onOpenHistory = vi.fn();
+    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onNowPlaying, onPlayTrack, onFavoriteTrack, onInfoTrack, onOpenHistory, playingStationId: "main" } });
     cleanup = () => { void unmount(instance); };
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
     expect(document.querySelectorAll(".station-card")).toHaveLength(4);
+    const radioScrollRegion = document.querySelector<HTMLElement>(".radio-page");
+    expect(radioScrollRegion?.getAttribute("aria-label")).toBe("Radio");
+    expect(document.querySelector(".history")?.closest(".radio-page")).toBe(radioScrollRegion);
     expect(document.querySelector('[aria-label="Now playing on Main Mix"]')?.textContent).toContain("Live Song");
+    expect(document.querySelector<HTMLButtonElement>(".identify-button")?.textContent).toContain("Identify current song");
     expect(document.querySelector('[aria-label^="Recently heard"]')?.textContent).toContain("Earlier Song");
     expect(document.querySelector('[aria-label^="Recently heard"] .track-subtitle')?.textContent).toContain("Via Main Mix");
     expect(document.querySelector('[aria-label^="Recently heard"] time')?.textContent).toContain("2026");
     expect(document.querySelector('[aria-label^="Recently heard"] time')?.getAttribute("title")).toContain("2026");
     expect(document.querySelector('[aria-label^="Recently heard"] .track-title')?.textContent).toContain("Earlier Song");
+    const minDuration = document.querySelector<HTMLInputElement>('[aria-label="Minimum track duration"]')!;
+    minDuration.value = "3:00"; minDuration.dispatchEvent(new Event("input", { bubbles: true })); await tick();
+    expect(document.querySelectorAll(".shared-track-list li")).toHaveLength(1);
+    expect(document.querySelectorAll('[aria-label="Radio stations"] .station-card')).toHaveLength(4);
+    minDuration.value = "3:01"; minDuration.dispatchEvent(new Event("input", { bubbles: true })); await tick();
+    expect(document.querySelectorAll(".shared-track-list li")).toHaveLength(0);
+    minDuration.value = ""; minDuration.dispatchEvent(new Event("input", { bubbles: true })); await tick();
     const historySearch = document.querySelector<HTMLInputElement>('[aria-label="Search station history"]')!;
     historySearch.value = "no match"; historySearch.dispatchEvent(new Event("input", { bubbles: true })); await tick();
     expect(document.querySelector(".history")?.textContent).toContain("No recent tracks match this filter.");
@@ -63,9 +78,17 @@ describe("RadioView", () => {
     document.querySelector<HTMLButtonElement>('[aria-label="Add Earlier Song to favorites"]')!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(onFavoriteTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", sourceUrl: "" }));
+    document.querySelector<HTMLButtonElement>(".identify-button")!.click();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(mocks.call).toHaveBeenCalledWith("identify_radio_station", { stationId: "main" });
     document.querySelector<HTMLButtonElement>('[aria-label="Play Earlier Song"]')!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", title: "Earlier Song", artist: "Older Artist", sourceUrl: "" }), expect.any(Array), 0);
+    document.querySelector<HTMLDetailsElement>('[aria-label="More actions for Earlier Song"]')!.open = true;
+    document.querySelector<HTMLDetailsElement>('[aria-label="More actions for Earlier Song"]')!.dispatchEvent(new Event("toggle"));
+    [...document.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent === "Track information")!.click();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(onInfoTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", title: "Earlier Song", sourceUrl: "" }));
     expect(document.querySelector('[aria-label^="Recently heard"]')?.textContent).toContain("your listening history");
     expect(document.querySelector("h1")?.textContent).toBe("Main Mix");
     expect(document.querySelector('img[alt="Album artwork for Live Song"]')?.getAttribute("src")).toBe("https://img.radioparadise.com/covers/l/current.jpg");
@@ -184,6 +207,8 @@ describe("RadioView", () => {
     await tick();
     expect(document.querySelector('[aria-label="Radio stations"]')).toBeNull();
     expect(document.querySelector('[aria-label="Now playing on Rock Mix"]')).not.toBeNull();
+    expect(document.querySelector(".radio-empty")?.textContent).toContain("Current track information is unavailable.");
+    expect(document.querySelector(".radio-empty")?.classList.contains("empty")).toBe(false);
     expect(document.querySelector<HTMLButtonElement>(".station-actions .add-button")?.textContent).toContain("Play station");
     expect(mocks.call).toHaveBeenCalledWith("poll_radio_station", { stationId: "rock", recognize: true });
   });
@@ -219,7 +244,7 @@ describe("RadioView", () => {
     expect(mocks.call.mock.calls.some(([command]) => command === "poll_radio_station")).toBe(false);
   });
 
-  it("offers explicit stream recognition only for the playing station and accepts the result", async () => {
+  it("offers manual stream recognition for the playing station and accepts the result", async () => {
     const recognized: RadioTrackMetadata = {
       stationId: "main", artist: "Recognized Artist", title: "Recognized Song", sourceUrl: stations[0]!.sourceUrl,
       metadataConfidence: "SongRec fingerprint; catalog match unverified",
@@ -232,16 +257,19 @@ describe("RadioView", () => {
         stationId: "main", nowPlaying: args?.recognize ? recognized : null,
         history: args?.recognize ? [recognized] : [], historyAvailable: Boolean(args?.recognize), note: "",
       };
+      if (command === "identify_radio_station") return { stationId: "main", nowPlaying: recognized, history: [recognized], historyAvailable: true, note: "" };
       throw new Error(`Unexpected command ${command}`);
     });
     const instance = mount(RadioView, { target: document.body, props: { onPlayStation: vi.fn(), onArtist: vi.fn(), playingStationId: "main", selectedStationId: "main", onNowPlaying } });
     cleanup = () => { void unmount(instance); };
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
-    // Recognition is requested by active playback polling without a button click.
-    expect(document.querySelector(".identify-button")).toBeNull();
+    expect(document.querySelector<HTMLButtonElement>(".identify-button")?.textContent).toContain("Identify current song");
     expect(mocks.call).toHaveBeenCalledWith("poll_radio_station", { stationId: "main", recognize: true });
-    expect(document.querySelector(".track-copy h2")?.textContent).toBe("Recognized Song");
+    document.querySelector<HTMLButtonElement>(".identify-button")!.click();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(mocks.call).toHaveBeenCalledWith("identify_radio_station", { stationId: "main" });
+    expect(document.querySelector(".radio-track-copy h2")?.textContent).toBe("Recognized Song");
     expect(onNowPlaying).toHaveBeenCalledWith(stations[0], recognized);
   });
   it("keeps the latest identified song in history when a later poll has no current match", async()=>{
@@ -260,8 +288,8 @@ describe("RadioView", () => {
     await tick();
     expect(document.querySelector(".history")?.textContent).toContain("Gotas De Lluvia");
     await vi.advanceTimersByTimeAsync(30000);await tick();
-    expect(document.querySelector(".track-copy")?.textContent).toContain("Gotas De Lluvia");
-    expect(document.querySelector(".now-playing .eyebrow")?.textContent).toContain("LAST IDENTIFIED");
+    expect(document.querySelector(".radio-track-copy")?.textContent).toContain("Gotas De Lluvia");
+    expect(document.querySelector(".radio-now-playing .eyebrow")?.textContent).toContain("LAST IDENTIFIED");
     expect(document.querySelector(".history")?.textContent).toContain("Gotas De Lluvia");
     expect(document.querySelector(".history")?.textContent).not.toContain("Songs identified while you listen will appear here");
   });

@@ -12,6 +12,7 @@
     tagStatuses = {},
     onReviewTags,
     onFindSource,
+    onViewAll,
   }: {
     jobs: DownloadJob[];
     onClose: () => void;
@@ -22,6 +23,7 @@
     tagStatuses?: Record<string, { label: string; assetId: string; review: boolean }>;
     onReviewTags?: (assetId: string) => void;
     onFindSource?: (job: DownloadJob) => void;
+    onViewAll?: () => void;
   } = $props();
 
   function fallbackFrom(job: DownloadJob): string {
@@ -49,6 +51,7 @@
   <header class="activity-header">
     <div><p class="eyebrow">QUEUE</p><h2>Download activity <span>{jobs.length}</span></h2></div>
     <div class="header-controls">
+      {#if onViewAll}<button class="view-all" aria-label="View all downloads" onclick={onViewAll}>View all</button>{/if}
       <button class="refresh" aria-label="Refresh downloads" title="Refresh" onclick={onRefresh}>↻</button>
       <button class="close" aria-label="Close download activity" onclick={onClose}>×</button>
     </div>
@@ -116,13 +119,14 @@
     color: var(--text);
     box-shadow: 0 18px 60px #0009;
   }
-  .activity-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 17px 13px; border-bottom: 1px solid var(--line); }
+  .activity-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 17px 13px; border-bottom: 1px solid var(--line); }
   .activity-header .eyebrow { margin: 0 0 5px; font-size: 9px; }
   .activity-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; letter-spacing: -.35px; }
   .activity-header h2 span { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--raised); color: var(--muted); font-size: 10px; font-weight: 550; }
-  .header-controls { display: flex; gap: 5px; }
+  .header-controls { display: flex; gap: 5px; margin-left: auto; }
   .header-controls button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 17px; }
   .header-controls .refresh { font-size: 20px; }
+  .header-controls .view-all { width: auto; min-width: 72px; padding: 0 9px; font-size: 10px; }
   .activity-list { min-height: 0; flex: 1; overflow-y: auto; padding: 8px 11px 14px; overscroll-behavior: contain; }
   .activity-job { margin: 0; padding: 16px 6px; border-bottom: 1px solid var(--line); }
   .job-topline { display: flex; align-items: center; gap: 7px; margin: 8px 0; }

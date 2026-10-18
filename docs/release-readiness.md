@@ -1,5 +1,21 @@
 # Desktop release readiness
 
+## Active release effort — 2026-10-17
+
+The user requests a good-enough release after concrete playback/UI fixes, with source crosswalk work included. Version 0.1.1 (companion 0.2.1) is staged in the worktree. Final hinted crosswalk source passes 1,092 native tests/21 ignored; production frontend, source/permission contracts, scanner, provider-worker and companion/MCP/player checks pass within the scopes tracked in [todo](../todo.md). Final local deployment/live checks pass; tagged platform artifacts and installed-package smoke checks remain pending. Complete Cargo tests (1,092 library passes/21 ignored, binary targets and doc tests) and all978 frontend tests pass. No tag, release or push has been made for this effort. Keep the release non-public as previously requested; old exhaustive benchmark gates below are follow-up qualification, not a reason to keep expanding this practical release effort.
+
+Spotify playlist work remains paused; YouTube writeback remains disabled pending explicit approval of its reviewed preview. Preserve all existing sessions and user data. Experimental codec/storage changes remain off.
+
+## Prior audit and distribution evidence
+
+The dated checkpoints below remain evidence within their stated scope; their old runtime names and holds do not describe the active release effort.
+
+Reachable-history follow-up: a bounded read-only scan covers 35 commits and 5,471 UTF-8 blobs, with one historical client-key pattern match and 22 binary omissions. It is not a clean-history or artifact qualification; see the [audit scope](performance-results/2026-10-17-history-pattern-audit/README.md).
+
+Current checkpoint: the worktree secret-pattern audit now passes (10 scanner tests); history/artifact review and the remaining distribution gates stay open. The release storage benchmark compile ended with exit 143, then completed from 206 verified unchanged staged inputs. Its frozen release candidate passed the isolated actual-Store 50k benchmark, including 160 paired page reads and full pre/post-update parity. Indexing remains experimental and default-off; this Store result does not close whole-app or platform release gates. The first optimized attempt failed during fixture backfill with a SQLite disk I/O error; its log remains preserved, and the cause is unproven. See the [release Store report](performance-results/2026-10-17-text-index-release-store/README.md). One explicitly approved native Spotify-ID addition now has independent remote readback and a zero-diff/off preview; broader writeback remains unqualified. Creation status: approved Spotify empty creation returned HTTP 429/unknown outcome, and YouTube creation returned an ID but failed private/empty readback. No creation retry is permitted.
+
+No release has been created. The full todo and platform qualification remain open. Earlier credential-pattern findings were corrected and the current worktree audit rerun passed; this does not establish a clean history or packaged artifact. The release-mode 50k Store harness passed its bounded actual-Store scope; it does not qualify the full application or promote the experimental indexes.
+
 Audit date: 2026-10-14. This document describes the release automation and its remaining distribution gates. It is not a release approval or legal opinion.
 
 ## Release automation
@@ -28,6 +44,7 @@ There is no `Deno` dependency: yt-dlp EJS is supplied by the official PyInstalle
 
 ## Remaining distribution gates
 
+- Native playback is behind an internal qualification gate and must remain off by default until its macOS, Windows, and Linux manual matrix passes. The planned Rodio/Symphonia/stream-download stack keeps FFmpeg as the HLS and HE-AAC fallback; see [native playback qualification](native-playback.md) for the build-only decode check, exact manual cases, device-removal and sleep/wake requirements, and measurements. Public distribution remains on hold until those runs are reviewed. Do not treat a build-only dispatch or CI decode test as manual qualification.
 - Confirm codecs and format coverage against Burrata's conversion, validation, playback, and analysis paths on fresh macOS, Windows, and Linux installations.
 - Confirm every other bundled tool's license, notices, exact source/configuration, and any source-offer obligations. See [vendored native sources](../src-tauri/vendor/SOURCES.md) and the generated release `THIRD_PARTY_SOURCES.md`.
 - Exercise upgrade, playback, conversion, ffprobe validation, YouTube helper operation, and MCP behavior on fresh supported machines. The automated smoke covers basic install, launch, bundled-tool probes, MCP status, native-host heartbeat, and uninstall; it does not qualify operating-system security prompts or full product behavior.

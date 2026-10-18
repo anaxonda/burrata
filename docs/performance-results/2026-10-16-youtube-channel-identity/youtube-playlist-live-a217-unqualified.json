@@ -1,0 +1,11 @@
+{
+  "build": "a21733938f82a05c183a355e62e89a9c080ba64321c67993db891e44f67efa8f",
+  "method": "Read-only native MCP library listing followed by first ordinary playlist and its returned continuation. No import, playback or provider writes.",
+  "library": {"items": 61, "nextCursor": null, "totalCount": null, "complete": null, "truncated": false, "knownTrackCounts": 0},
+  "pages": [
+    {"tracks": 116, "total": 240, "complete": false, "hasMore": true},
+    {"tracks": 0, "total": 5, "complete": false, "hasMore": false}
+  ],
+  "status": "Live pagination remains broken and unqualified. Continuation structure is not recognized; its unrelated total must not replace the initial global total.",
+  "next": "Finite allowlisted renderer counts and routing categories through a read-only diagnostic; preserve initial playlist metadata while appending. No raw response, private playlist identifiers or continuation tokens retained here."
+}

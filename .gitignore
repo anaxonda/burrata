@@ -41,3 +41,6 @@ deploy/slskd/data/
 *.pem
 *.p12
 *.pfx
+
+# Local agent staging, test caches and isolated browser profiles
+.tmp/

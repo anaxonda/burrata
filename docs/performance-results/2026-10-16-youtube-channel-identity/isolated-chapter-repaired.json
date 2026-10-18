@@ -1,0 +1,23 @@
+{
+  "start": {
+    "gate": {
+      "status": "ready",
+      "wallMs": 5085.739389,
+      "advancedMs": 5046.39455782313,
+      "observations": 42
+    },
+    "duration": 15,
+    "position": 5.046394557823129,
+    "correctIdentity": true,
+    "chapter": {}
+  },
+  "end": {
+    "position": 14,
+    "status": "buffering",
+    "paused": true,
+    "duration": 15,
+    "maxPosition": 14,
+    "withinRange": true,
+    "naturalEnd": false
+  }
+}

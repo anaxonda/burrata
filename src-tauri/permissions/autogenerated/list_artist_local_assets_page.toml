@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-artist-local-assets-page"
+description = "Enables the list_artist_local_assets_page command without any pre-configured scope."
+commands.allow = ["list_artist_local_assets_page"]
+
+[[permission]]
+identifier = "deny-list-artist-local-assets-page"
+description = "Denies the list_artist_local_assets_page command without any pre-configured scope."
+commands.deny = ["list_artist_local_assets_page"]

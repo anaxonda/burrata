@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 3,
+  "workload": "real_mcp_imported_native_playback_qualification",
+  "runStartedAt": "2026-10-17T09:47:09.708Z",
+  "runFinishedAt": "2026-10-17T09:47:28.707Z",
+  "binarySha256": "53f6e42ca4b8dd381ee7ee1039c0b5348ba1923363a28e264f70eae0f034cf5c",
+  "trackId": "fixture:ergo-bandcamp",
+  "independentlyVerifiedDurationSeconds": 310.254,
+  "expectedProvider": "bandcamp",
+  "expectedRecordingId": "bandcamp:292222166",
+  "initialState": {
+    "status": "playing",
+    "engine": "native",
+    "trackId": "fixture:ergo-bandcamp",
+    "positionSeconds": 0,
+    "durationSeconds": 310.253333333,
+    "generation": 5,
+    "seekSerial": 1,
+    "sourceReadyMs": 1264,
+    "firstAudioMs": 1495,
+    "seekFirstAudioMs": null,
+    "selectedFormat": {
+      "id": "mp3-128",
+      "hasVideo": false,
+      "expectedContentLength": 5098066
+    },
+    "decoder": {
+      "kind": "rodio",
+      "contentType": "audio/mpeg",
+      "inputContentLength": 5098066,
+      "contentRangeTotal": null,
+      "bytesRead": 163840,
+      "bytesReceived": 293288,
+      "sampleRate": 44100,
+      "channels": 2,
+      "totalDurationSeconds": 310.253333333
+    },
+    "sourceProvider": "bandcamp",
+    "sourceRecordingId": "bandcamp:292222166",
+    "entryId": "e929e4ea-bc5a-4919-8e2e-b1d7f9ea4ae6"
+  },
+  "acousticContentVerified": false,
+  "durationToleranceSeconds": 1,
+  "engine": "native",
+  "initialVolume": 0,
+  "volumeSetToZero": true,
+  "initialTrackPositionSeconds": 17.06061224489796,
+  "initialQueueCount": 1,
+  "mode": "one_shot_bandcamp",
+  "bounds": {
+    "warmups": 0,
+    "starts": 1,
+    "seekRepeatsPerFraction": 1,
+    "seekFractions": [
+      0.95,
+      0.01
+    ],
+    "continuedPlaybackMs": 5000,
+    "maximumObservationGapMs": 2000,
+    "perOperationDeadlineMs": 20000
+  },
+  "warmups": [],
+  "starts": [
+    {
+      "type": "single_prepared_start",
+      "index": 1,
+      "continuedPlayback": {
+        "status": "ready",
+        "wallMs": 5165,
+        "advancedMs": 5025.600907029478,
+        "observations": 48
+      },
+      "failureCategory": null,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "fixture:ergo-bandcamp",
+        "positionSeconds": 5.025600907029478,
+        "durationSeconds": 310.253333333,
+        "generation": 5,
+        "seekSerial": 1,
+        "sourceReadyMs": 1264,
+        "firstAudioMs": 1495,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "mp3-128",
+          "hasVideo": false,
+          "expectedContentLength": 5098066
+        },
+        "decoder": {
+          "kind": "rodio",
+          "contentType": "audio/mpeg",
+          "inputContentLength": 5098066,
+          "contentRangeTotal": null,
+          "bytesRead": 163840,
+          "bytesReceived": 293288,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 310.253333333
+        },
+        "sourceProvider": "bandcamp",
+        "sourceRecordingId": "bandcamp:292222166",
+        "entryId": "e929e4ea-bc5a-4919-8e2e-b1d7f9ea4ae6"
+      }
+    }
+  ],
+  "seeks": [
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 1,
+      "harnessOperationId": "89c8e548-39dd-4237-a5e9-413d49e53d83",
+      "targetSeconds": 294.7413,
+      "wallCallMs": 11,
+      "wallSeekFirstAudioObservedMs": 123,
+      "wallSeekPlayheadAdvanceMs": 229,
+      "continuedPlayback": {
+        "status": "ready",
+        "wallMs": 5014,
+        "advancedMs": 5027.789115646215,
+        "observations": 47
+      },
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "fixture:ergo-bandcamp",
+        "positionSeconds": 299.9084088435374,
+        "durationSeconds": 310.253333333,
+        "generation": 6,
+        "seekSerial": 2,
+        "sourceReadyMs": 1264,
+        "firstAudioMs": 1495,
+        "seekFirstAudioMs": 48,
+        "selectedFormat": {
+          "id": "mp3-128",
+          "hasVideo": false,
+          "expectedContentLength": 5098066
+        },
+        "decoder": {
+          "kind": "rodio",
+          "contentType": "audio/mpeg",
+          "inputContentLength": 5098066,
+          "contentRangeTotal": null,
+          "bytesRead": 163840,
+          "bytesReceived": 293288,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 310.253333333
+        },
+        "sourceProvider": "bandcamp",
+        "sourceRecordingId": "bandcamp:292222166",
+        "entryId": "e929e4ea-bc5a-4919-8e2e-b1d7f9ea4ae6"
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 1,
+      "harnessOperationId": "440a27a4-4bcb-4414-831e-7cc0f8a59f6f",
+      "targetSeconds": 3.1025400000000003,
+      "wallCallMs": 10,
+      "wallSeekFirstAudioObservedMs": 116,
+      "wallSeekPlayheadAdvanceMs": 347,
+      "continuedPlayback": {
+        "status": "ready",
+        "wallMs": 5081,
+        "advancedMs": 5095.068027210884,
+        "observations": 47
+      },
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "fixture:ergo-bandcamp",
+        "positionSeconds": 8.396689659863945,
+        "durationSeconds": 310.253333333,
+        "generation": 7,
+        "seekSerial": 3,
+        "sourceReadyMs": 1264,
+        "firstAudioMs": 1495,
+        "seekFirstAudioMs": 44,
+        "selectedFormat": {
+          "id": "mp3-128",
+          "hasVideo": false,
+          "expectedContentLength": 5098066
+        },
+        "decoder": {
+          "kind": "rodio",
+          "contentType": "audio/mpeg",
+          "inputContentLength": 5098066,
+          "contentRangeTotal": null,
+          "bytesRead": 163840,
+          "bytesReceived": 293288,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 310.253333333
+        },
+        "sourceProvider": "bandcamp",
+        "sourceRecordingId": "bandcamp:292222166",
+        "entryId": "e929e4ea-bc5a-4919-8e2e-b1d7f9ea4ae6"
+      },
+      "failureCategory": null
+    }
+  ],
+  "pausedSeek": null,
+  "setupFailure": null,
+  "cleanupFailure": null,
+  "pausedFinally": true,
+  "failureCount": 0,
+  "limitations": [
+    "Paused seek/resume uses the stable current native session firstAudioMs plus five seconds of consumed position; it does not measure resume latency or paused-seek first-audio latency.",
+    "Every start and playing seek requires five seconds of stable native position advancement after mixer-consumed first audio, sampled with no gap exceeding two seconds.",
+    "Native firstAudioMs indicates mixer-consumed audio frames; it does not measure physical loudspeaker audibility.",
+    "Matching the expected source recording ID is metadata identity validation, not acoustic content verification.",
+    "Startup and seek timing starts at MCP calls, excluding the renderer click path.",
+    "The MCP playback tools do not accept caller operation IDs; harnessOperationId identifies each attempt and generation/seekSerial validate freshness.",
+    "The existing isolated single-track queue is checked, the requested case is selected through MCP after setting volume to zero, and the original volume is restored afterward. URLs, local paths, credentials, and raw stderr are omitted."
+  ]
+}

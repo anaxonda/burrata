@@ -196,7 +196,7 @@
 </section>
 
 <style>
-  .tool-setup { display: grid; gap: 14px; margin: 8px 0 28px; }
+  .tool-setup { display: grid; gap: 14px; margin: 8px 0 28px; container-type:inline-size; }
   .setup-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
   h2 { margin: 0 0 5px; }
   h3 { margin: 0 0 5px; font-size: 14px; }
@@ -223,4 +223,9 @@
   .setup-actions { display:flex; justify-content:flex-end; gap:8px; }
   @media (max-width: 900px) { .tool-list { grid-template-columns:1fr; } }
   @media (max-width: 620px) { .setup-heading { align-items:stretch; flex-direction:column; } .custom-path-grid { grid-template-columns:1fr; } }
+  /* The settings pane can be narrow while the viewport is still desktop-sized
+     when the player/info panel is docked beside it. Respond to this component's
+     actual width so its cards and path fields don't collapse into slivers. */
+  @container (max-width: 560px) { .tool-list { grid-template-columns:1fr; } .custom-path-grid { grid-template-columns:1fr; } }
+  @container (max-width: 420px) { .setup-heading { align-items:stretch; flex-direction:column; } }
 </style>

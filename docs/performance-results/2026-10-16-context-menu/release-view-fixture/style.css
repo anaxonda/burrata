@@ -1,0 +1,3 @@
+:root{font-family:Inter,system-ui,sans-serif;color-scheme:dark;background:#101412;color:#e5ebe7;--accent:#b8ec8c;--base:#101412;--text:#e5ebe7;--muted:#a8b0ab;--panel:#171c19;--surface:#202722;--border:#414b44}
+*{box-sizing:border-box}body{margin:0;padding:20px;background:#101412}#app{height:calc(100vh - 40px)}
+@media(max-width:760px){body{padding:8px}#app{height:calc(100vh - 16px)}}

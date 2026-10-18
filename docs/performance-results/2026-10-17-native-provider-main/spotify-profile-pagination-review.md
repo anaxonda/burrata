@@ -1,0 +1,9 @@
+# Spotify profile pagination review
+
+The current-main bounded read is recorded in [spotify-profile-current-read.json](spotify-profile-current-read.json). It returned 99 distinct playlist IDs over five requested windows and reported a maximum total of 110. It remained incomplete and truncated. The gap is unexplained; the evidence does not show that the remaining entries are hidden, unavailable, or non-playlists.
+
+The current V5 cursor intentionally advances by the requested page span. The worker regression at `scripts/provider-session-worker.test.mjs:1034–1055` models an omitted source slot inside a page and expects the next offset to advance by the requested limit. That fixture documents the intended source-slot behavior, but is not independent proof of Spotify's offset semantics. The retained WebPlayer artifact establishes that the endpoint accepts offset/limit; it does not explain the discrepancy between the reported total and returned rows.
+
+A candidate patch changed the cursor to advance by the returned row count. Its isolated adapter fixture passed 17/17, but the broader adapter/worker run failed 2 of 60 tests (58 passed): `.cache/profile-pagination-merged-tests.log` recorded a source-slot omission expectation failure at worker test line 386 and the V5 requested-span regression at line 1050. The candidate was reverted. The post-revert original suite passed 60/60 at `.cache/profile-pagination-original-recheck.log`; the worker-only baseline also passed 58/58 at `.cache/profile-v5-fixtures-detailed.log`. The discarded candidate patch hash was `1283a70dddbdb472a653eff1bb3b6bbe9e7d70874e5441689026fb8d8cf3b17d`.
+
+No cursor fix is justified by this review. Continue to report the browse as incomplete and treat the 110 total as unverified for complete distinct-playlist coverage.

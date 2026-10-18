@@ -1,0 +1,31 @@
+{
+  "binarySha256": "43e62627eeb2c0509d72a6a9576d0a72c03a7d74cfb94c3ac2800581e21f9118",
+  "build": "development",
+  "durationSeconds": 120.04320984499645,
+  "groups": {
+    "app": {
+      "cpuSeconds": 4.959995,
+      "cpuPercentOneCore": {
+        "median": 1.738,
+        "p95": 5.317,
+        "worst": 102.749
+      },
+      "peakRssBytes": 659398656
+    },
+    "vite": {
+      "cpuSeconds": 0.009998,
+      "cpuPercentOneCore": {
+        "median": 0.0,
+        "p95": 0.0,
+        "worst": 1.82
+      },
+      "peakRssBytes": 575455232
+    }
+  },
+  "mirrorCollectionsElapsedMs": [
+    1450,
+    1427
+  ],
+  "observedHealthyFrontendChecks": 2,
+  "limitations": "Avoid overlapping named root trees. Processes born and exited between polls and their CPU are omitted. Newly observed tasks need a second sample. Group RSS sums resident sizes and can double-count shared pages. IO bytes are Linux storage counters, not network transfer. Operation ID is a caller label, not inferred app/IPC correlation."
+}

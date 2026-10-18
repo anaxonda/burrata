@@ -1,0 +1,8 @@
+{
+  "tool": "Built-in image_gen.imagegen",
+  "input": "burrata-original.png",
+  "output": "burrata-borderless.png",
+  "transparent_background": true,
+  "prompt": "Use case: background-extraction. Asset type: transparent cutout of the existing Burrata app icon. Image 1 is the exact edit target. Perform a strictly pixel-preserving background removal: change only the off-white outer background surrounding the green rounded-square badge to fully transparent. Do not redraw, regenerate, move, scale, crop, retouch, relight, recolor, sharpen, smooth, or alter any pixels of the green badge or anything inside it. Preserve the existing green rounded-square badge, cream burrata ball, orange music note, leaf, sound grooves, texture, colors, shadows, and their exact original positions and proportions. Keep the original square canvas and placement. Make the outside truly transparent with clean antialiased edges and no off-white halo. No added content.",
+  "derivation": "Cropped to badge bounds with 20 px transparent padding, then resized for app and desktop icons."
+}

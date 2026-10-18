@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "workload": "isolated native Poso playback, Monochrome primary with YouTube/SoundCloud fallback",
+  "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+  "expectedIdentity": {
+    "title": "Poso S' Agapo",
+    "artist": "Stamatis Kraounakis"
+  },
+  "expectedProviderDurations": {
+    "monochromeSeconds": 245.48,
+    "youtubeSeconds": 250.078912,
+    "toleranceSeconds": 1
+  },
+  "musicRootOverrideValidated": true,
+  "frontendMode": "dev-shared-vite",
+  "startupDeadlineMs": 20000,
+  "startedAtUtc": "2026-10-15T23:27:09.688Z",
+  "setupFailure": null,
+  "playCallResult": "ok",
+  "playCallErrorCode": null,
+  "playback": {
+    "status": "playing",
+    "engine": "native",
+    "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+    "title": "Poso S' Agapo",
+    "artist": "Stamatis Kraounakis",
+    "sourceProvider": "monochrome",
+    "positionSeconds": 0.2786394557823129,
+    "durationSeconds": 245.479999999,
+    "generation": 2,
+    "firstAudioMs": 2613,
+    "sourceReadyMs": 1406,
+    "decoder": "rodio"
+  },
+  "elapsedToObservedStateMs": 2969,
+  "gatePass": true,
+  "finishedAtUtc": "2026-10-15T23:27:13.113Z"
+}

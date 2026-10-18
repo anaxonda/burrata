@@ -1,0 +1,18 @@
+{
+  "scope": "Synthetic metadata-only Linux debug asset-backed ready matrix; not release, real media indexing or whole-app resource qualification.",
+  "20000": {
+    "measuredReads": 140,
+    "allContinuationsExact": true,
+    "readinessWaitMs": 34573.3,
+    "p95RangeMs": [
+      171.8,
+      786.9
+    ]
+  },
+  "50000": {
+    "qualified": false,
+    "failure": "Fresh automation endpoint absent after default launcher20secondwait; app log empty, no timed read samples. Cause under investigation, not assumed application crash.",
+    "originalFailureRetained": true
+  },
+  "separation": "Ready-cache timings exclude recorded preparation wait; previous initial1k timing retained separately."
+}

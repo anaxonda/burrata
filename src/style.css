@@ -87,6 +87,12 @@ textarea:focus-visible {
 .app-shell {
   --base: #101412;
   --surface: #191e1b;
+  --context-menu-surface: #242424;
+  --context-menu-hover: #343434;
+  --context-menu-border: #ffffff18;
+  --context-menu-text: #eeeeee;
+  --context-menu-muted: #a7a7a7;
+  --context-menu-primary: #30352d;
   --raised: #202723;
   --line: #2c352f;
   --text: #e5ebe7;
@@ -99,13 +105,20 @@ textarea:focus-visible {
   height: 100vh;
   height: 100dvh;
   min-width: 360px;
-  min-height: 480px;
+  min-height: 0;
   background: var(--base);
   color: var(--text);
 }
 .app-shell.light {
   --base: #f6f8f4;
   --surface: #fff;
+  --context-menu-surface: #fff;
+  --context-menu-hover: #edf0eb;
+  --context-menu-border: #d9ded6;
+  --context-menu-text: #233229;
+  --context-menu-muted: #667063;
+  --context-menu-primary: #edf4e7;
+  --danger: #a62c29;
   --raised: #eaf0e6;
   --line: #d9e0d5;
   --text: #233229;
@@ -1159,6 +1172,24 @@ label {
 .error-text {
   color: #f5aa99 !important;
 }
+@media (max-width: 600px) {
+  .queue .job {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .queue .job > div:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .queue .job > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+  }
+  .queue .job button { margin-left: 0; }
+}
 .import-panel {
   margin: 0 28px 15px;
   border: 1px solid var(--line);
@@ -1419,7 +1450,7 @@ tr.spacer td {
     min-width: 360px;
     height: 100vh;
     height: 100dvh;
-    min-height: 480px;
+    min-height: 0;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto auto;
     overflow: hidden;
@@ -2157,7 +2188,7 @@ select optgroup {
 }
 
 /* Settings: keep source policies together and secondary configuration quiet. */
-.settings { max-width: 1000px; padding-top: 16px; }
+.settings { max-width: 1000px; padding-top: 16px; container-type:inline-size;container-name:settings-pane; }
 .settings-heading { display:block; padding:0; margin:0; }
 .settings-heading p { color:var(--muted); font-size:12px; margin:0 0 22px; }
 .settings-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
@@ -2181,9 +2212,35 @@ select optgroup {
 .settings-advanced > .tool-setup,.settings-advanced > .automation-settings { margin:0; padding:0 16px 16px; border:0; }
 .settings .automation-settings code { overflow-wrap:anywhere; font-size:11px; }
 @media(max-width:760px) { .settings-source-grid { grid-template-columns:minmax(0,1fr); } .settings-advanced > summary > span { display:block; margin:5px 0 0 16px; } }
+@container settings-pane (max-width: 640px) { .settings-source-grid { grid-template-columns:minmax(0,1fr); } .settings-advanced > summary > span { display:block; margin:5px 0 0 16px; } }
 .settings > .settings-card h2 { font-size:15px; color:var(--text); }
 .settings > .settings-card > p { font-size:11px; line-height:1.6; color:var(--muted); }
 .settings-basic-card > label + button { margin-top:0; }
 
 /* Keep first-run setup above the player and other fixed app panels. */
 .release-onboarding { z-index: 100; }
+
+/* Current recording remains visible while paused; selection is independent. */
+.track-table tr.current,table tbody tr.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+
+/* Keep the shared track overflow menu aligned with the compact action menus. */
+body .shared-track-list .more-menu button,
+body .shared-track-list .more-menu a {
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+body .shared-track-list .more-menu button:focus-visible,
+body .shared-track-list .more-menu a:focus-visible {
+  outline-offset: 1px;
+}
+@media (max-width: 600px) {
+  body .shared-track-list .more-menu button,
+  body .shared-track-list .more-menu a { min-height: 42px; }
+}
+
+@media (min-width:601px) {
+  body .shared-track-list .more-menu button,
+  body .shared-track-list .more-menu a { min-height:32px; }
+}

@@ -1,0 +1,11 @@
+# Sasa: current WebView unavailable-source acceptance
+
+On debug candidate `bad3495b0d8299a7be9ccbc5f0e66415fde5d81a296fcd15494f426ecdb64bbf`, one fresh isolated WebView queue request contained exact Sasa / Timmy Regisford / Main Version /281 seconds followed by the hash-verified360-second local control. No candidate was forced and no source was artificially made unavailable. The resolver exhausted the configured YouTube/SoundCloud searches without an eligible match, ending at6.274s with `ok:false`, `cancelled:false`, `deadline:false`. No different version was substituted.
+
+The app showed the complete persistent notice: “Skipped Sasa: No playable audio match was found for the requested recording and version (Main Version). Choose another source from the track actions.” The owned-window notice baseline was clear before Play; afterward one exact matching text node was observed, with zero extraction errors. A separate root visual review confirms that notice remains readable while the exact next local occurrence is playing.
+
+The original queue Play was accepted and advanced to index1. The local successor sustained5.186 seconds wall /5.239 seconds actual WebView media-clock progress across8 observations. Pause cleanup succeeded. No provider data was written. This satisfies the accepted meaningful-unavailable-source/queue-advancement branch; it does not establish playable Sasa audio, acoustic identity, physical audibility, native mixer consumption, cold-start p95 or worldwide source unavailability. The local tone is a queue successor, not an alternative recording of Sasa.
+
+The existing transient merged-title correction and strict version matcher retain their regression coverage; the redacted metadata fixture is `tests/fixtures/playback/sasa-unavailable.json`. The current combined suite passes986 native tests (21 ignored),856 frontend tests,8 contracts and native/frontend builds.
+
+Private evidence: `.cache/qualification-sasa-webview-current/one-shot-private.json`, its app-owned PNG, `visual-review.json`, source/manifest pins and `phase-trace-private.json`. The prior failed notice-reader reports remain retained; the current reader uses the corrected unbound AT-SPI Text API.

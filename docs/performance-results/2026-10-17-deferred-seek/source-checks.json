@@ -1,0 +1,40 @@
+{
+  "scope": "Source verification only; current main remains ae2636",
+  "native": {
+    "passed": 877,
+    "ignored": 16,
+    "failed": 0,
+    "seconds": 15.05
+  },
+  "app": {
+    "passed": 251,
+    "testSeconds": 35.76,
+    "totalSeconds": 45.75
+  },
+  "youtubeWorkerPassed": 81,
+  "mcpPassed": 4,
+  "contractsPassed": 8,
+  "svelte": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "frontendBuildSeconds": 6.14,
+  "logSha256": {
+    ".cache/deferred-skip-library-native-full.log": "e9e35b5ff4766d473a4433675978a0ba83f21ef7006c7fe0cd23b30c7a90d878",
+    ".cache/deferred-skip-app-full.log": "18831174a9e6f4f1f73bc4cb4bbf2d3933d82731f838b0803f6c2340ec811827",
+    ".cache/deferred-skip-check.log": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695",
+    ".cache/deferred-skip-ui-build.log": "fcd87e01acd242e52e1ae8efdd11a1d38d27702e7fd980643e97cfeac33a6f1b",
+    ".cache/deferred-skip-mcp-test.log": "9023f4500834bc55cb3c87c62fdbb6734e7eb34f76be6db93abf92aea87e1b09",
+    ".cache/deferred-skip-contracts.log": "4a437e920d27666e29041549fe894a4d53d3c1e2b8fd53bc9137b0b771e4adb0",
+    ".cache/qualification-provider-writeback-read/library-source-node-tests.log": "dba2ac517e6df33f01992364ced22f067f8a2f470439dbd23146d05b40fe25a3"
+  },
+  "nativeBuild": {
+    "seconds": 121,
+    "profile": "dev",
+    "binarySha256": "2cda09a5763789a9c9b24dd1d7e18463f02a49a6c5ba284fde4fa12e437a0b6f",
+    "nativeSourceFiles": 312,
+    "frontendSourceFiles": 193,
+    "launched": false
+  },
+  "liveQualification": "pending"
+}

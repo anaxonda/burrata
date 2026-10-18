@@ -1,0 +1,11 @@
+{
+  "binarySha256": "1d554c0c7771ecfdb5da3f7c2f9e06071c3ea198959e7bf875fb29e8be227cfa",
+  "ok": false,
+  "elapsedMs": 1922,
+  "exactId": null,
+  "durationSeconds": null,
+  "errorCategory": "RATE_LIMITED",
+  "remoteWrites": 0,
+  "retryAfterSeconds": 36,
+  "idMismatchObserved": false
+}

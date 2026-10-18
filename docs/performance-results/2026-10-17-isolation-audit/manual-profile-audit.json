@@ -1,0 +1,24 @@
+{
+  "profileScope": "isolated",
+  "startupPlaylistSync": {
+    "sourceRootClass": "sharedHomeMusic",
+    "sourcePlaylistCount": 197,
+    "isolatedMirrorRootClass": "isolatedProfileMusicPlaylists",
+    "mirrorPathCount": 267
+  },
+  "libraryListings": {
+    "importProviderCount": 2337,
+    "otherFixtureAndLocalCount": 5
+  },
+  "chartSeedEvidence": {
+    "snapshotCount": 0,
+    "entryCount": 0
+  },
+  "pathDisclosure": "No filesystem paths or playlist names retained.",
+  "managedProviderSession": {
+    "enabled": false,
+    "confirmedAccounts": false,
+    "running": false
+  },
+  "interpretation": "Playlist metadata from the standard home Music root entered the isolated database because manual launches omitted the supported isolation environment. Recorded mirror output paths remained profile-scoped. No prelaunch external-file timestamp baseline exists, so unrelated external changes cannot be ruled out. Functional playback/queue observations remain narrow observations; these runs do not qualify strict Music isolation or whole-app performance."
+}

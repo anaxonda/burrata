@@ -1,0 +1,19 @@
+{
+  "queueTotal": 19,
+  "currentIndex": 0,
+  "position": 0,
+  "paused": true,
+  "equalFields": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "historicalQueueRestore": false,
+  "resumePerformed": false
+}

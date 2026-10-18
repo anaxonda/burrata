@@ -1,0 +1,15 @@
+{
+  "build": "086b13bb78f1",
+  "isError": false,
+  "result": {
+    "bodyBytes": 7797,
+    "contentTypeClass": "other",
+    "decodedRows": 0,
+    "decodedTotal": null,
+    "failureClass": "content_type",
+    "httpStatus": 200,
+    "parseClass": "not_binary",
+    "topLevelFields": [],
+    "version": 1
+  }
+}

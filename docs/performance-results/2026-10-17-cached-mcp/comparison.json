@@ -1,0 +1,138 @@
+{
+  "scope": "Same 1k synthetic asset-backed debug MCP matrix, 3 warmups plus 20 reads per scenario; whole-app/release performance not qualified. Title early reads remain slow during projection readiness; do not claim universal p95 gain.",
+  "results": [
+    {
+      "name": "title_asc",
+      "before": {
+        "wallMs": {
+          "median": 652.8750659999996,
+          "p95": 811.0954059999999,
+          "worst": 849.6662299999998
+        },
+        "cpuMsPerRead": 692
+      },
+      "after": {
+        "wallMs": {
+          "median": 161.07971899999984,
+          "p95": 806.8588609999997,
+          "worst": 949.4043280000005
+        },
+        "cpuMsPerRead": 288
+      }
+    },
+    {
+      "name": "effective_bpm_asc",
+      "before": {
+        "wallMs": {
+          "median": 581.4769990000004,
+          "p95": 633.9308799999999,
+          "worst": 653.5186199999989
+        },
+        "cpuMsPerRead": 579
+      },
+      "after": {
+        "wallMs": {
+          "median": 119.90394950000064,
+          "p95": 144.30675999999949,
+          "worst": 152.19109500000013
+        },
+        "cpuMsPerRead": 118.5
+      }
+    },
+    {
+      "name": "effective_bpm_desc",
+      "before": {
+        "wallMs": {
+          "median": 581.0346029999964,
+          "p95": 673.2760540000017,
+          "worst": 743.4381880000001
+        },
+        "cpuMsPerRead": 585
+      },
+      "after": {
+        "wallMs": {
+          "median": 115.40736250000009,
+          "p95": 130.20037500000035,
+          "worst": 130.71018399999957
+        },
+        "cpuMsPerRead": 106.5
+      }
+    },
+    {
+      "name": "artist_asc",
+      "before": {
+        "wallMs": {
+          "median": 610.9343625000001,
+          "p95": 674.8360990000001,
+          "worst": 713.6396370000002
+        },
+        "cpuMsPerRead": 611
+      },
+      "after": {
+        "wallMs": {
+          "median": 148.61610500000006,
+          "p95": 171.31777899999906,
+          "worst": 176.67693899999904
+        },
+        "cpuMsPerRead": 144.5
+      }
+    },
+    {
+      "name": "duration_asc",
+      "before": {
+        "wallMs": {
+          "median": 119.30076049999843,
+          "p95": 133.35577600000397,
+          "worst": 146.89224000000104
+        },
+        "cpuMsPerRead": 113.5
+      },
+      "after": {
+        "wallMs": {
+          "median": 125.66040350000003,
+          "p95": 141.9793209999989,
+          "worst": 151.83808599999975
+        },
+        "cpuMsPerRead": 118
+      }
+    },
+    {
+      "name": "duration_desc",
+      "before": {
+        "wallMs": {
+          "median": 126.593055500005,
+          "p95": 143.4598679999981,
+          "worst": 145.84242899999663
+        },
+        "cpuMsPerRead": 121
+      },
+      "after": {
+        "wallMs": {
+          "median": 125.87418799999978,
+          "p95": 139.1250739999996,
+          "worst": 139.130036999999
+        },
+        "cpuMsPerRead": 118.5
+      }
+    },
+    {
+      "name": "unicode_query_source_order",
+      "before": {
+        "wallMs": {
+          "median": 477.1657720000003,
+          "p95": 505.0375159999967,
+          "worst": 508.13809500000207
+        },
+        "cpuMsPerRead": 476
+      },
+      "after": {
+        "wallMs": {
+          "median": 30.115547500001412,
+          "p95": 32.93328499999916,
+          "worst": 39.88839999999982
+        },
+        "cpuMsPerRead": 29
+      }
+    }
+  ]
+}

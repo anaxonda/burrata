@@ -1,0 +1,28 @@
+{
+  "isolatedHandoff": {
+    "queue": true,
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "frontendReload": {
+    "queue": true,
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "queueTotal": 13,
+  "currentIndex": 6,
+  "paused": true,
+  "position": 29.087175,
+  "historicalRestore": false,
+  "seekOrResume": false
+}

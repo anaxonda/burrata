@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "date": "2026-10-17",
+  "scope": "One isolated live playback attempt for the requested A Portrait of Nikolai Kaufman album.",
+  "outcome": {
+    "status": "failed before media progress",
+    "reason": "no_sustainedeligible",
+    "eligiblePlaybackSteps": 0,
+    "queueFixture": {
+      "trackCount": 19,
+      "sourceOrder": "exact",
+      "manualOrMediaOverrides": "none"
+    },
+    "opener": "Vgradena was unavailable at queue index 0; the attempt did not reach the requested Duda track."
+  },
+  "candidateSearch": {
+    "soundcloud": "One low-confidence result was for a different recording/title and was not selected.",
+    "youtube": "Broad title-only queries returned rows that did not establish recording identity.",
+    "overrideOrForcedFallback": "none"
+  },
+  "shutdown": "Isolated app closed cleanly with no remaining child processes and no forced termination.",
+  "evidenceReferences": {
+    "rawReleaseResponseSha256": "f09571202b725f984cfdc7a87f6d8fa94d4f3493aeb8268acde9556992be3ae8",
+    "privateEvidenceOmitted": true
+  },
+  "limitations": [
+    "The failure occurred before eligible media progress and does not establish that Duda itself failed to play.",
+    "No exact-version playback, remaining-album-track, or general source-fallback qualification is claimed.",
+    "Private URLs, credentials, screenshots, and raw account data are excluded."
+  ]
+}

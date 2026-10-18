@@ -1,16 +1,22 @@
 <script lang="ts">
+  import burrataLogo from "./assets/branding/burrata.png";
   import {playlistTitle} from "./lib/playlist-title";
   import type {RadioStation} from "./RadioView.svelte";
   import ProviderLogo from "./ProviderLogo.svelte";
+  import AccountPlaylistSidebar from "./AccountPlaylistSidebar.svelte";
   import PlaylistSections from "./PlaylistSections.svelte";
+  import FolderTree from "./FolderTree.svelte";
   import {PLAYLIST_SECTION_DRAG_TYPE,type PlaylistSection} from "./lib/playlist-sections";
   const downloadsId="00000000-0000-4000-8000-000000000001";
 
-  type Collection = { id: string; name: string; trackCount: number; sourceProvider?: string; sourceUrl?: string; provenance?: unknown };
-  type BrowserImport = { id: string; provider: string; title: string; collectionId: string; sourceUrl: string };
+  type Collection = { id: string; name: string; trackCount: number; sourceProvider?: string; sourceUrl?: string; provenance?: unknown; ownerName?: string | null; ownerId?: string | null };
+  type BrowserImport = { id: string; provider: string; title: string; collectionId: string; sourceUrl: string; ownerName?: string | null; ownerId?: string | null };
 
   let {
     view, favoritesPlaylistId = "",
+    call, showAccountPlaylists = {}, onRemotePlaylist = () => {},
+    onDirectoryBrowser = () => {},
+    selectedFolder = null, rootsRevision = 0, onSelectFolder = () => {}, onRootsChanged = () => {},
     playlistNames={}, onRadioContext,
     radioStations=[], activeRadioStationId="", onRadioStation=()=>{}, onAddRadio=()=>{},
     sections=[], assignments={}, onCreateSection=()=>{}, onRenameSection=()=>{}, onDeleteSection=()=>{}, onMovePlaylist=()=>{}, onCreatePlaylist=()=>{},
@@ -28,9 +34,18 @@
     onDownloads,
     activeJobs,
     width = 200,
+    compact = false,
     onWidthChange,
   }: {
     favoritesPlaylistId?: string;
+    call?: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
+    showAccountPlaylists?: {spotify?: boolean; youtube?: boolean};
+    onRemotePlaylist?: (provider: "spotify" | "youtube", url: string) => void;
+    onDirectoryBrowser?: () => void;
+    selectedFolder?: { rootId: string; relativePath: string } | null;
+    rootsRevision?: number;
+    onSelectFolder?: (location: { rootId: string; relativePath: string } | null) => void;
+    onRootsChanged?: () => void;
     view: string;playlistNames?:Record<string,string>;onRadioContext?:(station:RadioStation,event:MouseEvent)=>void;
     radioStations?:RadioStation[];activeRadioStationId?:string;onRadioStation?:(station:RadioStation)=>void;onAddRadio?:()=>void;
     sections?:PlaylistSection[];assignments?:Record<string,string>;
@@ -49,10 +64,12 @@
     onDownloads: () => void;
     activeJobs: number;
     width?: number;
+    compact?: boolean;
     onWidthChange?: (width: number) => void;
   } = $props();
 
   let drawerOpen = $state(false);
+  let playlistFilter = $state("");
   let resizing = $state(false);
   const minWidth = 160;
   const maxWidth = 320;
@@ -75,6 +92,7 @@
     { id: "beatport", label: "Beatport", mark: "B" },
     { id: "traxsource", label: "Traxsource", mark: "T" },
     { id: "spotify", label: "Spotify", mark: "S" },
+    { id: "youtube", label: "YouTube", mark: "▶" },
     { id: "shazam", label: "Shazam", mark: "Z" },
     { id: "lastfm", label: "Last.fm", mark: "L" },
     { id: "bandcamp", label: "Bandcamp", mark: "b" },
@@ -106,6 +124,21 @@
     ...localPlaylistIds,
   ]));
   const personalCollections = $derived(collections.filter((item) => !importedCollectionIds.has(item.id) && !hasSection(item.id) && item.id!==downloadsId));
+  const filteredPersonalCollections = $derived(personalCollections.filter(item => matchesPlaylist(item.name, item.ownerName, item.ownerId)));
+  function matchesImportedPlaylist(imported: BrowserImport) {
+    const collection = collections.find(item => item.id === imported.collectionId);
+    return matchesPlaylist(playlistNames[imported.collectionId], imported.title, collection?.name, imported.provider, imported.ownerName, imported.ownerId, collection?.ownerName, collection?.ownerId);
+  }
+  function matchesSourceCollection(collection: Collection, sourceLabel: string) {
+    return matchesPlaylist(playlistNames[collection.id], collection.name, sourceLabel, collection.ownerName, collection.ownerId);
+  }
+  function hasMatchingSourceItems(imports: BrowserImport[], sourceCollections: Collection[], sourceLabel: string) {
+    return imports.some(matchesImportedPlaylist) || sourceCollections.some(collection => matchesSourceCollection(collection, sourceLabel));
+  }
+  function matchesPlaylist(...values: (string | null | undefined)[]) {
+    const query = playlistFilter.trim().toLocaleLowerCase();
+    return !query || values.some(value => value?.toLocaleLowerCase().includes(query));
+  }
   function hasSection(id:string){return sections.some(section=>section.id===assignments[id]);}
   function dragPlaylist(event:DragEvent,id:string){if(event.dataTransfer){event.dataTransfer.setData(PLAYLIST_SECTION_DRAG_TYPE,id);event.dataTransfer.effectAllowed="move";}}
   function normalizeProvider(provider: string) { return provider.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-"); }
@@ -117,9 +150,9 @@
 
 <svelte:window onkeydown={(event) => { if (event.key === "Escape" && drawerOpen) closeDrawer(); }} />
 
-<aside class:drawer-open={drawerOpen} class:resizing class="library-sidebar" style={`--sidebar-width:${Math.max(minWidth, Math.min(maxWidth, width))}px`} aria-label="Library navigation">
+<aside class:drawer-open={drawerOpen} class:resizing class:compact class="library-sidebar" style={`--sidebar-width:${Math.max(minWidth, Math.min(maxWidth, width))}px`} aria-label="Library navigation">
   <div class="library-brand" aria-label="Burrata">
-    <span class="brand-mark">b</span><span>burrata</span>
+    <img class="brand-mark" src={burrataLogo} alt="" width="30" height="30" /><span>burrata</span>
   </div>
 
   <button class="rail-toggle" aria-label={drawerOpen ? "Close library menu" : "Expand library menu"} aria-expanded={drawerOpen} aria-controls="library-sidebar-content" title={drawerOpen ? "Close library menu" : "Expand library menu"} onclick={toggleDrawer}>
@@ -133,12 +166,12 @@
     <button class:active={view === "library" || view === "collections" || view === "favorites"} title="Library" aria-label="Library" onclick={() => { onNavigate("library"); closeDrawer(); }}>
       <span class="primary-icon" aria-hidden="true">♫</span><span class="nav-label">Library</span>
     </button>
-
   </nav>
 
   {#if drawerOpen}<button class="sidebar-scrim" aria-label="Close library menu" onclick={closeDrawer}></button>{/if}
   <div id="library-sidebar-content" class="library-scroll" aria-label="Playlists and sources">
     <div class="drawer-heading"><strong>Library navigation</strong><button aria-label="Close library menu" onclick={closeDrawer}>×</button></div>
+    <FolderTree {call} {selectedFolder} {rootsRevision} {onSelectFolder} {onRootsChanged} onOpenFolders={() => { onDirectoryBrowser(); closeDrawer(); }}/>
     <details class="source-group radio-section" open>
       <summary class="source-heading"><span class="source-mark" aria-hidden="true">◉</span><span class="source-name">Radio</span><small>{radioStations.length}</small><span class="disclosure" aria-hidden="true">⌄</span></summary>
       <div class="source-playlists">
@@ -155,24 +188,25 @@
         <span>Playlists</span>
         <button class="icon-button" aria-label="Create playlist" title="Create playlist" onclick={() => { onImport(); closeDrawer(); }}>＋</button>
       </div>
+      <label class="playlist-filter-label">Filter playlists<input class="playlist-filter" type="search" bind:value={playlistFilter} placeholder="Name or owner" aria-label="Filter playlists by name or owner" /></label>
       <div class="playlist-list built-in-playlists">
-        <button class="playlist-card" class:active={activeCollectionId===downloadsId} onclick={()=>{onPlaylist(downloadsId);closeDrawer();}} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.(downloadsId,event);}}><span class="playlist-glyph" aria-hidden="true">↓</span><span class="playlist-copy"><strong>{playlistNames[downloadsId]??collections.find(item=>item.id===downloadsId)?.name??"Downloads"}</strong><small>{collections.find(item=>item.id===downloadsId)?.trackCount??0} tracks</small></span></button>
-        {#if !favoritesPlaylistId}<button class="playlist-card" class:active={view === "favorites"} onclick={() => { onPlaylist("favorites"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("favorites",event);}}>
+        {#if matchesPlaylist(playlistNames[downloadsId], collections.find(item=>item.id===downloadsId)?.name, "Downloads")}<button class="playlist-card" class:active={activeCollectionId===downloadsId} onclick={()=>{onPlaylist(downloadsId);closeDrawer();}} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.(downloadsId,event);}}><span class="playlist-glyph" aria-hidden="true">↓</span><span class="playlist-copy"><strong>{playlistNames[downloadsId]??collections.find(item=>item.id===downloadsId)?.name??"Downloads"}</strong><small>{collections.find(item=>item.id===downloadsId)?.trackCount??0} tracks</small></span></button>{/if}
+        {#if !favoritesPlaylistId && matchesPlaylist(playlistNames.favorites, "Liked Songs", "Favorites")}<button class="playlist-card" class:active={view === "favorites"} onclick={() => { onPlaylist("favorites"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("favorites",event);}}>
           <span class="playlist-glyph liked" aria-hidden="true">♥</span>
           <span class="playlist-copy"><strong>{playlistNames.favorites??"Liked Songs"}</strong><small>Your favorites</small></span>
         </button>{/if}
-        <button class="playlist-card" onclick={() => { onPlaylist("history"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("history",event);}}>
+        {#if matchesPlaylist(playlistNames.history, "History", "Recently played")}<button class="playlist-card" onclick={() => { onPlaylist("history"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("history",event);}}>
           <span class="playlist-glyph history" aria-hidden="true">◷</span>
           <span class="playlist-copy"><strong>{playlistNames.history??"History"}</strong><small>Recently played</small></span>
-        </button>
-        {#each personalCollections as collection (collection.id)}
+        </button>{/if}
+        {#each filteredPersonalCollections as collection (collection.id)}
           <button draggable="true" ondragstart={(event)=>dragPlaylist(event,collection.id)} class="playlist-card collection-card" class:active={activeCollectionId === collection.id} onclick={() => { onPlaylist(collection.id); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(collection.id, event); closeDrawer(); } }}>
             <span class="playlist-glyph collection-glyph" class:liked={collection.id===favoritesPlaylistId} aria-hidden="true">{collection.id===favoritesPlaylistId?"♥":"▤"}</span>
             <span class="playlist-copy"><strong>{collection.name}</strong><small>{collection.trackCount} {collection.trackCount === 1 ? "track" : "tracks"}</small></span>
           </button>
         {/each}
       </div>
-      <PlaylistSections showUnsorted={false} {sections} {assignments} collections={collections.filter(item=>item.id!==downloadsId)} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
+      <PlaylistSections showUnsorted={false} filterActive={Boolean(playlistFilter.trim())} {sections} {assignments} collections={collections.filter(item=>item.id!==downloadsId && matchesPlaylist(item.name, item.ownerName, item.ownerId))} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
       <div class="source-groups" aria-label="Imported playlists by source">
         {#each sourceGroups as source (source.id)}
           <details class="source-group" open={source.count > 0}>
@@ -183,21 +217,22 @@
               <span class="disclosure" aria-hidden="true">⌄</span>
             </summary>
             <div class="source-playlists">
-              {#each source.imports as imported (imported.id)}
+              {#each source.imports.filter(matchesImportedPlaylist) as imported (imported.id)}
                 {@const collection = collections.find((item) => item.id === imported.collectionId)}
                 <button draggable="true" ondragstart={(event)=>dragPlaylist(event,imported.collectionId)} class="playlist-card collection-card imported-card" class:active={activeCollectionId === imported.collectionId} onclick={() => { onPlaylist(imported.collectionId); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(imported.collectionId, event); closeDrawer(); } }}>
                   <span class="playlist-glyph collection-glyph" aria-hidden="true">▤</span>
                   <span class="playlist-copy"><strong>{playlistTitle(playlistNames[imported.collectionId] || imported.title || collection?.name || "Imported playlist",imported.provider)}</strong><small>{collection?.trackCount ?? 0} {(collection?.trackCount ?? 0) === 1 ? "track" : "tracks"}</small></span>
                 </button>
               {/each}
-              {#each source.collections as collection (collection.id)}
+              {#each source.collections.filter(collection => matchesSourceCollection(collection, source.label)) as collection (collection.id)}
                 <button draggable="true" ondragstart={(event)=>dragPlaylist(event,collection.id)} class="playlist-card collection-card imported-card" class:active={activeCollectionId === collection.id} onclick={() => { onPlaylist(collection.id); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(collection.id, event); closeDrawer(); } }}>
                   <span class="playlist-glyph collection-glyph" aria-hidden="true">▤</span>
                   <span class="playlist-copy"><strong>{collection.name}</strong><small>{collection.trackCount} {collection.trackCount === 1 ? "track" : "tracks"}</small></span>
                 </button>
               {/each}
-              {#if ["beatport", "traxsource", "shazam", "lastfm", "bandcamp"].includes(source.id)}<button class="browse-source" aria-label={`Browse ${source.label} ${source.id === "bandcamp" ? "music" : "charts"}`} onclick={() => { onSource(source.id); closeDrawer(); }}>{source.id === "bandcamp" ? "Browse music" : "Browse charts"} ↗</button>{/if}
-              {#if source.count === 0}<p class="source-empty">No playlists yet</p>{/if}
+              {#if call && (source.id === "spotify" || source.id === "youtube")}<AccountPlaylistSidebar provider={source.id} enabled={Boolean(showAccountPlaylists[source.id])} {call} importedUrls={browserImports.map(item => item.sourceUrl)} filter={playlistFilter} onOpen={(url) => {onRemotePlaylist(source.id as "spotify" | "youtube",url);closeDrawer();}} />{/if}
+              {#if ["spotify","youtube"].includes(source.id)}<button class="browse-source" aria-label={`Browse ${source.label} playlists`} onclick={()=>{onSource(source.id);closeDrawer();}}>Browse playlists ↗</button>{/if}{#if ["beatport", "traxsource", "shazam", "lastfm", "bandcamp"].includes(source.id)}<button class="browse-source" aria-label={`Browse ${source.label} ${source.id === "bandcamp" ? "music" : "charts"}`} onclick={() => { onSource(source.id); closeDrawer(); }}>{source.id === "bandcamp" ? "Browse music" : "Browse charts"} ↗</button>{/if}
+              {#if playlistFilter.trim() && source.count > 0 && !hasMatchingSourceItems(source.imports, source.collections, source.label)}<p class="source-empty">No imported playlists match this filter.</p>{:else if !playlistFilter.trim() && source.count === 0}<p class="source-empty">No playlists yet</p>{/if}
             </div>
           </details>
         {/each}
@@ -245,16 +280,12 @@
     letter-spacing: -0.8px;
   }
   .brand-mark {
-    display: grid;
-    place-items: center;
+    display: block;
+    flex: none;
     width: 30px;
     height: 30px;
-    border-radius: 10px 10px 10px 3px;
-    color: var(--base);
-    background: var(--accent);
-    font-size: 24px;
-    font-weight: 900;
-    line-height: 1;
+    object-fit: contain;
+    border-radius: 7px;
   }
   .library-primary { display: grid; gap: 4px; }
   .library-primary button,
@@ -296,6 +327,8 @@
   .source-mark.traxsource { color: #f5a16d; }
   .source-mark.local { color: #95bff4; }
   .playlist-section { margin-top: 27px; }
+  .playlist-filter-label { display:grid; gap:4px; margin:0 0 8px; color:var(--muted); font-size:10px; }
+  .playlist-filter { width:100%; min-width:0; padding:7px 9px; border:1px solid var(--line); border-radius:7px; background:var(--surface); color:var(--text); font:inherit; font-size:11px; }
   .icon-button { width: 26px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 19px; line-height: 1; }
   .icon-button:hover { color: var(--accent); background: var(--raised); }
   .playlist-list { display: grid; gap: 3px; margin-top: 9px; }
@@ -329,6 +362,26 @@
   .jobs-count { display: grid; place-items: center; min-width: 19px; height: 19px; margin-left: auto; padding: 0 5px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 18%, var(--raised)); color: var(--accent); font-size: 10px; }
   .rail-toggle,.sidebar-scrim { display: none; }
   .drawer-heading { display:none; }
+  .library-sidebar.compact { width:64px!important;grid-row:1;grid-column:1;min-width:0;min-height:0;padding:12px 6px;overflow:visible;position:relative;z-index:10; }
+  .compact .sidebar-resize { display:none; }
+  .compact .library-brand { justify-content:center;margin:0 0 12px; }
+  .compact .library-brand>span:last-child,.compact .nav-label,.compact .rail-toggle-label { display:none; }
+  .compact .brand-mark { width:34px;height:34px; }
+  .compact .rail-toggle { display:grid;place-items:center;width:48px;height:40px;margin:0 auto 8px;border:1px solid var(--line);border-radius:9px;background:var(--raised);color:var(--text);font-size:19px; }
+  .compact .library-primary { grid-template-columns:1fr;gap:5px; }
+  .compact .library-primary button { justify-content:center;width:48px;min-height:44px;margin:auto;padding:0; }
+  .compact .primary-icon { width:auto;font-size:22px; }
+  .compact .library-scroll { display:none; }
+  .compact .library-footer { gap:5px;margin-top:auto;padding-top:8px; }
+  .compact .library-footer>button { justify-content:center;width:48px;min-height:42px;margin:auto;padding:0; }
+  .compact .library-footer>button>span:first-child { width:auto;font-size:18px; }
+  .compact .jobs-count { position:absolute;min-width:16px;height:16px;margin:-29px 0 0 26px;padding:0 3px;font-size:9px; }
+  .compact .sidebar-scrim { display:block;position:fixed;inset:0 0 var(--player-height,100px) 64px;z-index:1000;width:auto;height:auto;padding:0;border:0;background:rgb(0 0 0 / 48%); }
+  .compact.drawer-open .library-scroll { display:block;position:fixed;z-index:1001;top:0;bottom:var(--player-height,100px);left:64px;width:min(300px,calc(100vw - 64px));max-height:none;padding:18px 14px 12px;overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border-right:1px solid var(--line);box-shadow:14px 0 34px rgb(0 0 0 / 28%); }
+  .compact.drawer-open .playlist-section { margin-top:0; }
+  .compact.drawer-open .library-brand { display:none; }
+  .compact .drawer-heading { display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;color:var(--text);font-size:13px; }
+  .compact .drawer-heading button { width:30px;height:30px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--text);font-size:20px; }
   @media (min-width: 901px) {
     .library-sidebar { width:var(--sidebar-width,200px); }
   }

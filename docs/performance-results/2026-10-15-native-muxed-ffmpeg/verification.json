@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-15",
+  "scope": "native muxed MP4 FFmpeg decoder verification",
+  "checks": {
+    "libraryTests": {
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "--target-dir",
+        "/tmp/burrata-sorting-target"
+      ],
+      "result": "passed",
+      "passed": 527,
+      "failed": 0,
+      "ignored": 13,
+      "ignoredIncludedInPassCount": false,
+      "localLoopbackPermission": "run with local loopback access; initial sandbox run had 16 PermissionDenied failures on local server binds"
+    },
+    "muxedMp4LateSeek": {
+      "test": "native_output::tests::external_muxed_mp4_uses_ffmpeg_and_preserves_duration_after_late_seek",
+      "result": "passed",
+      "ignoredTestRunExplicitly": true,
+      "fixtureDurationSeconds": 250.078912,
+      "durationSource": "independent ffprobe format duration",
+      "seekPositionFraction": 0.95,
+      "decoder": "ffmpeg",
+      "checks": [
+        "decoded PCM from the 95% seek through actual EOF",
+        "reported full duration matched the independently probed duration within 0.01 seconds",
+        "remaining decoded duration matched the expected tail within 1 second"
+      ]
+    },
+    "debugBuild": {
+      "command": [
+        "TAURI_CONFIG=<bundle-resources-empty>",
+        "cargo",
+        "build",
+        "--bin",
+        "burrata",
+        "--target-dir",
+        "/tmp/burrata-sorting-target"
+      ],
+      "result": "passed",
+      "profile": "dev",
+      "binarySha256": "ced6cc73fd2c5b7205ba6650e10edab1d95f0113487da7b73dd2e450b5be6394"
+    },
+    "nativePlaybackGate": {
+      "result": "passed_correctness_only",
+      "engine": "native",
+      "status": "playing",
+      "playheadAdvanced": true,
+      "positionSeconds": 0.5572789115646258,
+      "durationSeconds": 250,
+      "independentFixtureDurationSeconds": 250.078912,
+      "formatHasVideo": true,
+      "decoder": "ffmpeg",
+      "decoderReportedDurationSeconds": 250,
+      "sampleRate": 44100,
+      "channels": 2,
+      "sourceReadyMs": 7129,
+      "firstAudioMs": 7489,
+      "startupTargetSeconds": 5,
+      "startupTargetPassed": false,
+      "note": "MCP playback exercised the isolated retained fixture. Snapshot durations are rounded to whole seconds; the exact offline late-seek test verifies the unrounded duration. This gate establishes playback correctness only, not startup performance qualification.",
+      "runType": "cold_source_resolution_then_decode",
+      "recordedSourceReadyMs": 7129,
+      "recordedFirstAudioMs": 7489
+    }
+  },
+  "implementationNote": "The ignored fixture test now drains the bounded PCM channel concurrently with decoding. The synchronous test previously deadlocked when a long fixture filled that channel."
+}

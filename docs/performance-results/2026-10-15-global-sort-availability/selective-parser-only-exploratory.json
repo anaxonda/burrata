@@ -1,0 +1,24 @@
+{
+  "fullParseWallMs": [
+    2068.856802,
+    2273.473601,
+    2189.03794
+  ],
+  "measuredPerMode": 3,
+  "profile": "rustc default opt-level 0 with cached dev dependencies",
+  "scope": "parser-only synthetic sparse 50k Track metadata; no SQLite, GUI, CPU measurement or end-to-end playback",
+  "selectedParseWallMs": [
+    1375.92597,
+    1424.9654229999999,
+    1479.2003060000002
+  ],
+  "warmupsPerMode": 3,
+  "candidateModuleSha256": "26a6f2350a6943b1c730ba2989ddbeec50a1a79fb5e44f69f3f18934864fe54c",
+  "standaloneTests": {
+    "passed": 11,
+    "scope": "candidate sort SQL/parser plus actual track_sort_text modules; fixture include path relocated for standalone compilation"
+  },
+  "fullParseMedianMs": 2189.03794,
+  "selectedParseMedianMs": 1424.9654229999999,
+  "promotion": "not accepted; parser-only cost still exceeds full Store latency target"
+}

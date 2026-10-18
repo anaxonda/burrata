@@ -1,0 +1,66 @@
+{
+  "guiSha256": "9482da37d3b9108581f8ea33975a5bd22c13df5f193c0f497a05f8010c8a611b",
+  "scope": "Owned WebView geometry and artwork plus one live radio identification; no queue or tag edits",
+  "artwork": {
+    "blacklisted": true,
+    "cspBlocked": false,
+    "images": [
+      {
+        "complete": true,
+        "naturalHeight": 500,
+        "naturalWidth": 500,
+        "present": true,
+        "role": "footer",
+        "urlScheme": "data"
+      },
+      {
+        "complete": false,
+        "naturalHeight": 0,
+        "naturalWidth": 0,
+        "present": false,
+        "role": "details",
+        "urlScheme": "none"
+      }
+    ],
+    "probeHeight": 0,
+    "probeStatus": "failed",
+    "probeWidth": 0,
+    "urlScheme": "asset",
+    "resource": {
+      "assetRequestsSeen": 0,
+      "assetSecurity": {
+        "corsEnabled": false,
+        "displayIsolated": false,
+        "local": false,
+        "noAccess": false,
+        "secure": true
+      },
+      "matchedRequests": 0,
+      "normalizedMatches": 0,
+      "requests": [],
+      "state": "observing"
+    }
+  },
+  "viewport": {
+    "height": 1036,
+    "width": 954
+  },
+  "findings": [],
+  "identification": {
+    "success": true,
+    "titlePresent": true,
+    "artistPresent": true,
+    "note": "SongRec identified the captured audio; catalog identity is unverified."
+  },
+  "after": {
+    "status": "playing",
+    "paused": false,
+    "volume": 0.8,
+    "mediaError": null,
+    "lastMediaFailure": null
+  },
+  "limits": [
+    "Original asset-scheme transport still fails; displayed cached-artwork fallback is confirmed.",
+    "Recognition result has not been independently matched to a catalog recording; ordinary tracks, sets and concerts remain to qualify."
+  ]
+}

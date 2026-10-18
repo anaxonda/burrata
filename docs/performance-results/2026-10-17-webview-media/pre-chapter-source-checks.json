@@ -1,0 +1,28 @@
+{
+  "stage": "source_only_before_chapter_identity_patch",
+  "native": {
+    "passed": 884,
+    "ignored": 16,
+    "failed": 0,
+    "compileSeconds": 260,
+    "testSeconds": 15.87,
+    "logSha256": "afe426e418984681b5ba61dc29ba22629fce6c41903a4ba5acaed7eaa0f6e8a0",
+    "sourcePinSha256": "189d008d461ac41cd29a93d068caaf4e4f7ad6f82d3e22a17ae12a5d5b42ce31"
+  },
+  "mcp": {
+    "passed": 5,
+    "failed": 0
+  },
+  "svelte": {
+    "errors": 0,
+    "warnings": 0,
+    "scope": "before chapter patch and final menu icons"
+  },
+  "app": {
+    "passed": 252,
+    "failed": 1,
+    "failure": "5s timeout in existing held-metadata startup test during concurrent native compilation; full serial rerun required"
+  },
+  "liveQualified": false,
+  "note": "Chapter identity and SVG menu changes require final source verification; no main playback or new binary qualification from these checks."
+}

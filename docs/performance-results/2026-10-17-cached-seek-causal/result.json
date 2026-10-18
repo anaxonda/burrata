@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "scope": "Three focused repetitions of one ignored native cached-reader/decoder/Rodio fixture. Fixture WAV payload contains zero PCM; it is not audible or live-playback proof.",
+  "testArtifactSha256": "d551dec796050dab0ebdb8496594cac2440bbf57bdd73106ddef4fa30eb5ff70",
+  "test": "native_output_seek_range_tests.rs cached seek causal fixture",
+  "repetitions": [
+    {
+      "run": 1,
+      "immediate": {
+        "decodedSamples": 442274,
+        "elapsedMs": 5030,
+        "firstPcmMs": 20,
+        "injectedZeroSamples": 0
+      },
+      "inputHeldBeforeIndependentRangeMs": 1500,
+      "starvationThenRecovery": {
+        "decodedSamples": 441448,
+        "elapsedMs": 6180,
+        "firstPcmMs": 20,
+        "decodedPcmRecoveredForMs": 5000,
+        "injectedZeroSamples": 0
+      }
+    },
+    {
+      "run": 2,
+      "immediate": {
+        "decodedSamples": 442274,
+        "elapsedMs": 5030,
+        "firstPcmMs": 20,
+        "injectedZeroSamples": 0
+      },
+      "inputHeldBeforeIndependentRangeMs": 1500,
+      "starvationThenRecovery": {
+        "decodedSamples": 441448,
+        "elapsedMs": 6180,
+        "firstPcmMs": 20,
+        "decodedPcmRecoveredForMs": 5000,
+        "injectedZeroSamples": 0
+      }
+    },
+    {
+      "run": 3,
+      "immediate": {
+        "decodedSamples": 442274,
+        "elapsedMs": 5030,
+        "firstPcmMs": 20,
+        "injectedZeroSamples": 0
+      },
+      "inputHeldBeforeIndependentRangeMs": 1500,
+      "starvationThenRecovery": {
+        "decodedSamples": 441448,
+        "elapsedMs": 6180,
+        "firstPcmMs": 20,
+        "decodedPcmRecoveredForMs": 5000,
+        "injectedZeroSamples": 0
+      }
+    }
+  ],
+  "interpretation": "The same cached reader/decoder reaches decoded consumption when input is available, experiences range starvation when input is held before the independent range origin, then recovers when bytes become available. This supports the controlled fixture mechanism only.",
+  "limitations": [
+    "Fixture is ignored by normal test discovery and was invoked directly three times.",
+    "WAV payload zeros are not synthetic silence and do not establish audible output.",
+    "No FLAC, live network, live Fruit, or production fix qualification.",
+    "Each child had a 40-second hard deadline; observed child runtimes were 11.45\u201311.49 seconds."
+  ]
+}

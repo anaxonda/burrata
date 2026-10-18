@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "fixtureMode": "asset-backed",
+  "projectionState": "ready",
+  "results": [
+    {
+      "count": 20000,
+      "fixtureMode": "asset-backed",
+      "report": "/home/loki/projects/burrata/.cache/qualification-seek-wait/asset-matrix-large-ready/actual-mcp-page-matrix-20000-asset-backed.json",
+      "exactBinaryProfileProcessVerified": true
+    }
+  ],
+  "failureCount": 1,
+  "failureCategory": "matrix_run_failed"
+}

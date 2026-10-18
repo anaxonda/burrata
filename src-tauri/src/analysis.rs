@@ -23,11 +23,21 @@ impl AnalysisManager {
         let worker_store = store.clone();
         let worker_pending = pending.clone();
         tauri::async_runtime::spawn(async move {
+            let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
+            let mut item_index = 0usize;
             while let Some(id) = receiver.recv().await {
-                if let Ok(Some(asset)) = worker_store
-                    .list_assets()
-                    .map(|assets| assets.into_iter().find(|asset| asset.id == id))
-                {
+                item_index += 1;
+                let lookup_started = std::time::Instant::now();
+                let asset = worker_store.get_asset_by_id(&id).ok().flatten();
+                if perf_trace {
+                    eprintln!(
+                        "[perf] analysis.worker lookup item={} lookup=asset_id found={} elapsed_ms={}",
+                        item_index,
+                        asset.is_some(),
+                        lookup_started.elapsed().as_millis()
+                    );
+                }
+                if let Some(asset) = asset {
                     let input_hash = asset.hash.clone();
                     let _ = worker_store.save_analysis_record(
                         &id,
@@ -42,7 +52,22 @@ impl AnalysisManager {
                     );
                     let result = async {
                         let settings = worker_store.settings()?;
-                        let updated = media::analyze_and_retag_asset(&asset, &settings).await?;
+                        let analysis_started = std::time::Instant::now();
+                        let updated_result =
+                            media::analyze_and_retag_asset(&asset, &settings).await;
+                        if perf_trace {
+                            eprintln!(
+                                "[perf] analysis.worker media item={} outcome={} elapsed_ms={}",
+                                item_index,
+                                if updated_result.is_ok() {
+                                    "ok"
+                                } else {
+                                    "error"
+                                },
+                                analysis_started.elapsed().as_millis()
+                            );
+                        }
+                        let updated = updated_result?;
                         worker_store.save_analyzed_asset(
                             &updated,
                             &input_hash,
@@ -88,53 +113,67 @@ impl AnalysisManager {
     }
 
     pub fn queue(&self, asset_ids: Option<Vec<String>>, force: bool) -> Result<usize, String> {
-        let assets = self.store.list_assets()?;
-        let records = self.store.list_analysis_records()?;
+        let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
+        let queue_started = std::time::Instant::now();
+        let assets_started = std::time::Instant::now();
+        let assets = if let Some(ids) = asset_ids.as_ref().filter(|ids| ids.len() > 200) {
+            let unique_ids = ids.iter().cloned().collect::<HashSet<_>>();
+            let mut candidates = Vec::new();
+            for chunk in unique_ids.into_iter().collect::<Vec<_>>().chunks(200) {
+                candidates.extend(self.store.list_analysis_queue_assets(
+                    Some(chunk),
+                    force,
+                    VERSION,
+                )?);
+            }
+            candidates.sort_by(|left, right| right.rowid.cmp(&left.rowid));
+            candidates
+        } else {
+            self.store
+                .list_analysis_queue_assets(asset_ids.as_deref(), force, VERSION)?
+        };
+        let assets_elapsed = assets_started.elapsed();
+        let asset_count = assets.len();
         let mut pending = self
             .pending
             .lock()
             .map_err(|_| "Analysis queue lock unavailable")?;
         let mut count = 0;
         for asset in assets {
-            if asset.processing == "external-readonly" {
+            if pending.contains(&asset.id) {
                 continue;
             }
-            if asset_ids
-                .as_ref()
-                .is_some_and(|ids| !ids.contains(&asset.id))
-                || pending.contains(&asset.id)
-            {
+            let Some(hydrated) = self.store.get_asset_by_id(&asset.id)? else {
+                continue;
+            };
+            if !force && hydrated.track.bpm.is_some() && hydrated.track.key.is_some() {
                 continue;
             }
-            if !std::path::Path::new(&asset.path).is_file() {
-                continue;
-            }
-            if !force
-                && records.iter().any(|record| {
-                    record["assetId"] == asset.id
-                        && record["inputHash"] == asset.hash
-                        && record["version"] == VERSION
-                        && record["status"] == "completed"
-                })
-            {
-                continue;
-            }
-            if !force && asset.track.bpm.is_some() && asset.track.key.is_some() {
+            if !std::path::Path::new(&hydrated.path).is_file() {
                 continue;
             }
             self.store.save_analysis_record(
-                &asset.id,
-                &asset.hash,
+                &hydrated.id,
+                &hydrated.hash,
                 VERSION,
                 "queued",
                 &json!({}),
             )?;
-            pending.insert(asset.id.clone());
-            if self.sender.send(asset.id.clone()).is_err() {
-                pending.remove(&asset.id);
+            pending.insert(hydrated.id.clone());
+            if self.sender.send(hydrated.id.clone()).is_err() {
+                pending.remove(&hydrated.id);
                 return Err("Analysis worker is not running".into());
             }
             count += 1;
+        }
+        if perf_trace {
+            eprintln!(
+                "[perf] analysis.queue candidate_assets={} candidate_query_ms={} queued={} total_ms={}",
+                asset_count,
+                assets_elapsed.as_millis(),
+                count,
+                queue_started.elapsed().as_millis()
+            );
         }
         Ok(count)
     }
@@ -144,6 +183,16 @@ impl AnalysisManager {
         Ok(self
             .store
             .list_analysis_records()?
+            .into_iter()
+            .filter(|record| seen.insert(record["assetId"].as_str().unwrap_or_default().to_owned()))
+            .collect())
+    }
+
+    pub fn status_for_assets(&self, asset_ids: &[String]) -> Result<Vec<Value>, String> {
+        let mut seen = HashSet::new();
+        Ok(self
+            .store
+            .list_analysis_records_for_assets(asset_ids)?
             .into_iter()
             .filter(|record| seen.insert(record["assetId"].as_str().unwrap_or_default().to_owned()))
             .collect())

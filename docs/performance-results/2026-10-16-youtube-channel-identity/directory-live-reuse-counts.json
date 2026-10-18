@@ -1,0 +1,10 @@
+{
+  "scope": "main registered music folder, UI-started scan",
+  "assetsBefore": 15,
+  "assetsAfter": 15,
+  "newAssetRows": 0,
+  "verifiedFingerprints": 15,
+  "assetIdsRecordingLinksPathsHashesDurationsRangesPreserved": true,
+  "initialObservation": "9 of 15 checked, 9 indexed, 0 failed; verified again after running scan ended",
+  "audioFilesModifiedByScan": false
+}

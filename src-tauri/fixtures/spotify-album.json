@@ -1,0 +1,120 @@
+{
+  "albumId": "6E4eD35ZrPXH2bF6LnPphg",
+  "albumUrl": "https://open.spotify.com/album/6E4eD35ZrPXH2bF6LnPphg",
+  "complete": true,
+  "total": 16,
+  "tracks": [
+    {
+      "position": 1,
+      "trackId": "0j8ulfrtVtBnyBr6p0CfFu",
+      "title": "Kaval Sviri (The Flute Plays)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 131706
+    },
+    {
+      "position": 2,
+      "trackId": "2V1xt2hOZo179Z0IY4RLwd",
+      "title": "Stani Mi, Maytcho (Get Up, My Daughter)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 287760
+    },
+    {
+      "position": 3,
+      "trackId": "15njNFCWNN76Cj68Alffpp",
+      "title": "Di-Li-Do",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 83373
+    },
+    {
+      "position": 4,
+      "trackId": "70x1kSG4qTtuPXvFT4VvXb",
+      "title": "More Zajeni Se Ghiouro (Ghiouro Marries)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 88626
+    },
+    {
+      "position": 5,
+      "trackId": "62KVHliBq94cOtskTsHJPm",
+      "title": "Tche da Ti Kupim Bela Seitsa (I'm Going to Buy You Some White Silk)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 155466
+    },
+    {
+      "position": 6,
+      "trackId": "7CTqxkMPTIItHRgvMjasmD",
+      "title": "Ovdoviala Lissitchkata (The Fox Has Lost His Cubs)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 170040
+    },
+    {
+      "position": 7,
+      "trackId": "49dS4vf45xwWeu7MwTLdTH",
+      "title": "Messetchinko Lio (You, Little Moon)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 192133
+    },
+    {
+      "position": 8,
+      "trackId": "5ItIh7LPlgCh9JwX8s7xoH",
+      "title": "Ei Mori Roujke (You Little Roujke)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 112600
+    },
+    {
+      "position": 9,
+      "trackId": "002o4ozJQXKj39YQQNxD6j",
+      "title": "Dragana I Slavei (Dragana's Song)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 189333
+    },
+    {
+      "position": 10,
+      "trackId": "01UrHSx2Sium3PBuzP38qm",
+      "title": "Atmadja Duma Strachilu (Revolutionary Song)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 241160
+    },
+    {
+      "position": 11,
+      "trackId": "1MPrGp2o5WJnXIw0ZN259Q",
+      "title": "Dve Tourlaski Pesen (Teasing)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 142400
+    },
+    {
+      "position": 12,
+      "trackId": "1pUVqBIFJ06w1u8uBsPO2o",
+      "title": "Trenke, Todorke",
+      "artist": "Le Myst�re des Voix Bulgares",
+      "durationMs": 88640
+    },
+    {
+      "position": 13,
+      "trackId": "70Lnc8YPvrLKMHOIETnt7T",
+      "title": "Bezroda Nevesta (Young Childless Wife)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 182266
+    },
+    {
+      "position": 14,
+      "trackId": "1RbfYGWKlkIcxtK39g56nO",
+      "title": "Izpoved (Confession)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 341493
+    },
+    {
+      "position": 15,
+      "trackId": "4GDEyBXYtS2RToWKsZmpV6",
+      "title": "Ghiore Dos (Teasing)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 98840
+    },
+    {
+      "position": 16,
+      "trackId": "4rwtfb5On7KwzxdtMSB8Yc",
+      "title": "Spis Li, Milke Le (If You Are Sleeping, Milke)",
+      "artist": "Bulgarian State Television Female Choir",
+      "durationMs": 304960
+    }
+  ]
+}

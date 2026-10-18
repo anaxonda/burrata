@@ -1,0 +1,15 @@
+{
+  "errorCode": "request_failed",
+  "kind": "all",
+  "requestId": "39245144-552c-4be7-bada-cd0ec3ae496f",
+  "resultCounts": {
+    "discogs": 25,
+    "monochrome": 6,
+    "musicbrainz": 30,
+    "soulseek": 7,
+    "soundcloud": 30,
+    "youtube": 0
+  },
+  "sourceId": "all",
+  "status": "failed"
+}

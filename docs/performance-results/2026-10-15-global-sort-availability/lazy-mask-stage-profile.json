@@ -1,0 +1,149 @@
+{
+  "scope": "test-only wall stage timing, not CPU time; three warmups and three measured reads per size",
+  "samples": [
+    {
+      "jsonParseMicros": 37916,
+      "maskMicros": 2103,
+      "rowFetchAndReadMicros": 13455,
+      "rowsScanned": 1000
+    },
+    {
+      "jsonParseMicros": 37449,
+      "maskMicros": 2042,
+      "rowFetchAndReadMicros": 13133,
+      "rowsScanned": 1000
+    },
+    {
+      "jsonParseMicros": 37688,
+      "maskMicros": 2027,
+      "rowFetchAndReadMicros": 13247,
+      "rowsScanned": 1000
+    },
+    {
+      "jsonParseMicros": 44525,
+      "maskMicros": 2503,
+      "rowFetchAndReadMicros": 15006,
+      "rowsScanned": 1000
+    },
+    {
+      "jsonParseMicros": 38588,
+      "maskMicros": 2076,
+      "rowFetchAndReadMicros": 13506,
+      "rowsScanned": 1000
+    },
+    {
+      "jsonParseMicros": 39676,
+      "maskMicros": 2177,
+      "rowFetchAndReadMicros": 13598,
+      "rowsScanned": 1000
+    },
+    {
+      "jsonParseMicros": 197468,
+      "maskMicros": 10805,
+      "rowFetchAndReadMicros": 71480,
+      "rowsScanned": 5000
+    },
+    {
+      "jsonParseMicros": 204969,
+      "maskMicros": 11095,
+      "rowFetchAndReadMicros": 74782,
+      "rowsScanned": 5000
+    },
+    {
+      "jsonParseMicros": 213709,
+      "maskMicros": 11949,
+      "rowFetchAndReadMicros": 75250,
+      "rowsScanned": 5000
+    },
+    {
+      "jsonParseMicros": 188299,
+      "maskMicros": 10288,
+      "rowFetchAndReadMicros": 69833,
+      "rowsScanned": 5000
+    },
+    {
+      "jsonParseMicros": 194132,
+      "maskMicros": 10741,
+      "rowFetchAndReadMicros": 71613,
+      "rowsScanned": 5000
+    },
+    {
+      "jsonParseMicros": 189252,
+      "maskMicros": 10389,
+      "rowFetchAndReadMicros": 69860,
+      "rowsScanned": 5000
+    },
+    {
+      "jsonParseMicros": 778953,
+      "maskMicros": 42395,
+      "rowFetchAndReadMicros": 285824,
+      "rowsScanned": 20000
+    },
+    {
+      "jsonParseMicros": 809659,
+      "maskMicros": 44430,
+      "rowFetchAndReadMicros": 301134,
+      "rowsScanned": 20000
+    },
+    {
+      "jsonParseMicros": 778603,
+      "maskMicros": 42706,
+      "rowFetchAndReadMicros": 287485,
+      "rowsScanned": 20000
+    },
+    {
+      "jsonParseMicros": 787780,
+      "maskMicros": 43259,
+      "rowFetchAndReadMicros": 285005,
+      "rowsScanned": 20000
+    },
+    {
+      "jsonParseMicros": 808030,
+      "maskMicros": 44428,
+      "rowFetchAndReadMicros": 294898,
+      "rowsScanned": 20000
+    },
+    {
+      "jsonParseMicros": 756963,
+      "maskMicros": 41863,
+      "rowFetchAndReadMicros": 282382,
+      "rowsScanned": 20000
+    },
+    {
+      "jsonParseMicros": 2030611,
+      "maskMicros": 103847,
+      "rowFetchAndReadMicros": 763365,
+      "rowsScanned": 50000
+    },
+    {
+      "jsonParseMicros": 1866446,
+      "maskMicros": 97185,
+      "rowFetchAndReadMicros": 693911,
+      "rowsScanned": 50000
+    },
+    {
+      "jsonParseMicros": 1901268,
+      "maskMicros": 98069,
+      "rowFetchAndReadMicros": 715713,
+      "rowsScanned": 50000
+    },
+    {
+      "jsonParseMicros": 1826271,
+      "maskMicros": 92407,
+      "rowFetchAndReadMicros": 685452,
+      "rowsScanned": 50000
+    },
+    {
+      "jsonParseMicros": 1875941,
+      "maskMicros": 100674,
+      "rowFetchAndReadMicros": 702194,
+      "rowsScanned": 50000
+    },
+    {
+      "jsonParseMicros": 1845498,
+      "maskMicros": 98982,
+      "rowFetchAndReadMicros": 692772,
+      "rowsScanned": 50000
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "date": "2026-10-17",
+  "scope": "Bounded search/artist history restoration, chapter-row rendering budget, and explicit duplicate/chapter occurrence boundary behavior.",
+  "changes": [
+    {
+      "area": "Search history",
+      "behavior": "Back/Forward snapshots restore search controls, loaded-page/cursor state and scroll within the tested account-scoped search-to-artist flow without refetching.",
+      "limitation": "Search-to-album extension is staged but untested; global Back/Forward behavior remains open."
+    },
+    {
+      "area": "Chapter-list rendering",
+      "behavior": "Chapter-heavy lists cap the displayed child-row budget and lazily mount collapsed chapter rows."
+    },
+    {
+      "area": "Occurrence selection and advancement",
+      "behavior": "Explicit duplicate/chapter selection starts at the selected range boundary; Resume retains the saved position. A reproduced chapter-boundary/media-ended double-advance race is fixed."
+    }
+  ],
+  "verification": {
+    "appTests": {"status":"passed","tests":289,"durationSeconds":52.44,"log":".cache/search-history-occurrence-root-app-tests.log","sha256":"1f87d16741e28b43d9abe2495218ca69fd34206faa2148de8b41f467753a5bf9"},
+    "searchPanelCacheScopeTests": {"status":"passed","tests":50,"files":3,"durationSeconds":7.19,"log":".cache/search-history-lazy-root-tests.log","sha256":"86f5b8e6a0e227bd2491560dfe8f70ea78cd56820ef41832f1448e6b5e2cfc6a"},
+    "svelteCheck": {"status":"passed","errors":0,"warnings":0,"log":".cache/search-history-occurrence-root-check.log","sha256":"52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695"},
+    "productionFrontendBuild": {"status":"passed","durationSeconds":5.67,"log":".cache/search-history-occurrence-root-build.log","sha256":"74b9eee1d1ec48dcaf59e73cdc7708c5ab4178e7f16e640d1b96cbd74326af8b"},
+    "frontendSourcePin": {"file":".cache/qualification-search-history/source-pin.json","sha256":"730435a8b1d6f46127e4d79dd95d75cc89f45f11d50dd7931ad1eb0903e65fea","nativeAndProviderInputs":"unchanged"},
+    "visualReview": {"status":"passed, bounded","viewport":"1914x515","layoutFindings":0,"capture":"private app-owned capture reviewed; not published"}
+  },
+  "runtimePreservation": {
+    "candidate":"5ac6e998a5c8",
+    "launcher":16466,
+    "frontendTools":93,
+    "snapshot":"Exact full JSON equality before and after the frontend update: 13 queue occurrences, index 6, paused at 29.087175s; controls, provider state and permissions unchanged.",
+    "flags":"Experimental flags remained off."
+  },
+  "separateExperimentalWork": {
+    "textIndexPrototype":"Isolated tree only; three focused checks and 945 native tests passed with 22 ignored (18.96s). The actual 50k Store benchmark is still running; no performance result or promotion is claimed."
+  },
+  "limitations": [
+    "No live Back/Forward route-flow acceptance is claimed.",
+    "No new audio or playback qualification is claimed.",
+    "Global Back/Forward and search-to-album history remain open."
+  ]
+}

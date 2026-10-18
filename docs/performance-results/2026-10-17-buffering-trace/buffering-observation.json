@@ -1,0 +1,6 @@
+{
+  "scope": "One successful startup/paused-seek attempt; lastBuffering may be absent because seeks clear previous generation facts. Not a reproduction or fix of the prior starvation.",
+  "generation": 3,
+  "seekSerial": 1,
+  "lastBuffering": null
+}

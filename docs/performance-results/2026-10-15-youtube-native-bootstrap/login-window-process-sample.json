@@ -1,0 +1,121 @@
+{
+  "scope": "Selected app and descendant process snapshot only; development build, no isolation or steady-playback qualification. RSS sum may double-count shared pages; PSS provided when available. CPU excludes newly appearing and departed child lifetimes. I/O is kernel storage bytes, not network bytes.",
+  "binarySha256": "f3924ca59e2cf60994ce4edeb39c13b7ba1559054600d410646d14fef45db720",
+  "samples": [
+    {
+      "processCount": 6,
+      "rssBytes": 1390374912,
+      "pssBytes": 868989952,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 144.54000000000002,
+      "elapsedSeconds": 0.0
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390374912,
+      "pssBytes": 868994048,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 144.64,
+      "elapsedSeconds": 1.044,
+      "cpuPercentOneCore": 9.58
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390505984,
+      "pssBytes": 869006336,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 144.75,
+      "elapsedSeconds": 2.091,
+      "cpuPercentOneCore": 10.51
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390637056,
+      "pssBytes": 869010432,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 144.87,
+      "elapsedSeconds": 3.139,
+      "cpuPercentOneCore": 11.46
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390637056,
+      "pssBytes": 869022720,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 144.99,
+      "elapsedSeconds": 4.187,
+      "cpuPercentOneCore": 11.45
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390637056,
+      "pssBytes": 868968448,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 145.1,
+      "elapsedSeconds": 5.238,
+      "cpuPercentOneCore": 10.46
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390477312,
+      "pssBytes": 868714496,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 145.23,
+      "elapsedSeconds": 6.286,
+      "cpuPercentOneCore": 12.41
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390477312,
+      "pssBytes": 868718592,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 145.34,
+      "elapsedSeconds": 7.331,
+      "cpuPercentOneCore": 10.53
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390477312,
+      "pssBytes": 868665344,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 145.47,
+      "elapsedSeconds": 8.375,
+      "cpuPercentOneCore": 12.46
+    },
+    {
+      "processCount": 6,
+      "rssBytes": 1390477312,
+      "pssBytes": 868665344,
+      "pssComplete": true,
+      "readBytes": 73003008,
+      "writeBytes": 34250752,
+      "cpuSeconds": 145.6,
+      "elapsedSeconds": 9.419,
+      "cpuPercentOneCore": 12.44
+    }
+  ],
+  "conditions": {
+    "ownedYoutubeLoginWindowOpen": true,
+    "developmentBuild": true,
+    "nativeCompilationConcurrent": true,
+    "playbackQualification": false
+  }
+}

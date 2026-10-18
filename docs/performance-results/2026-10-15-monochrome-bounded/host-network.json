@@ -1,0 +1,25 @@
+{
+  "provider": "Monochrome Tracks public endpoint",
+  "recording": {
+    "expected_id": "155142501534011392",
+    "expected_title": "Get Lucky",
+    "expected_artist": "Daft Punk",
+    "expected_duration_seconds": 369.626
+  },
+  "limits": {
+    "max_catalog_bytes": 2097152,
+    "decode_seconds": 8,
+    "max_audio_bytes": 16777216,
+    "wall_timeout_seconds": 30
+  },
+  "credentials_added": false,
+  "urls_or_raw_bodies_persisted": false,
+  "failure_type": "HTTPError",
+  "http_status": 403,
+  "finished_at_utc": "2026-10-15T22:19:33Z",
+  "source_revision_reviewed": "monochrome a3c86df0436a3eedc341ab5163fc5ee6b1688b5d; binimum/hifi-api bf46988",
+  "failed_stage": "public Tracks catalog search request",
+  "recording_bytes_received": false,
+  "provider_state_conclusion": "configured Tracks search endpoint returned HTTP 403 to this bounded unauthenticated request; this does not establish permanent service unavailability",
+  "stream_request_attempted": false
+}

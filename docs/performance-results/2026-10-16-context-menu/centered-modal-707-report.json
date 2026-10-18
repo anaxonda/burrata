@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-16",
+  "component": "src/TrackMenu.svelte",
+  "fixture": "docs/performance-results/2026-10-16-context-menu/harness/main.js",
+  "browser": "Chromium headless, synthetic menu fixture",
+  "sourceSha256": {
+    "src/TrackMenu.svelte": "93fb343447dc2bc8f5195977ee5e050a91004daedbe36f9fd73522d64830f636",
+    "harness/main.js": "fc10cb5c3594edde7c7fb44db35c4042a54e975bf80ab81f9a812b257363e6f2"
+  },
+  "results": [
+    {
+      "variant": "centered anchor=null before fix",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "card": {
+        "x": 194,
+        "y": 20,
+        "width": 320,
+        "height": 440,
+        "bottom": 460,
+        "right": 514,
+        "scrollHeight": 556,
+        "clientHeight": 438,
+        "overlapsPlayer": true,
+        "playerGap": -70
+      }
+    },
+    {
+      "variant": "centered anchor=null after fix",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 90,
+      "playerTop": 390,
+      "card": {
+        "x": 194,
+        "y": 8,
+        "width": 320,
+        "height": 374,
+        "bottom": 382,
+        "right": 514,
+        "scrollHeight": 556,
+        "clientHeight": 372,
+        "overlapsPlayer": false,
+        "playerGap": 8
+      },
+      "activeAction": "Add to playlist\u2026",
+      "clipped": true,
+      "scrollable": true
+    },
+    {
+      "variant": "centered anchor=null after fix",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 130,
+      "playerTop": 350,
+      "card": {
+        "x": 194,
+        "y": 8,
+        "width": 320,
+        "height": 334,
+        "bottom": 342,
+        "right": 514,
+        "scrollHeight": 556,
+        "clientHeight": 332,
+        "overlapsPlayer": false,
+        "playerGap": 8
+      },
+      "activeAction": "Add to playlist\u2026",
+      "clipped": true,
+      "scrollable": true
+    },
+    {
+      "variant": "anchored regression after fix",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "playerHeight": 130,
+      "playerTop": 350,
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 334,
+        "bottom": 344,
+        "right": 691,
+        "scrollHeight": 556,
+        "clientHeight": 332,
+        "overlapsPlayer": false,
+        "playerGap": 6
+      },
+      "activeAction": "Add to playlist\u2026",
+      "clipped": true,
+      "scrollable": true
+    }
+  ],
+  "screenshots": {
+    "before": ".cache/context-menu-visual/track-menu-centered-before-707x480.png",
+    "after90": ".cache/context-menu-visual/track-menu-centered-player90-final.png",
+    "after130": ".cache/context-menu-visual/track-menu-centered-player130-final.png"
+  },
+  "change": "Pass playerHeight to the dialog through a scoped inline CSS variable. The centered modal uses an 8px top inset, an 8px gap before the player, and max-height constrained to that usable region. The anchored menu keeps its anchor coordinates and clamp, with its max-height using the same passed value.",
+  "test": "npx vitest run --configLoader runner src/TrackMenu.test.ts",
+  "testResult": "passed: 1 test file, 2 tests (npx vitest run --configLoader runner src/TrackMenu.test.ts)"
+}

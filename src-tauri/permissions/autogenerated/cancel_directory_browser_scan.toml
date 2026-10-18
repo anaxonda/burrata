@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-directory-browser-scan"
+description = "Enables the cancel_directory_browser_scan command without any pre-configured scope."
+commands.allow = ["cancel_directory_browser_scan"]
+
+[[permission]]
+identifier = "deny-cancel-directory-browser-scan"
+description = "Denies the cancel_directory_browser_scan command without any pre-configured scope."
+commands.deny = ["cancel_directory_browser_scan"]

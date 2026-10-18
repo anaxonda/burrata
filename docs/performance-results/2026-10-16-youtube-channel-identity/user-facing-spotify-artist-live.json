@@ -1,0 +1,15 @@
+{
+  "guiSha256": "9482da37d3b9108581f8ea33975a5bd22c13df5f193c0f497a05f8010c8a611b",
+  "scope": "Read-only public artist pages and owned main UI capture; no imports or writes",
+  "pages": [],
+  "capture": {
+    "saved": true,
+    "height": 1036,
+    "mimeType": "image/png",
+    "width": 954
+  },
+  "artistError": {
+    "code": "OPERATION_FAILED",
+    "message": "PROVIDER_CHANGED: Spotify returned a response that did not match the request. (phase=catalog_graphql, operation=queryArtistDiscographyAll, HTTP 200)"
+  }
+}

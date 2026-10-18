@@ -1,0 +1,30 @@
+{
+  "buildKind": "Linux development test binary",
+  "native": {
+    "passed": 725,
+    "failed": 0,
+    "ignored": 14,
+    "seconds": 8.6,
+    "sha256": "03c9d1ffc51d6448b48ee79e8549d36b2a138027904f17c6c0f7c77ad5d97701"
+  },
+  "frontend": {
+    "fullSuitePassed": 508,
+    "files": 56,
+    "extendedKeyFixtureFocusedPassed": 9,
+    "productionBuild": true,
+    "svelteErrors": 0,
+    "svelteWarnings": 0,
+    "providerControlFollowup": true
+  },
+  "contractsPassed": 7,
+  "liveRecognitionQualified": false,
+  "providerSessionQualified": false,
+  "publicRelease": false,
+  "normalGuiBuild": {
+    "sha256": "0d008f9c3a7d1550822e96752f0f6be138515280fdc1553b7a9cbb6345bb40f8",
+    "buildKind": "Linux development normal GUI",
+    "nativeTestsPassed": 725,
+    "ignored": 14,
+    "launched": false
+  }
+}

@@ -10,6 +10,16 @@ pub struct SidebarLayout {
     pub assignments: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub names: BTreeMap<String, String>,
+    #[serde(default)]
+    pub show_account_playlists: AccountPlaylistVisibility,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountPlaylistVisibility {
+    #[serde(default)]
+    pub spotify: bool,
+    #[serde(default)]
+    pub youtube: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -92,6 +102,7 @@ mod tests {
             }],
             assignments: BTreeMap::from([(playlist.id.clone(), "favorites-folder".into())]),
             names: BTreeMap::from([("favorites".into(), " Favorites ".into())]),
+            ..Default::default()
         };
         let saved = save(&store, layout).unwrap();
         assert_eq!(saved.sections[0].name, "DJ sets");
@@ -107,9 +118,57 @@ mod tests {
             SidebarLayout {
                 sections: vec![],
                 names: saved.names,
-                assignments: saved.assignments
+                assignments: saved.assignments,
+                ..Default::default()
             }
         )
         .is_err());
+    }
+
+    #[test]
+    fn older_layout_defaults_account_playlist_sections_off_and_flags_persist() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        store
+            .set_json_preference(
+                KEY,
+                &serde_json::json!({ "sections": [], "assignments": {}, "names": {} }),
+            )
+            .unwrap();
+        let old = load(&store).unwrap();
+        assert!(!old.show_account_playlists.spotify);
+        assert!(!old.show_account_playlists.youtube);
+
+        let updated = save(
+            &store,
+            SidebarLayout {
+                show_account_playlists: AccountPlaylistVisibility {
+                    spotify: true,
+                    youtube: false,
+                },
+                ..old
+            },
+        )
+        .unwrap();
+        assert!(updated.show_account_playlists.spotify);
+        assert!(!load(&store).unwrap().show_account_playlists.youtube);
+        assert!(load(&store).unwrap().show_account_playlists.spotify);
+    }
+
+    #[test]
+    fn account_playlist_visibility_rejects_unknown_providers_and_non_booleans() {
+        assert!(
+            serde_json::from_value::<AccountPlaylistVisibility>(serde_json::json!({
+                "spotify": true,
+                "youtube": false,
+                "soundcloud": true
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<AccountPlaylistVisibility>(serde_json::json!({
+                "spotify": "yes"
+            }))
+            .is_err()
+        );
     }
 }

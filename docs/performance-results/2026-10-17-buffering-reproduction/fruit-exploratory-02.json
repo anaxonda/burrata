@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "playbackPass": true,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "ebf96f8fceb05c8eb803c21686e07d7d4c4e842a850b31d212de2b7d1fe4471e",
+  "pass": true,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5081.029203000001,
+        "advancedMs": 5137.49433106576,
+        "observations": 46
+      },
+      "catalogueSeconds": 181.4,
+      "mediaDeclaredSeconds": 181.4,
+      "playbackDurationSeconds": 181.4,
+      "catalogueDeltaSeconds": 0,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "selectedProvider": "monochrome",
+      "firstMixerMs": 1068
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "postseek",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5128.735754000001,
+        "advancedMs": 5061.700680272109,
+        "observations": 47
+      },
+      "seekFirstMixerMs": 3,
+      "seekReceiptFirstMixerMs": 1316,
+      "resumeLatencyMeasured": false
+    }
+  ],
+  "identify": {
+    "requested": false,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": null,
+  "finalBoundedDiagnostics": {
+    "engine": "native",
+    "status": "playing",
+    "paused": false,
+    "position": 15.061700680272109,
+    "generation": 6,
+    "seekSerial": 2,
+    "diagnostics": {
+      "bufferingCount": 3,
+      "recoveryCount": 0,
+      "firstAudioMs": 1068,
+      "seekFirstAudioMs": 3,
+      "lastBuffering": null,
+      "lastRecovery": null,
+      "lastLocalStorageFailure": null
+    },
+    "selectedProvider": "monochrome",
+    "selectedProviderId": "239910648984977408"
+  },
+  "pausedFinally": true,
+  "observedBuffering": {
+    "events": [
+      {
+        "observedGeneration": 5,
+        "observedSeekSerial": 1,
+        "bufferingCount": 3,
+        "lastBuffering": {
+          "generation": 5,
+          "seekSerial": 1,
+          "stream": {
+            "readerObserved": false,
+            "networkReader": true,
+            "bytesRead": 0,
+            "downloadedRangeEnd": 0,
+            "downloadProgressAgeMs": null,
+            "readInFlightMs": null,
+            "maxReadMs": 0,
+            "pcmProducedSamples": 0,
+            "pcmConsumedSamples": 0,
+            "syntheticSilenceSamples": 2724
+          }
+        }
+      }
+    ],
+    "dropped": 0
+  }
+}

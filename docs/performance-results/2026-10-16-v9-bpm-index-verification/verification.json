@@ -1,0 +1,82 @@
+{
+  "candidate": {
+    "binary": ".cache/verification-target/debug/verified-tests-v9-bpm-index-final-df7f918be70a/burrata_lib",
+    "binarySha256": "df7f918be70af613fb1420f02cbc98a12649ad6271b1f4bf77ade7f94be0cc04",
+    "sourceRoot": "/tmp/burrata-availability-native-prototype/src-tauri",
+    "sourceSha256": {
+      "src/storage.rs": "93f8ebeee1292b0ee53f3dbeff6cced25496bb0dbe8b7fa877153f8dbc47cbea",
+      "src/track_sort_sql.rs": "4a25d015700a1f14b5ef1c0e9b789023ffd897ab98220b9fb3b0a160bad09c19",
+      "src/playback.rs": "9c2096b8f03525b643c1ee3a3b57dd56cd204c2ba42236416a762e20d8c5c3e5",
+      "src/remote_playlists.rs": "ca814d4c654fefbbfa75675ec6dfe4bed242832b602d08d675d0c7bfc9bba7d2"
+    }
+  },
+  "checks": [
+    {
+      "command": "cargo check --tests --lib --manifest-path /tmp/burrata-availability-native-prototype/src-tauri/Cargo.toml -j1",
+      "environment": "CARGO_TARGET_DIR=/tmp/burrata-sorting-target CARGO_INCREMENTAL=0",
+      "exitCode": 0,
+      "result": "dev check finished successfully"
+    },
+    {
+      "command": "burrata_lib storage::tests::bpm_projection_index_keeps_filtered_order_nulls_last_and_stable_ties",
+      "exitCode": 0,
+      "result": "1 passed, 0 failed"
+    },
+    {
+      "command": "burrata_lib storage::tests::",
+      "exitCode": 0,
+      "result": "72 passed, 0 failed, 2 ignored"
+    },
+    {
+      "command": "burrata_lib",
+      "environment": "default /tmp; host; parallel test execution",
+      "exitCode": 101,
+      "result": "716 passed, 1 failed, 15 ignored; remote_playlists::tests::scheduler_does_not_retry_rate_limited_lookup_before_hint_cooldown failed with a SQLite disk I/O error at save_track"
+    },
+    {
+      "command": "burrata_lib remote_playlists::tests::scheduler_does_not_retry_rate_limited_lookup_before_hint_cooldown --exact --nocapture",
+      "environment": "default /tmp; host",
+      "exitCode": 0,
+      "result": "1 passed, 0 failed"
+    },
+    {
+      "command": "burrata_lib --test-threads=1",
+      "environment": "default /tmp; host",
+      "exitCode": 101,
+      "result": "716 passed, 1 failed, 15 ignored; storage::tests::import_source_url_lookup_uses_index_and_skips_unrelated_library_rows failed with SQLITE_IOERR_WRITE (778) during its 20000-row transaction"
+    },
+    {
+      "command": "burrata_lib storage::tests::import_source_url_lookup_uses_index_and_skips_unrelated_library_rows --exact --nocapture",
+      "environment": "default /tmp; host",
+      "exitCode": 101,
+      "result": "the same SQLITE_IOERR_WRITE (778) reproduced in isolation"
+    },
+    {
+      "command": "burrata_lib storage::tests::import_source_url_lookup_uses_index_and_skips_unrelated_library_rows --exact --nocapture",
+      "environment": "TMPDIR=/home/loki/projects/burrata/.cache/native-test-temp; host",
+      "exitCode": 0,
+      "result": "1 passed, 0 failed"
+    },
+    {
+      "command": "burrata_lib --test-threads=1",
+      "environment": "TMPDIR=/home/loki/projects/burrata/.cache/native-test-temp; host",
+      "exitCode": 0,
+      "result": "717 passed, 0 failed, 15 ignored"
+    }
+  ],
+  "filesystem": {
+    "defaultTempPath": "/tmp",
+    "defaultTempFilesystem": "tmpfs mounted with usrquota",
+    "globalFreeSpaceAtInspection": "about 1.6 GiB",
+    "workspaceFilesystem": "ext4",
+    "workspaceFreeSpaceAtInspection": "about 335 MiB",
+    "quotaCountersAvailable": false,
+    "interpretation": "The alternate-TMPDIR pass and default-/tmp SQLite write failures support a temporary-filesystem quota/resource issue. Per-user quota usage could not be measured directly."
+  },
+  "performanceQualification": {
+    "runForBpmIndexCandidate": false,
+    "p50OrP95Claim": false,
+    "indexMaintenanceAndBackfillMeasured": false,
+    "promotionStatus": "unpromoted"
+  }
+}

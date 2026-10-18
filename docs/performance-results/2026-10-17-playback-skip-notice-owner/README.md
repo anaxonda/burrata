@@ -1,0 +1,11 @@
+# Clear stale skip notices on a new explicit playback intent
+
+The current isolated desktop capture showed an album's persistent skipped-track notice after several explicit plays of a separate local coded fixture. Clearing all notices on track changes would also erase the required explanation during automatic unavailable-track advancement.
+
+Notice state now identifies playback-skip ownership. A new validated manual play, queue selection/replacement or explicit next/previous clears only that notice. Automatic failure advancement retains it; unrelated provider/application notices remain untouched, and failed play hydration does not clear it. Failure history and playback diagnostics are unchanged.
+
+The initial integrated change passes all 911 frontend tests. A follow-up covers native and paused-WebView MCP next/previous paths that bypass the UI helpers; its focused regressions pass, and the updated full suite is running. Svelte/build and live reproduction remain pending for this final source state.
+
+The isolated app was stopped with its one-entry queue paused at 53.304183 seconds, volume 0.8, repeat off and shuffle disabled. The normal user's separate 30-entry snapshot remains preserved. Only App source and its tests differ from the 541-input native candidate snapshot; the native executable and its 1,042-test result are retained unchanged. Integration backups and logs are under `.cache/qualification-playback-skip-notice/`.
+
+The final integrated revision passes all 913 frontend tests, Svelte with zero errors/warnings and the production build. The sole isolated app mounted with native `97597ce4c7fd` and frontend `3943b23cfb37`. An exact two-occurrence queued operation skipped the verified Sasa Main Version fixture and played the local coded successor; the actual screenshot retains the version-specific explanation. A fresh single-track queued operation creates a new occurrence and clears the banner in its screenshot. Exact receipt checks, owned cancellation, final pause and volume 0.8 all pass. The metadata-only summary is `.cache/qualification-playback-skip-notice/live-summary-private.json`; the before/after captures remain private. This closes this bounded banner fix, not general desktop or recording/source qualification.

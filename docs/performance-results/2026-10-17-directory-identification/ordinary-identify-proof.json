@@ -1,0 +1,27 @@
+{
+  "scope": "one native PCM identification of actual pinned Fruit playback; catalog identity unverified",
+  "binarySha256": "ae2636f63df1734e836c88a7fed20b41b7318cee8e12f4085c7deb67eadfb1bd",
+  "resumedSustained": {
+    "status": "ready",
+    "wallMs": 9131.045648000001,
+    "advancedMs": 9102.222222222224,
+    "observations": 86
+  },
+  "resumedGeneration": 7,
+  "seekFirstMixerMs": null,
+  "seekReceiptFirstMixerMs": null,
+  "requestSucceeded": false,
+  "elapsedMs": 1859,
+  "hasTitle": false,
+  "hasArtist": false,
+  "sameQueue": true,
+  "sameTrack": true,
+  "sameGeneration": true,
+  "positionAdvanced": true,
+  "playingAfter": true,
+  "newTemporaryWavs": 0,
+  "cancelQualified": false,
+  "pausedFinally": true,
+  "cleanupQualification": "Initial observer checked /tmp instead of isolated TMPDIR; no cleanup claim. Corrected dedicated cancellation test verifies actual path.",
+  "failureReasonRetained": false
+}

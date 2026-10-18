@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-confirm-managed-provider-account"
+description = "Enables the confirm_managed_provider_account command without any pre-configured scope."
+commands.allow = ["confirm_managed_provider_account"]
+
+[[permission]]
+identifier = "deny-confirm-managed-provider-account"
+description = "Denies the confirm_managed_provider_account command without any pre-configured scope."
+commands.deny = ["confirm_managed_provider_account"]

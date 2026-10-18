@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-directory-browser-children"
+description = "Enables the list_directory_browser_children command without any pre-configured scope."
+commands.allow = ["list_directory_browser_children"]
+
+[[permission]]
+identifier = "deny-list-directory-browser-children"
+description = "Denies the list_directory_browser_children command without any pre-configured scope."
+commands.deny = ["list_directory_browser_children"]

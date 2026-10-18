@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-16",
+  "browser": "Chromium 154.0.8037.97 (Arch Linux), headless",
+  "fixture": "harness/index.html and harness/main.js mount the actual Svelte menu components with src/style.css and synthetic data",
+  "liveAppTouched": false,
+  "screenshots": [
+    ".cache/context-menu-visual/track-menu-desktop.png",
+    ".cache/context-menu-visual/track-menu-707px.png",
+    ".cache/context-menu-visual/playlist-menu-707px.png"
+  ],
+  "measurements": [
+    {
+      "menu": "TrackMenu",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "card": {
+        "x": 944,
+        "y": 66,
+        "width": 320,
+        "height": 558,
+        "right": 1264,
+        "bottom": 624,
+        "scrollHeight": 556,
+        "clientHeight": 556
+      },
+      "playerTop": 630,
+      "sideInset": 16,
+      "playerGap": 6,
+      "activeAction": "Add to playlist\u2026",
+      "rowHeights": [
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36
+      ],
+      "clipped": false
+    },
+    {
+      "menu": "TrackMenu",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "right": 691,
+        "bottom": 384,
+        "scrollHeight": 556,
+        "clientHeight": 372
+      },
+      "playerTop": 390,
+      "sideInset": 16,
+      "playerGap": 6,
+      "activeAction": "Add to playlist\u2026",
+      "rowHeights": [
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36
+      ],
+      "clipped": true,
+      "scrollable": true
+    },
+    {
+      "menu": "PlaylistMenu",
+      "viewport": {
+        "width": 707,
+        "height": 480
+      },
+      "card": {
+        "x": 371,
+        "y": 10,
+        "width": 320,
+        "height": 374,
+        "right": 691,
+        "bottom": 384,
+        "scrollHeight": 385,
+        "clientHeight": 372
+      },
+      "playerTop": 390,
+      "sideInset": 16,
+      "playerGap": 6,
+      "activeAction": "Open playlist",
+      "rowHeights": [
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36,
+        36
+      ],
+      "clipped": true,
+      "scrollable": true
+    }
+  ],
+  "sourceSha256": {
+    "src/TrackMenu.svelte": "93fb343447dc2bc8f5195977ee5e050a91004daedbe36f9fd73522d64830f636",
+    "src/PlaylistMenu.svelte": "a5c0473914208e81b63bc3d1d9fe304a2f7b00fce3f20a9347f12e5c455b6297",
+    "src/SourceLink.svelte": "63b14214ecc230d85d619132e72d542f584ae71198e5635dc27a16087fa77267",
+    "src/style.css": "ce13446e0bbee269346274a4362eb763030dec18116906a765081f878df7a6d4",
+    "src/App.integration.test.ts": "7dbdfc7d31765d56de0ff7048aabecb04ca2c5a2c964dd2c32daecd70aa2f13c",
+    "harness/index.html": "fe7d8855ada3e0ffdae633f6c648a74983668bbf95f97492d6363ec7d046162c",
+    "harness/main.js": "fc10cb5c3594edde7c7fb44db35c4042a54e975bf80ab81f9a812b257363e6f2"
+  },
+  "screenshotSha256": {
+    ".cache/context-menu-visual/track-menu-desktop.png": "5d6bb20c325c576cefe01c36eb6287d9be2bcead04842e77449952821e02f601",
+    ".cache/context-menu-visual/track-menu-707px.png": "b8e8f919e2f7da7ebd42c3cc873b888e8845a3a82ce48d958e90786263d7a029",
+    ".cache/context-menu-visual/playlist-menu-707px.png": "bb989fca099dfd8990d95c7cde424aa8c05b8135766cb9e1ec770c019ac8bd48"
+  },
+  "verificationCommands": [
+    {
+      "command": "npm test -- --run src/TrackMenu.test.ts",
+      "result": "passed: 1 test file, 2 tests, after the SourceLink arrow option change"
+    },
+    {
+      "command": "npm test -- --run src/App.integration.test.ts",
+      "result": "intermediate run: 226 passed, 3 failed; two menu text lookups were subsequently changed to menuActionText(), one legacy selection assertion at line 1962 remains with the root owner; full rerun pending"
+    }
+  ],
+  "limitations": [
+    "The fixture uses synthetic content and does not exercise live provider actions.",
+    "Screenshots are local cache artifacts and are not included in the documentation tree."
+  ],
+  "followup": {
+    "centeredModal": "centered-modal-707-report.json"
+  }
+}

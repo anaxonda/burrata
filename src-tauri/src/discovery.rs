@@ -7,6 +7,7 @@ use crate::{
     models::Track,
     storage::Store,
 };
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -59,6 +60,231 @@ pub struct SourceCapability {
     pub enabled: bool,
     pub detail: Option<String>,
 }
+
+/// Maximum serialized discovery buffer cursor length accepted by both the
+/// discovery decoder and the authenticated automation request boundary.
+pub(crate) const MAX_DISCOVERY_CURSOR_LENGTH: usize = 2 * 1024 * 1024;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoveryBufferCursor {
+    source_id: String,
+    query: String,
+    kinds: Vec<String>,
+    #[serde(default)]
+    isrc: Option<String>,
+    provider_cursor: Option<String>,
+    buffered: Vec<DiscoveryResult>,
+    /// Old cursors predate partial-result metadata; those pages were complete.
+    #[serde(default = "default_page_complete")]
+    complete: bool,
+    #[serde(default)]
+    progress: Option<String>,
+    #[serde(default)]
+    warnings: Vec<String>,
+}
+
+fn default_page_complete() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioPageCursor {
+    source_id: String,
+    query: String,
+    kinds: Vec<String>,
+    #[serde(default)]
+    isrc: Option<String>,
+    offset: usize,
+    remote_cursor: Option<String>,
+    /// Provider-issued YouTube Music continuation, bound to the fields above.
+    #[serde(default)]
+    music_continuation: Option<crate::youtube_music::YouTubeMusicContinuation>,
+    #[serde(default)]
+    music_searched: bool,
+    #[serde(default)]
+    audio_search_done: bool,
+    #[serde(default)]
+    seen_music_tokens: Vec<u64>,
+    #[serde(default)]
+    seen_music_ids: Vec<String>,
+    #[serde(default = "default_page_complete")]
+    complete: bool,
+    #[serde(default)]
+    progress: Option<String>,
+    #[serde(default)]
+    warnings: Vec<String>,
+}
+
+fn should_search_youtube_music(
+    source_id: &str,
+    wants_track: bool,
+    remote_page_continuation: bool,
+    audio_offset: Option<usize>,
+    music_continuation: Option<&crate::youtube_music::YouTubeMusicContinuation>,
+    music_searched: bool,
+) -> bool {
+    source_id == "youtube"
+        && wants_track
+        && !remote_page_continuation
+        && (audio_offset.is_none() || music_continuation.is_some())
+        && (!music_searched || music_continuation.is_some())
+}
+
+fn take_unseen_music_items(
+    items: Vec<crate::youtube_music::YouTubeMusicItem>,
+    seen_ids: &mut Vec<String>,
+) -> Vec<crate::youtube_music::YouTubeMusicItem> {
+    let mut seen = seen_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    let mut fresh = Vec::new();
+    for item in items {
+        if seen.insert(item.id.clone()) {
+            seen_ids.push(item.id.clone());
+            fresh.push(item);
+        }
+    }
+    let excess = seen_ids.len().saturating_sub(500);
+    if excess > 0 {
+        seen_ids.drain(..excess);
+    }
+    fresh
+}
+
+fn valid_youtube_music_continuation(
+    continuation: &crate::youtube_music::YouTubeMusicContinuation,
+) -> bool {
+    !continuation.token.is_empty()
+        && continuation.token.len() <= 8 * 1024
+        && continuation
+            .click_tracking_params
+            .as_ref()
+            .map_or(true, |value| value.len() <= 2 * 1024)
+}
+
+fn music_token_fingerprint(token: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    token.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn encode_audio_page_cursor(cursor: &AudioPageCursor) -> Result<String, String> {
+    let bytes = serde_json::to_vec(cursor).map_err(|error| error.to_string())?;
+    Ok(format!(
+        "ap1:{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    ))
+}
+
+fn decode_audio_page_cursor(
+    value: &str,
+    source_id: &str,
+    query: &str,
+    kinds: &[String],
+    isrc: Option<&str>,
+) -> Result<AudioPageCursor, String> {
+    if value.len() > 32 * 1024 {
+        return Err("Audio search cursor is too large".into());
+    }
+    let encoded = value
+        .strip_prefix("ap1:")
+        .ok_or("Invalid audio search cursor")?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| "Invalid audio search cursor")?;
+    let cursor: AudioPageCursor =
+        serde_json::from_slice(&bytes).map_err(|_| "Invalid audio search cursor")?;
+    if cursor.source_id != source_id
+        || cursor.query != query
+        || cursor.kinds != kinds
+        || cursor.isrc.as_deref() != isrc
+        || cursor.offset >= 10_000
+        || cursor
+            .music_continuation
+            .as_ref()
+            .is_some_and(|continuation| !valid_youtube_music_continuation(continuation))
+        || cursor.seen_music_tokens.len() > 32
+        || cursor.seen_music_ids.len() > 500
+        || cursor.seen_music_ids.iter().any(|id| id.len() != 11)
+        || (cursor.music_continuation.is_some() && source_id != "youtube")
+        || !matches!(source_id, "youtube" | "soundcloud")
+    {
+        return Err("Audio search cursor does not match this search".into());
+    }
+    Ok(cursor)
+}
+
+fn encode_discovery_cursor(cursor: &DiscoveryBufferCursor) -> Result<String, String> {
+    let bytes = serde_json::to_vec(cursor).map_err(|error| error.to_string())?;
+    Ok(format!(
+        "dsb1:{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    ))
+}
+
+fn decode_discovery_cursor(
+    value: &str,
+    source_id: &str,
+    query: &str,
+    kinds: &[String],
+    isrc: Option<&str>,
+) -> Result<DiscoveryBufferCursor, String> {
+    if value.len() > MAX_DISCOVERY_CURSOR_LENGTH {
+        return Err("Discovery cursor is too large".into());
+    }
+    let encoded = value
+        .strip_prefix("dsb1:")
+        .ok_or("Invalid discovery cursor")?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| "Invalid discovery cursor")?;
+    let cursor: DiscoveryBufferCursor =
+        serde_json::from_slice(&bytes).map_err(|_| "Invalid discovery cursor")?;
+    if cursor.source_id != source_id
+        || cursor.query != query
+        || cursor.kinds != kinds
+        || cursor.isrc.as_deref() != isrc
+        || cursor.buffered.len() > 500
+    {
+        return Err("Discovery cursor does not match this search".into());
+    }
+    Ok(cursor)
+}
+
+fn cap_discovery_page(
+    mut page: DiscoveryPage,
+    mut buffered: Vec<DiscoveryResult>,
+    source_id: &str,
+    query: &str,
+    kinds: &[String],
+    isrc: Option<&str>,
+    limit: usize,
+) -> Result<DiscoveryPage, String> {
+    let mut seen_warnings = std::collections::HashSet::new();
+    page.warnings
+        .retain(|warning| seen_warnings.insert(warning.clone()));
+    buffered.append(&mut page.results);
+    page.results = buffered;
+    if page.results.len() > limit {
+        let remainder = page.results.split_off(limit);
+        page.next_cursor = Some(encode_discovery_cursor(&DiscoveryBufferCursor {
+            source_id: source_id.into(),
+            query: query.into(),
+            kinds: kinds.to_vec(),
+            isrc: isrc.map(str::to_owned),
+            provider_cursor: page.next_cursor,
+            buffered: remainder,
+            complete: page.complete,
+            progress: page.progress.clone(),
+            warnings: page.warnings.clone(),
+        })?);
+    }
+    Ok(page)
+}
 pub fn source_registry(connections: &ConnectionManager) -> Result<Vec<SourceCapability>, String> {
     let c = connections.settings()?;
     Ok(vec![
@@ -85,6 +311,36 @@ pub fn source_registry(connections: &ConnectionManager) -> Result<Vec<SourceCapa
             Some("Enable and configure slskd in Connections"),
         ),
     ])
+}
+
+/// Add providers whose availability depends on a live browser account. The
+/// ordinary registry remains synchronous for older callers and tests.
+pub async fn source_registry_with_remote(
+    connections: &ConnectionManager,
+    remote: Option<&crate::remote_playlists::RemotePlaylistService>,
+) -> Result<Vec<SourceCapability>, String> {
+    let mut sources = source_registry(connections)?;
+    if let Some(remote) = remote {
+        if let Some(youtube) = sources
+            .iter_mut()
+            .find(|source| source.id == "youtube" && remote.browser_connected())
+        {
+            youtube.kinds.push("playlist".into());
+            youtube.kinds.push("channel".into());
+        }
+        let spotify = remote.connection_status("spotify").await;
+        if let Ok(status) = spotify {
+            if status.connected {
+                sources.push(cap(
+                    "spotify",
+                    &["track", "artist", "album", "playlist", "profile"],
+                    true,
+                    None,
+                ));
+            }
+        }
+    }
+    Ok(sources)
 }
 fn cap(id: &str, kinds: &[&str], enabled: bool, detail: Option<&str>) -> SourceCapability {
     SourceCapability {
@@ -182,6 +438,97 @@ fn rank_youtube_results(
         (r.0, r.1, r.2, r_kind).cmp(&(l.0, l.1, l.2, l_kind))
     });
 }
+
+fn append_remote_catalog_results(out: &mut DiscoveryPage, source_id: &str, page: &Value) {
+    out.next_cursor = page
+        .get("nextCursor")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let Some(items) = page.get("items").and_then(Value::as_array) else {
+        out.warnings
+            .push("Remote catalog returned an invalid result page".into());
+        return;
+    };
+    for item in items {
+        let Some(id) = item
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        let Some(kind) = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        let title = item
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("Untitled")
+            .to_owned();
+        let subtitle = item
+            .get("subtitle")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let url = item.get("url").and_then(Value::as_str).map(str::to_owned);
+        let native = item.get("data").cloned().unwrap_or(Value::Null);
+        let track = (kind == "track").then(|| {
+            let artist = native.get("artist").and_then(Value::as_str).map(str::to_owned).or_else(|| subtitle.clone()).unwrap_or_default();
+            let album = native.get("album").and_then(Value::as_str).map(str::to_owned);
+            let mut provenance = json!({"catalog":{"provider":source_id,"providerId":id,"verified":source_id == "spotify"},"remoteCatalog":native.clone()});
+            if source_id == "spotify" {
+                // Preserve valid duplicate credits and the provider's named-credit
+                // count. Missing/invalid/truncated identities remain visibly
+                // incomplete to the UI, rather than becoming a false exact match.
+                let artist_refs = native.get("artistRefs").and_then(Value::as_array)
+                    .into_iter().flatten().take(100).filter_map(|artist| {
+                        let provider = artist.get("provider").and_then(Value::as_str)?;
+                        let artist_id = artist.get("id").and_then(Value::as_str)?;
+                        let name = artist.get("name").and_then(Value::as_str)?.trim();
+                        (provider == "spotify" && artist_id.len() == 22
+                            && artist_id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                            && !name.is_empty())
+                            .then(|| json!({"provider":"spotify","id":artist_id,"name":name}))
+                    }).collect::<Vec<_>>();
+                provenance["catalog"]["artists"] = json!(artist_refs);
+                if let Some(count) = native.get("artistCount").and_then(Value::as_u64) {
+                    provenance["catalog"]["artistCount"] = json!(count);
+                }
+            }
+            if source_id == "youtube" {
+                provenance["sourceMetadata"] = native.clone();
+                provenance["catalogVerified"] = json!(false);
+            }
+            Track {
+                id: format!("{source_id}:{id}"),
+                provider: source_id.into(),
+                provider_id: id.into(),
+                source_url: url.clone().unwrap_or_default(),
+                artist,
+                title: title.clone(),
+                album,
+                isrc: native.get("isrc").and_then(Value::as_str).map(str::to_owned),
+                duration_seconds: native.get("durationSeconds").and_then(Value::as_f64),
+                artwork_url: item.get("artworkUrl").and_then(Value::as_str).map(str::to_owned),
+                provenance,
+                ..Track::default()
+            }
+        });
+        out.results.push(DiscoveryResult {
+            id: format!("{source_id}:{id}"),
+            kind: kind.into(),
+            source_id: source_id.into(),
+            title,
+            subtitle,
+            url,
+            track,
+            data: item.clone(),
+        });
+    }
+}
 fn library_search_page(
     store: &Store,
     query: &str,
@@ -257,6 +604,9 @@ pub struct DiscoveryService {
     pub acquisition: Arc<AcquisitionManager>,
     pub store: Arc<Store>,
     pub connections: Arc<ConnectionManager>,
+    remote: std::sync::RwLock<Option<Arc<crate::remote_playlists::RemotePlaylistService>>>,
+    #[cfg(test)]
+    monochrome_test_base: std::sync::RwLock<Option<String>>,
 }
 impl DiscoveryService {
     pub fn new(
@@ -270,11 +620,42 @@ impl DiscoveryService {
             acquisition,
             store,
             connections,
+            remote: std::sync::RwLock::new(None),
+            #[cfg(test)]
+            monochrome_test_base: std::sync::RwLock::new(None),
         }
+    }
+    pub fn set_remote_service(&self, service: Arc<crate::remote_playlists::RemotePlaylistService>) {
+        if let Ok(mut slot) = self.remote.write() {
+            *slot = Some(service);
+        }
+    }
+    fn remote_service(&self) -> Option<Arc<crate::remote_playlists::RemotePlaylistService>> {
+        self.remote.read().ok().and_then(|slot| slot.clone())
+    }
+    async fn search_monochrome(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<(Vec<(Track, crate::models::Candidate)>, usize), String> {
+        #[cfg(test)]
+        if let Some(base) = self
+            .monochrome_test_base
+            .read()
+            .ok()
+            .and_then(|base| base.clone())
+        {
+            return crate::monochrome::Client::at(&base)?
+                .search_with_limit(query, limit)
+                .await;
+        }
+        crate::monochrome::Client::new()?
+            .search_with_limit(query, limit)
+            .await
     }
     pub async fn search_source(
         &self,
-        request: DiscoveryRequest,
+        mut request: DiscoveryRequest,
         source_id: &str,
     ) -> Result<DiscoveryPage, String> {
         let registered_id = if source_id == "slskd" {
@@ -282,7 +663,24 @@ impl DiscoveryService {
         } else {
             source_id
         };
-        let capability=source_registry(&self.connections)?.into_iter().find(|source|source.id==registered_id).ok_or_else(||format!("{source_id} is not a searchable catalog. Use My library to search saved/imported tracks."))?;
+        let remote = self.remote_service();
+        // A search for another provider must not wait on Spotify's browser session.
+        let mut sources = if registered_id == "spotify" {
+            source_registry_with_remote(&self.connections, remote.as_deref()).await?
+        } else {
+            source_registry(&self.connections)?
+        };
+        if registered_id == "youtube"
+            && remote
+                .as_ref()
+                .is_some_and(|service| service.browser_connected())
+        {
+            if let Some(youtube) = sources.iter_mut().find(|source| source.id == "youtube") {
+                youtube.kinds.extend(["playlist".into(), "channel".into()]);
+            }
+        }
+        let capability = sources.into_iter().find(|source| source.id == registered_id)
+            .ok_or_else(|| format!("{source_id} is not a searchable catalog. Use My library to search saved/imported tracks."))?;
         if !capability.enabled {
             return Err(format!("{} is not configured for search", capability.name));
         }
@@ -293,11 +691,94 @@ impl DiscoveryService {
         if !request.source_ids.is_empty() && !request.source_ids.iter().any(|s| s == source_id) {
             return Err("Source is not selected for this search".into());
         }
-        let limit = request.limit.unwrap_or(25).clamp(1, MAX_PAGE);
+        // YouTube combines Innertube music pages and raw video pages. Keep each
+        // public discovery page bounded at 30; cap_discovery_page retains any
+        // additional renderer rows in its opaque buffer cursor.
+        let limit = request
+            .limit
+            .unwrap_or(25)
+            .clamp(1, MAX_PAGE)
+            .min(if source_id == "youtube" { 30 } else { MAX_PAGE });
         if matches!(source_id, "slskd" | "soulseek") {
             if let Some(cursor) = request.cursor.as_deref() {
                 return self.poll_slskd(cursor).await;
             }
+        }
+        let mut buffered = Vec::new();
+        let mut prior_complete = true;
+        let mut prior_progress = None;
+        let mut prior_warnings = Vec::new();
+        if !matches!(registered_id, "slskd" | "soulseek")
+            && request
+                .cursor
+                .as_deref()
+                .is_some_and(|cursor| cursor.starts_with("dsb1:"))
+        {
+            let state = decode_discovery_cursor(
+                request.cursor.as_deref().unwrap_or_default(),
+                registered_id,
+                q,
+                &request.kinds,
+                request.isrc.as_deref(),
+            )?;
+            request.cursor = state.provider_cursor;
+            buffered = state.buffered;
+            prior_complete = state.complete;
+            prior_progress = state.progress;
+            prior_warnings = state.warnings;
+            if buffered.len() >= limit || request.cursor.is_none() {
+                return cap_discovery_page(
+                    DiscoveryPage {
+                        source_id: registered_id.into(),
+                        results: Vec::new(),
+                        next_cursor: request.cursor,
+                        complete: prior_complete,
+                        progress: prior_progress,
+                        warnings: prior_warnings,
+                    },
+                    buffered,
+                    registered_id,
+                    q,
+                    &request.kinds,
+                    request.isrc.as_deref(),
+                    limit,
+                );
+            }
+        }
+        let mut audio_offset = None;
+        let mut music_continuation = None;
+        let mut music_searched = false;
+        let mut audio_search_done = false;
+        let mut seen_music_tokens = Vec::new();
+        let mut seen_music_ids = Vec::new();
+        if request
+            .cursor
+            .as_deref()
+            .is_some_and(|cursor| cursor.starts_with("ap1:"))
+        {
+            let state = decode_audio_page_cursor(
+                request.cursor.as_deref().unwrap_or_default(),
+                registered_id,
+                q,
+                &request.kinds,
+                request.isrc.as_deref(),
+            )?;
+            audio_offset = Some(state.offset);
+            music_continuation = state.music_continuation;
+            music_searched = state.music_searched;
+            audio_search_done = state.audio_search_done;
+            prior_complete = state.complete;
+            prior_progress = state.progress;
+            prior_warnings.extend(state.warnings);
+            seen_music_tokens = state.seen_music_tokens;
+            seen_music_ids = state.seen_music_ids;
+            if let Some(continuation) = music_continuation.as_ref() {
+                let fingerprint = music_token_fingerprint(&continuation.token);
+                if !seen_music_tokens.contains(&fingerprint) {
+                    seen_music_tokens.push(fingerprint);
+                }
+            }
+            request.cursor = state.remote_cursor;
         }
         let page = request
             .cursor
@@ -310,20 +791,49 @@ impl DiscoveryService {
             source_id: source_id.into(),
             results: vec![],
             next_cursor: None,
-            complete: true,
-            progress: None,
-            warnings: vec![],
+            complete: prior_complete,
+            progress: prior_progress,
+            warnings: prior_warnings,
         };
         match source_id {
+            "spotify" => {
+                let service = remote.ok_or_else(|| {
+                    "Connect Spotify in Browser Connections before searching it".to_owned()
+                })?;
+                let kinds = if request.kinds.is_empty() {
+                    vec!["track", "artist", "album", "playlist", "profile"]
+                } else {
+                    request
+                        .kinds
+                        .iter()
+                        .map(String::as_str)
+                        .filter(|kind| {
+                            matches!(*kind, "track" | "artist" | "album" | "playlist" | "profile")
+                        })
+                        .collect()
+                };
+                if !kinds.is_empty() {
+                    let page = service
+                        .search_catalog(
+                            "spotify",
+                            q,
+                            kinds.into_iter().map(str::to_owned).collect(),
+                            request.cursor.as_deref(),
+                        )
+                        .await?;
+                    append_remote_catalog_results(&mut out, "spotify", &page);
+                }
+            }
             "monochrome" => {
                 if kind_ok(&request, "track") {
-                    for (track, _) in crate::monochrome::Client::new()?
-                        .search(q)
-                        .await?
-                        .into_iter()
-                        .take(limit)
-                    {
-                        let track = self.store.save_track(&track)?;
+                    let search_limit = limit.min(crate::monochrome::INTERACTIVE_SEARCH_LIMIT);
+                    let (tracks, raw_count) = self.search_monochrome(q, search_limit).await?;
+                    // The public API provides no total count or continuation
+                    // cursor. Mark a full result batch incomplete without
+                    // inventing an offset that the endpoint ignores.
+                    note_monochrome_search_coverage(&mut out, raw_count, search_limit);
+                    for (track, _) in tracks.into_iter().take(limit) {
+                        let track = self.store.cache_track(&track)?;
                         out.results.push(track_result(source_id, track));
                     }
                 }
@@ -482,6 +992,7 @@ impl DiscoveryService {
                         .artists
                         .search_artists_for("discogs", q, page, limit.min(25) as u32, &credentials)
                         .await?;
+                    out.next_cursor = p.has_more.then(|| (page + 1).to_string());
                     for a in p
                         .results
                         .into_iter()
@@ -529,27 +1040,96 @@ impl DiscoveryService {
                 }
             }
             "youtube" | "soundcloud" => {
+                if source_id == "youtube"
+                    && request
+                        .kinds
+                        .iter()
+                        .any(|kind| matches!(kind.as_str(), "playlist" | "channel"))
+                {
+                    let kinds = request
+                        .kinds
+                        .iter()
+                        .filter(|kind| matches!(kind.as_str(), "playlist" | "channel"))
+                        .cloned()
+                        .collect();
+                    let catalog_result = match remote.as_ref() {
+                        Some(service) => {
+                            service
+                                .search_catalog("youtube", q, kinds, request.cursor.as_deref())
+                                .await
+                        }
+                        None => Err("YouTube playlist and channel discovery is unavailable".into()),
+                    };
+                    match catalog_result {
+                        Ok(page) => append_remote_catalog_results(&mut out, "youtube", &page),
+                        Err(_error)
+                            if kind_ok(&request, "track")
+                                || kind_ok(&request, "video")
+                                || kind_ok(&request, "set") =>
+                        {
+                            // A catalog failure must not discard independent native
+                            // YouTube video/music results requested in the same search.
+                            out.warnings.push(
+                                "YouTube playlist/channel search was unavailable; continuing with available results".into(),
+                            );
+                            out.complete = false;
+                            out.progress = Some(
+                                "Partial results: YouTube playlist/channel search unavailable"
+                                    .into(),
+                            );
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
                 let settings = self.store.settings().map_err(|e| e.to_string())?;
-                let audio_sources = [source_id.to_owned()];
                 let wants_track = kind_ok(&request, "track");
                 let wants_video = kind_ok(&request, "video") || kind_ok(&request, "set");
+                let remote_page_continuation = request
+                    .cursor
+                    .as_deref()
+                    .is_some_and(|cursor| cursor.starts_with("rp1:"));
+                let should_search_raw =
+                    (source_id == "youtube" && wants_video) || source_id == "soundcloud";
+                let audio_page_offset = audio_offset.unwrap_or(0);
+                let audio_page_limit = limit
+                    .min(30)
+                    .min(10_000usize.saturating_sub(audio_page_offset));
                 let raw_search = async {
-                    if source_id == "youtube" && !wants_video {
+                    if !should_search_raw
+                        || audio_search_done
+                        || audio_page_limit == 0
+                        || (remote_page_continuation && audio_offset.is_none())
+                    {
                         None
                     } else {
                         Some(
                             self.acquisition
-                                .search_audio_tracks(q, &audio_sources, &settings)
+                                .search_audio_tracks_page(
+                                    q,
+                                    source_id,
+                                    audio_page_offset,
+                                    audio_page_limit,
+                                    &settings,
+                                )
                                 .await,
                         )
                     }
                 };
+                let should_search_music = should_search_youtube_music(
+                    source_id,
+                    wants_track,
+                    remote_page_continuation,
+                    audio_offset,
+                    music_continuation.as_ref(),
+                    music_searched,
+                );
                 let music_search = async {
-                    if source_id == "youtube" && wants_track {
+                    if should_search_music {
                         Some(
-                            crate::youtube_music::search(
+                            crate::youtube_music::search_page(
                                 q,
                                 request.isrc.as_deref(),
+                                music_continuation.as_ref(),
                                 &settings.yt_dlp_path,
                             )
                             .await,
@@ -558,16 +1138,31 @@ impl DiscoveryService {
                         None
                     }
                 };
-                let (rows, music) = tokio::join!(raw_search, music_search);
-                let rows = match rows {
+                let (raw_page, music) = tokio::join!(raw_search, music_search);
+                let mut next_audio_offset = None;
+                let rows = match raw_page {
                     None => vec![],
-                    Some(Ok(rows)) => rows,
+                    Some(Ok(page)) => {
+                        if page.entry_count == audio_page_limit
+                            && audio_page_offset + page.entry_count < 10_000
+                        {
+                            next_audio_offset = Some(audio_page_offset + page.entry_count);
+                        }
+                        page.tracks
+                    }
                     Some(Err(error)) => {
                         out.warnings.push(error);
                         vec![]
                     }
                 };
-                for t in rows.into_iter().take(limit) {
+                let raw_was_requested = should_search_raw
+                    && !audio_search_done
+                    && audio_page_limit > 0
+                    && !(remote_page_continuation && audio_offset.is_none());
+                if raw_was_requested {
+                    audio_search_done = next_audio_offset.is_none();
+                }
+                for t in rows {
                     let mut row = track_result(source_id, t);
                     if source_id == "youtube" {
                         row.kind = "video".into();
@@ -578,16 +1173,30 @@ impl DiscoveryService {
                         out.results.push(row);
                     }
                 }
+                let mut next_music_continuation = None;
                 if let Some(music) = music {
-                    let (music, w) = match music {
-                        Ok(v) => v,
+                    music_searched = true;
+                    let music = match music {
+                        Ok(page) => page,
                         Err(error) => {
                             out.warnings.push(error);
-                            (vec![], vec![])
+                            crate::youtube_music::YouTubeMusicPage {
+                                items: vec![],
+                                continuation: None,
+                                warnings: vec![],
+                                incomplete: true,
+                            }
                         }
                     };
-                    out.warnings.extend(w);
-                    for r in music.into_iter().take(limit) {
+                    out.warnings.extend(music.warnings);
+                    if music.incomplete {
+                        out.complete = false;
+                        out.progress = Some(
+                            "Partial results: YouTube Music page could not be completed".into(),
+                        );
+                    }
+                    next_music_continuation = music.continuation;
+                    for r in take_unseen_music_items(music.items, &mut seen_music_ids) {
                         let source_metadata = json!({"provider":"youtube","catalogVerified":false,"artist":r.artist,"song":r.title,"album":r.album,"sourceGenres":[]});
                         let candidate = json!({"id":r.id,"provider":"youtube","url":r.url,"title":r.title,"uploader":r.artist,"durationSeconds":r.duration_seconds,"formats":[],"permission":"unknown","confidence":"review","score":0.0,"reasons":["YouTube Music result; source identity is unverified"],"official":false,"sourceMetadata":source_metadata});
                         let track = Track {
@@ -615,6 +1224,60 @@ impl DiscoveryService {
                             data: json!({"youtubeMusic":r,"candidate":candidate}),
                         });
                     }
+                }
+                if next_music_continuation
+                    .as_ref()
+                    .is_some_and(|next| !valid_youtube_music_continuation(next))
+                {
+                    next_music_continuation = None;
+                    out.complete = false;
+                    out.progress = Some(
+                        "Partial results: YouTube Music returned an unusable continuation token"
+                            .into(),
+                    );
+                    out.warnings.push(
+                        "YouTube Music continuation token exceeded the safe cursor size; further pages were not requested".into(),
+                    );
+                }
+                if next_music_continuation.as_ref().is_some_and(|next| {
+                    seen_music_tokens.contains(&music_token_fingerprint(&next.token))
+                }) {
+                    next_music_continuation = None;
+                    out.complete = false;
+                    out.progress =
+                        Some("Partial results: YouTube Music repeated a continuation token".into());
+                    out.warnings.push(
+                        "YouTube Music repeated a continuation token; stopped paging safely".into(),
+                    );
+                }
+                if let Some(next) = next_music_continuation.as_ref() {
+                    // Keep a bounded recent-token window to detect loops without
+                    // imposing a low total-page ceiling on legitimate searches.
+                    if seen_music_tokens.len() >= 32 {
+                        seen_music_tokens.remove(0);
+                    }
+                    seen_music_tokens.push(music_token_fingerprint(&next.token));
+                }
+                if next_audio_offset.is_some()
+                    || next_music_continuation.is_some()
+                    || out.next_cursor.is_some()
+                {
+                    out.next_cursor = Some(encode_audio_page_cursor(&AudioPageCursor {
+                        source_id: registered_id.into(),
+                        query: q.into(),
+                        kinds: request.kinds.clone(),
+                        isrc: request.isrc.clone(),
+                        offset: next_audio_offset.unwrap_or(audio_page_offset),
+                        remote_cursor: out.next_cursor.clone(),
+                        music_continuation: next_music_continuation,
+                        music_searched,
+                        audio_search_done,
+                        seen_music_tokens,
+                        seen_music_ids,
+                        complete: out.complete,
+                        progress: out.progress.clone(),
+                        warnings: out.warnings.clone(),
+                    })?);
                 }
             }
             "slskd" | "soulseek" => {
@@ -648,8 +1311,18 @@ impl DiscoveryService {
             let prefer_track = wants_track && !wants_video;
             rank_youtube_results(&mut out.results, q, prefer_video, prefer_track);
         }
-        out.results.truncate(limit);
-        Ok(out)
+        if matches!(registered_id, "slskd" | "soulseek") {
+            return Ok(out);
+        }
+        cap_discovery_page(
+            out,
+            buffered,
+            registered_id,
+            q,
+            &request.kinds,
+            request.isrc.as_deref(),
+            limit,
+        )
     }
     pub async fn poll_slskd(&self, search_id: &str) -> Result<DiscoveryPage, String> {
         let (id, offset) = if let Some((id, offset)) = search_id.split_once('@') {
@@ -669,7 +1342,7 @@ impl DiscoveryService {
         let page = slskd_page(poll, id, offset);
         for row in &page.results {
             if let Some(track) = &row.track {
-                self.store.save_track(track)?;
+                self.store.cache_track(track)?;
             }
         }
         Ok(page)
@@ -708,8 +1381,10 @@ impl DiscoveryService {
     /// MCP-facing aggregate API; each source is isolated so a failing provider
     /// produces its own warning page while other configured sources complete.
     pub async fn async_shared_search(&self, request: DiscoveryRequest) -> Vec<DiscoveryPage> {
+        let remote = self.remote_service();
         let sources = if request.source_ids.is_empty() {
-            source_registry(&self.connections)
+            source_registry_with_remote(&self.connections, remote.as_deref())
+                .await
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|source| {
@@ -786,6 +1461,19 @@ fn slskd_page(p: SlskdSearchPoll, search_id: &str, offset: usize) -> DiscoveryPa
     }
 }
 
+fn note_monochrome_search_coverage(page: &mut DiscoveryPage, raw_count: usize, limit: usize) {
+    page.warnings.push(
+        "Monochrome returned one limited result batch; the source provides no total count or continuation cursor, so search coverage is unknown.".into(),
+    );
+    if raw_count >= limit {
+        page.complete = false;
+        page.progress = Some(
+            "Monochrome result limit reached; this source has no supported continuation cursor."
+                .into(),
+        );
+    }
+}
+
 /// Convenient entry points for Tauri command registration.
 pub async fn search_source(
     service: &DiscoveryService,
@@ -838,6 +1526,470 @@ pub async fn enrich_search_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monochrome_search_reports_unknown_coverage_without_fabricating_a_cursor() {
+        let mut short = DiscoveryPage {
+            source_id: "monochrome".into(),
+            results: vec![],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        note_monochrome_search_coverage(&mut short, 8, 30);
+        assert!(short.complete);
+        assert!(short.next_cursor.is_none());
+        assert!(short.progress.is_none());
+        assert!(short
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("coverage is unknown")));
+
+        let mut full = DiscoveryPage {
+            source_id: "monochrome".into(),
+            results: vec![],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        note_monochrome_search_coverage(&mut full, 30, 30);
+        assert!(!full.complete);
+        assert!(full.next_cursor.is_none());
+        assert!(full
+            .progress
+            .as_deref()
+            .is_some_and(|progress| progress.contains("no supported continuation cursor")));
+    }
+
+    #[tokio::test]
+    async fn monochrome_search_caches_result_until_favorite_promotes_it() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::collections::HashMap;
+
+        async fn search(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            assert_eq!(query.get("q").map(String::as_str), Some("Fixture Song"));
+            Json(json!({"tracks":[{
+                "trackId":"12345678901234567",
+                "title":"Fixture Song",
+                "artistNames":["Fixture Artist"],
+                "duration":180000,
+                "playable":true
+            }]}))
+        }
+
+        let app = Router::new().route("/search/tracks", get(search));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+        let connections = Arc::new(ConnectionManager::new(store.clone()));
+        let acquisition = Arc::new(AcquisitionManager::new_for_playback_test(
+            store.clone(),
+            connections.clone(),
+        ));
+        let service = DiscoveryService::new(
+            Arc::new(ArtistService::new(store.clone()).unwrap()),
+            acquisition,
+            store.clone(),
+            connections,
+        );
+        *service.monochrome_test_base.write().unwrap() = Some(base);
+
+        let page = service
+            .search_source(
+                DiscoveryRequest {
+                    query: "Fixture Song".into(),
+                    source_ids: vec!["monochrome".into()],
+                    kinds: vec!["track".into()],
+                    cursor: None,
+                    limit: Some(10),
+                    isrc: None,
+                },
+                "monochrome",
+            )
+            .await
+            .unwrap();
+        server.abort();
+
+        let result = page
+            .results
+            .iter()
+            .find(|result| result.id == "monochrome:12345678901234567")
+            .and_then(|result| result.track.clone())
+            .expect("Monochrome result should include a track");
+        assert!(store.get_track(&result.id).unwrap().is_some());
+        assert!(store.list_tracks("library", None).unwrap().is_empty());
+        assert_eq!(
+            store
+                .list_tracks_page("library", None, 10, 0, None, None, None, None, None, None, None,)
+                .unwrap()
+                .1,
+            0
+        );
+        assert_eq!(
+            store
+                .search_library_tracks(&["Fixture".into()], 10, 0)
+                .unwrap()
+                .1,
+            0
+        );
+
+        store.set_favorite(&result, true).unwrap();
+        assert_eq!(store.list_tracks("library", None).unwrap()[0].id, result.id);
+        assert_eq!(
+            store
+                .search_library_tracks(&["Fixture".into()], 10, 0)
+                .unwrap()
+                .1,
+            1
+        );
+    }
+
+    use crate::browser_bridge::ProviderTransport;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    struct FailingYoutubeCatalogTransport;
+
+    #[async_trait::async_trait]
+    impl ProviderTransport for FailingYoutubeCatalogTransport {
+        fn provider_operations_supported(&self) -> bool {
+            true
+        }
+
+        async fn provider_operation(
+            &self,
+            _provider: &str,
+            _operation: &str,
+            _args: Value,
+        ) -> Result<Value, String> {
+            Err("browser transport unavailable".into())
+        }
+
+        async fn provider_operation_cancellable(
+            &self,
+            provider: &str,
+            operation: &str,
+            args: Value,
+            _cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+        ) -> Result<Value, String> {
+            self.provider_operation(provider, operation, args).await
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn youtube_catalog_failure_preserves_native_results_for_mixed_kind_search() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let yt_dlp = temp.path().join("yt-dlp-fixture");
+        std::fs::write(
+            &yt_dlp,
+            "#!/bin/sh\nprintf '%s\\n' '{\"entries\":[{\"id\":\"fixture1234\",\"title\":\"Artist - Fixture Song\",\"artist\":\"Artist\",\"track\":\"Fixture Song\",\"duration\":180,\"webpage_url\":\"https://www.youtube.com/watch?v=fixture1234\"}]}'\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&yt_dlp).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&yt_dlp, permissions).unwrap();
+
+        let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+        let mut settings = store.settings().unwrap();
+        settings.yt_dlp_path = yt_dlp.to_string_lossy().into_owned();
+        store.save_settings(&settings).unwrap();
+        let connections = Arc::new(ConnectionManager::new(store.clone()));
+        let acquisition = Arc::new(AcquisitionManager::new_for_playback_test(
+            store.clone(),
+            connections.clone(),
+        ));
+        let service = DiscoveryService::new(
+            Arc::new(ArtistService::new(store.clone()).unwrap()),
+            acquisition,
+            store.clone(),
+            connections,
+        );
+        service.set_remote_service(Arc::new(
+            crate::remote_playlists::RemotePlaylistService::new(
+                store,
+                Arc::new(FailingYoutubeCatalogTransport),
+            ),
+        ));
+
+        let page = service
+            .search_source(
+                DiscoveryRequest {
+                    query: "Fixture Song".into(),
+                    source_ids: vec!["youtube".into()],
+                    kinds: vec![
+                        "track".into(),
+                        "video".into(),
+                        "set".into(),
+                        "playlist".into(),
+                        "channel".into(),
+                    ],
+                    cursor: None,
+                    limit: Some(25),
+                    isrc: None,
+                },
+                "youtube",
+            )
+            .await
+            .unwrap();
+
+        assert!(page
+            .results
+            .iter()
+            .any(|row| row.id == "youtube:fixture1234"));
+        assert!(page
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("continuing with available results")));
+        assert!(!page.complete);
+        assert!(page
+            .progress
+            .as_deref()
+            .is_some_and(|progress| progress.contains("Partial results")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn youtube_catalog_only_failure_remains_an_error() {
+        let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+        let connections = Arc::new(ConnectionManager::new(store.clone()));
+        let acquisition = Arc::new(AcquisitionManager::new_for_playback_test(
+            store.clone(),
+            connections.clone(),
+        ));
+        let service = DiscoveryService::new(
+            Arc::new(ArtistService::new(store.clone()).unwrap()),
+            acquisition,
+            store.clone(),
+            connections,
+        );
+        service.set_remote_service(Arc::new(
+            crate::remote_playlists::RemotePlaylistService::new(
+                store,
+                Arc::new(FailingYoutubeCatalogTransport),
+            ),
+        ));
+
+        let error = service
+            .search_source(
+                DiscoveryRequest {
+                    query: "playlist title".into(),
+                    source_ids: vec!["youtube".into()],
+                    kinds: vec!["playlist".into(), "channel".into()],
+                    cursor: None,
+                    limit: Some(25),
+                    isrc: None,
+                },
+                "youtube",
+            )
+            .await
+            .unwrap_err();
+        assert!(error.contains("browser transport unavailable"));
+    }
+
+    #[test]
+    fn partial_catalog_status_survives_buffered_page_drain_and_legacy_cursors() {
+        let rows = ["one", "two", "three"]
+            .into_iter()
+            .map(|id| DiscoveryResult {
+                id: id.into(),
+                kind: "video".into(),
+                source_id: "youtube".into(),
+                title: id.into(),
+                subtitle: None,
+                url: None,
+                track: None,
+                data: Value::Null,
+            })
+            .collect();
+        let first = cap_discovery_page(
+            DiscoveryPage {
+                source_id: "youtube".into(),
+                results: rows,
+                next_cursor: None,
+                complete: false,
+                progress: Some(
+                    "Partial results: YouTube playlist/channel search unavailable".into(),
+                ),
+                warnings: vec![
+                    "YouTube playlist/channel search was unavailable; continuing with available results".into(),
+                ],
+            },
+            Vec::new(),
+            "youtube",
+            "query",
+            &["video".into(), "playlist".into()],
+            None,
+            1,
+        )
+        .unwrap();
+        assert_eq!(first.results.len(), 1);
+        assert!(!first.complete);
+        let cursor = decode_discovery_cursor(
+            first.next_cursor.as_deref().unwrap(),
+            "youtube",
+            "query",
+            &["video".into(), "playlist".into()],
+            None,
+        )
+        .unwrap();
+
+        // This is the buffered-only fast path in search_source: no provider
+        // request is made while the remaining page is drained.
+        let next = cap_discovery_page(
+            DiscoveryPage {
+                source_id: "youtube".into(),
+                results: Vec::new(),
+                next_cursor: cursor.provider_cursor,
+                complete: cursor.complete,
+                progress: cursor.progress,
+                warnings: cursor.warnings,
+            },
+            cursor.buffered,
+            "youtube",
+            "query",
+            &["video".into(), "playlist".into()],
+            None,
+            1,
+        )
+        .unwrap();
+        assert_eq!(next.results.len(), 1);
+        assert!(!next.complete);
+        assert!(next.progress.unwrap().contains("Partial results"));
+        assert!(next
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("continuing with available results")));
+
+        // Cursors emitted before partial metadata existed remain complete.
+        let legacy = json!({
+            "sourceId":"youtube", "query":"query", "kinds":["video"],
+            "providerCursor":null, "buffered":[]
+        });
+        let encoded = format!(
+            "dsb1:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&legacy).unwrap())
+        );
+        let decoded =
+            decode_discovery_cursor(&encoded, "youtube", "query", &["video".into()], None).unwrap();
+        assert!(decoded.complete);
+        assert!(decoded.progress.is_none());
+        assert!(decoded.warnings.is_empty());
+
+        let buffered_cursor = DiscoveryBufferCursor {
+            source_id: "youtube".into(),
+            query: "query".into(),
+            kinds: vec!["video".into()],
+            isrc: None,
+            provider_cursor: Some("provider-page-2".into()),
+            buffered: (0..20)
+                .map(|index| DiscoveryResult {
+                    id: format!("video-{index}"),
+                    kind: "video".into(),
+                    source_id: "youtube".into(),
+                    title: format!("Buffered result {index}"),
+                    subtitle: None,
+                    url: None,
+                    track: None,
+                    data: Value::Null,
+                })
+                .collect(),
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let encoded_buffer = encode_discovery_cursor(&buffered_cursor).unwrap();
+        assert!(encoded_buffer.len() > 100);
+        let decoded_buffer =
+            decode_discovery_cursor(&encoded_buffer, "youtube", "query", &["video".into()], None)
+                .unwrap();
+        assert_eq!(decoded_buffer.buffered.len(), 20);
+        assert!(encoded_buffer.len() <= MAX_DISCOVERY_CURSOR_LENGTH);
+    }
+
+    #[test]
+    fn buffered_discovery_cursor_binds_isrc_and_keeps_legacy_none_compatible() {
+        let page = DiscoveryPage {
+            source_id: "youtube".into(),
+            results: vec![
+                DiscoveryResult {
+                    id: "one".into(),
+                    kind: "track".into(),
+                    source_id: "youtube".into(),
+                    title: "One".into(),
+                    subtitle: None,
+                    url: None,
+                    track: None,
+                    data: Value::Null,
+                },
+                DiscoveryResult {
+                    id: "two".into(),
+                    kind: "track".into(),
+                    source_id: "youtube".into(),
+                    title: "Two".into(),
+                    subtitle: None,
+                    url: None,
+                    track: None,
+                    data: Value::Null,
+                },
+            ],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let kinds = vec!["track".into()];
+        let buffered = cap_discovery_page(
+            page,
+            vec![],
+            "youtube",
+            "same query",
+            &kinds,
+            Some("GRABC1234567"),
+            1,
+        )
+        .unwrap();
+        let encoded = buffered.next_cursor.unwrap();
+        assert!(decode_discovery_cursor(
+            &encoded,
+            "youtube",
+            "same query",
+            &kinds,
+            Some("GRABC1234567"),
+        )
+        .is_ok());
+        assert!(decode_discovery_cursor(&encoded, "youtube", "same query", &kinds, None,).is_err());
+        assert!(decode_discovery_cursor(
+            &encoded,
+            "youtube",
+            "same query",
+            &kinds,
+            Some("DIFFERENT"),
+        )
+        .is_err());
+
+        let legacy_none = json!({
+            "sourceId":"youtube", "query":"same query", "kinds":["track"],
+            "providerCursor":null, "buffered":[]
+        });
+        let legacy_encoded = format!(
+            "dsb1:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&legacy_none).unwrap())
+        );
+        assert!(
+            decode_discovery_cursor(&legacy_encoded, "youtube", "same query", &kinds, None,)
+                .is_ok()
+        );
+    }
+
     fn yt_row(kind: &str, title: &str, artist: &str, id: &str) -> DiscoveryResult {
         DiscoveryResult {
             id: id.into(),
@@ -907,6 +2059,458 @@ mod tests {
                 .enabled
         );
     }
+    #[test]
+    fn remote_catalog_tracks_keep_provider_identity_and_opaque_cursor() {
+        let mut page = DiscoveryPage {
+            source_id: "spotify".into(),
+            results: vec![],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        append_remote_catalog_results(
+            &mut page,
+            "spotify",
+            &json!({
+                "nextCursor":"rp1:opaque",
+                "items":[{"id":"0123456789012345678901","kind":"track","title":"Song","subtitle":"Artist","url":"https://open.spotify.com/track/0123456789012345678901","artworkUrl":null,"data":{"artist":"Artist","album":"Album","durationSeconds":180.0,"isrc":"USABC1234567","artistCount":3,"artistRefs":[{"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Artist"},{"provider":"bad/id","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Invalid"},{"provider":"musicbrainz","id":"cccccccccccccccccccccc","name":"Wrong provider"}]}}]
+            }),
+        );
+        assert_eq!(page.next_cursor.as_deref(), Some("rp1:opaque"));
+        let result = &page.results[0];
+        assert_eq!(result.id, "spotify:0123456789012345678901");
+        assert_eq!(result.kind, "track");
+        let track = result.track.as_ref().unwrap();
+        assert_eq!(track.provider, "spotify");
+        assert_eq!(track.provider_id, "0123456789012345678901");
+        assert_eq!(track.isrc.as_deref(), Some("USABC1234567"));
+        assert_eq!(track.provenance["catalog"]["artistCount"], json!(3));
+        assert_eq!(
+            track.provenance["catalog"]["artists"],
+            json!([{"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Artist"}])
+        );
+    }
+    #[test]
+    fn normalized_remote_catalog_artist_credits_reach_discovery_provenance() {
+        let credit = json!({"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"  Featured Artist  ","authorization":"not-forwarded"});
+        let mut raw = json!({"id":"0123456789012345678901","title":"Catalog recording","url":"https://open.spotify.com/track/0123456789012345678901","data":{
+            "artist":"Featured Artist, Featured Artist, Unidentified","artistCount":4,
+            "artistRefs":[credit.clone(),credit.clone(),{"provider":"musicbrainz","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Wrong provider"},{"provider":"spotify","id":"bad/id","name":"Invalid identity"}]
+        }});
+        let mut out = DiscoveryPage {
+            source_id: "spotify".into(),
+            results: vec![],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let normalized =
+            crate::remote_playlists::normalize_catalog_item(&raw, "spotify", "track").unwrap();
+        assert!(!normalized.to_string().contains("not-forwarded"));
+        append_remote_catalog_results(&mut out, "spotify", &json!({"items":[normalized]}));
+        let catalog = &out.results[0].track.as_ref().unwrap().provenance["catalog"];
+        let expected =
+            json!({"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Featured Artist"});
+        assert_eq!(catalog["artists"], json!([expected.clone(), expected]));
+        assert_eq!(
+            catalog["artistCount"],
+            json!(4),
+            "invalid identities must not shrink named-credit count"
+        );
+        raw["data"]["artistRefs"] = json!(vec![credit; 101]);
+        raw["data"]["artistCount"] = json!(101);
+        let normalized =
+            crate::remote_playlists::normalize_catalog_item(&raw, "spotify", "track").unwrap();
+        append_remote_catalog_results(&mut out, "spotify", &json!({"items":[normalized]}));
+        let catalog = &out.results[1].track.as_ref().unwrap().provenance["catalog"];
+        assert_eq!(catalog["artists"].as_array().unwrap().len(), 100);
+        assert_eq!(catalog["artistCount"], json!(101));
+    }
+    #[test]
+    fn remote_catalog_artist_credit_validation_preserves_duplicates_and_incomplete_counts() {
+        let mut page = DiscoveryPage {
+            source_id: "spotify".into(),
+            results: vec![],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let valid = json!({"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"  Credited Artist  "});
+        let response = json!({"items":[{"id":"0123456789012345678901","kind":"track","title":"Song","data":{
+            "artistCount":5,"artistRefs":[valid.clone(),valid.clone(),
+                {"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"   "},
+                {"provider":"spotify","id":"invalid/id","name":"Invalid identity"},
+                {"provider":"musicbrainz","id":"cccccccccccccccccccccc","name":"Wrong provider"}]
+        }}]});
+        append_remote_catalog_results(&mut page, "spotify", &response);
+        let catalog = &page.results[0].track.as_ref().unwrap().provenance["catalog"];
+        assert_eq!(catalog["artistCount"], json!(5));
+        let normalized =
+            json!({"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Credited Artist"});
+        assert_eq!(catalog["artists"], json!([normalized.clone(), normalized]));
+        let bounded = json!({"items":[{"id":"0123456789012345678901","kind":"track","title":"Song","data":{"artistCount":101,"artistRefs":vec![valid;101]}}]});
+        append_remote_catalog_results(&mut page, "spotify", &bounded);
+        let catalog = &page.results[1].track.as_ref().unwrap().provenance["catalog"];
+        assert_eq!(catalog["artists"].as_array().unwrap().len(), 100);
+        assert_eq!(
+            catalog["artistCount"],
+            json!(101),
+            "bounded identities must not imply complete credits"
+        );
+        append_remote_catalog_results(&mut page, "youtube", &response);
+        assert!(
+            page.results[2].track.as_ref().unwrap().provenance["catalog"]
+                .get("artists")
+                .is_none()
+        );
+    }
+    #[test]
+    fn capped_multi_kind_pages_buffer_every_result_before_advancing_provider_cursor() {
+        let source = "spotify";
+        let query = "sample";
+        let kinds = vec!["track".to_owned(), "artist".to_owned(), "album".to_owned()];
+        let mut first = DiscoveryPage {
+            source_id: source.into(),
+            results: (0..5)
+                .map(|index| DiscoveryResult {
+                    id: format!("row-{index}"),
+                    kind: "track".into(),
+                    source_id: source.into(),
+                    title: format!("Row {index}"),
+                    subtitle: None,
+                    url: None,
+                    track: None,
+                    data: Value::Null,
+                })
+                .collect(),
+            next_cursor: Some("rp1:next-page".into()),
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        first = cap_discovery_page(first, vec![], source, query, &kinds, None, 2).unwrap();
+        assert_eq!(
+            first
+                .results
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["row-0", "row-1"]
+        );
+        let state = decode_discovery_cursor(
+            first.next_cursor.as_deref().unwrap(),
+            source,
+            query,
+            &kinds,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .buffered
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["row-2", "row-3", "row-4"]
+        );
+        assert_eq!(state.provider_cursor.as_deref(), Some("rp1:next-page"));
+
+        let second = cap_discovery_page(
+            DiscoveryPage {
+                source_id: source.into(),
+                results: vec![],
+                next_cursor: state.provider_cursor.clone(),
+                complete: true,
+                progress: None,
+                warnings: vec![],
+            },
+            state.buffered,
+            source,
+            query,
+            &kinds,
+            None,
+            2,
+        )
+        .unwrap();
+        assert_eq!(
+            second
+                .results
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["row-2", "row-3"]
+        );
+        let state = decode_discovery_cursor(
+            second.next_cursor.as_deref().unwrap(),
+            source,
+            query,
+            &kinds,
+            None,
+        )
+        .unwrap();
+        let last = cap_discovery_page(
+            DiscoveryPage {
+                source_id: source.into(),
+                results: vec![],
+                next_cursor: state.provider_cursor.clone(),
+                complete: true,
+                progress: None,
+                warnings: vec![],
+            },
+            state.buffered,
+            source,
+            query,
+            &kinds,
+            None,
+            2,
+        )
+        .unwrap();
+        assert_eq!(
+            last.results
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["row-4"]
+        );
+        assert_eq!(last.next_cursor.as_deref(), Some("rp1:next-page"));
+    }
+
+    #[test]
+    fn audio_search_cursor_binds_provider_query_kinds_and_offset() {
+        let kinds = vec!["video".to_owned()];
+        let cursor = AudioPageCursor {
+            source_id: "youtube".into(),
+            query: "night drive".into(),
+            kinds: kinds.clone(),
+            isrc: None,
+            offset: 30,
+            remote_cursor: Some("rp1:catalog-next".into()),
+            music_continuation: None,
+            music_searched: true,
+            audio_search_done: false,
+            seen_music_tokens: vec![],
+            seen_music_ids: vec![],
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let encoded = encode_audio_page_cursor(&cursor).unwrap();
+        assert!(encoded.starts_with("ap1:"));
+        assert_eq!(
+            decode_audio_page_cursor(&encoded, "youtube", "night drive", &kinds, None)
+                .unwrap()
+                .offset,
+            30
+        );
+        assert!(
+            decode_audio_page_cursor(&encoded, "soundcloud", "night drive", &kinds, None).is_err()
+        );
+        assert!(
+            decode_audio_page_cursor(&encoded, "youtube", "other query", &kinds, None).is_err()
+        );
+        assert!(decode_audio_page_cursor(
+            &encoded,
+            "youtube",
+            "night drive",
+            &["track".into()],
+            None
+        )
+        .is_err());
+    }
+    #[test]
+    fn youtube_music_continuation_bounds_match_cursor_limits() {
+        use crate::youtube_music::YouTubeMusicContinuation;
+        assert!(valid_youtube_music_continuation(
+            &YouTubeMusicContinuation {
+                token: "provider-token".into(),
+                click_tracking_params: Some("click-tracking".into()),
+            }
+        ));
+        assert!(!valid_youtube_music_continuation(
+            &YouTubeMusicContinuation {
+                token: String::new(),
+                click_tracking_params: None,
+            }
+        ));
+        assert!(!valid_youtube_music_continuation(
+            &YouTubeMusicContinuation {
+                token: "x".repeat(8 * 1024 + 1),
+                click_tracking_params: None,
+            }
+        ));
+        assert!(!valid_youtube_music_continuation(
+            &YouTubeMusicContinuation {
+                token: "provider-token".into(),
+                click_tracking_params: Some("x".repeat(2 * 1024 + 1)),
+            }
+        ));
+    }
+
+    #[test]
+    fn youtube_music_cursor_binds_token_to_isrc_and_rejects_oversized_token() {
+        let kinds = vec!["track".to_owned()];
+        let cursor = AudioPageCursor {
+            source_id: "youtube".into(),
+            query: "poso s'agapo".into(),
+            kinds: kinds.clone(),
+            isrc: Some("GRABC1234567".into()),
+            offset: 0,
+            remote_cursor: None,
+            music_continuation: Some(crate::youtube_music::YouTubeMusicContinuation {
+                token: "opaque-provider-token".into(),
+                click_tracking_params: None,
+            }),
+            music_searched: true,
+            audio_search_done: true,
+            seen_music_tokens: vec![music_token_fingerprint("older-token")],
+            seen_music_ids: vec!["validvideo1".into()],
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let encoded = encode_audio_page_cursor(&cursor).unwrap();
+        let decoded = decode_audio_page_cursor(
+            &encoded,
+            "youtube",
+            "poso s'agapo",
+            &kinds,
+            Some("GRABC1234567"),
+        )
+        .unwrap();
+        assert_eq!(
+            decoded.music_continuation.as_ref().unwrap().token,
+            "opaque-provider-token"
+        );
+        assert_eq!(decoded.seen_music_ids, ["validvideo1"]);
+        assert!(decode_audio_page_cursor(
+            &encoded,
+            "youtube",
+            "poso s'agapo",
+            &kinds,
+            Some("OTHER")
+        )
+        .is_err());
+        let oversized = AudioPageCursor {
+            music_continuation: Some(crate::youtube_music::YouTubeMusicContinuation {
+                token: "x".repeat(8 * 1024 + 1),
+                click_tracking_params: None,
+            }),
+            ..cursor
+        };
+        let encoded = encode_audio_page_cursor(&oversized).unwrap();
+        assert!(decode_audio_page_cursor(
+            &encoded,
+            "youtube",
+            "poso s'agapo",
+            &kinds,
+            Some("GRABC1234567")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn continuation_page_deduplicates_seen_ids_and_advances_provider_token() {
+        let kinds = vec!["track".to_owned()];
+        let first_cursor = AudioPageCursor {
+            source_id: "youtube".into(),
+            query: "Daft Punk".into(),
+            kinds: kinds.clone(),
+            isrc: None,
+            offset: 0,
+            remote_cursor: None,
+            music_continuation: Some(crate::youtube_music::YouTubeMusicContinuation {
+                token: "synthetic-page-2".into(),
+                click_tracking_params: Some("synthetic-ctp".into()),
+            }),
+            music_searched: true,
+            audio_search_done: true,
+            seen_music_tokens: vec![music_token_fingerprint("synthetic-page-2")],
+            seen_music_ids: vec!["duplicate01".into()],
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let encoded = encode_audio_page_cursor(&first_cursor).unwrap();
+        let page_two_request =
+            decode_audio_page_cursor(&encoded, "youtube", "Daft Punk", &kinds, None).unwrap();
+        assert_eq!(
+            page_two_request.music_continuation.as_ref().unwrap().token,
+            "synthetic-page-2"
+        );
+        let mut seen_ids = page_two_request.seen_music_ids.clone();
+        let fresh = take_unseen_music_items(
+            vec![
+                crate::youtube_music::YouTubeMusicItem {
+                    id: "duplicate01".into(),
+                    title: "duplicate".into(),
+                    artist: None,
+                    album: None,
+                    duration_seconds: None,
+                    url: "https://music.youtube.com/watch?v=duplicate01".into(),
+                    artwork_url: None,
+                    isrc: None,
+                },
+                crate::youtube_music::YouTubeMusicItem {
+                    id: "unique00001".into(),
+                    title: "unique".into(),
+                    artist: None,
+                    album: None,
+                    duration_seconds: None,
+                    url: "https://music.youtube.com/watch?v=unique00001".into(),
+                    artwork_url: None,
+                    isrc: None,
+                },
+            ],
+            &mut seen_ids,
+        );
+        assert_eq!(
+            fresh
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["unique00001"]
+        );
+        assert_eq!(seen_ids, ["duplicate01", "unique00001"]);
+    }
+
+    #[test]
+    fn failed_music_continuation_keeps_mixed_search_on_video_offset() {
+        let kinds = vec!["track".to_owned(), "video".to_owned()];
+        let cursor = AudioPageCursor {
+            source_id: "youtube".into(),
+            query: "Daft Punk".into(),
+            kinds: kinds.clone(),
+            isrc: None,
+            offset: 30,
+            remote_cursor: None,
+            music_continuation: None,
+            music_searched: true,
+            audio_search_done: false,
+            seen_music_tokens: vec![],
+            seen_music_ids: vec![],
+            complete: false,
+            progress: Some("music continuation failed".into()),
+            warnings: vec!["YouTube Music continuation request failed".into()],
+        };
+        let encoded = encode_audio_page_cursor(&cursor).unwrap();
+        let state =
+            decode_audio_page_cursor(&encoded, "youtube", "Daft Punk", &kinds, None).unwrap();
+        assert!(!should_search_youtube_music(
+            "youtube",
+            true,
+            false,
+            Some(state.offset),
+            state.music_continuation.as_ref(),
+            state.music_searched
+        ));
+        assert_eq!(state.query, "Daft Punk");
+        assert_eq!(state.offset, 30);
+        assert!(!state.complete);
+    }
+
     #[test]
     fn library_search_finds_imported_remixer_metadata_and_pages_saved_tracks() {
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();

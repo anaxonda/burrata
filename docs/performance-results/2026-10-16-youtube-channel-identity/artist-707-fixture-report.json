@@ -1,0 +1,44 @@
+{
+  "scope": "headless Chromium actual ArtistPage+shared CSS, deterministic19tracks; not native GUI",
+  "viewport": {
+    "width": 954,
+    "height": 515
+  },
+  "paneWidth": 707,
+  "controlCount": 5,
+  "controls": [
+    {
+      "label": "Filter loaded release tracks",
+      "height": 34,
+      "width": 624.40625,
+      "overflow": false
+    },
+    {
+      "label": "Sort loaded release tracks",
+      "height": 34,
+      "width": 180.09375,
+      "overflow": false
+    },
+    {
+      "label": "Release track sort direction",
+      "height": 34,
+      "width": 120.109375,
+      "overflow": false
+    },
+    {
+      "label": "Minimum loaded release track duration",
+      "height": 34,
+      "width": 150.09375,
+      "overflow": false
+    },
+    {
+      "label": "Maximum loaded release track duration",
+      "height": 34,
+      "width": 150.109375,
+      "overflow": false
+    }
+  ],
+  "noHorizontalOverflow": true,
+  "allCompact": true,
+  "trackRows": 19
+}

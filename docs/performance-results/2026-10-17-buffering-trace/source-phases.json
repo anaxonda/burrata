@@ -1,0 +1,232 @@
+[
+  {
+    "atUnixMs": 1792231807638,
+    "details": {
+      "selected": false
+    },
+    "elapsedMs": 0,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "resolution_start",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807638,
+    "details": {},
+    "elapsedMs": 0,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "settings_read_start",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807639,
+    "details": {
+      "durationMs": 0
+    },
+    "elapsedMs": 0,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "settings_read_end",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807640,
+    "details": {
+      "pinned": true
+    },
+    "elapsedMs": 1,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "provider_start",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807640,
+    "details": {
+      "eligible": 1
+    },
+    "elapsedMs": 1,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "candidate_gate",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807640,
+    "details": {
+      "attempt": 1
+    },
+    "elapsedMs": 1,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "extract_and_validate_start",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807640,
+    "details": {
+      "sharedLookupId": "9103df20-7919-40d9-8589-48f82e5bf4d6"
+    },
+    "elapsedMs": 1,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "preview_audio_lookup_start",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807640,
+    "details": {
+      "sharedLookupId": "9103df20-7919-40d9-8589-48f82e5bf4d6"
+    },
+    "elapsedMs": 1,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "preview_audio_cache_miss",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807640,
+    "details": {},
+    "elapsedMs": 2,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "monochrome_client_setup_start",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": "9103df20-7919-40d9-8589-48f82e5bf4d6",
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807641,
+    "details": {
+      "durationMs": 0,
+      "outcome": "success"
+    },
+    "elapsedMs": 2,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "monochrome_client_setup_end",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": "9103df20-7919-40d9-8589-48f82e5bf4d6",
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231807641,
+    "details": {},
+    "elapsedMs": 2,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "monochrome_probe_start",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": "9103df20-7919-40d9-8589-48f82e5bf4d6",
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231808420,
+    "details": {
+      "durationMs": 778,
+      "outcome": "success"
+    },
+    "elapsedMs": 781,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "monochrome_probe_end",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": "9103df20-7919-40d9-8589-48f82e5bf4d6",
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231808420,
+    "details": {
+      "ok": true,
+      "sharedLookupId": "9103df20-7919-40d9-8589-48f82e5bf4d6"
+    },
+    "elapsedMs": 781,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "preview_audio_lookup_end",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231808420,
+    "details": {
+      "attempt": 1,
+      "ok": true
+    },
+    "elapsedMs": 781,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "extract_and_validate_end",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231808420,
+    "details": {
+      "catalogDuration": 181.4,
+      "ok": true,
+      "providerIdMatches": false,
+      "requestedVersion": false,
+      "resolvedDuration": 181.4,
+      "resolvedTitlePresent": false,
+      "topicUploader": false
+    },
+    "elapsedMs": 781,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "full_identity_check",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  },
+  {
+    "atUnixMs": 1792231808421,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    },
+    "elapsedMs": 782,
+    "nativeOperationId": "native-8fa1d7f5-4448-4ce3-b0bf-857678e4b4ad",
+    "nativeSeekOperationId": null,
+    "phase": "resolution_end",
+    "provider": "monochrome",
+    "resolutionId": "40e864f3-95b6-41ad-af7f-09cddc316ce5",
+    "sharedLookupId": null,
+    "webviewGeneration": null
+  }
+]

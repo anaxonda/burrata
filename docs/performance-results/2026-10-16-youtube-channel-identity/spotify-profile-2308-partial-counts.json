@@ -1,0 +1,45 @@
+{
+  "binarySha256": "2308f0c2bc63d303bc922e907abd0101cd9e01234070775a6921a79e433845aa",
+  "pages": [
+    {
+      "count": 30,
+      "total": 110,
+      "complete": false,
+      "truncated": false,
+      "hasMore": true,
+      "progressive": true
+    },
+    {
+      "count": 30,
+      "total": 110,
+      "complete": false,
+      "truncated": false,
+      "hasMore": true,
+      "progressive": true
+    },
+    {
+      "count": 29,
+      "total": 110,
+      "complete": false,
+      "truncated": true,
+      "hasMore": true,
+      "progressive": true
+    },
+    {
+      "count": 11,
+      "total": 110,
+      "complete": false,
+      "truncated": true,
+      "hasMore": true,
+      "progressive": true
+    }
+  ],
+  "uniquePlaylists": 99,
+  "duplicateRows": 1,
+  "failure": {
+    "code": "OPERATION_FAILED",
+    "message": "PROVIDER_CHANGED: Spotify returned a response that did not match the request. (phase=owner_profile, HTTP 200)"
+  },
+  "terminal": false,
+  "elapsedMs": 6080
+}

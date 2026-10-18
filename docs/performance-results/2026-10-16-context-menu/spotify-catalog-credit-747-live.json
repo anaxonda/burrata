@@ -1,0 +1,33 @@
+{
+  "check": "post-fix live Spotify discovery credit propagation",
+  "query": {
+    "query": "Kaval Sviri",
+    "sourceIds": ["spotify"],
+    "kinds": ["track"],
+    "limit": 5
+  },
+  "result": {
+    "hasWarnings": false,
+    "partial": false,
+    "page": {
+      "sourceId": "spotify",
+      "complete": true,
+      "resultCount": 5,
+      "warnings": []
+    },
+    "matchedTrack": {
+      "trackId": "spotify:64rvuYgKLuIHqacdZZiwPr",
+      "catalogProviderId": "64rvuYgKLuIHqacdZZiwPr",
+      "artist": "Bulgarian State Television Female Choir",
+      "catalogArtistCount": 1,
+      "catalogArtists": [
+        {
+          "provider": "spotify",
+          "id": "5j3PVTaVrMlssk4IC0kumd",
+          "name": "Bulgarian State Television Female Choir"
+        }
+      ]
+    }
+  },
+  "scope": "One read-only app-owned discovery request. Public catalog metadata only; no credentials, raw provider response, playback, or provider mutation included."
+}

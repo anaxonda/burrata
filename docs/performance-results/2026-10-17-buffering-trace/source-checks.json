@@ -1,0 +1,39 @@
+{
+  "platform": "Linux host",
+  "scope": "Finite failure diagnostics and correlated provider traces only; no buffer, prefetch, retry, fallback or verification-gate tuning. Live and repeated qualification remain separate.",
+  "nativeTests": {
+    "passed": 913,
+    "failed": 0,
+    "ignored": 16,
+    "compileSeconds": 103,
+    "testSeconds": 15.34
+  },
+  "executable": {
+    "sha256": "3fbb288328f4f5917e1a79bb0aab0a299c05586c8d28028efbd9341905c9401d",
+    "build": "pass",
+    "buildSeconds": 120
+  },
+  "frontend": {
+    "menuTests": 7,
+    "svelteErrors": 0,
+    "svelteWarnings": 0,
+    "build": "pass"
+  },
+  "logs": {
+    "native-buffering-trace-tests.log": "edf35727d2bf70bb37239abb087e1673ae135d5953433edc4b40107826739d41",
+    "native-buffering-trace-build.log": "03d37b8cfcea326d13091c33ece8f666f4b70e89ef33f6633bc556745b691ebe",
+    "compact-menu-header-tests.log": "2b19a8af45565c53a3d9aa8b17336263b18eacd091fa3dd3cf91708ac3fab834",
+    "compact-menu-header-check.log": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695",
+    "compact-menu-header-build.log": "f96ca28df1a4f71a120cf5eaf5965406791df1855b61bcd33fedd3c76fce6a53"
+  },
+  "sourcePins": {
+    "buffering-trace-native-source-pin.json": "e3583f03a38c8479beec4225b6caea6bdec52d40634c57d2a6184dd8e02110e4",
+    "buffering-trace-frontend-source-pin.json": "113ff5337b4e86215a1e62e6c257b1e010992a1ec30cea9805e59c657015e934"
+  },
+  "boundedLive": {
+    "fruit": "fruit-once.json",
+    "sourceTrace": "source-phases.json",
+    "bufferingObservation": "buffering-observation.json",
+    "scope": "One2031ms startup and paused-seek progression pass, not reproduction or a fix of prior intermittent starvation; source trace16events and778msMonochrome probe. Seek clears retained earlier buffering facts."
+  }
+}

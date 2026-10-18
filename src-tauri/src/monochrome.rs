@@ -6,34 +6,84 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 const BASE: &str = "https://tracks.monochrome.st";
+const CANDIDATE_SEARCH_LIMIT: usize = 12;
+pub(crate) const INTERACTIVE_SEARCH_LIMIT: usize = 30;
+static DEFAULT_HTTP_CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+    std::sync::OnceLock::new();
+
+fn default_http_client() -> Result<reqwest::Client, String> {
+    DEFAULT_HTTP_CLIENT
+        .get_or_init(|| build_http_client())
+        .as_ref()
+        .map(|client| client.clone())
+        .map_err(|error| error.clone())
+}
+
+fn build_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())
+}
 
 pub struct Client {
     http: reqwest::Client,
     base: String,
 }
+fn dedupe_candidates(candidates: Vec<Candidate>) -> Vec<Candidate> {
+    let mut positions = std::collections::HashMap::<String, usize>::new();
+    let mut unique = Vec::<Candidate>::new();
+    for candidate in candidates {
+        if let Some(index) = positions.get(&candidate.id).copied() {
+            if candidate.score > unique[index].score {
+                unique[index] = candidate;
+            }
+        } else {
+            positions.insert(candidate.id.clone(), unique.len());
+            unique.push(candidate);
+        }
+    }
+    unique
+}
+
 impl Client {
     pub fn new() -> Result<Self, String> {
-        Self::at(BASE)
+        Ok(Self {
+            http: default_http_client()?,
+            base: BASE.into(),
+        })
     }
-    fn at(base: &str) -> Result<Self, String> {
+    #[cfg(test)]
+    pub(crate) fn at(base: &str) -> Result<Self, String> {
         Ok(Self {
             base: base.trim_end_matches('/').into(),
-            http: reqwest::Client::builder()
-                .no_proxy()
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(Duration::from_secs(15))
-                .build()
-                .map_err(|e| e.to_string())?,
+            http: build_http_client()?,
         })
     }
     pub async fn search(&self, query: &str) -> Result<Vec<(Track, Candidate)>, String> {
+        self.search_with_limit(query, CANDIDATE_SEARCH_LIMIT)
+            .await
+            .map(|(rows, _)| rows)
+    }
+
+    /// Fetch one public Tracks API result batch, with the endpoint's documented
+    /// `limit` parameter. The endpoint has no offset/cursor or total-count field.
+    pub(crate) async fn search_with_limit(
+        &self,
+        query: &str,
+        requested_limit: usize,
+    ) -> Result<(Vec<(Track, Candidate)>, usize), String> {
         if query.trim().is_empty() || query.chars().count() > 500 {
             return Err("Enter a search of 1–500 characters".into());
         }
+        let limit = requested_limit.clamp(1, INTERACTIVE_SEARCH_LIMIT);
+        let limit_parameter = limit.to_string();
         let response = self
             .http
             .get(format!("{}/search/tracks", self.base))
-            .query(&[("q", query), ("limit", "12")])
+            .query(&[("q", query), ("limit", limit_parameter.as_str())])
             .send()
             .await
             .map_err(|_| "Monochrome search connection failed")?;
@@ -54,14 +104,18 @@ impl Client {
         }
         let data: Value =
             serde_json::from_slice(&body).map_err(|_| "Invalid Monochrome catalog response")?;
-        Ok(data
+        let raw_tracks = data
             .get("tracks")
             .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .take(12)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let raw_count = raw_tracks.len();
+        let rows = raw_tracks
+            .iter()
+            .take(limit)
             .filter_map(|raw| catalog_entry(raw, &self.base))
-            .collect())
+            .collect();
+        Ok((rows, raw_count))
     }
     pub async fn candidates(&self, track: &Track) -> Result<Vec<Candidate>, String> {
         let query = format!("{} {}", track.artist, recording_title(&track.title));
@@ -76,6 +130,46 @@ impl Client {
             .collect::<Vec<_>>();
         candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
         Ok(candidates)
+    }
+
+    /// Search a caller-bounded sequence with one cancellation receiver and one
+    /// absolute deadline shared by all queries. Playback supplies at most the
+    /// canonical track and one verified alias.
+    pub(crate) async fn candidates_for_tracks_until(
+        &self,
+        tracks: &[Track],
+        cancel: tokio::sync::watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+    ) -> (Vec<Candidate>, Vec<String>) {
+        let mut candidates = Vec::new();
+        let mut errors = Vec::new();
+        for track in tracks {
+            if *cancel.borrow() {
+                return (Vec::new(), vec!["Cancelled".into()]);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                errors.push("Monochrome search timed out".into());
+                break;
+            }
+            let result = tokio::select! {
+                biased;
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
+                    return (Vec::new(), vec!["Cancelled".into()]);
+                }
+                result = tokio::time::timeout_at(deadline, self.candidates(track)) => {
+                    result.unwrap_or_else(|_| Err("Monochrome search timed out".into()))
+                }
+            };
+            match result {
+                Ok(found) => candidates.extend(found),
+                Err(error) if error == "Monochrome search timed out" => {
+                    errors.push(error);
+                    break;
+                }
+                Err(error) => errors.push(error),
+            }
+        }
+        (dedupe_candidates(candidates), errors)
     }
     pub async fn inspect(&self, candidate: &Candidate) -> Result<Candidate, String> {
         let parsed =
@@ -147,13 +241,25 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
         return None;
     }
     let title = raw.get("title")?.as_str()?.trim();
-    let artist = raw
-        .get("artistNames")?
-        .as_array()?
+    let raw_artist_names = raw.get("artistNames")?.as_array()?;
+    let artist = raw_artist_names
         .iter()
         .filter_map(Value::as_str)
         .collect::<Vec<_>>()
         .join(", ");
+    // Keep an unambiguous full-credit representation for playback matching.
+    // The flattened display title/uploader remains unchanged for presentation.
+    let structured_artist_names = raw_artist_names
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+        })
+        .collect::<Option<Vec<_>>>()
+        .filter(|names| !names.is_empty());
     let duration = raw
         .get("duration")
         .and_then(Value::as_f64)
@@ -169,6 +275,11 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
         .and_then(Value::as_str)
         .map(str::to_owned);
     let url = format!("{base}/track/{id}");
+    let mut source_metadata =
+        json!({"provider":"monochrome","trackId":id,"isrc":isrc,"catalogTitle":title});
+    if let Some(names) = structured_artist_names {
+        source_metadata["artistNames"] = json!(names);
+    }
     let candidate = Candidate {
         id: format!("monochrome:{id}"),
         provider: "monochrome".into(),
@@ -183,9 +294,7 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
         reasons: vec![
             "Selected Monochrome catalog entry; delivered quality must be inspected".into(),
         ],
-        source_metadata: Some(
-            json!({"provider":"monochrome","trackId":id,"isrc":isrc,"catalogTitle":title}),
-        ),
+        source_metadata: Some(source_metadata),
         ..Candidate::default()
     };
     let track = Track {
@@ -309,6 +418,9 @@ fn audio_format(prefix: &[u8]) -> Result<AudioFormat, String> {
         None
     };
     Ok(AudioFormat {
+        bit_depth: None,
+        channels: None,
+        size_bytes: None,
         id: extension.into(),
         codec: codec.into(),
         extension: extension.into(),
@@ -333,6 +445,56 @@ mod tests {
             validate_url("https://tracks.monochrome.st/track/155142501534011392?token=x").is_err()
         );
     }
+    #[test]
+    fn catalog_entry_preserves_structured_artist_names_for_playback_identity() {
+        let raw = json!({
+            "trackId": "155142501534011392",
+            "title": "Song",
+            "artistNames": ["Artist", "Guest"],
+            "duration": 200000,
+        });
+        let (_, candidate) = catalog_entry(&raw, BASE).unwrap();
+        assert_eq!(candidate.uploader.as_deref(), Some("Artist, Guest"));
+        assert_eq!(
+            candidate.source_metadata.as_ref().unwrap()["artistNames"],
+            json!(["Artist", "Guest"])
+        );
+
+        let empty = json!({
+            "trackId": "155142501534011393",
+            "title": "Song",
+            "artistNames": [],
+            "duration": 200000,
+        });
+        let (_, candidate) = catalog_entry(&empty, BASE).unwrap();
+        assert!(candidate
+            .source_metadata
+            .as_ref()
+            .unwrap()
+            .get("artistNames")
+            .is_none());
+    }
+
+    #[test]
+    fn join_phrase_credit_remains_a_review_candidate_for_strict_playback_gate() {
+        let raw = json!({
+            "trackId": "155142501534011392",
+            "title": "Song",
+            "artistNames": ["Artist", "Guest"],
+            "duration": 200000,
+        });
+        let (_, mut candidate) = catalog_entry(&raw, BASE).unwrap();
+        let track = Track {
+            title: "Song".into(),
+            artist: "Artist feat. Guest".into(),
+            duration_seconds: Some(200.0),
+            ..Track::default()
+        };
+        score(&track, &mut candidate);
+        assert_eq!(candidate.confidence, "review");
+        assert!(candidate.score >= 0.55);
+    }
+
     #[test]
     fn isrc_match_does_not_accept_wrong_duration_or_conflicting_remix() {
         let raw = json!({"trackId":"155142501534011392","title":"Get Lucky","artistNames":["Daft Punk"],"duration":369626,"isrc":"USQX91300108"});
@@ -418,6 +580,300 @@ mod tests {
         let inspected = client.inspect(&rows[0].1).await.unwrap();
         assert_eq!(inspected.formats[0].extension, "m4a");
         assert!(!inspected.formats[0].lossless);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bounded_candidate_sequence_issues_canonical_then_one_alias_query() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::{
+            collections::HashMap,
+            sync::{Arc, Mutex},
+        };
+
+        async fn search(
+            axum::extract::State(seen): axum::extract::State<Arc<Mutex<Vec<String>>>>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<Value> {
+            seen.lock().unwrap().push(query["q"].clone());
+            Json(json!({"tracks": []}))
+        }
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let app = Router::new()
+            .route("/search/tracks", get(search))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let tracks = vec![
+            Track {
+                artist: "Ансамбъл Пирин".into(),
+                title: "Sample (Original Mix)".into(),
+                ..Track::default()
+            },
+            Track {
+                artist: "Ensemble Pirin".into(),
+                title: "Sample (Original Mix)".into(),
+                ..Track::default()
+            },
+        ];
+        let (_cancel_tx, cancel) = tokio::sync::watch::channel(false);
+        let (found, errors) = client
+            .candidates_for_tracks_until(
+                &tracks,
+                cancel,
+                tokio::time::Instant::now() + Duration::from_secs(2),
+            )
+            .await;
+        assert!(found.is_empty());
+        assert!(errors.is_empty());
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                "Ансамбъл Пирин sample original mix".to_owned(),
+                "Ensemble Pirin sample original mix".to_owned(),
+            ]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bounded_candidate_sequence_honors_cancel_and_expired_deadline_before_request() {
+        use axum::{routing::get, Json, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        let app = Router::new().route(
+            "/search/tracks",
+            get(move || {
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({"tracks": []}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let tracks = vec![Track {
+            artist: "A".into(),
+            title: "B".into(),
+            ..Track::default()
+        }];
+
+        let (_cancel_tx, cancelled) = tokio::sync::watch::channel(true);
+        let (found, errors) = client
+            .candidates_for_tracks_until(
+                &tracks,
+                cancelled,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+            )
+            .await;
+        assert!(found.is_empty());
+        assert_eq!(errors, vec!["Cancelled"]);
+
+        let (_live_tx, live) = tokio::sync::watch::channel(false);
+        let (found, errors) = client
+            .candidates_for_tracks_until(&tracks, live, tokio::time::Instant::now())
+            .await;
+        assert!(found.is_empty());
+        assert_eq!(errors, vec!["Monochrome search timed out"]);
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        server.abort();
+    }
+
+    #[test]
+    fn duplicate_candidate_ids_keep_the_strongest_alias_scored_result() {
+        let candidate = |id: &str, score: f64, title: &str| Candidate {
+            source_metadata: None,
+            id: id.into(),
+            provider: "monochrome".into(),
+            url: format!("https://tracks.monochrome.st/track/{id}"),
+            title: title.into(),
+            uploader: None,
+            duration_seconds: None,
+            artwork_url: None,
+            chapters: None,
+            formats: Vec::new(),
+            permission: "public".into(),
+            confidence: "high".into(),
+            score,
+            reasons: Vec::new(),
+            official: true,
+            source: None,
+        };
+        let unique = dedupe_candidates(vec![
+            candidate("mono:1", 0.8, "canonical"),
+            candidate("mono:1", 0.95, "alias"),
+            candidate("mono:2", 0.7, "other"),
+        ]);
+        assert_eq!(unique.len(), 2);
+        assert_eq!(unique[0].title, "alias");
+        assert_eq!(unique[0].score, 0.95);
+    }
+
+    #[tokio::test]
+    async fn bounded_candidate_sequence_cancels_an_in_flight_request() {
+        use axum::{routing::get, Json, Router};
+        use std::sync::Arc;
+        use tokio::sync::Notify;
+
+        let entered = Arc::new(Notify::new());
+        let entered_route = entered.clone();
+        let app = Router::new().route(
+            "/search/tracks",
+            get(move || {
+                let entered = entered_route.clone();
+                async move {
+                    entered.notify_one();
+                    std::future::pending::<()>().await;
+                    Json(json!({"tracks": []}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let tracks = vec![Track {
+            artist: "A".into(),
+            title: "B".into(),
+            ..Track::default()
+        }];
+        let (cancel_tx, cancel) = tokio::sync::watch::channel(false);
+        let lookup = tokio::spawn(async move {
+            client
+                .candidates_for_tracks_until(
+                    &tracks,
+                    cancel,
+                    tokio::time::Instant::now() + Duration::from_secs(2),
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), entered.notified())
+            .await
+            .unwrap();
+        cancel_tx.send(true).unwrap();
+        let (found, errors) = tokio::time::timeout(Duration::from_secs(1), lookup)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(found.is_empty());
+        assert_eq!(errors, vec!["Cancelled"]);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bounded_candidate_sequence_uses_one_deadline_for_the_actual_request() {
+        use axum::{routing::get, Json, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use tokio::sync::Notify;
+
+        let requests = Arc::new(AtomicUsize::new(0));
+        let entered = Arc::new(Notify::new());
+        let seen = requests.clone();
+        let arrived = entered.clone();
+        let app = Router::new().route(
+            "/search/tracks",
+            get(move || {
+                let seen = seen.clone();
+                let arrived = arrived.clone();
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    arrived.notify_one();
+                    std::future::pending::<()>().await;
+                    Json(json!({"tracks": []}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let tracks = vec![
+            Track {
+                artist: "Canonical".into(),
+                title: "B".into(),
+                ..Track::default()
+            },
+            Track {
+                artist: "Alias".into(),
+                title: "B".into(),
+                ..Track::default()
+            },
+        ];
+        let (_cancel_tx, cancel) = tokio::sync::watch::channel(false);
+        let (found, errors) = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.candidates_for_tracks_until(
+                &tracks,
+                cancel,
+                tokio::time::Instant::now() + Duration::from_millis(80),
+            ),
+        )
+        .await
+        .unwrap();
+        // Ensure the request actually entered before assessing its one shared deadline.
+        // The server's notification is a retained permit if the request won the race above.
+        let _ = tokio::time::timeout(Duration::from_millis(1), entered.notified()).await;
+        assert!(found.is_empty());
+        assert_eq!(errors, vec!["Monochrome search timed out"]);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn candidate_and_interactive_search_use_separate_bounded_limits() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::collections::HashMap;
+
+        async fn search(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
+            let limit = query["limit"].parse::<usize>().unwrap();
+            assert!(!query.contains_key("offset"));
+            let tracks = (0..limit)
+                .map(|index| {
+                    json!({
+                        "trackId": format!("{:017}", 10000000000000000u64 + index as u64),
+                        "title": format!("Song {index}"),
+                        "artistNames": ["Test Artist"],
+                        "duration": 180000,
+                        "playable": true
+                    })
+                })
+                .collect::<Vec<_>>();
+            Json(json!({
+                "tracks": tracks,
+                "releases": [],
+                "artists": [],
+                "topResults": [],
+                "users": [],
+                "playlists": []
+            }))
+        }
+
+        let app = Router::new().route("/search/tracks", get(search));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let candidates = client.search("Test Artist").await.unwrap();
+        assert_eq!(candidates.len(), CANDIDATE_SEARCH_LIMIT);
+        let (interactive, raw_count) = client
+            .search_with_limit("Test Artist", INTERACTIVE_SEARCH_LIMIT)
+            .await
+            .unwrap();
+        assert_eq!(interactive.len(), INTERACTIVE_SEARCH_LIMIT);
+        assert_eq!(raw_count, INTERACTIVE_SEARCH_LIMIT);
+        let (clamped, _) = client.search_with_limit("Test Artist", 500).await.unwrap();
+        assert_eq!(clamped.len(), INTERACTIVE_SEARCH_LIMIT);
+
         server.abort();
     }
 }

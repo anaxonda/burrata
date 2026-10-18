@@ -1,0 +1,98 @@
+{
+  "scope": "Read-only Kaval Sviri search and metadata; no playback, queue changes, downloads or provider writes",
+  "track": {
+    "id": "spotify:64rvuYgKLuIHqacdZZiwPr",
+    "provider": "spotify",
+    "artist": "Bulgarian State Television Female Choir",
+    "title": "Kaval Sviri (The Flute Plays)",
+    "album": "Le Mystère des Voix Bulgares, Vol. 2",
+    "durationSeconds": 131.706,
+    "version": null,
+    "isrc": null
+  },
+  "candidate": {
+    "id": "youtube:uRKQEvIfIv0",
+    "provider": "youtube",
+    "title": "Kaval Sviri (The Flute Plays)",
+    "uploader": "Le Mystère Des Voix Bulgares - Topic",
+    "durationSeconds": 132,
+    "confidence": "low",
+    "score": 0.5,
+    "permission": "unknown",
+    "sourceMetadata": {
+      "provider": "youtube",
+      "channelId": "UCXo2Fj6x8I7LpOC54EbiKAQ",
+      "channel": "Le Mystère Des Voix Bulgares - Topic",
+      "artist": "Le Mystère des Voix Bulgares",
+      "artists": [
+        "Le Mystère des Voix Bulgares"
+      ],
+      "track": "Kaval Sviri (The Flute Plays)",
+      "descriptionCreditLine": "Kaval Sviri (The Flute Plays) · Le Mystère des Voix Bulgares",
+      "duration": 132
+    }
+  },
+  "metadataEvidence": {
+    "album": "Le Mystère des Voix Bulgares, Vol. 2",
+    "label": "Nonesuch",
+    "descriptionChoirCredit": "Ensemble Trakia",
+    "audioFormatsReturnedByReadOnlyInspection": 5
+  },
+  "observedPreviewSearch": {
+    "candidateCount": 10,
+    "allLowConfidence": true,
+    "scope": "search_audio_sources preview search; not a captured actual playback trace"
+  },
+  "expectedCurrentGates": {
+    "strictPlaybackRecordingMatches": false,
+    "topicShallowGate": true,
+    "provisionalGate": false,
+    "topicResolvedIdentity": false,
+    "rejectionFields": [
+      "artist",
+      "artists",
+      "descriptionCreditLine artist identity"
+    ],
+    "expectedSafety": "Keep final rejection until recording-scoped authority links catalog and source; never alias arbitrary ensembles by title/duration alone"
+  },
+  "externalEvidence": {
+    "nonesuchArtist": "https://www.nonesuch.com/artists/le-mystere-des-voix-bulgares",
+    "nonesuchAlbum": "https://www.nonesuch.com/albums/le-myst-re-des-voix-bulgares-vol-ii",
+    "musicBrainzRecording": "d345ac30-7c79-42e5-a429-44f6d9e83121",
+    "musicBrainzLengthMs": 134066,
+    "musicBrainzIsrcs": [],
+    "spotifyExactMetadataAttempt": "HTTP429 rate-limited; no retry",
+    "musicBrainzRelease": {
+      "id": "e644bee9-64f6-4237-a475-c665d3e413b1",
+      "barcode": "075597920123",
+      "label": "Nonesuch",
+      "catalogNumber": "9 79201-2",
+      "trackPosition": 1,
+      "title": "Kaval Sviri (The Flute Plays)",
+      "lengthMs": 134066,
+      "recordingId": "d345ac30-7c79-42e5-a429-44f6d9e83121",
+      "isrcs": []
+    },
+    "nonesuchTrackPosition": 1,
+    "nonesuchDisplayedDurationSeconds": 130
+  },
+  "qualification": "Release/catalog/track-one corroboration exists, but no cached Spotify ISRC or release/position link binds Spotify target to that release; recording identity and playback remain unqualified.",
+  "cachedSpotifyProvenanceIdentity": {
+    "isrc": null,
+    "albumProviderId": null,
+    "trackNumber": null,
+    "discNumber": null,
+    "catalogNumber": null,
+    "remoteCatalogHas": [
+      "trackId",
+      "title",
+      "artist",
+      "album",
+      "durationSeconds",
+      "available",
+      "artworkUrl",
+      "url"
+    ],
+    "note": "Artist-page position2 is not an album track position."
+  }
+}

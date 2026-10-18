@@ -1,0 +1,6 @@
+Mounted App provider navigation verification (2026-10-16)
+
+Command: npx vitest run --configLoader runner --maxWorkers=1 src/App.integration.test.ts -t 'restores a Spotify owner playlist|restores Spotify artist album browsing'
+Test names: "restores a Spotify owner playlist browser through detail Back and app Forward without refetching"; "restores Spotify artist album browsing through app Back and Forward without provider refetch".
+Result: 2 passed; 201 skipped; process exited 0.
+Source SHA-256: 52ed91159463da37cc5d4deaf941599ea9a03c868bb9ed58ea8e0445a8fdc074  src/App.integration.test.ts

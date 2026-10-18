@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "date": "2026-10-17",
+  "scope": "Public-metadata duration parsing and per-row eligibility guards.",
+  "behavior": {
+    "acceptedInput": "Scalar numbers and numeric strings.",
+    "rejectedInput": [
+      "booleans",
+      "arrays",
+      "objects"
+    ],
+    "preservedValues": [
+      "manual durations",
+      "chapter-derived durations",
+      "already-known durations"
+    ],
+    "eligibility": "Applied per row, including when the provider returns the same recording ID."
+  },
+  "verification": {
+    "directWorkerTests": {
+      "status": "passed",
+      "tests": 55,
+      "log": ".cache/duration-scalar-worker-direct.log",
+      "sha256": "8ff453ae3f30f922f47e771fd45f3ac3c1ef1f0652b1f90e8f1968712297d2a9"
+    },
+    "nativeSuite": {
+      "status": "passed",
+      "passed": 942,
+      "failed": 0,
+      "ignored": 21,
+      "durationSeconds": 16.75,
+      "log": ".cache/duration-guards-native-tests.log",
+      "sha256": "341f7cc306fd0ca7cd2924e1a469dd7bd9fa205da4d370e6a7324f464481a0a3"
+    },
+    "sourcePin": {
+      "revision": "513",
+      "file": ".cache/qualification-duration-guards/runtime-source-pin.json",
+      "sha256": "6265632d22848cc5f9bc3044706daba992b3305341a01dd13542799b4bea11b6"
+    },
+    "applicationBuild": {
+      "status": "passed",
+      "durationSeconds": 128,
+      "log": ".cache/duration-guards-native-build.log",
+      "sha256": "e47b6e284751340e955f2166470b9ac8a4da55a73a49c1b45c1171936bbe56b9",
+      "candidate": ".cache/qualification-duration-guards/candidate.json",
+      "candidateSha256": "0f3a4e3bfa7288953b51a2875ede5d5a338b8f9e600dff3249b2aed89dcd21f9"
+    }
+  },
+  "limitations": [
+    "The restored candidate was built; no live duration-repair provider run is claimed.",
+    "No duration-repair live provider run is claimed."
+  ]
+}

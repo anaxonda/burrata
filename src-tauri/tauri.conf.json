@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Burrata",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "org.burrata.discovery",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && node scripts/package_managed_provider_extension.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -17,14 +17,14 @@
         "width": 1440,
         "height": 900,
         "minWidth": 360,
-        "minHeight": 480
+        "minHeight": 240
       }
     ],
     "security": {
       "capabilities": [
         "main"
       ],
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https: data:; media-src 'self' asset: http: https: blob:; connect-src 'self' ipc: http://ipc.localhost; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https: data:; media-src 'self' asset: http: https: blob:; connect-src 'self' ipc: http://ipc.localhost http: https:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'",
       "assetProtocol": {
         "enable": true,
         "scope": []
@@ -63,6 +63,7 @@
         "depends": [
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0",
+          "libasound2",
           "gstreamer1.0-plugins-good",
           "gstreamer1.0-plugins-bad",
           "gstreamer1.0-libav"
@@ -70,6 +71,7 @@
       },
       "rpm": {
         "depends": [
+          "alsa-lib",
           "gstreamer1",
           "gstreamer1-plugins-base",
           "gstreamer1-plugins-good",

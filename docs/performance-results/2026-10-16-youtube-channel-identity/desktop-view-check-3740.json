@@ -1,0 +1,31 @@
+{
+  "build": "3740fa0d8139",
+  "viewport": {
+    "width": 1914,
+    "height": 515
+  },
+  "scope": "Actual app-owned captures, visually inspected by root; queue panel closed",
+  "views": {
+    "downloads": {
+      "privateCapture": ".cache/private-ui-checks/burrata-downloads-3740.png",
+      "observation": "Footer visible without overlap; toolbar and approximately 150px job rows remain spacious; compact spacing follow-up in progress."
+    },
+    "history": {
+      "privateCapture": ".cache/private-ui-checks/burrata-history-3740.png",
+      "observation": "Filters legible, three full history rows visible, footer visible without overlap; narrow-pane qualification still required."
+    },
+    "favorites": {
+      "privateCapture": ".cache/private-ui-checks/burrata-favorites-3740.png",
+      "observation": "Compact toolbar and three saved rows visible; footer geometry findings empty."
+    }
+  },
+  "playbackMutations": false,
+  "providerWrites": false,
+  "qualification": "Bounded desktop check only, not whole-app or narrow-window acceptance",
+  "downloadsCompactFollowup": {
+    "privateCapture": ".cache/private-ui-checks/burrata-downloads-3740-compact.png",
+    "toolbarBottomBefore": 160,
+    "toolbarBottomAfter": 94,
+    "observation": "Actual HMR capture root-viewed: three job titles with failure messages visible, compared with two titles before; footer visible without overlap. Narrow-pane qualification remains open."
+  }
+}

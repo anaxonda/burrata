@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "results": [
+    {
+      "count": 1000,
+      "report": "docs/performance-results/2026-10-15-library-page-matrix-release/actual-mcp-page-matrix-1000.json",
+      "exactBinaryProfileProcessVerified": true
+    },
+    {
+      "count": 5000,
+      "report": "docs/performance-results/2026-10-15-library-page-matrix-release/actual-mcp-page-matrix-5000.json",
+      "exactBinaryProfileProcessVerified": true
+    },
+    {
+      "count": 20000,
+      "report": "docs/performance-results/2026-10-15-library-page-matrix-release/actual-mcp-page-matrix-20000.json",
+      "exactBinaryProfileProcessVerified": true
+    },
+    {
+      "count": 50000,
+      "report": "docs/performance-results/2026-10-15-library-page-matrix-release/actual-mcp-page-matrix-50000.json",
+      "exactBinaryProfileProcessVerified": true
+    }
+  ],
+  "failureCount": 0
+}

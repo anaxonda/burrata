@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "scope": "One fresh isolated 50k synthetic startup-only run for the asset-scope source candidate. No page reads, projection wait, or provider requests; not a repeated or full matrix comparison.",
+  "candidateBinarySha256": "45eca63f814dba7dae6a5a223095254656ae582ee748d1ad1772d020665954d5",
+  "startupOnly": {
+    "fixtureRows": 50000,
+    "startupWaitMs": 15758.5,
+    "registrationTimeoutSeconds": 20,
+    "timedPageReads": 0,
+    "projectionReadinessWaited": false,
+    "harnessProviderRequests": 0
+  },
+  "trace": {
+    "storeOpenMs": 869,
+    "downloadsBackfillMs": 3442,
+    "assetGrants": {
+      "files": 50000,
+      "classificationPages": 100,
+      "allowFileCalls": 50000,
+      "reusedExisting": 0,
+      "elapsedMs": 6933,
+      "totalElapsedMs": 11247
+    },
+    "browserBridgeEndMs": 11257,
+    "endpointRegisteredAtMs": 11257
+  },
+  "comparisonToPriorOptimizedSingleRun": {
+    "priorBinary": "a1b8013b10e1733529b6b8c4c1fa742665f37634808342654fd4b9ef999e59fc",
+    "startupWaitMs": 15257.0,
+    "assetGrantElapsedMs": 6305,
+    "endpointRegisteredAtMs": 10930,
+    "startupWaitDeltaMs": 501.5,
+    "assetGrantDeltaMs": 628,
+    "endpointRegistrationDeltaMs": 327
+  },
+  "interpretation": "This run shows no startup benefit on the external fixture: all 50000 grants were still issued, with zero reused existing grants; grants, endpoint registration, and full harness wait were each slower than the prior single run. The prior run was the 50k page-matrix workload, while this run is startup-only, so this is a bounded comparison and not an apples-to-apples repeated experiment. Refine the scope candidate before performance promotion.",
+  "validation": {
+    "nativeTestsPassed": 921,
+    "nativeTestFailures": 0,
+    "nativeTestsIgnored": 17,
+    "focusedStartupHarnessTestsPassed": 9,
+    "build": "passed",
+    "buildElapsed": "1m58s"
+  },
+  "runtime": "Candidate binary restored as the normal GUI; queue state and playback controls matched the pre-run snapshot. No private queue contents are included."
+}

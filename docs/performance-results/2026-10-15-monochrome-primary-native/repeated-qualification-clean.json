@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 2,
+  "workload": "real_mcp_imported_native_playback_qualification",
+  "runStartedAt": "2026-10-15T23:29:17.847Z",
+  "runFinishedAt": "2026-10-15T23:29:19.225Z",
+  "binarySha256": "68dfb9bfc202b28ba2b40b69625109e7614f6482a5961bb6346062b9396e5734",
+  "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+  "independentlyVerifiedDurationSeconds": 245.48,
+  "expectedProvider": "monochrome",
+  "durationToleranceSeconds": 1,
+  "engine": "other",
+  "initialVolume": null,
+  "volumeSetToZero": false,
+  "initialTrackPositionSeconds": null,
+  "initialQueueCount": null,
+  "bounds": {
+    "warmups": 3,
+    "starts": 20,
+    "seekRepeatsPerFraction": 20,
+    "seekFractions": [
+      0.01,
+      0.5,
+      0.95
+    ],
+    "perOperationDeadlineMs": 20000
+  },
+  "warmups": [],
+  "starts": [],
+  "seeks": [],
+  "pausedSeek": null,
+  "setupFailure": "setup_or_mcp_error",
+  "failureCount": 1,
+  "limitations": [
+    "Native firstAudioMs indicates mixer-consumed audio frames; it does not measure physical loudspeaker audibility.",
+    "Startup and seek timing starts at MCP calls, excluding the renderer click path.",
+    "The MCP playback tools do not accept caller operation IDs; harnessOperationId identifies each attempt and generation/seekSerial validate freshness.",
+    "Volume was set to zero for every playback attempt and restored afterward; URLs, local paths, credentials, and raw stderr are omitted."
+  ]
+}

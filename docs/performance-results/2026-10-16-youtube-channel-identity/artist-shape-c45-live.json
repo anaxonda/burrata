@@ -1,0 +1,35 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"firstFailedGuard\":\"list_identity\",\"hasData\":true,\"hasGraphqlErrors\":false,\"listCount\":1,\"listIdentityMatches\":false,\"listKind\":\"list\",\"listsArray\":true,\"pageItemsArray\":true,\"rowCount\":30,\"rows\":{\"contributorsArray\":30,\"entityData\":30,\"entityWrapper\":30,\"identity\":30,\"matchingDataUri\":30,\"trackType\":30,\"validContributors\":30,\"validName\":30,\"validTrackUri\":30},\"totalKind\":\"valid\",\"truncated\":false,\"version\":1}"
+    }
+  ],
+  "structuredContent": {
+    "result": {
+      "firstFailedGuard": "list_identity",
+      "hasData": true,
+      "hasGraphqlErrors": false,
+      "listCount": 1,
+      "listIdentityMatches": false,
+      "listKind": "list",
+      "listsArray": true,
+      "pageItemsArray": true,
+      "rowCount": 30,
+      "rows": {
+        "contributorsArray": 30,
+        "entityData": 30,
+        "entityWrapper": 30,
+        "identity": 30,
+        "matchingDataUri": 30,
+        "trackType": 30,
+        "validContributors": 30,
+        "validName": 30,
+        "validTrackUri": 30
+      },
+      "totalKind": "valid",
+      "truncated": false,
+      "version": 1
+    }
+  }
+}

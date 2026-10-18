@@ -1,0 +1,427 @@
+{
+  "id": "b8254485-3b63-4e55-8776-7bd713fe3dd7",
+  "media": [
+    {
+      "position": 1,
+      "track-count": 16,
+      "tracks": [
+        {
+          "id": "7b322a05-82e3-453c-84a9-3250db45b1ad",
+          "position": 1,
+          "title": "Kaval Sviri (The Flute Plays)",
+          "length": 131000,
+          "recording": {
+            "id": "5a1d6c4a-bd16-4d09-87da-6af8d4daf36c",
+            "title": "Kaval Sviri (The Flute Plays)",
+            "length": 131000,
+            "artist-credit": [
+              {
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "artist": {
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir",
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "da1cc5de-af10-4005-accb-f4d37333f7ee",
+          "position": 2,
+          "title": "Stani Mi, Maytcho (Get Up, My Daughter)",
+          "length": 287000,
+          "recording": {
+            "id": "fb27d8f0-9efe-4055-85f0-ec88f84e8a83",
+            "title": "Stani Mi, Maytcho (Get Up, My Daughter)",
+            "length": 287000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "type": "Choir",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": "",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG"
+                },
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir"
+              }
+            ]
+          }
+        },
+        {
+          "id": "a204fbb2-c124-470e-a1d7-2dd56a892d5f",
+          "position": 3,
+          "title": "Di-Li-Do",
+          "length": 83000,
+          "recording": {
+            "id": "08ee37af-ce83-4106-b125-8157e9c364d1",
+            "title": "Di-Li-Do",
+            "length": 83000,
+            "artist-credit": [
+              {
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "artist": {
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "d85566fb-b0c8-40e7-8cd4-a6d00972948b",
+          "position": 4,
+          "title": "More Zajeni Se Ghiouro (Ghiouro Marries)",
+          "length": 88000,
+          "recording": {
+            "id": "79e9ad19-36d8-4cbd-a5cf-00102ea6d490",
+            "title": "More Zajeni Se Ghiouro (Ghiouro Marries)",
+            "length": 88000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": "",
+                  "country": "BG",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir"
+                },
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "joinphrase": ""
+              }
+            ]
+          }
+        },
+        {
+          "id": "2c1e8e05-06b2-478b-b593-fe06bd9a2843",
+          "position": 5,
+          "title": "Tche da Ti Kupim Bela Seitsa (I'm Going to Buy You Some White Silk)",
+          "length": 155000,
+          "recording": {
+            "id": "7bd5e971-d862-4c59-b0cb-0e9d2a60fe7f",
+            "title": "Tche da Ti Kupim Bela Seitsa (I'm Going to Buy You Some White Silk)",
+            "length": 155000,
+            "artist-credit": [
+              {
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "artist": {
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir",
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "01e40098-461a-46c0-a4d2-ec388c17af41",
+          "position": 6,
+          "title": "Ovdoviala Lissitchkata (The Fox Has Lost His Cubs)",
+          "length": 170000,
+          "recording": {
+            "id": "bd10dcf8-47e5-405e-8809-8c74ac58ea0d",
+            "title": "Ovdoviala Lissitchkata (The Fox Has Lost His Cubs)",
+            "length": 170000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG",
+                  "type": "Choir",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir"
+                },
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "joinphrase": ""
+              }
+            ]
+          }
+        },
+        {
+          "id": "544f7858-d719-4e16-a3d7-1a235de79327",
+          "position": 7,
+          "title": "Messetchinko Lio (You, Little Moon)",
+          "length": 192000,
+          "recording": {
+            "id": "b1189683-6840-4613-b72b-a1af022d66ac",
+            "title": "Messetchinko Lio (You, Little Moon)",
+            "length": 192000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG",
+                  "type": "Choir",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir"
+                },
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "joinphrase": ""
+              }
+            ]
+          }
+        },
+        {
+          "id": "33790336-768f-47d3-abb0-c89ca7839df6",
+          "position": 8,
+          "title": "Ei Mori Roujke (You Little Roujke)",
+          "length": 112000,
+          "recording": {
+            "id": "58d6c814-27d5-44fc-ab51-5e1b12888476",
+            "title": "Ei Mori Roujke (You Little Roujke)",
+            "length": 112000,
+            "artist-credit": [
+              {
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "joinphrase": "",
+                "artist": {
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": "",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "54343031-2e9b-4ec0-a7fe-96df24663ee2",
+          "position": 9,
+          "title": "Dragana I Slavei (Dragana's Song)",
+          "length": 189000,
+          "recording": {
+            "id": "f8408236-6e94-489a-a987-7e739e0c70c8",
+            "title": "Dragana I Slavei (Dragana's Song)",
+            "length": 189000,
+            "artist-credit": [
+              {
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "joinphrase": "",
+                "artist": {
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "dc11a7c8-a061-43b4-ace8-815dec03a112",
+          "position": 10,
+          "title": "Atmadja Duma Strachilu (Revolutionary Song)",
+          "length": 241000,
+          "recording": {
+            "id": "f5779480-9001-4183-900c-56f65c366cb1",
+            "title": "Atmadja Duma Strachilu (Revolutionary Song)",
+            "length": 241000,
+            "artist-credit": [
+              {
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "artist": {
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "type": "Choir",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "bfedf3a8-17fb-47df-9bce-af88965008fa",
+          "position": 11,
+          "title": "Dve Tourlaski Pesen (Teasing)",
+          "length": 142000,
+          "recording": {
+            "id": "4b36a3d0-ac41-4f6d-b8a9-7d645f002862",
+            "title": "Dve Tourlaski Pesen (Teasing)",
+            "length": 142000,
+            "artist-credit": [
+              {
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "artist": {
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": "",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "country": "BG",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "type": "Choir",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "8669de37-30b3-4c63-84e5-9913ce713d69",
+          "position": 12,
+          "title": "Trenke, Todorke",
+          "length": 88000,
+          "recording": {
+            "id": "9952e0c4-caf2-43a8-96c0-9ce1b7353ad1",
+            "title": "Trenke, Todorke",
+            "length": 88000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "country": "BG",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": "",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir"
+                },
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "joinphrase": ""
+              }
+            ]
+          }
+        },
+        {
+          "id": "a7c3b1cd-acfc-42e4-bcf5-03e9a3ebdc9c",
+          "position": 13,
+          "title": "Bezroda Nevesta (Young Childless Wife)",
+          "length": 182000,
+          "recording": {
+            "id": "56aa8911-e75e-4469-8163-32e937ff6448",
+            "title": "Bezroda Nevesta (Young Childless Wife)",
+            "length": 182000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "country": "BG",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir"
+                },
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir"
+              }
+            ]
+          }
+        },
+        {
+          "id": "fccccc4c-2ac0-4711-8c0a-9fe0ae9eaa71",
+          "position": 14,
+          "title": "Izpoved (Confession)",
+          "length": 341000,
+          "recording": {
+            "id": "fe6652d7-b6e6-46c4-b3f9-e4600706ff47",
+            "title": "Izpoved (Confession)",
+            "length": 341000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": "",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG",
+                  "type": "Choir",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir"
+                },
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "joinphrase": ""
+              }
+            ]
+          }
+        },
+        {
+          "id": "706f2cc6-287e-40c0-914b-ae3337be84ed",
+          "position": 15,
+          "title": "Ghiore Dos (Teasing)",
+          "length": 98000,
+          "recording": {
+            "id": "b351c843-b715-401a-9be7-57fe9d59bdf5",
+            "title": "Ghiore Dos (Teasing)",
+            "length": 98000,
+            "artist-credit": [
+              {
+                "artist": {
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "disambiguation": "",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "country": "BG",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir"
+                },
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir"
+              }
+            ]
+          }
+        },
+        {
+          "id": "ab46b355-b34f-49ea-9d06-0e1613246784",
+          "position": 16,
+          "title": "Spis Li, Milke Le (If You Are Sleeping, Milke)",
+          "length": 304000,
+          "recording": {
+            "id": "01f85e4b-9fb2-4f4b-ade3-4c294ab00f62",
+            "title": "Spis Li, Milke Le (If You Are Sleeping, Milke)",
+            "length": 304000,
+            "artist-credit": [
+              {
+                "joinphrase": "",
+                "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                "artist": {
+                  "country": "BG",
+                  "type-id": "6124967d-7e3a-3eba-b642-c9a2ffb44d94",
+                  "sort-name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "disambiguation": "",
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir",
+                  "type": "Choir"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

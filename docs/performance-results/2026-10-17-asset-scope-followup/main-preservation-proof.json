@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scope": "Private-free summary comparing restored GUI state to the pre-isolated-run snapshot.",
+  "candidateBinarySha256": "45eca63f814dba7dae6a5a223095254656ae582ee748d1ad1772d020665954d5",
+  "topLevelSnapshotFieldsEqual": {
+    "running": true,
+    "permissions": true,
+    "managedProviderSession": true,
+    "playback": true
+  },
+  "queue": {
+    "entries": 13,
+    "occurrenceOrderPreserved": true,
+    "currentIndex": 6,
+    "paused": true,
+    "positionSeconds": 29.087175,
+    "volume": 0.8,
+    "repeat": "off",
+    "shuffle": false
+  }
+}

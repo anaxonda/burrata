@@ -1,0 +1,14 @@
+{
+  "binarySha256": "68dfb9bfc202b28ba2b40b69625109e7614f6482a5961bb6346062b9396e5734",
+  "profile": "main",
+  "configuredPrimary": "monochrome",
+  "muted": true,
+  "physicalAudibilityMeasured": false,
+  "verified": false,
+  "layoutFindings": [],
+  "viewport": {
+    "height": 480,
+    "width": 1914
+  },
+  "verificationLimitation": "Initial harness required the earlier YouTube source duration of 250.079 seconds. The main app selected a Monochrome source decoding at 245.48 seconds, so this check did not qualify it. This is retained as a rejected assertion, not evidence of a playback failure."
+}

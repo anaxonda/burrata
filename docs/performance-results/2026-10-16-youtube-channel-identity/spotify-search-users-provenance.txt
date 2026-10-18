@@ -1,0 +1,4 @@
+Official public source: https://open.spotifycdn.com/cdn/build/web-player/xpui-routes-search.1472683a.js
+Bundle SHA256: 98ce79a5bd316ed6022dcb28806a1f14acd5ae78cd258288d02791414e1790e4
+searchUsers persisted query hash: 8f358dd82e62f61dd4ceaa9f8cd0889e644c9b707f1b724fbfb356a757cb7e5a
+Source maps UI profile category to users and dispatches the dedicated searchUsers operation. Results use searchV2.users.items and pagingInfo.nextOffset. Fixture data is synthetic; no account response was copied.

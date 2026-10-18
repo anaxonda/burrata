@@ -1,0 +1,752 @@
+[
+  {
+    "codec": "flac",
+    "strategy": "fresh",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.3239565,
+      "p95": 0.48544099999999996,
+      "worst": 0.730757
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.374282,
+      "p95": 0.5417339999999999,
+      "worst": 0.761374
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.49070400000000003,
+      "p95": 0.708643,
+      "worst": 0.93748
+    }
+  },
+  {
+    "codec": "flac",
+    "strategy": "fresh",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.4378,
+      "p95": 0.591602,
+      "worst": 0.606461
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.3998295,
+      "p95": 0.625235,
+      "worst": 0.649553
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.4929955,
+      "p95": 0.76372,
+      "worst": 0.7763289999999999
+    }
+  },
+  {
+    "codec": "flac",
+    "strategy": "fresh",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.413806,
+      "p95": 0.49584300000000003,
+      "worst": 0.520108
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.38528799999999996,
+      "p95": 0.514042,
+      "worst": 0.604309
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.4950685,
+      "p95": 0.666632,
+      "worst": 0.6878690000000001
+    }
+  },
+  {
+    "codec": "flac",
+    "strategy": "retained",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.2353225,
+      "p95": 0.303969,
+      "worst": 0.319839
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.2567995,
+      "p95": 0.281904,
+      "worst": 0.28364900000000004
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.3534575,
+      "p95": 0.414511,
+      "worst": 0.451581
+    }
+  },
+  {
+    "codec": "flac",
+    "strategy": "retained",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.35548250000000003,
+      "p95": 0.400292,
+      "worst": 0.5754379999999999
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.3072665,
+      "p95": 0.37650500000000003,
+      "worst": 0.5079940000000001
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.42635500000000004,
+      "p95": 0.5240509999999999,
+      "worst": 0.690581
+    }
+  },
+  {
+    "codec": "flac",
+    "strategy": "retained",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.32420800000000005,
+      "p95": 0.365869,
+      "worst": 0.375403
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.2772085,
+      "p95": 0.33413400000000004,
+      "worst": 0.35520399999999996
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.39949900000000005,
+      "p95": 0.46133399999999997,
+      "worst": 0.470185
+    }
+  },
+  {
+    "codec": "m4a",
+    "strategy": "fresh",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.773727,
+      "p95": 0.963214,
+      "worst": 1.461628
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.7734825000000001,
+      "p95": 0.961304,
+      "worst": 1.409543
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.9380204999999999,
+      "p95": 1.131708,
+      "worst": 1.707627
+    }
+  },
+  {
+    "codec": "m4a",
+    "strategy": "fresh",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.7481955,
+      "p95": 0.938628,
+      "worst": 0.984728
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.7574305,
+      "p95": 1.0034589999999999,
+      "worst": 1.109683
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.9155145,
+      "p95": 1.2349240000000001,
+      "worst": 1.246286
+    }
+  },
+  {
+    "codec": "m4a",
+    "strategy": "fresh",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.757695,
+      "p95": 1.017281,
+      "worst": 1.156895
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.7708539999999999,
+      "p95": 1.1435030000000002,
+      "worst": 1.1709370000000001
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.937156,
+      "p95": 1.268037,
+      "worst": 1.422388
+    }
+  },
+  {
+    "codec": "m4a",
+    "strategy": "retained",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.300899,
+      "p95": 0.32745,
+      "worst": 0.346987
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.29383899999999996,
+      "p95": 0.35992999999999997,
+      "worst": 0.359948
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.43298000000000003,
+      "p95": 0.512924,
+      "worst": 0.513245
+    }
+  },
+  {
+    "codec": "m4a",
+    "strategy": "retained",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.3033925,
+      "p95": 0.38064099999999995,
+      "worst": 0.543461
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.3023215,
+      "p95": 0.460822,
+      "worst": 0.469582
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.44475200000000004,
+      "p95": 0.575453,
+      "worst": 0.694431
+    }
+  },
+  {
+    "codec": "m4a",
+    "strategy": "retained",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.290439,
+      "p95": 0.31995999999999997,
+      "worst": 0.390266
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.291004,
+      "p95": 0.34837300000000004,
+      "worst": 0.528042
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.43160600000000005,
+      "p95": 0.46498,
+      "worst": 0.634896
+    }
+  },
+  {
+    "codec": "mp3",
+    "strategy": "fresh",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.430497,
+      "p95": 0.540174,
+      "worst": 0.580821
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.4446875,
+      "p95": 0.538827,
+      "worst": 0.565026
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.5903785,
+      "p95": 0.697558,
+      "worst": 0.788122
+    }
+  },
+  {
+    "codec": "mp3",
+    "strategy": "fresh",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 1.16677,
+      "p95": 1.3367360000000001,
+      "worst": 1.537778
+    },
+    "decodeThreadCpuMs": {
+      "median": 1.173016,
+      "p95": 1.316692,
+      "worst": 1.59817
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 1.3162245000000001,
+      "p95": 1.504659,
+      "worst": 1.768635
+    }
+  },
+  {
+    "codec": "mp3",
+    "strategy": "fresh",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 1.788592,
+      "p95": 2.119942,
+      "worst": 2.233765
+    },
+    "decodeThreadCpuMs": {
+      "median": 1.7871725,
+      "p95": 2.072154,
+      "worst": 2.248508
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 1.9335055,
+      "p95": 2.329519,
+      "worst": 2.417992
+    }
+  },
+  {
+    "codec": "mp3",
+    "strategy": "retained",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.3408615,
+      "p95": 0.418292,
+      "worst": 0.444561
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.352651,
+      "p95": 0.384595,
+      "worst": 0.48482800000000004
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.49072150000000003,
+      "p95": 0.5433410000000001,
+      "worst": 0.6350169999999999
+    }
+  },
+  {
+    "codec": "mp3",
+    "strategy": "retained",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 1.1335555,
+      "p95": 1.355398,
+      "worst": 1.398757
+    },
+    "decodeThreadCpuMs": {
+      "median": 1.11974,
+      "p95": 1.3831440000000002,
+      "worst": 1.477101
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 1.2803870000000002,
+      "p95": 1.493749,
+      "worst": 1.6136499999999998
+    }
+  },
+  {
+    "codec": "mp3",
+    "strategy": "retained",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 1.058154,
+      "p95": 1.1471840000000002,
+      "worst": 1.272502
+    },
+    "decodeThreadCpuMs": {
+      "median": 1.0681764999999999,
+      "p95": 1.14991,
+      "worst": 1.259273
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 1.2196225,
+      "p95": 1.3155409999999998,
+      "worst": 1.4918209999999998
+    }
+  },
+  {
+    "codec": "opus",
+    "strategy": "fresh",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 77.4446645,
+      "p95": 98.13123999999999,
+      "worst": 101.77891
+    },
+    "decoderChildCpuMs": {
+      "median": 76.37900000000036,
+      "p95": 96.2539999999999,
+      "worst": 101.73500000000058
+    },
+    "wallMs": {
+      "median": 81.1721015,
+      "p95": 101.650244,
+      "worst": 111.529487
+    }
+  },
+  {
+    "codec": "opus",
+    "strategy": "fresh",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 78.452191,
+      "p95": 89.378777,
+      "worst": 96.31633500000001
+    },
+    "decoderChildCpuMs": {
+      "median": 78.10100000000011,
+      "p95": 89.40399999999954,
+      "worst": 92.56900000000041
+    },
+    "wallMs": {
+      "median": 81.25790749999999,
+      "p95": 91.253556,
+      "worst": 101.022858
+    }
+  },
+  {
+    "codec": "opus",
+    "strategy": "fresh",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 78.18276850000001,
+      "p95": 94.220345,
+      "worst": 103.883197
+    },
+    "decoderChildCpuMs": {
+      "median": 77.29649999999947,
+      "p95": 92.61500000000001,
+      "worst": 102.6210000000001
+    },
+    "wallMs": {
+      "median": 80.946343,
+      "p95": 101.044165,
+      "worst": 111.174787
+    }
+  },
+  {
+    "codec": "opus",
+    "strategy": "retained",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 76.2200945,
+      "p95": 88.174219,
+      "worst": 106.378058
+    },
+    "decoderChildCpuMs": {
+      "median": 76.21349999999984,
+      "p95": 87.91399999999976,
+      "worst": 101.30400000000009
+    },
+    "wallMs": {
+      "median": 80.9657565,
+      "p95": 91.085404,
+      "worst": 111.06805899999999
+    }
+  },
+  {
+    "codec": "opus",
+    "strategy": "retained",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 76.49446250000001,
+      "p95": 99.853972,
+      "worst": 106.63916599999999
+    },
+    "decoderChildCpuMs": {
+      "median": 75.54300000000012,
+      "p95": 98.20100000000002,
+      "worst": 106.02899999999954
+    },
+    "wallMs": {
+      "median": 81.0792385,
+      "p95": 101.22963299999999,
+      "worst": 111.24025999999999
+    }
+  },
+  {
+    "codec": "opus",
+    "strategy": "retained",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 79.697682,
+      "p95": 99.309611,
+      "worst": 111.745914
+    },
+    "decoderChildCpuMs": {
+      "median": 78.71699999999964,
+      "p95": 99.22100000000046,
+      "worst": 111.06999999999994
+    },
+    "wallMs": {
+      "median": 86.0481145,
+      "p95": 101.4396,
+      "worst": 121.074178
+    }
+  },
+  {
+    "codec": "wav",
+    "strategy": "fresh",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.16779449999999999,
+      "p95": 0.295554,
+      "worst": 0.427948
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.189262,
+      "p95": 0.359656,
+      "worst": 0.47459199999999996
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.27081299999999997,
+      "p95": 0.46216999999999997,
+      "worst": 0.701728
+    }
+  },
+  {
+    "codec": "wav",
+    "strategy": "fresh",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.1860305,
+      "p95": 0.24415199999999998,
+      "worst": 0.260063
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.193232,
+      "p95": 0.301293,
+      "worst": 0.356875
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.2872415,
+      "p95": 0.396436,
+      "worst": 0.441925
+    }
+  },
+  {
+    "codec": "wav",
+    "strategy": "fresh",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.16232000000000002,
+      "p95": 0.263455,
+      "worst": 0.27784000000000003
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.1889745,
+      "p95": 0.360507,
+      "worst": 0.375607
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.269156,
+      "p95": 0.472396,
+      "worst": 0.476142
+    }
+  },
+  {
+    "codec": "wav",
+    "strategy": "retained",
+    "fraction": 0.01,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.15908850000000002,
+      "p95": 0.221552,
+      "worst": 0.228758
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.161999,
+      "p95": 0.215111,
+      "worst": 0.303505
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.2519045,
+      "p95": 0.331191,
+      "worst": 0.451657
+    }
+  },
+  {
+    "codec": "wav",
+    "strategy": "retained",
+    "fraction": 0.5,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.139451,
+      "p95": 0.212148,
+      "worst": 0.27619299999999997
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.1607475,
+      "p95": 0.17524699999999999,
+      "worst": 0.345442
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.22954249999999998,
+      "p95": 0.302548,
+      "worst": 0.455944
+    }
+  },
+  {
+    "codec": "wav",
+    "strategy": "retained",
+    "fraction": 0.95,
+    "attempts": 20,
+    "firstPcmMs": {
+      "median": 0.16578299999999999,
+      "p95": 0.22471899999999997,
+      "worst": 0.26392
+    },
+    "decodeThreadCpuMs": {
+      "median": 0.1640065,
+      "p95": 0.28219700000000003,
+      "worst": 0.336661
+    },
+    "decoderChildCpuMs": {
+      "median": 0.0,
+      "p95": 0.0,
+      "worst": 0.0
+    },
+    "wallMs": {
+      "median": 0.26883999999999997,
+      "p95": 0.40440099999999995,
+      "worst": 0.420943
+    }
+  }
+]

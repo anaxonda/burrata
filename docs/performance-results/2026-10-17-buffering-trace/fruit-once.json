@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "playbackPass": true,
+  "scope": "One isolated native exploratory case; no statistical qualification",
+  "mode": "fruit-pinned",
+  "binarySha256": "3fbb288328f4f5917e1a79bb0aab0a299c05586c8d28028efbd9341905c9401d",
+  "pass": true,
+  "steps": [
+    {
+      "step": "startup",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5064.125045999999,
+        "advancedMs": 5044.478458049886,
+        "observations": 46
+      },
+      "catalogueSeconds": 181.4,
+      "mediaDeclaredSeconds": 181.4,
+      "playbackDurationSeconds": 181.4,
+      "catalogueDeltaSeconds": 0,
+      "strictDurationMatch": true,
+      "providerMatches": true,
+      "recordingMatches": true,
+      "identityLimitation": "Provider ID agreement does not independently prove version/audio identity",
+      "selectedProvider": "monochrome",
+      "firstMixerMs": 2031
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "position": 10,
+      "sameOccurrence": true,
+      "generationAdvanced": true,
+      "seekSerialAdvanced": true
+    },
+    {
+      "step": "postseek",
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5054.017899000002,
+        "advancedMs": 5013.151927437642,
+        "observations": 46
+      },
+      "seekFirstMixerMs": 36,
+      "seekReceiptFirstMixerMs": 1377,
+      "resumeLatencyMeasured": false
+    }
+  ],
+  "identify": {
+    "requested": false,
+    "cancelVerification": "not_exercised_by_this_runner",
+    "cleanup": "native_active_job_count_not_exposed"
+  },
+  "errorCategory": null,
+  "finalBoundedDiagnostics": {
+    "engine": "native",
+    "status": "playing",
+    "paused": false,
+    "position": 15.013151927437642,
+    "generation": 3,
+    "seekSerial": 1,
+    "diagnostics": {
+      "bufferingCount": 3,
+      "recoveryCount": 0,
+      "firstAudioMs": 2031,
+      "seekFirstAudioMs": 36,
+      "lastRecovery": null,
+      "lastLocalStorageFailure": null
+    },
+    "selectedProvider": "monochrome",
+    "selectedProviderId": "239910648984977408"
+  },
+  "pausedFinally": true
+}

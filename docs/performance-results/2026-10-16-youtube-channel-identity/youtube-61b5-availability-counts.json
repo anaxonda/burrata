@@ -1,0 +1,29 @@
+{
+  "pages": [
+    {
+      "count": 116,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "available": 106,
+      "unavailable": 10
+    },
+    {
+      "count": 113,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "available": 105,
+      "unavailable": 8
+    },
+    {
+      "count": 11,
+      "total": 240,
+      "complete": true,
+      "hasMore": false,
+      "available": 10,
+      "unavailable": 1
+    }
+  ],
+  "uniqueOccurrences": 240
+}

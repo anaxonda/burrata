@@ -1505,8 +1505,10 @@ pub fn candidates_from_responses(
             let lossless = matches!(extension.as_str(), "flac" | "wav" | "aiff");
             let bitrate = file
                 .bit_rate
-                .or_else(|| file_attribute_u32(file, &["bitrate", "bit_rate"]));
-            let sample_rate = file_attribute_u32(file, &["samplerate", "sample_rate"]);
+                .or_else(|| file_attribute_bitrate(file, &["bitrate", "bit_rate"]));
+            let sample_rate = file_attribute_sample_rate(file, &["samplerate", "sample_rate"]);
+            let bit_depth = file_attribute_u32(file, &["bitdepth", "bit_depth", "bits_per_sample"]);
+            let channels = file_attribute_u32(file, &["channels", "channel_count"]);
             candidates.push(crate::models::Candidate {
                 id: stable_id,
                 provider: "slskd".into(),
@@ -1520,6 +1522,9 @@ pub fn candidates_from_responses(
                     extension,
                     bitrate: bitrate.map(f64::from),
                     sample_rate,
+                    bit_depth,
+                    channels,
+                    size_bytes: Some(file.size),
                     lossless,
                 }],
                 permission: "unknown".into(),
@@ -1548,12 +1553,61 @@ fn file_attribute_u32(file: &RemoteFile, names: &[&str]) -> Option<u32> {
         if !names.contains(&name.as_str()) {
             return None;
         }
-        attribute
-            .value
-            .as_ref()?
-            .as_u64()
-            .and_then(|value| u32::try_from(value).ok())
-            .or_else(|| attribute.value.as_ref()?.as_str()?.parse().ok())
+        let value = attribute.value.as_ref()?;
+        let number = value.as_f64().or_else(|| {
+            value
+                .as_str()?
+                .split_whitespace()
+                .next()?
+                .parse::<f64>()
+                .ok()
+        })?;
+        (number.is_finite() && number > 0.0 && number <= u32::MAX as f64)
+            .then_some(number.round() as u32)
+    })
+}
+
+fn file_attribute_sample_rate(file: &RemoteFile, names: &[&str]) -> Option<u32> {
+    file.attributes.iter().find_map(|attribute| {
+        let name = attribute.attribute.as_deref()?.to_ascii_lowercase();
+        if !names.contains(&name.as_str()) {
+            return None;
+        }
+        let value = attribute.value.as_ref()?;
+        let raw = value.as_str().unwrap_or_default().to_ascii_lowercase();
+        let rate = value
+            .as_f64()
+            .or_else(|| raw.split_whitespace().next()?.parse::<f64>().ok())?;
+        if !rate.is_finite() || rate <= 0.0 {
+            return None;
+        }
+        // Soulseek peers commonly report kHz (44.1/48) or Hz (44100/48000).
+        let hz = if rate < 1000.0 || raw.contains("khz") {
+            rate * 1000.0
+        } else {
+            rate
+        };
+        (hz <= u32::MAX as f64).then_some(hz.round() as u32)
+    })
+}
+
+fn file_attribute_bitrate(file: &RemoteFile, names: &[&str]) -> Option<u32> {
+    file.attributes.iter().find_map(|attribute| {
+        let name = attribute.attribute.as_deref()?.to_ascii_lowercase();
+        if !names.contains(&name.as_str()) {
+            return None;
+        }
+        let value = attribute.value.as_ref()?;
+        let raw = value.as_str().unwrap_or_default().to_ascii_lowercase();
+        let mut rate = value
+            .as_f64()
+            .or_else(|| raw.split_whitespace().next()?.parse::<f64>().ok())?;
+        if raw.contains("bps") && !raw.contains("kbps") {
+            rate /= 1000.0;
+        } else if !raw.contains("bps") && rate >= 10_000.0 {
+            rate /= 1000.0;
+        }
+        (rate.is_finite() && rate > 0.0 && rate <= u32::MAX as f64).then_some(rate.round() as u32)
     })
 }
 
@@ -2286,6 +2340,7 @@ mod tests {
             output_path: None,
             created_at: String::new(),
             output_profile: "source".into(),
+            disposition: crate::models::ReplacementDisposition::Keep,
             format_id: None,
             chapter_ids: None,
             soulseek: None,

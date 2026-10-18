@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "scope": "Three repetitions of one deterministic native fixture using the same WAV and controlled input pacing. Mechanism evidence only; not an end-to-end playback, real-time reliability, or Fruit/Reserve A/B qualification.",
+  "testArtifactSha256": "1f6f2c5658e539d721bf6964edc1d04d8283a1567ebc23a477ba39afe25dc8ac",
+  "nativeSuite": {
+    "passed": 921,
+    "failed": 0,
+    "ignored": 17,
+    "elapsedSeconds": 17.02
+  },
+  "fixture": "paced_same_wav_input_gap_preserves_real_consumption_and_exposes_baseline_starvation",
+  "repetitions": [
+    {
+      "run": 1,
+      "immediate": {
+        "consumedSamples": 441392,
+        "elapsedMs": 5020,
+        "firstRealSampleMs": 20
+      },
+      "delayed": {
+        "consumedSamples": 441448,
+        "elapsedMs": 6680,
+        "firstRealSampleMs": 20
+      }
+    },
+    {
+      "run": 2,
+      "immediate": {
+        "consumedSamples": 441392,
+        "elapsedMs": 5020,
+        "firstRealSampleMs": 20
+      },
+      "delayed": {
+        "consumedSamples": 441448,
+        "elapsedMs": 6680,
+        "firstRealSampleMs": 20
+      }
+    },
+    {
+      "run": 3,
+      "immediate": {
+        "consumedSamples": 441392,
+        "elapsedMs": 5020,
+        "firstRealSampleMs": 20
+      },
+      "delayed": {
+        "consumedSamples": 441448,
+        "elapsedMs": 6680,
+        "firstRealSampleMs": 20
+      }
+    }
+  ],
+  "interpretation": "In this controlled fixture, immediate input completes without synthetic zero samples. A deliberate 2-second input gate creates a measurable wait with produced and consumed sample accounting aligned, then recovers when input resumes. This validates the fixture mechanism and its assertions only; it does not show that an actual playback interruption is fixed.",
+  "runtime": "No new executable was built for this result. The normal GUI remains on the prior a1b8013b10e1 build."
+}

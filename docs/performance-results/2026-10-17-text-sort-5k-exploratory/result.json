@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "scope": "One 5k in-memory expression-index exploratory test run; not whole-Store query, effective-metadata preparation, or production qualification.",
+  "binarySha256": "bfd79783f736b0ad5b123582968b37d340e79a5dffda0f5123925e477262f63a",
+  "elapsedSeconds": 9.351,
+  "timedOut": false,
+  "rows": 5000,
+  "caseCount": 4,
+  "cases": [
+    {
+      "field": "title",
+      "direction": "asc",
+      "rows": 5000,
+      "warmups": 1,
+      "timedPairs": 1,
+      "fullTempSort": true,
+      "candidateMedianMs": 79.23569499999999,
+      "referenceMedianMs": 163.745009,
+      "queryPlan": [
+        "SCAN catalog_listings USING INDEX bench_sort_title_asc",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "field": "title",
+      "direction": "desc",
+      "rows": 5000,
+      "warmups": 1,
+      "timedPairs": 1,
+      "fullTempSort": true,
+      "candidateMedianMs": 56.357757,
+      "referenceMedianMs": 163.80756699999998,
+      "queryPlan": [
+        "SCAN catalog_listings USING INDEX bench_sort_title_desc",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "field": "artist",
+      "direction": "asc",
+      "rows": 5000,
+      "warmups": 1,
+      "timedPairs": 1,
+      "fullTempSort": true,
+      "candidateMedianMs": 60.435428,
+      "referenceMedianMs": 160.462647,
+      "queryPlan": [
+        "SCAN catalog_listings USING INDEX bench_sort_artist_asc",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    },
+    {
+      "field": "artist",
+      "direction": "desc",
+      "rows": 5000,
+      "warmups": 1,
+      "timedPairs": 1,
+      "fullTempSort": true,
+      "candidateMedianMs": 54.324829,
+      "referenceMedianMs": 143.32966299999998,
+      "queryPlan": [
+        "SCAN catalog_listings USING INDEX bench_sort_artist_desc",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ]
+    }
+  ],
+  "interpretation": "All four expression-index plans still used a full temporary sort. One warmup and one timed pair per case are exploratory only and do not support promotion of a production text index.",
+  "reverseCollationProposal": "Test-only and uncompiled; no production index change is established."
+}

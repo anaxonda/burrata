@@ -1,0 +1,22 @@
+{
+  "test": "actual_loopback_body_gap_exhausts_production_pcm_while_immediate_same_wav_does_not",
+  "focusedResult": {
+    "passed": 1,
+    "failed": 0,
+    "seconds": 0.15
+  },
+  "mechanism": "Same WAV through production HTTP/temp reader, decoder, queued PCM and software mixer. A channel-held body exhausts real PCM and inserts synthetic silence without advancing consumed PCM; immediate input has no synthetic silence.",
+  "limitations": [
+    "Counter/gate driven, not real-time pacing, 5-second playback qualification or network-only explanation of a public-provider failure.",
+    "No production buffering policy, retry or reserve changed.",
+    "First harness run assumed iterator-call/PCM equivalence and failed; corrected run drives actual PCM counters. Both logs retained privately."
+  ],
+  "sourceSha256": "4b091e5ec74fa2b6f7332aaec50ab5dcffafafe02e134f34c6795d4802a5bda4",
+  "expandedNativeSuite": {
+    "passed": 917,
+    "failed": 0,
+    "ignored": 16,
+    "seconds": 15.77,
+    "storageFailureFixture": "Bounded isolated child; original concurrenthang retained andcauseunproven."
+  }
+}

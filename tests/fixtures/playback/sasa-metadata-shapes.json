@@ -1,0 +1,24 @@
+{
+  "capturedAt": "2026-10-15",
+  "scope": "Public catalog metadata shapes only; no private database, authenticated session, stream URL, or playback result.",
+  "shapes": [
+    {
+      "source": "selected public catalog recording",
+      "artist": "Timmy Regisford",
+      "title": "Sasa",
+      "version": "Main Version (4:41)",
+      "durationSeconds": 281
+    },
+    {
+      "source": "imported catalog row",
+      "artist": "Timmy Regisford",
+      "title": "Sasa (Main Version (4:41))",
+      "version": null,
+      "durationSeconds": null
+    }
+  ],
+  "normalization": {
+    "versionField": "Main Version (4:41) normalizes to main version",
+    "mergedTitle": "The stored merged title remains unchanged; playback transiently projects Sasa / Main Version (4:41) / 281 seconds before searching and validating sources."
+  }
+}

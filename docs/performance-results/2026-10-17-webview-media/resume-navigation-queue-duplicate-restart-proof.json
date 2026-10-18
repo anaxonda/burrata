@@ -1,0 +1,24 @@
+{
+  "sameIsolatedProfile": true,
+  "queueTotal": 4,
+  "duplicateOccurrences": 3,
+  "checks": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "paused": true
+  },
+  "scope": "Live persisted duplicate occurrence IDs/order/current index and compact queue projection; no Ctrl/Shift/drag live acceptance.",
+  "frontendSourcePin": ".cache/resume-navigation-frontend-source-pin.json",
+  "launchSession": 21791,
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

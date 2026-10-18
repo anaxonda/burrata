@@ -1,0 +1,43 @@
+{
+  "scope": "Linux debug native exact-source same-profile warm/cache-enabled repetitions; not click-to-audio, cold-start, full-resource, acoustic, release or platform qualification.",
+  "path": "fruit-pinned",
+  "warmupsRequired": 3,
+  "measuredRequired": 20,
+  "attempts": [
+    {
+      "phase": "exploratory",
+      "index": 1,
+      "file": "fruit-exploratory-01.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 1471,
+      "seekFirstMixerMs": 28,
+      "seekReceiptFirstMixerMs": 1273
+    },
+    {
+      "phase": "exploratory",
+      "index": 2,
+      "file": "fruit-exploratory-02.json",
+      "pass": true,
+      "errorCategory": null,
+      "firstMixerMs": 1068,
+      "seekFirstMixerMs": 3,
+      "seekReceiptFirstMixerMs": 1316,
+      "runnerExitCode": 0,
+      "runnerWallSeconds": 22.448
+    },
+    {
+      "phase": "exploratory",
+      "index": 3,
+      "file": "fruit-exploratory-03.json",
+      "pass": false,
+      "errorCategory": "sustained_playback_failed",
+      "runnerExitCode": 1,
+      "runnerWallSeconds": 10.052
+    }
+  ],
+  "complete": false,
+  "failures": 1,
+  "runnerSha256": "0f805b8f19e3eeae68a0650380430b5b5bba7091e1c617c1069cfdaf221bc313",
+  "binarySha256": "ebf96f8fceb05c8eb803c21686e07d7d4c4e842a850b31d212de2b7d1fe4471e"
+}

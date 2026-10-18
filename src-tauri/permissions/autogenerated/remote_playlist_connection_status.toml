@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remote-playlist-connection-status"
+description = "Enables the remote_playlist_connection_status command without any pre-configured scope."
+commands.allow = ["remote_playlist_connection_status"]
+
+[[permission]]
+identifier = "deny-remote-playlist-connection-status"
+description = "Denies the remote_playlist_connection_status command without any pre-configured scope."
+commands.deny = ["remote_playlist_connection_status"]

@@ -104,8 +104,32 @@ pub struct SourceSnapshot {
 /// Scan configured playlist roots and synchronize readable playlist files to one-time imports.
 /// Errors are reported per source so one unavailable directory does not hide the others.
 pub fn sync_playlists(store: &Store, settings: &Settings) -> Result<PlaylistSyncStatus> {
+    let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
+    let total_started = std::time::Instant::now();
+    let scan_started = std::time::Instant::now();
     let scan = playlist_files::scan_local_playlists(settings)?;
-    sync_playlists_with_scan(store, settings, scan)
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.scan files={} warnings={} elapsed_ms={}",
+            scan.files.len(),
+            scan.warnings.len(),
+            scan_started.elapsed().as_millis()
+        );
+    }
+    let sync_started = std::time::Instant::now();
+    let result = sync_playlists_with_scan(store, settings, scan);
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.total outcome={} elapsed_ms={}",
+            if result.is_ok() { "ok" } else { "error" },
+            total_started.elapsed().as_millis()
+        );
+        eprintln!(
+            "[perf] playlist_sync.reconcile_lock_inclusive elapsed_ms={}",
+            sync_started.elapsed().as_millis()
+        );
+    }
+    result
 }
 
 fn sync_playlists_with_scan(
@@ -113,13 +137,38 @@ fn sync_playlists_with_scan(
     settings: &Settings,
     scan: playlist_files::LocalPlaylistScan,
 ) -> Result<PlaylistSyncStatus> {
+    let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
+    let lock_started = std::time::Instant::now();
     let _guard = PLAYLIST_SYNC_LOCK
         .lock()
         .map_err(|_| "Playlist sync lock is unavailable")?;
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.lock_wait elapsed_ms={}",
+            lock_started.elapsed().as_millis()
+        );
+    }
+    let reconcile_started = std::time::Instant::now();
     let mut status = PlaylistSyncStatus::default();
     status.warnings.extend(scan.warnings);
+    let state_started = std::time::Instant::now();
     let mut state = read_state(store)?;
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.read_state sources={} elapsed_ms={}",
+            state.sources.len(),
+            state_started.elapsed().as_millis()
+        );
+    }
+    let migration_started = std::time::Instant::now();
     status.migrated_generated_imports = migrate_generated_imports(store, settings, &mut state)?;
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.migration migrated={} elapsed_ms={}",
+            status.migrated_generated_imports,
+            migration_started.elapsed().as_millis()
+        );
+    }
     let mut legacy_mirror_paths = state
         .mirror_paths
         .values()
@@ -146,6 +195,8 @@ fn sync_playlists_with_scan(
     state.changed_sources.clear();
     state.paused_mirrors.clear();
     let mut present_sources = HashSet::new();
+    let source_count = files.len();
+    let source_started = std::time::Instant::now();
     for file in files {
         let canonical = match fs::canonicalize(&file.path) {
             Ok(p) => p,
@@ -314,13 +365,45 @@ fn sync_playlists_with_scan(
             });
         }
     }
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.source_reconcile sources={} elapsed_ms={}",
+            source_count,
+            source_started.elapsed().as_millis()
+        );
+    }
     // Missing paths are retained as paused bindings: a temporary disconnect never deletes
     // the corresponding collection or its snapshots.
+    let persist_started = std::time::Instant::now();
     persist_state(store, &state)?;
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.persist_state pass=before_mirrors elapsed_ms={}",
+            persist_started.elapsed().as_millis()
+        );
+    }
+    let mirror_started = std::time::Instant::now();
     status.mirrors_directory = write_mirrors(store, settings, &mut state, &mut status.warnings)?;
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.mirror_write elapsed_ms={}",
+            mirror_started.elapsed().as_millis()
+        );
+    }
     status.paused_mirrors = state.paused_mirrors.iter().cloned().collect();
+    status.paused_mirrors.sort_unstable();
+    let persist_started = std::time::Instant::now();
     persist_state(store, &state)?;
+    if perf_trace {
+        eprintln!(
+            "[perf] playlist_sync.persist_state pass=after_mirrors elapsed_ms={}",
+            persist_started.elapsed().as_millis()
+        );
+    }
     status.synchronized = status.sources.iter().filter(|s| s.state == "bound").count();
+    if perf_trace {
+        eprintln!("[perf] playlist_sync.reconcile_counts sources={} collections_bound={} migrated={} repaired={} elapsed_ms={}", status.sources.len(), status.synchronized, status.migrated_generated_imports, status.repaired_track_metadata, reconcile_started.elapsed().as_millis());
+    }
     Ok(status)
 }
 
@@ -694,30 +777,52 @@ pub fn export_mixxx_playlist(
 
 fn current_collection_tracks(store: &Store, collection_id: &str) -> Result<Vec<Track>> {
     let snapshots = store.browser_snapshots_for_collection(collection_id)?;
+    current_collection_tracks_from_snapshots(store, collection_id, &snapshots)
+}
+
+fn current_collection_tracks_from_snapshots(
+    store: &Store,
+    collection_id: &str,
+    snapshots: &[crate::models::Chart],
+) -> Result<Vec<Track>> {
     if let Some(snapshot) = snapshots.first() {
-        let tracks = snapshot
+        let ids = snapshot
             .tracks
             .iter()
-            .map(|track| {
-                let mut current = track.clone();
-                if let Some(saved) = store.get_track(&track.id)? {
-                    current.local_path = saved.local_path;
-                    current.local_availability = saved.local_availability;
-                    current.asset_id = saved.asset_id;
-                    if let Some(candidate) = saved.provenance.get("audioCandidate") {
-                        current.provenance["audioCandidate"] = candidate.clone();
-                    }
-                    if let Some(url) = saved.provenance.get("candidateUrl") {
-                        current.provenance["candidateUrl"] = url.clone();
-                    }
-                }
-                Ok(current)
-            })
-            .collect::<Result<Vec<_>>>()?;
+            .map(|track| track.id.clone())
+            .collect::<Vec<_>>();
+        let saved_tracks = store.get_tracks(&ids)?;
+        let tracks = merge_snapshot_track_state(snapshot.tracks.clone(), saved_tracks);
         Ok(crate::browser_bridge::expand_playlist_occurrences(tracks))
     } else {
         store.list_tracks("collection", Some(collection_id))
     }
+}
+
+fn merge_snapshot_track_state(snapshot_tracks: Vec<Track>, saved_tracks: Vec<Track>) -> Vec<Track> {
+    let saved_by_id = saved_tracks
+        .into_iter()
+        .map(|track| (track.id.clone(), track))
+        .collect::<HashMap<_, _>>();
+    snapshot_tracks
+        .into_iter()
+        .map(|mut current| {
+            if let Some(saved) = saved_by_id.get(&current.id) {
+                // Match the prior per-track overlay, including None overwrites, while retaining
+                // snapshot metadata and occurrence information.
+                current.local_path = saved.local_path.clone();
+                current.local_availability = saved.local_availability.clone();
+                current.asset_id = saved.asset_id.clone();
+                if let Some(candidate) = saved.provenance.get("audioCandidate") {
+                    current.provenance["audioCandidate"] = candidate.clone();
+                }
+                if let Some(url) = saved.provenance.get("candidateUrl") {
+                    current.provenance["candidateUrl"] = url.clone();
+                }
+            }
+            current
+        })
+        .collect()
 }
 
 pub fn list_source_snapshots(store: &Store, canonical_path: &str) -> Result<Vec<SourceSnapshot>> {
@@ -863,7 +968,15 @@ fn write_mirrors(
     fs::create_dir_all(&dir)
         .map_err(|e| format!("Cannot create playlist mirror directory: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| format!("Cannot create collection mirrors: {e}"))?;
-    for collection in store.list_collections()? {
+    let mirror_started = std::time::Instant::now();
+    let collections = store.list_collections()?;
+    if std::env::var_os("BURRATA_PERF_TRACE").is_some() {
+        eprintln!(
+            "[perf] playlist_sync.mirror_collections count={}",
+            collections.len()
+        );
+    }
+    for collection in collections {
         let browser_snapshots = store.browser_snapshots_for_collection(&collection.id)?;
         if !browser_snapshots.is_empty() {
             for snapshot in browser_snapshots.iter().rev() {
@@ -871,7 +984,8 @@ fn write_mirrors(
                 archive_chart_snapshot(&dir, &group, &collection.id, snapshot)?;
             }
         }
-        let tracks = current_collection_tracks(store, &collection.id)?;
+        let tracks =
+            current_collection_tracks_from_snapshots(store, &collection.id, &browser_snapshots)?;
         let original_group = mirror_group(state, &collection.id, &tracks);
         let group_dir = dir.join(&original_group);
         fs::create_dir_all(&group_dir)
@@ -892,14 +1006,28 @@ fn write_mirrors(
             ));
             continue;
         }
-        let personal_id =
-            apply_mirror_edit(store, state, &collection.id, original_path, &dir, warnings)?;
+        let edit = apply_mirror_edit(
+            store,
+            state,
+            &collection.id,
+            original_path,
+            &dir,
+            &tracks,
+            warnings,
+        )?;
         if state.preserve_mirrors.contains(&collection.id) {
             continue;
         }
-        let target_id = personal_id.unwrap_or_else(|| collection.id.clone());
+        let target_id = edit
+            .personal_collection_id
+            .clone()
+            .unwrap_or_else(|| collection.id.clone());
         let target_tracks = if target_id == collection.id {
-            current_collection_tracks(store, &collection.id)?
+            if edit.original_collection_changed {
+                current_collection_tracks(store, &collection.id)?
+            } else {
+                tracks
+            }
         } else {
             store.list_tracks("collection", Some(&target_id))?
         };
@@ -999,6 +1127,12 @@ fn write_mirrors(
         "favorites".into(),
         likes_path.to_string_lossy().into_owned(),
     );
+    if std::env::var_os("BURRATA_PERF_TRACE").is_some() {
+        eprintln!(
+            "[perf] playlist_sync.mirror_collections_elapsed elapsed_ms={}",
+            mirror_started.elapsed().as_millis()
+        );
+    }
     Ok(Some(dir.to_string_lossy().into_owned()))
 }
 
@@ -1133,26 +1267,42 @@ fn archive_chart_snapshot(
     Ok(())
 }
 
+#[derive(Default)]
+struct MirrorEditOutcome {
+    personal_collection_id: Option<String>,
+    original_collection_changed: bool,
+}
+
 fn apply_mirror_edit(
     store: &Store,
     state: &mut SyncState,
     collection_id: &str,
     path: &Path,
     mirror_root: &Path,
+    current_tracks: &[Track],
     warnings: &mut Vec<String>,
-) -> Result<Option<String>> {
-    let current_tracks = current_collection_tracks(store, collection_id)?;
+) -> Result<MirrorEditOutcome> {
+    // Most sync passes see untouched mirrors. Check the persisted baseline before doing
+    // any additional work; the caller's hydrated tracks are reused for rendering.
+    if let Some(baseline) = state.mirror_hashes.get(collection_id) {
+        if fs::read_to_string(path)
+            .ok()
+            .is_some_and(|text| digest(text.as_bytes()) == *baseline)
+        {
+            return Ok(MirrorEditOutcome::default());
+        }
+    }
     let collection = store
         .list_collections()?
         .into_iter()
         .find(|item| item.id == collection_id)
         .ok_or("Collection not found")?;
-    let generated = render_named_m3u(&collection.name, &current_tracks, "");
+    let generated = render_named_m3u(&collection.name, current_tracks, "");
     let Some(contents) = read_external_edit(&state.mirror_hashes, collection_id, path, &generated)
     else {
-        return Ok(None);
+        return Ok(MirrorEditOutcome::default());
     };
-    let group = collection_group(&current_tracks);
+    let group = collection_group(current_tracks);
     archive_mirror(state, mirror_root, &group, collection_id, &generated)?;
     archive_mirror(state, mirror_root, &group, collection_id, &contents)?;
     let (tracks, unresolved) =
@@ -1163,7 +1313,7 @@ fn apply_mirror_edit(
             path.display()
         ));
         state.preserve_mirrors.insert(collection_id.to_owned());
-        return Ok(None);
+        return Ok(MirrorEditOutcome::default());
     }
     let source_changed = state.sources.iter().any(|(source_path, source)| {
         source.collection_id.as_deref() == Some(collection_id)
@@ -1191,7 +1341,7 @@ fn apply_mirror_edit(
             path.display(),
             conflict_name
         ));
-        return Ok(None);
+        return Ok(MirrorEditOutcome::default());
     }
     let target_id = ensure_editable_collection(store, collection_id)?;
     if let Some(name) = playlist_title(&contents) {
@@ -1218,8 +1368,16 @@ fn apply_mirror_edit(
         state
             .mirror_hashes
             .insert(collection_id.to_owned(), digest(generated.as_bytes()));
+        Ok(MirrorEditOutcome {
+            personal_collection_id: Some(target_id),
+            original_collection_changed: false,
+        })
+    } else {
+        Ok(MirrorEditOutcome {
+            personal_collection_id: None,
+            original_collection_changed: true,
+        })
     }
-    Ok((target_id != collection_id).then_some(target_id))
 }
 
 fn resolve_mirror_tracks(
@@ -1433,6 +1591,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn batched_snapshot_hydration_preserves_duplicate_occurrences_and_none_overwrites() {
+        let snapshot = Track {
+            id: "spotify:duplicate".into(),
+            provider: "spotify".into(),
+            duration_seconds: Some(245.48),
+            local_path: Some("snapshot-path.flac".into()),
+            local_availability: "available".into(),
+            asset_id: Some("snapshot-asset".into()),
+            provenance: serde_json::json!({"sourceKind":"playlist","playlistPosition":1,"occurrencePositions":[1,3],"captureMarker":"retained"}),
+            ..Track::default()
+        };
+        let saved = Track {
+            id: snapshot.id.clone(),
+            local_path: None,
+            local_availability: "none".into(),
+            asset_id: None,
+            provenance: serde_json::json!({"audioCandidate":{"provider":"youtube","providerId":"abc"},"candidateUrl":"https://example.invalid/stable"}),
+            ..Track::default()
+        };
+        let merged = merge_snapshot_track_state(vec![snapshot], vec![saved]);
+        let occurrences = crate::browser_bridge::expand_playlist_occurrences(merged);
+        assert_eq!(occurrences.len(), 2);
+        assert_eq!(
+            occurrences
+                .iter()
+                .map(|track| track.duration_seconds)
+                .collect::<Vec<_>>(),
+            vec![Some(245.48); 2]
+        );
+        assert_eq!(
+            occurrences
+                .iter()
+                .map(|track| track.provenance["position"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+        for track in occurrences {
+            assert_eq!(track.local_path, None);
+            assert_eq!(track.local_availability, "none");
+            assert_eq!(track.asset_id, None);
+            assert_eq!(track.provenance["captureMarker"], "retained");
+            assert_eq!(
+                track.provenance["candidateUrl"],
+                "https://example.invalid/stable"
+            );
+            assert_eq!(track.provenance["audioCandidate"]["provider"], "youtube");
+        }
+    }
+
     fn save_local(store: &Store, path: &Path, id: &str, artist: &str, title: &str) -> Track {
         fs::write(path, b"audio").unwrap();
         let track = Track {
@@ -1448,6 +1656,12 @@ mod tests {
         store.save_track(&track).unwrap();
         store
             .save_asset(&LocalAsset {
+                sample_rate: None,
+                channels: None,
+                bit_depth: None,
+                duration_seconds: None,
+                size_bytes: None,
+                bitrate_origin: None,
                 id: format!("asset:{id}"),
                 recording_id: track.id.clone(),
                 path: path.to_string_lossy().into_owned(),
@@ -1558,7 +1772,11 @@ mod tests {
         fs::create_dir_all(&music).unwrap();
         let audio = music.join("known.mp3");
         let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
-        let known = save_local(&store, &audio, "known", "Known", "Track");
+        let mut known = save_local(&store, &audio, "known", "Known", "Track");
+        known.duration_seconds = Some(200.0);
+        known.rank = Some(7);
+        known.provenance = serde_json::json!({"testMarker":"catalog-hydrated"});
+        let known = store.save_track(&known).unwrap();
         let collection = store.create_collection("Personal set").unwrap();
         store
             .replace_playlist_entries(&collection.id, &[known.clone()])
@@ -1571,25 +1789,37 @@ mod tests {
         let mirror = music
             .join("Playlists/Local")
             .join(format!("{}.m3u8", collection.id));
-        fs::write(&mirror, format!("#EXTM3U\n#PLAYLIST:Renamed in editor\n#EXTINF:200,Known - Track\n{}\n#EXTINF:190,New Artist - New Song (Club Mix)\nytdl://ytsearch1:New Artist New Song Club Mix mix\n#EXTINF:180,Stream Artist - Stream Song\nhttps://www.youtube.com/watch?v=ABCDEF12345\n", audio.display())).unwrap();
+        fs::write(&mirror, format!("#EXTM3U\n#PLAYLIST:Renamed in editor\n#EXTINF:200,Known - Track\n{}\n#EXTINF:200,Known - Track\n{}\n#EXTINF:190,New Artist - New Song (Club Mix)\nytdl://ytsearch1:New Artist New Song Club Mix mix\n#EXTINF:180,Stream Artist - Stream Song\nhttps://www.youtube.com/watch?v=ABCDEF12345\n", audio.display(), audio.display())).unwrap();
         sync_playlists(&store, &settings).unwrap();
         let tracks = store
             .list_tracks("collection", Some(&collection.id))
             .unwrap();
-        assert_eq!(tracks.len(), 3);
-        assert_eq!(tracks[1].artist, "New Artist");
-        assert_eq!(tracks[1].provider, "import", "track={:?}", tracks[1]);
+        assert_eq!(tracks.len(), 4);
         assert_eq!(
-            tracks[2].source_url,
+            tracks[0].id, tracks[1].id,
+            "duplicate playlist entry must remain duplicated"
+        );
+        for known_occurrence in &tracks[..2] {
+            assert_eq!(known_occurrence.duration_seconds, Some(200.0));
+            assert_eq!(known_occurrence.rank, Some(7));
+            assert_eq!(
+                known_occurrence.provenance["testMarker"],
+                "catalog-hydrated"
+            );
+        }
+        assert_eq!(tracks[2].artist, "New Artist");
+        assert_eq!(tracks[2].provider, "import", "track={:?}", tracks[2]);
+        assert_eq!(
+            tracks[3].source_url,
             "https://www.youtube.com/watch?v=ABCDEF12345"
         );
-        assert_eq!(tracks[2].provenance["sourceKind"], "audioSearch");
+        assert_eq!(tracks[3].provenance["sourceKind"], "audioSearch");
         assert_eq!(
-            tracks[2].provenance["audioCandidate"]["provider"],
+            tracks[3].provenance["audioCandidate"]["provider"],
             "youtube"
         );
         assert_eq!(
-            tracks[2].provenance["candidateUrl"],
+            tracks[3].provenance["candidateUrl"],
             "https://www.youtube.com/watch?v=ABCDEF12345"
         );
         assert_eq!(
@@ -1613,9 +1843,20 @@ mod tests {
                 .filter_map(|entry| entry.ok().map(|entry| entry.file_name()))
                 .collect::<Vec<_>>()
         );
-        assert!(fs::read_to_string(saved_mirror)
-            .unwrap()
-            .contains("ytdl://ytsearch1:New Artist New Song Club Mix mix"));
+        let expected_body =
+            render_named_m3u("Renamed in editor", &tracks, &settings.music_directory);
+        assert_eq!(fs::read_to_string(&saved_mirror).unwrap(), expected_body);
+        sync_playlists(&store, &settings).unwrap();
+        let reloaded = store
+            .list_tracks("collection", Some(&collection.id))
+            .unwrap();
+        assert_eq!(reloaded.len(), 4);
+        assert_eq!(reloaded[0].id, reloaded[1].id);
+        assert_eq!(
+            fs::read_to_string(&saved_mirror).unwrap(),
+            render_named_m3u("Renamed in editor", &reloaded, &settings.music_directory),
+            "next sync must not revert the persisted mirror edit"
+        );
         store
             .rename_collection(&collection.id, "Renamed in app")
             .unwrap();
@@ -2121,6 +2362,12 @@ mod tests {
         store.save_track(&track).unwrap();
         store
             .save_asset(&crate::models::LocalAsset {
+                sample_rate: None,
+                channels: None,
+                bit_depth: None,
+                duration_seconds: None,
+                size_bytes: None,
+                bitrate_origin: None,
                 id: "asset-generated-archive-audio".into(),
                 recording_id: track.id.clone(),
                 path: audio.to_string_lossy().into_owned(),

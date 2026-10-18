@@ -1,0 +1,45 @@
+{
+  "build": "086b13bb78f1",
+  "provider": "youtube",
+  "pages": [
+    {
+      "page": 1,
+      "tracks": 116,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "cumulative": 116,
+      "unavailable": 0
+    },
+    {
+      "page": 2,
+      "tracks": 113,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "cumulative": 229,
+      "unavailable": 0
+    },
+    {
+      "page": 3,
+      "tracks": 11,
+      "total": 240,
+      "complete": false,
+      "hasMore": false,
+      "cumulative": 240,
+      "unavailable": 0
+    }
+  ],
+  "loaded": 240,
+  "occurrenceIds": 240,
+  "uniqueOccurrenceIds": 240,
+  "elapsedMs": 4609,
+  "initialTotal": 240,
+  "totalMatches": true,
+  "terminalComplete": false,
+  "qualification": "All reported occurrences returned; native terminal-page completeness bug still open",
+  "writesPerformed": false,
+  "reportedAvailable": 240,
+  "reportedUnavailable": 0,
+  "availabilityQualification": "Provider-reported availability has not been verified by decoding. Six exact private-video and thirteen deleted-video placeholder titles were returned with available flags; playability diagnostics are pending."
+}

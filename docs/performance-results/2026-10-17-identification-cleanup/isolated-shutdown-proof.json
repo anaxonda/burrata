@@ -1,0 +1,7 @@
+{
+  "soleIsolatedGuiExited": true,
+  "ownedDescendantsBefore": 3,
+  "activeOwnedDescendantsAfter": 0,
+  "signal": "launcher TERM -> native graceful exit",
+  "forcedKill": false
+}

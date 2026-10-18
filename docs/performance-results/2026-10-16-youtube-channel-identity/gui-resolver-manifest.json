@@ -1,0 +1,15 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-provider-ec5316a61c0c/burrata",
+  "sha256": "ec5316a61c0c0f66ad2b0b1c8d5341385cd0ce4c881404b18280c12e573f7cd5",
+  "profile": "development GUI, unoptimized + debuginfo",
+  "removedCargoAliases": [
+    "/home/loki/projects/burrata/.cache/verification-target/debug/deps/burrata-72533ebc16dd4c18"
+  ],
+  "sources": {
+    "extension/youtube-session-provider.js": "545bc5487bf048ec1af909d857995f4e490bf0e110973c7a03bf1e3e9c0d569b",
+    "scripts/youtube-session-worker.mjs": "24e15d4ee415dab89700f270440e54d2096ed7b2667be4fee0b21288815783ae",
+    "src-tauri/src/managed_provider_session.rs": "3641108af8f8674645ec2bd51164adf15fd47d9c4a5038edc727d7220afc46bd"
+  },
+  "buildWarnings": 32,
+  "qualification": "Compiled; live launch pending; worker38 adapter16 contracts7 pass."
+}

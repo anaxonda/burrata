@@ -1,0 +1,3239 @@
+{
+  "schemaVersion": 2,
+  "workload": "real_mcp_imported_native_playback_qualification",
+  "runStartedAt": "2026-10-15T22:12:21.603Z",
+  "runFinishedAt": "2026-10-15T22:13:27.427Z",
+  "binarySha256": "ced6cc73fd2c5b7205ba6650e10edab1d95f0113487da7b73dd2e450b5be6394",
+  "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+  "independentlyVerifiedDurationSeconds": 250.078912,
+  "durationToleranceSeconds": 1,
+  "engine": "native",
+  "initialVolume": 0,
+  "volumeSetToZero": true,
+  "initialTrackPositionSeconds": 33.99401360544218,
+  "initialQueueCount": 1,
+  "bounds": {
+    "warmups": 3,
+    "starts": 20,
+    "seekRepeatsPerFraction": 20,
+    "seekFractions": [
+      0.01,
+      0.5,
+      0.95
+    ],
+    "perOperationDeadlineMs": 20000
+  },
+  "warmups": [
+    {
+      "type": "warmup",
+      "index": 1,
+      "harnessOperationId": "a10f3508-afbe-4d48-a5a6-4945d97268b6",
+      "wallFirstAudioObservedMs": 447,
+      "wallPlayheadAdvanceMs": 665,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.2276984126984127,
+        "durationSeconds": 250,
+        "generation": 4,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 386,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "warmup",
+      "index": 2,
+      "harnessOperationId": "b64f16f3-c550-413e-ae4e-6a60bd28a98e",
+      "wallFirstAudioObservedMs": 457,
+      "wallPlayheadAdvanceMs": 567,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.09287981859410431,
+        "durationSeconds": 250,
+        "generation": 6,
+        "seekSerial": 0,
+        "sourceReadyMs": 2,
+        "firstAudioMs": 398,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "warmup",
+      "index": 3,
+      "harnessOperationId": "772f74f5-54f6-4972-8eb8-a63a224919e0",
+      "wallFirstAudioObservedMs": 564,
+      "wallPlayheadAdvanceMs": 564,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.09287981859410431,
+        "durationSeconds": 250,
+        "generation": 8,
+        "seekSerial": 0,
+        "sourceReadyMs": 2,
+        "firstAudioMs": 435,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    }
+  ],
+  "starts": [
+    {
+      "type": "native_start",
+      "index": 1,
+      "harnessOperationId": "f80a259d-8932-45cc-a863-102d6106f866",
+      "wallFirstAudioObservedMs": 337,
+      "wallPlayheadAdvanceMs": 557,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.23219954648526078,
+        "durationSeconds": 250,
+        "generation": 10,
+        "seekSerial": 0,
+        "sourceReadyMs": 4,
+        "firstAudioMs": 259,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 2,
+      "harnessOperationId": "336a62a1-91d7-469e-b575-2d468bd88585",
+      "wallFirstAudioObservedMs": 362,
+      "wallPlayheadAdvanceMs": 477,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.13931972789115646,
+        "durationSeconds": 250,
+        "generation": 12,
+        "seekSerial": 0,
+        "sourceReadyMs": 7,
+        "firstAudioMs": 267,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 3,
+      "harnessOperationId": "bc40bbcb-5554-4f24-b39c-d8c24197632b",
+      "wallFirstAudioObservedMs": 448,
+      "wallPlayheadAdvanceMs": 561,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.09287981859410431,
+        "durationSeconds": 250,
+        "generation": 14,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 396,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 4,
+      "harnessOperationId": "6d48df7f-6fab-4cb8-91f3-9b7f868b1f02",
+      "wallFirstAudioObservedMs": 361,
+      "wallPlayheadAdvanceMs": 583,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.18575963718820862,
+        "durationSeconds": 250,
+        "generation": 16,
+        "seekSerial": 0,
+        "sourceReadyMs": 5,
+        "firstAudioMs": 277,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 5,
+      "harnessOperationId": "e3fcde95-8722-490a-86b7-82be71ce7b75",
+      "wallFirstAudioObservedMs": 559,
+      "wallPlayheadAdvanceMs": 769,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.2786394557823129,
+        "durationSeconds": 250,
+        "generation": 18,
+        "seekSerial": 0,
+        "sourceReadyMs": 4,
+        "firstAudioMs": 429,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 6,
+      "harnessOperationId": "f2282fe8-d62a-4ee8-bfe8-d77ed244ef9a",
+      "wallFirstAudioObservedMs": 328,
+      "wallPlayheadAdvanceMs": 558,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.23219954648526078,
+        "durationSeconds": 250,
+        "generation": 20,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 268,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 7,
+      "harnessOperationId": "0724a863-0271-40d0-83bd-4ae7638e16d9",
+      "wallFirstAudioObservedMs": 337,
+      "wallPlayheadAdvanceMs": 570,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.18575963718820862,
+        "durationSeconds": 250,
+        "generation": 22,
+        "seekSerial": 0,
+        "sourceReadyMs": 4,
+        "firstAudioMs": 281,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 8,
+      "harnessOperationId": "20717d81-cccd-4dc0-b923-3961d7953943",
+      "wallFirstAudioObservedMs": 471,
+      "wallPlayheadAdvanceMs": 798,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.2786394557823129,
+        "durationSeconds": 250,
+        "generation": 24,
+        "seekSerial": 0,
+        "sourceReadyMs": 11,
+        "firstAudioMs": 424,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 9,
+      "harnessOperationId": "78658ee8-7f37-4782-a1b5-8e17f94523f3",
+      "wallFirstAudioObservedMs": 367,
+      "wallPlayheadAdvanceMs": 475,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.13931972789115646,
+        "durationSeconds": 250,
+        "generation": 26,
+        "seekSerial": 0,
+        "sourceReadyMs": 4,
+        "firstAudioMs": 305,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 10,
+      "harnessOperationId": "ac39f368-1116-40e9-8cee-54030c484b97",
+      "wallFirstAudioObservedMs": 566,
+      "wallPlayheadAdvanceMs": 905,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.2786394557823129,
+        "durationSeconds": 250,
+        "generation": 28,
+        "seekSerial": 0,
+        "sourceReadyMs": 4,
+        "firstAudioMs": 536,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 11,
+      "harnessOperationId": "2bc9c1f6-1a34-46a3-a685-138626aa8205",
+      "wallFirstAudioObservedMs": 449,
+      "wallPlayheadAdvanceMs": 780,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.3250793650793651,
+        "durationSeconds": 250,
+        "generation": 30,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 416,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 12,
+      "harnessOperationId": "ae1925f1-eaf2-4d9e-b479-642c72544b67",
+      "wallFirstAudioObservedMs": 451,
+      "wallPlayheadAdvanceMs": 558,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.09287981859410431,
+        "durationSeconds": 250,
+        "generation": 32,
+        "seekSerial": 0,
+        "sourceReadyMs": 4,
+        "firstAudioMs": 409,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 13,
+      "harnessOperationId": "1a3eb35e-deb6-411e-b141-7fa1b8a26957",
+      "wallFirstAudioObservedMs": 457,
+      "wallPlayheadAdvanceMs": 569,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.08226757369614512,
+        "durationSeconds": 250,
+        "generation": 34,
+        "seekSerial": 0,
+        "sourceReadyMs": 5,
+        "firstAudioMs": 399,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 14,
+      "harnessOperationId": "a1ceb362-8dca-482f-b89f-ddf557ce5f3f",
+      "wallFirstAudioObservedMs": 571,
+      "wallPlayheadAdvanceMs": 781,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.2786394557823129,
+        "durationSeconds": 250,
+        "generation": 36,
+        "seekSerial": 0,
+        "sourceReadyMs": 4,
+        "firstAudioMs": 458,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 15,
+      "harnessOperationId": "bb569f6a-d7d2-4d94-a03d-eaf0ff40c337",
+      "wallFirstAudioObservedMs": 437,
+      "wallPlayheadAdvanceMs": 552,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.09438775510204081,
+        "durationSeconds": 250,
+        "generation": 38,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 369,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 16,
+      "harnessOperationId": "41bd5911-c99f-4e00-8699-d4f28ca3540b",
+      "wallFirstAudioObservedMs": 448,
+      "wallPlayheadAdvanceMs": 565,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.09287981859410431,
+        "durationSeconds": 250,
+        "generation": 40,
+        "seekSerial": 0,
+        "sourceReadyMs": 2,
+        "firstAudioMs": 404,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 17,
+      "harnessOperationId": "febfbbe7-b823-4778-a84d-8682d40b339d",
+      "wallFirstAudioObservedMs": 558,
+      "wallPlayheadAdvanceMs": 786,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.23219954648526078,
+        "durationSeconds": 250,
+        "generation": 42,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 522,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 18,
+      "harnessOperationId": "936fe458-3c8e-4daf-b590-a641da6f9fdb",
+      "wallFirstAudioObservedMs": 539,
+      "wallPlayheadAdvanceMs": 876,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.2786394557823129,
+        "durationSeconds": 250,
+        "generation": 44,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 507,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 19,
+      "harnessOperationId": "b1b59730-e6f9-4888-bac3-e27b75cbcdea",
+      "wallFirstAudioObservedMs": 342,
+      "wallPlayheadAdvanceMs": 446,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.13931972789115646,
+        "durationSeconds": 250,
+        "generation": 46,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 316,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    },
+    {
+      "type": "native_start",
+      "index": 20,
+      "harnessOperationId": "7206ec58-110c-4bac-a353-d5dc0932f08b",
+      "wallFirstAudioObservedMs": 328,
+      "wallPlayheadAdvanceMs": 545,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 0.2786394557823129,
+        "durationSeconds": 250,
+        "generation": 48,
+        "seekSerial": 0,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 284,
+        "seekFirstAudioMs": null,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "playCallResult": "ok",
+      "failureCategory": null
+    }
+  ],
+  "seeks": [
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 1,
+      "harnessOperationId": "a8463cb4-dd45-44d6-87a2-37283d5bc686",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 11,
+      "wallSeekFirstAudioObservedMs": 555,
+      "wallSeekPlayheadAdvanceMs": 775,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7794285757823127,
+        "durationSeconds": 250,
+        "generation": 51,
+        "seekSerial": 1,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 499,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 2,
+      "harnessOperationId": "cc1cb7c1-a870-47d7-8817-555b45517a7b",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 18,
+      "wallSeekFirstAudioObservedMs": 339,
+      "wallSeekPlayheadAdvanceMs": 550,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7329886664852605,
+        "durationSeconds": 250,
+        "generation": 52,
+        "seekSerial": 2,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 314,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 3,
+      "harnessOperationId": "f2b5cb7a-e69c-4a51-ae4c-fb179adbaa42",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 332,
+      "wallSeekPlayheadAdvanceMs": 571,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7794285757823127,
+        "durationSeconds": 250,
+        "generation": 53,
+        "seekSerial": 3,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 275,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 4,
+      "harnessOperationId": "f023d150-9165-4deb-ae4e-1107359cbd1a",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 13,
+      "wallSeekFirstAudioObservedMs": 454,
+      "wallSeekPlayheadAdvanceMs": 570,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6401088478911565,
+        "durationSeconds": 250,
+        "generation": 54,
+        "seekSerial": 4,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 380,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 5,
+      "harnessOperationId": "20755c06-9a46-4b4c-8408-88dc955a7507",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 18,
+      "wallSeekFirstAudioObservedMs": 336,
+      "wallSeekPlayheadAdvanceMs": 556,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6401088478911565,
+        "durationSeconds": 250,
+        "generation": 55,
+        "seekSerial": 5,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 304,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 6,
+      "harnessOperationId": "24420ebc-5d40-4195-81c6-33b6b45da509",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 14,
+      "wallSeekFirstAudioObservedMs": 550,
+      "wallSeekPlayheadAdvanceMs": 769,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7456757413151927,
+        "durationSeconds": 250,
+        "generation": 56,
+        "seekSerial": 6,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 485,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 7,
+      "harnessOperationId": "05b4f464-a000-495e-9cfe-5684422d5a7a",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 18,
+      "wallSeekFirstAudioObservedMs": 338,
+      "wallSeekPlayheadAdvanceMs": 548,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6865487571882083,
+        "durationSeconds": 250,
+        "generation": 57,
+        "seekSerial": 7,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 298,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 8,
+      "harnessOperationId": "6d8cec54-80e8-423f-ae60-2032d8cfa759",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 325,
+      "wallSeekPlayheadAdvanceMs": 548,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6865487571882083,
+        "durationSeconds": 250,
+        "generation": 58,
+        "seekSerial": 8,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 313,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 9,
+      "harnessOperationId": "8d4ca98e-ab1f-40dd-9ff3-2443b4fb9533",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 18,
+      "wallSeekFirstAudioObservedMs": 339,
+      "wallSeekPlayheadAdvanceMs": 562,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6865487571882083,
+        "durationSeconds": 250,
+        "generation": 59,
+        "seekSerial": 9,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 306,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 10,
+      "harnessOperationId": "58c0fa28-8602-482d-8d58-b8e296c4c66c",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 18,
+      "wallSeekFirstAudioObservedMs": 446,
+      "wallSeekPlayheadAdvanceMs": 553,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6401088478911565,
+        "durationSeconds": 250,
+        "generation": 60,
+        "seekSerial": 10,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 331,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 11,
+      "harnessOperationId": "30a412a7-869e-47f6-a317-052e33e69572",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 530,
+      "wallSeekPlayheadAdvanceMs": 758,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7794285757823127,
+        "durationSeconds": 250,
+        "generation": 61,
+        "seekSerial": 11,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 478,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 12,
+      "harnessOperationId": "b23519dd-5082-495f-a633-a447dcda3066",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 21,
+      "wallSeekFirstAudioObservedMs": 463,
+      "wallSeekPlayheadAdvanceMs": 574,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6401088478911565,
+        "durationSeconds": 250,
+        "generation": 62,
+        "seekSerial": 12,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 353,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 13,
+      "harnessOperationId": "d8ec4696-fe97-4741-a298-6e64c2bc295b",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 7,
+      "wallSeekFirstAudioObservedMs": 434,
+      "wallSeekPlayheadAdvanceMs": 548,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6302562401814056,
+        "durationSeconds": 250,
+        "generation": 63,
+        "seekSerial": 13,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 329,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 14,
+      "harnessOperationId": "4ee7527d-8522-48d6-95cd-86142fe7579f",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 20,
+      "wallSeekFirstAudioObservedMs": 449,
+      "wallSeekPlayheadAdvanceMs": 764,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.825868485079365,
+        "durationSeconds": 250,
+        "generation": 64,
+        "seekSerial": 14,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 415,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 15,
+      "harnessOperationId": "ca417d6f-f1c8-47b1-b65c-dfce19a36496",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 5,
+      "wallSeekFirstAudioObservedMs": 663,
+      "wallSeekPlayheadAdvanceMs": 882,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7329886664852605,
+        "durationSeconds": 250,
+        "generation": 65,
+        "seekSerial": 15,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 578,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 16,
+      "harnessOperationId": "7e8214c4-0fe3-40ae-8eab-19469e7dbf6c",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 19,
+      "wallSeekFirstAudioObservedMs": 571,
+      "wallSeekPlayheadAdvanceMs": 796,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7794285757823127,
+        "durationSeconds": 250,
+        "generation": 66,
+        "seekSerial": 16,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 469,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 17,
+      "harnessOperationId": "2f46a1ec-8d43-4942-a1dd-71d8e2f30186",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 427,
+      "wallSeekPlayheadAdvanceMs": 532,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.6401088478911565,
+        "durationSeconds": 250,
+        "generation": 67,
+        "seekSerial": 17,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 360,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 18,
+      "harnessOperationId": "df78c2fc-7a11-498c-9406-1fdfada56925",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 5,
+      "wallSeekFirstAudioObservedMs": 444,
+      "wallSeekPlayheadAdvanceMs": 558,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.5936689385941043,
+        "durationSeconds": 250,
+        "generation": 68,
+        "seekSerial": 18,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 433,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 19,
+      "harnessOperationId": "3994d7f5-1d77-4ca5-b580-6910a51e070d",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 12,
+      "wallSeekFirstAudioObservedMs": 551,
+      "wallSeekPlayheadAdvanceMs": 770,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.7329886664852605,
+        "durationSeconds": 250,
+        "generation": 69,
+        "seekSerial": 19,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 507,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.01,
+      "index": 20,
+      "harnessOperationId": "ebe70a7e-0c7f-4f09-b26c-b94e39b83515",
+      "targetSeconds": 2.50078912,
+      "wallCallMs": 23,
+      "wallSeekFirstAudioObservedMs": 559,
+      "wallSeekPlayheadAdvanceMs": 785,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 2.825868485079365,
+        "durationSeconds": 250,
+        "generation": 70,
+        "seekSerial": 20,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 469,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 1,
+      "harnessOperationId": "09cbdde9-328e-4ffe-aad6-cae76f92fa1e",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 11,
+      "wallSeekFirstAudioObservedMs": 669,
+      "wallSeekPlayheadAdvanceMs": 879,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.22521563718821,
+        "durationSeconds": 250,
+        "generation": 71,
+        "seekSerial": 21,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 650,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 2,
+      "harnessOperationId": "f7dcd3b6-d58a-4bb8-8ed4-1819b4dd2311",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 16,
+      "wallSeekFirstAudioObservedMs": 767,
+      "wallSeekPlayheadAdvanceMs": 872,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.17877572789116,
+        "durationSeconds": 250,
+        "generation": 72,
+        "seekSerial": 22,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 647,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 3,
+      "harnessOperationId": "7063b4c1-8c5e-4ecf-ab4c-be8f2c34ae94",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 7,
+      "wallSeekFirstAudioObservedMs": 648,
+      "wallSeekPlayheadAdvanceMs": 753,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.16339024036282,
+        "durationSeconds": 250,
+        "generation": 73,
+        "seekSerial": 23,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 605,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 4,
+      "harnessOperationId": "7b783f88-dd72-4315-bb1f-affafa820508",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 6,
+      "wallSeekFirstAudioObservedMs": 546,
+      "wallSeekPlayheadAdvanceMs": 874,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.36453536507936,
+        "durationSeconds": 250,
+        "generation": 74,
+        "seekSerial": 24,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 496,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 5,
+      "harnessOperationId": "cda0cc02-0c50-4c5a-99e4-c0d7d48404b1",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 7,
+      "wallSeekFirstAudioObservedMs": 543,
+      "wallSeekPlayheadAdvanceMs": 878,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.31809545578231,
+        "durationSeconds": 250,
+        "generation": 75,
+        "seekSerial": 25,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 503,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 6,
+      "harnessOperationId": "929fd29c-4b80-4a2f-9bef-880725889096",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 16,
+      "wallSeekFirstAudioObservedMs": 550,
+      "wallSeekPlayheadAdvanceMs": 778,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.27165554648526,
+        "durationSeconds": 250,
+        "generation": 76,
+        "seekSerial": 26,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 481,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 7,
+      "harnessOperationId": "0450a065-453f-49da-b22c-118453a2ab3b",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 552,
+      "wallSeekPlayheadAdvanceMs": 777,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.29149681632653,
+        "durationSeconds": 250,
+        "generation": 77,
+        "seekSerial": 27,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 451,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 8,
+      "harnessOperationId": "3a459383-839e-43fa-805a-34d68fd27ab6",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 15,
+      "wallSeekFirstAudioObservedMs": 655,
+      "wallSeekPlayheadAdvanceMs": 883,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.17877572789116,
+        "durationSeconds": 250,
+        "generation": 78,
+        "seekSerial": 28,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 639,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 9,
+      "harnessOperationId": "e15a5aa6-d1df-4d6f-85d9-1dd311efef5d",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 22,
+      "wallSeekFirstAudioObservedMs": 453,
+      "wallSeekPlayheadAdvanceMs": 767,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.31809545578231,
+        "durationSeconds": 250,
+        "generation": 79,
+        "seekSerial": 29,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 433,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 10,
+      "harnessOperationId": "ad41deaa-200c-46f6-a05f-485810c518ad",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 6,
+      "wallSeekFirstAudioObservedMs": 755,
+      "wallSeekPlayheadAdvanceMs": 1098,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.36453536507936,
+        "durationSeconds": 250,
+        "generation": 80,
+        "seekSerial": 30,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 732,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 11,
+      "harnessOperationId": "1b1b70e9-4caa-4965-b794-d34c0b4f334d",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 21,
+      "wallSeekFirstAudioObservedMs": 667,
+      "wallSeekPlayheadAdvanceMs": 772,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.22521563718821,
+        "durationSeconds": 250,
+        "generation": 81,
+        "seekSerial": 31,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 588,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 12,
+      "harnessOperationId": "694ea362-e746-478a-b0a1-00339e80f12d",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 655,
+      "wallSeekPlayheadAdvanceMs": 865,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.27165554648526,
+        "durationSeconds": 250,
+        "generation": 82,
+        "seekSerial": 32,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 602,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 13,
+      "harnessOperationId": "8095a34e-cc1f-4ea6-a488-b7af4a1a4cc5",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 7,
+      "wallSeekFirstAudioObservedMs": 544,
+      "wallSeekPlayheadAdvanceMs": 771,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.36453536507936,
+        "durationSeconds": 250,
+        "generation": 83,
+        "seekSerial": 33,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 481,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 14,
+      "harnessOperationId": "e9ea5b7d-755b-45ec-a0b6-d4df26f04f3f",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 11,
+      "wallSeekFirstAudioObservedMs": 544,
+      "wallSeekPlayheadAdvanceMs": 886,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.36453536507936,
+        "durationSeconds": 250,
+        "generation": 84,
+        "seekSerial": 34,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 491,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 15,
+      "harnessOperationId": "cfc34985-0ebd-44f3-b21e-6a070cb3fd13",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 20,
+      "wallSeekFirstAudioObservedMs": 664,
+      "wallSeekPlayheadAdvanceMs": 777,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.17877572789116,
+        "durationSeconds": 250,
+        "generation": 85,
+        "seekSerial": 35,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 613,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 16,
+      "harnessOperationId": "6c893f79-b8c6-41a5-9f15-2e8d47e22eea",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 24,
+      "wallSeekFirstAudioObservedMs": 549,
+      "wallSeekPlayheadAdvanceMs": 883,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.31809545578231,
+        "durationSeconds": 250,
+        "generation": 86,
+        "seekSerial": 36,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 515,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 17,
+      "harnessOperationId": "65d29071-8ee4-499c-93f8-5e6f9c9c1199",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 17,
+      "wallSeekFirstAudioObservedMs": 552,
+      "wallSeekPlayheadAdvanceMs": 780,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.22521563718821,
+        "durationSeconds": 250,
+        "generation": 87,
+        "seekSerial": 37,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 504,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 18,
+      "harnessOperationId": "f5707025-ec76-43ce-8878-a7a55a8849cf",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 22,
+      "wallSeekFirstAudioObservedMs": 776,
+      "wallSeekPlayheadAdvanceMs": 1101,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.31809545578231,
+        "durationSeconds": 250,
+        "generation": 88,
+        "seekSerial": 38,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 732,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 19,
+      "harnessOperationId": "dcc7138e-b733-4414-8366-f09573ae65d9",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 14,
+      "wallSeekFirstAudioObservedMs": 665,
+      "wallSeekPlayheadAdvanceMs": 770,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.17877572789116,
+        "durationSeconds": 250,
+        "generation": 89,
+        "seekSerial": 39,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 587,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.5,
+      "index": 20,
+      "harnessOperationId": "004d3c67-ad55-44e0-b2b2-d4aa211bfef9",
+      "targetSeconds": 125.039456,
+      "wallCallMs": 5,
+      "wallSeekFirstAudioObservedMs": 652,
+      "wallSeekPlayheadAdvanceMs": 878,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 125.3089798095238,
+        "durationSeconds": 250,
+        "generation": 90,
+        "seekSerial": 40,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 562,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 1,
+      "harnessOperationId": "6feba61b-4496-4e62-9025-4419cdc28e20",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 15,
+      "wallSeekFirstAudioObservedMs": 547,
+      "wallSeekPlayheadAdvanceMs": 778,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.80716594648524,
+        "durationSeconds": 250,
+        "generation": 91,
+        "seekSerial": 41,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 500,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 2,
+      "harnessOperationId": "8c765c79-04d8-4b19-a79d-df6e9bfa3260",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 19,
+      "wallSeekFirstAudioObservedMs": 688,
+      "wallSeekPlayheadAdvanceMs": 802,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.71428612789114,
+        "durationSeconds": 250,
+        "generation": 92,
+        "seekSerial": 42,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 634,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 3,
+      "harnessOperationId": "e2c4cc92-445c-4462-8dd4-2720a9b7ba29",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 7,
+      "wallSeekFirstAudioObservedMs": 538,
+      "wallSeekPlayheadAdvanceMs": 856,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.90004576507937,
+        "durationSeconds": 250,
+        "generation": 93,
+        "seekSerial": 43,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 478,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 4,
+      "harnessOperationId": "0b2eb4cd-becc-417a-9744-e46348a287c9",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 7,
+      "wallSeekFirstAudioObservedMs": 653,
+      "wallSeekPlayheadAdvanceMs": 880,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.71428612789114,
+        "durationSeconds": 250,
+        "generation": 94,
+        "seekSerial": 44,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 643,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 5,
+      "harnessOperationId": "13c5159c-7fec-4814-9931-a06929a15e06",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 19,
+      "wallSeekFirstAudioObservedMs": 552,
+      "wallSeekPlayheadAdvanceMs": 770,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.7607260371882,
+        "durationSeconds": 250,
+        "generation": 95,
+        "seekSerial": 45,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 535,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 6,
+      "harnessOperationId": "31b1a27d-c001-44cd-83da-ea76afb73d93",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 658,
+      "wallSeekPlayheadAdvanceMs": 888,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.7607260371882,
+        "durationSeconds": 250,
+        "generation": 96,
+        "seekSerial": 46,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 596,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 7,
+      "harnessOperationId": "fe9326d3-1fed-4bbd-be43-65c95479f48f",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 20,
+      "wallSeekFirstAudioObservedMs": 763,
+      "wallSeekPlayheadAdvanceMs": 980,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.85360585578232,
+        "durationSeconds": 250,
+        "generation": 97,
+        "seekSerial": 47,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 717,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 8,
+      "harnessOperationId": "30ce9d7f-a233-4f19-a725-bf0207d17c80",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 6,
+      "wallSeekFirstAudioObservedMs": 657,
+      "wallSeekPlayheadAdvanceMs": 888,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.80716594648524,
+        "durationSeconds": 250,
+        "generation": 98,
+        "seekSerial": 48,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 568,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 9,
+      "harnessOperationId": "02da9594-1d5f-489e-9f39-735d00aff017",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 17,
+      "wallSeekFirstAudioObservedMs": 659,
+      "wallSeekPlayheadAdvanceMs": 773,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.7607260371882,
+        "durationSeconds": 250,
+        "generation": 99,
+        "seekSerial": 49,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 550,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 10,
+      "harnessOperationId": "f8427d96-b5b6-4006-986a-eaab7aee77ce",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 12,
+      "wallSeekFirstAudioObservedMs": 654,
+      "wallSeekPlayheadAdvanceMs": 880,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.80716594648524,
+        "durationSeconds": 250,
+        "generation": 100,
+        "seekSerial": 50,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 550,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 11,
+      "harnessOperationId": "48caa36f-e926-4731-b0b1-6c3cf863bdf7",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 20,
+      "wallSeekFirstAudioObservedMs": 780,
+      "wallSeekPlayheadAdvanceMs": 1014,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.90004576507937,
+        "durationSeconds": 250,
+        "generation": 101,
+        "seekSerial": 51,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 678,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 12,
+      "harnessOperationId": "0a3253e2-3cbf-438f-abaf-b3e6bdbb4a1e",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 16,
+      "wallSeekFirstAudioObservedMs": 753,
+      "wallSeekPlayheadAdvanceMs": 867,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.6678462185941,
+        "durationSeconds": 250,
+        "generation": 102,
+        "seekSerial": 52,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 718,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 13,
+      "harnessOperationId": "6bdb2145-7cbc-4978-afed-67a03ffc97a5",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 15,
+      "wallSeekFirstAudioObservedMs": 560,
+      "wallSeekPlayheadAdvanceMs": 779,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.76653102585033,
+        "durationSeconds": 250,
+        "generation": 103,
+        "seekSerial": 53,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 530,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 14,
+      "harnessOperationId": "ea6627e7-4b2e-45fc-a52a-6393a597e22a",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 7,
+      "wallSeekFirstAudioObservedMs": 540,
+      "wallSeekPlayheadAdvanceMs": 854,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.90004576507937,
+        "durationSeconds": 250,
+        "generation": 104,
+        "seekSerial": 54,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 453,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 15,
+      "harnessOperationId": "3cec32eb-638a-4e1a-a881-09ce31a33bb7",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 10,
+      "wallSeekFirstAudioObservedMs": 649,
+      "wallSeekPlayheadAdvanceMs": 754,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.7607260371882,
+        "durationSeconds": 250,
+        "generation": 105,
+        "seekSerial": 55,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 564,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 16,
+      "harnessOperationId": "39ec0e6c-1597-4b13-8be0-54b906c7b07e",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 773,
+      "wallSeekPlayheadAdvanceMs": 889,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.7607260371882,
+        "durationSeconds": 250,
+        "generation": 106,
+        "seekSerial": 56,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 651,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 17,
+      "harnessOperationId": "41404b2c-9ad0-4189-a273-e022f33810c0",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 6,
+      "wallSeekFirstAudioObservedMs": 657,
+      "wallSeekPlayheadAdvanceMs": 766,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.6678462185941,
+        "durationSeconds": 250,
+        "generation": 107,
+        "seekSerial": 57,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 629,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 18,
+      "harnessOperationId": "4421ec1a-9d79-4363-8df2-8c9a687b8689",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 10,
+      "wallSeekFirstAudioObservedMs": 757,
+      "wallSeekPlayheadAdvanceMs": 872,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.6678462185941,
+        "durationSeconds": 250,
+        "generation": 108,
+        "seekSerial": 58,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 696,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 19,
+      "harnessOperationId": "32cd9d0b-80f8-40a0-b0c0-a8a33a4c09c9",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 8,
+      "wallSeekFirstAudioObservedMs": 670,
+      "wallSeekPlayheadAdvanceMs": 774,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.6678462185941,
+        "durationSeconds": 250,
+        "generation": 109,
+        "seekSerial": 59,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 648,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    },
+    {
+      "type": "playing_seek",
+      "fraction": 0.95,
+      "index": 20,
+      "harnessOperationId": "a429d319-7bc3-455f-91d7-124beda47088",
+      "targetSeconds": 237.5749664,
+      "wallCallMs": 6,
+      "wallSeekFirstAudioObservedMs": 758,
+      "wallSeekPlayheadAdvanceMs": 871,
+      "native": {
+        "status": "playing",
+        "engine": "native",
+        "trackId": "spotify:0Kvqc2zK0UKPTK6pAgyv1v",
+        "positionSeconds": 237.70805030022674,
+        "durationSeconds": 250,
+        "generation": 110,
+        "seekSerial": 60,
+        "sourceReadyMs": 3,
+        "firstAudioMs": 556,
+        "seekFirstAudioMs": 661,
+        "selectedFormat": {
+          "id": "18",
+          "hasVideo": true,
+          "expectedContentLength": 10032375
+        },
+        "decoder": {
+          "kind": "ffmpeg",
+          "contentType": "audio/mp4",
+          "inputContentLength": 10032375,
+          "contentRangeTotal": null,
+          "bytesRead": 0,
+          "bytesReceived": 0,
+          "sampleRate": 44100,
+          "channels": 2,
+          "totalDurationSeconds": 250
+        }
+      },
+      "failureCategory": null
+    }
+  ],
+  "pausedSeek": {
+    "type": "paused_seek",
+    "harnessOperationId": "cb35a552-ee2f-424f-a64e-a299e2bf2283",
+    "targetSeconds": 82.52604096,
+    "remainedPaused": true,
+    "resumedPlayheadAdvanced": true,
+    "failureCategory": null
+  },
+  "setupFailure": null,
+  "failureCount": 0,
+  "limitations": [
+    "Native firstAudioMs indicates mixer-consumed audio frames; it does not measure physical loudspeaker audibility.",
+    "Startup and seek timing starts at MCP calls, excluding the renderer click path.",
+    "The MCP playback tools do not accept caller operation IDs; harnessOperationId identifies each attempt and generation/seekSerial validate freshness.",
+    "Volume was set to zero for every playback attempt and restored afterward; URLs, local paths, credentials, and raw stderr are omitted."
+  ]
+}

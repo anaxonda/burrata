@@ -1,0 +1,15 @@
+{
+  "query": "Spotify",
+  "source": "spotify",
+  "kind": "profile",
+  "scope": "one public name search",
+  "mutationPerformed": false,
+  "elapsedMs": 3386,
+  "toolError": false,
+  "resultCount": 20,
+  "profileCount": 20,
+  "validUrlCount": 20,
+  "resultShapeKeys": [
+    "pages"
+  ]
+}

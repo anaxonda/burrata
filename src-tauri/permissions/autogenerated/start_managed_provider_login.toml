@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-managed-provider-login"
+description = "Enables the start_managed_provider_login command without any pre-configured scope."
+commands.allow = ["start_managed_provider_login"]
+
+[[permission]]
+identifier = "deny-start-managed-provider-login"
+description = "Denies the start_managed_provider_login command without any pre-configured scope."
+commands.deny = ["start_managed_provider_login"]

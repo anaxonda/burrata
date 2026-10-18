@@ -1,0 +1,18 @@
+{
+  "test": "native Spotify worker pages artist releases with verified GraphQL offset variables",
+  "jobs": 2,
+  "counts": {
+    "api.github.com/gists/22ed9c6ba463899e933427f7de1f0eef": 2,
+    "open.spotify.com/api/server-time": 2,
+    "francescograzioso.github.io/Meld/spotify-gql-hashes.json": 2,
+    "open.spotify.com/api/token": 2,
+    "api-partner.spotify.com/pathfinder/v2/query": 4
+  },
+  "pathfinder_breakdown": {
+    "profileAttributes": 2,
+    "queryArtistDiscographyAll": 2
+  },
+  "focused_fixture": "passed",
+  "full_temp_copy_caveat": "18 passed; staged native worker fixture failed because relocation to /tmp changes its import.meta.url root and it attempted to read /scripts/provider-session-worker.mjs",
+  "data_handling": "Only host/path and counts recorded; no headers, bodies, cookies, or token values."
+}

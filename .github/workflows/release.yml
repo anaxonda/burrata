@@ -138,7 +138,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev nasm patchelf perl pulseaudio rpm libfuse2 xvfb
+          sudo apt-get install -y build-essential cmake curl dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libasound2-dev libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev nasm patchelf perl pulseaudio rpm libfuse2 xvfb
       - uses: msys2/setup-msys2@v2
         if: runner.os == 'Windows'
         with:
@@ -186,7 +186,7 @@ jobs:
         id: verify-media-tools
         env:
           TARGET: ${{ matrix.target }}
-        run: python3 scripts/release/verify-media-tool-build.py "$TARGET"
+        run: python3 scripts/release/verify-media-tool-build.py ${{ matrix.target }}
       - name: Save verified prepared tool runtimes
         if: success() && steps.verify-media-tools.outcome == 'success' && steps.prepared-tools-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -241,8 +241,19 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run test:extension
+      - name: Provider worker and private auth protocol fixtures
+        run: node --test scripts/provider-session-worker.test.mjs scripts/youtube-session-worker.test.mjs scripts/provider-session-auth-cache.test.mjs
       - run: npm run test:mcp
       - run: npm run test:player
+      - name: Check isolated launcher boundaries
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bash scripts/dev/tests/process-profile-guard.test.sh
+          bash scripts/dev/tests/automation-ready.test.sh
+          bash scripts/dev/tests/isolated-music-root.test.sh
+      - name: Decode deterministic native playback fixture without audio hardware
+        run: python3 scripts/release/test-native-playback-contract.py
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Build native installer
         run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

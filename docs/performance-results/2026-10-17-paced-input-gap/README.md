@@ -1,0 +1,5 @@
+# Controlled paced-input gap fixture — 2026-10-17
+
+The dedicated native fixture was repeated three times against the same WAV. All runs reported the same values: immediate input consumed 441,392 samples in 5,020ms; input delayed by a controlled 2-second gate consumed 441,448 samples in 6,680ms. Both cases reported first real audio at 20ms. The assertions distinguish real sample consumption from synthetic silence, expose the deliberate starvation interval, and verify recovery after input resumes.
+
+The current source-pinned native suite passed 921 tests, with 0 failures and 17 ignored (17.02s). These are mechanism-level fixture results, not end-to-end playback, real-time reliability, or a Fruit/Reserve A/B result. The normal GUI remains on the previously built `a1b8013b10e1`; this source change has not yet been built or live-qualified. [Machine-readable result](result.json); [full-suite log](../../../.cache/native-scope-paced-text-index-tests.log); [three fixture logs](../../../.cache/qualification-paced-input-gap/).

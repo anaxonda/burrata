@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "engine": "webview",
+  "mode": "kaval-default",
+  "binarySha256": "941a59f361285c3cdd7425d484d4b3dafd8bd5cf078a0fa2c2f65bcff6bf9399",
+  "pass": false,
+  "physicalAudibilityMeasured": false,
+  "steps": [
+    {
+      "step": "startup",
+      "pass": true,
+      "trackId": "spotify:64rvuYgKLuIHqacdZZiwPr",
+      "sessionId": "b61af53a-ed4e-4935-ab1c-7d668339bf0f",
+      "sourceGeneration": 1792224098153008,
+      "readyState": 4,
+      "actualPaused": false,
+      "actualCurrentTime": 6.166544,
+      "decodedDuration": 131.726,
+      "expectedDuration": 131,
+      "progressed": true,
+      "sustained": {
+        "wallMs": 5037.831968999999,
+        "advancedMs": 5087.519,
+        "observations": 8,
+        "physicalAudibilityMeasured": false
+      },
+      "localFixtureIdentity": null,
+      "provider": null,
+      "providerId": null,
+      "identityLimitation": "Natural resolver source recording identity is unproven"
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "paused": true,
+      "currentTime": 10,
+      "seekSerialAdvanced": true,
+      "generation": 1792224098153008
+    }
+  ],
+  "sourceIdentityQualified": false,
+  "staleMediaSampleRetries": 0,
+  "skewRetryCount": 0,
+  "occurrenceIdsAvailable": true,
+  "singleTrackIdentityOnly": false,
+  "providerPreferences": {
+    "preferredStreamingSource": "monochrome",
+    "streamingFallbackEnabled": true,
+    "streamingFallbackSources": [
+      "youtube",
+      "soundcloud"
+    ],
+    "streamingFallbackDelayMs": 1500
+  },
+  "engineSnapshot": null,
+  "initialMedia": {
+    "engine": "webview",
+    "applicable": true,
+    "currentIndex": 0,
+    "queueTotal": 1,
+    "sourceGeneration": 1792224098153008,
+    "seekSerial": 6,
+    "media": {
+      "currentTime": 0.450437,
+      "duration": 131.726,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "catalogueDurationSeconds": 131,
+    "sourceIdentityQualified": false
+  },
+  "errorCategory": "Request timed out",
+  "toolErrorCode": "REQUEST_TIMEOUT",
+  "sourceDiagnostics": {
+    "lastResolvedSource": {
+      "headerPolicy": {
+        "authorization": false,
+        "cookie": false,
+        "headerCount": 0,
+        "origin": false,
+        "other": false,
+        "referer": false,
+        "userAgent": false
+      },
+      "id": "monochrome:188668061304786944",
+      "provider": "monochrome"
+    },
+    "lastMediaFailureSource": null,
+    "lastMediaFailure": null,
+    "playerMessage": "Playing monochrome audio",
+    "status": "buffering",
+    "queueEntryIds": [
+      "aad73ed6-4eb1-4ac2-b748-ef249d22d233"
+    ],
+    "entryId": "aad73ed6-4eb1-4ac2-b748-ef249d22d233"
+  },
+  "pausedFinally": true,
+  "observerOverhead": {
+    "guardCalls": 45,
+    "guardWallMs": 7961.9839639999955,
+    "limits": "Functional observer overhead only; no CPU, latency percentile or performance qualification"
+  },
+  "interpretation": "Second exploratory attempt in same profile: startup and paused10s seek passed, Resume exceeded the SDK10s observer deadline. No network/decode media failure reported; post-failure snapshot buffering. Product resume currently awaits HTMLMediaElement.play without a deadline. This evidence does not establish whether Resume eventually completes within20s.",
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

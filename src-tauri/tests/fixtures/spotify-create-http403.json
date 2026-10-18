@@ -1,0 +1,9 @@
+{
+  "ok": false,
+  "error": {
+    "code": "OUTCOME_UNKNOWN",
+    "message": "Spotify playlist creation may have succeeded. Do not retry creation; inspect the provider library. (phase=playlist_create, HTTP 403)",
+    "phase": "playlist_create",
+    "httpStatus": 403
+  }
+}

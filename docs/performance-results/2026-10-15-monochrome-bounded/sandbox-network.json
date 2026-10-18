@@ -1,0 +1,22 @@
+{
+  "provider": "Monochrome Tracks public endpoint",
+  "recording": {
+    "expected_id": "155142501534011392",
+    "expected_title": "Get Lucky",
+    "expected_artist": "Daft Punk",
+    "expected_duration_seconds": 369.626
+  },
+  "limits": {
+    "max_catalog_bytes": 2097152,
+    "decode_seconds": 8,
+    "max_audio_bytes": 16777216
+  },
+  "credentials_added": false,
+  "failure": "Sandbox environment DNS gaierror before any HTTP request; this does not establish provider availability.",
+  "finished_at_utc": "2026-10-15T22:18:31Z",
+  "decoded_8_seconds": false,
+  "completed_http_requests": 0,
+  "transport_urls_or_provider_bodies_persisted": false,
+  "environment_restriction": "ordinary exec_command sandbox network/DNS restriction",
+  "provider_state_conclusion": null
+}

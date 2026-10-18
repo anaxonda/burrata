@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "mode": "seek",
+  "scope": "One isolated actual-child-observed stale recognition case; no active-job-registry count exposed",
+  "pass": false,
+  "binarySha256": "53f6e42ca4b8dd381ee7ee1039c0b5348ba1923363a28e264f70eae0f034cf5c",
+  "initialGuardPassed": true,
+  "childObserved": true,
+  "activeJobRegistryQualified": false,
+  "audioWasMuted": true,
+  "mutations": [
+    "resume_playback",
+    "seek_playback",
+    "pause_playback"
+  ],
+  "errorCategory": "caller_independence_unqualified",
+  "baselineWaveCount": 0,
+  "baselineOwnedRecognizerCount": 0,
+  "captureReadiness": {
+    "status": "ready",
+    "wallMs": 9407.448698999999,
+    "advancedMs": 9287.98185941043,
+    "observations": 37,
+    "requiredMs": 9000,
+    "pcmRingCountDirectlyObserved": false
+  },
+  "playingBeforeIdentify": true,
+  "captureId": "80b9da31-6bec-4594-b027-67e678d69b20",
+  "childObservedElapsedMs": 1219,
+  "unrelatedCaptureId": "94209144-5fbb-4ade-a6ec-35b251b7d854",
+  "unrelatedCancelMatched": true,
+  "cleanupCancelSent": true,
+  "completion": {
+    "category": "cancelled",
+    "returnedError": true,
+    "transportFailed": false,
+    "errorCode": "OPERATION_FAILED",
+    "metadataPresent": false,
+    "settledBeforeChildObservation": false
+  },
+  "finalOwnedRecognizerCount": 0,
+  "finalOwnedZombieCount": 0,
+  "finalWaveCount": 0,
+  "finalPauseAccepted": true,
+  "pausedFinally": true,
+  "fixtureIdentityFinally": true
+}

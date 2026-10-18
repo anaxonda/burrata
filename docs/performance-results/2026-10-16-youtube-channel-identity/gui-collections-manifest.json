@@ -1,0 +1,14 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/verified-main-provider-a798b5f5f460/burrata",
+  "sha256": "a798b5f5f46045e2f3be575ae25af063c98a7485802b2e7027a03bf40f0a701b",
+  "profile": "development GUI unoptimized+debuginfo",
+  "sources": {
+    "src-tauri/src/remote_playlists.rs": "2ed87c995854b419709b1a5b50f4a4413754ff43321dde94c86ecca0aa6d3c3a",
+    "src-tauri/src/managed_provider_session.rs": "189aa65839ca0ca0a3278933bd7abfb4bdd34e2e400f1ec8049c6a9d26fe55f3",
+    "extension/provider-operations.js": "10cc1bceee7d7f7cf46c868f9b00e305703a7b254f2b04f7ccd4345fedbb4ec4",
+    "extension/youtube-session-provider.js": "cef7139d2a26f409682f4e642fbfea69d25f1750c4fd5cf735e2760ba15df73e",
+    "scripts/youtube-session-worker.mjs": "24e15d4ee415dab89700f270440e54d2096ed7b2667be4fee0b21288815783ae",
+    "src/App.svelte": "713f055b39e36b03d6a9f2480c1b0b4a249694aaea9dc559e34f75ca8e77239f"
+  },
+  "qualification": "Compiled;769nativepass15ignored,42workerpass,adapter+providerworker filespass,App206pass,check0/0,frontendbuildpass. Livecurrentpending."
+}

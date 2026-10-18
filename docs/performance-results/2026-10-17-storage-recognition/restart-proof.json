@@ -1,0 +1,21 @@
+{
+  "build": "53f6e42ca4b8",
+  "scope": "One normal-profile restart and bounded read; no provider writes, full pagination or performance qualification.",
+  "transport": "native-webview-http",
+  "credentialStorage": "os-keyring",
+  "queueControlsPreserved": {
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "paused": true
+  },
+  "queueTotal": 13,
+  "youtubeRead": "youtube-persisted-read.json",
+  "exactExecutableEnvironmentCheck": {
+    "pid": 800129,
+    "nativeProviderEnvironmentOverridePresent": false
+  }
+}

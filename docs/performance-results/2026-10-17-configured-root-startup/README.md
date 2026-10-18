@@ -1,0 +1,7 @@
+# Configured-root 50k startup comparison — 2026-10-17
+
+Two asset-backed startup-only runs used the same configured-root layout, 50,000 synthetic asset occurrences, 100 grant pages and a 20-second registration allowance. The historical pinned `a1b8013b10e1` baseline recorded a 31,066.3ms full startup wait; current candidate `8ed8ca63de48` recorded 22,759.3ms. Endpoint registration was 15,340ms vs 9,270ms, and asset grants were 9,863ms vs 4,438ms. Store open and Downloads backfill were 1,091/4,376ms vs 932/3,851ms. Both runs completed.
+
+The current run classified 50,000 entries over 100 pages, made zero `allow_file` calls, and reused 50,000 existing grants. The shorter current run is a single observed comparison, not a general speedup claim: each candidate has one run, the source differs in many areas, and this workload did not time page reads or projection readiness. The 20-second MCP registration allowance is distinct from the full startup wait.
+
+An earlier fixture-seed attempt failed on temporary quota before application startup; a retry correctly rejected the historical binary before launch because it was stale under the current source guard. Neither is an application performance measurement. The baseline's first archive was rejected for omitting an internal hardlink target while the source remained intact. The corrected archive verified 744 regular-file hashes and reconstructibility of 50,000 identical synthetic WAV hardlinks before the temporary profile was removed. [Sanitized measurements and limits](result.json).

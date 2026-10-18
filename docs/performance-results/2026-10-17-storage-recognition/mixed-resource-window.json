@@ -1,0 +1,43 @@
+{
+  "scope": "300-second Linux debug isolated app/descendant observation window overlapping the tail of Fruit repetitions, a retained buffering failure, paused time and recognition checks. Mixed workload, not steady playback or a matched performance comparison.",
+  "samples": 551,
+  "metrics": {
+    "cpuPercent": {
+      "median": 7.529,
+      "p95": 47.259,
+      "worst": 130.393,
+      "sum": 9641.605
+    },
+    "rssBytes": {
+      "median": 542437376,
+      "p95": 559276032,
+      "worst": 559583232,
+      "sum": 301035806720
+    },
+    "cpuSeconds": {
+      "median": 0.040002,
+      "p95": 0.260001,
+      "worst": 0.7,
+      "sum": 52.370006000000004
+    },
+    "readBytes": {
+      "median": 0,
+      "p95": 0,
+      "worst": 11067392,
+      "sum": 11157504
+    },
+    "writeBytes": {
+      "median": 0,
+      "p95": 0,
+      "worst": 0,
+      "sum": 0
+    }
+  },
+  "limitations": [
+    "Summed RSS can double count shared pages.",
+    "Process lifetimes between polls may be missed.",
+    "Kernel storage bytes are not network bytes.",
+    "Application subtree excludes Vite, benchmark Node clients and external system services.",
+    "Per-process/thread rows retained privately; no network, DB-lock or framed IPC totals measured."
+  ]
+}

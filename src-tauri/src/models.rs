@@ -34,6 +34,9 @@ pub struct Track {
     pub bpm: Option<f64>,
     pub key: Option<String>,
     pub release_date: Option<String>,
+    /// Preserve the raw legacy value: old listings may use non-string JSON here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_added: Option<serde_json::Value>,
     pub artwork_url: Option<String>,
     pub isrc: Option<String>,
     pub catalog_number: Option<String>,
@@ -65,6 +68,87 @@ pub struct PlaybackRange {
 
 fn no_local_availability() -> String {
     "none".into()
+}
+
+#[cfg(test)]
+mod date_added_compatibility_tests {
+    use super::Track;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn date_added_round_trips_valid_and_invalid_legacy_json_without_string_errors() {
+        let mut base = Track {
+            id: "fixture:date-added".into(),
+            provider: "fixture".into(),
+            provider_id: "date-added".into(),
+            source_url: String::new(),
+            artist: "Artist".into(),
+            title: "Title".into(),
+            provenance: json!({"dateAdded":"2020-01-01"}),
+            ..Track::default()
+        };
+
+        for value in [
+            json!("2024-01-02T03:04:05Z"),
+            json!(42),
+            json!(false),
+            json!({"legacy":"object"}),
+            json!(["legacy", 1]),
+        ] {
+            base.date_added = Some(value.clone());
+            let encoded = serde_json::to_vec(&base).unwrap();
+            let decoded: Track = serde_json::from_slice(&encoded).unwrap();
+            assert_eq!(decoded.date_added, Some(value.clone()));
+            let reencoded = serde_json::to_value(decoded).unwrap();
+            assert_eq!(reencoded.get("dateAdded"), Some(&value));
+        }
+    }
+
+    #[test]
+    fn null_or_absent_date_added_stays_omitted_like_the_unknown_field_behavior() {
+        let base = Track {
+            id: "fixture:date-added-null".into(),
+            provider: "fixture".into(),
+            provider_id: "date-added-null".into(),
+            source_url: String::new(),
+            artist: "Artist".into(),
+            title: "Title".into(),
+            provenance: Value::Null,
+            ..Track::default()
+        };
+        let mut raw = serde_json::to_value(&base).unwrap();
+        raw["dateAdded"] = Value::Null;
+        let decoded: Track = serde_json::from_value(raw).unwrap();
+        assert_eq!(decoded.date_added, None);
+        assert!(serde_json::to_value(decoded)
+            .unwrap()
+            .get("dateAdded")
+            .is_none());
+    }
+
+    #[test]
+    fn manual_date_added_override_survives_the_hydration_serialize_merge_deserialize_shape() {
+        let provider = Track {
+            id: "fixture:date-added-manual".into(),
+            provider: "fixture".into(),
+            provider_id: "date-added-manual".into(),
+            source_url: String::new(),
+            artist: "Artist".into(),
+            title: "Title".into(),
+            date_added: Some(json!("2020-01-01")),
+            provenance: json!({"dateAdded":"2019-01-01"}),
+            ..Track::default()
+        };
+
+        // hydrate serializes its decoded Track, merges manual top-level fields,
+        // then deserializes. The additive field must survive all three steps.
+        let mut merged = serde_json::to_value(&provider).unwrap();
+        merged["dateAdded"] = json!(12345);
+        let hydrated: Track = serde_json::from_value(merged).unwrap();
+        assert_eq!(hydrated.date_added, Some(json!(12345)));
+        let api_value = serde_json::to_value(hydrated).unwrap();
+        assert_eq!(api_value["dateAdded"], 12345);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +201,12 @@ pub struct AudioFormat {
     pub extension: String,
     pub bitrate: Option<f64>,
     pub sample_rate: Option<u32>,
+    #[serde(default)]
+    pub bit_depth: Option<u32>,
+    #[serde(default)]
+    pub channels: Option<u32>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
     pub lossless: bool,
 }
 
@@ -187,6 +277,8 @@ pub struct DownloadRequest {
     pub format_id: Option<String>,
     pub output_profile: String,
     #[serde(default)]
+    pub disposition: ReplacementDisposition,
+    #[serde(default)]
     pub chapter_ids: Option<Vec<String>>,
 }
 
@@ -218,6 +310,8 @@ pub struct DownloadJob {
     pub created_at: String,
     pub output_profile: String,
     #[serde(default)]
+    pub disposition: ReplacementDisposition,
+    #[serde(default)]
     pub format_id: Option<String>,
     #[serde(default)]
     pub chapter_ids: Option<Vec<String>>,
@@ -238,6 +332,10 @@ pub struct Collection {
 pub struct Settings {
     pub music_directory: String,
     pub auto_preview: bool,
+    #[serde(default)]
+    pub pause_on_source_open: bool,
+    #[serde(default)]
+    pub source_open_at_position: bool,
     pub preview_delay_ms: u32,
     pub theme: String,
     pub yt_dlp_path: String,
@@ -252,6 +350,8 @@ pub struct Settings {
     pub override_playlist_track_urls: bool,
     #[serde(default = "default_true")]
     pub streaming_fallback_enabled: bool,
+    #[serde(default = "default_streaming_fallback_delay")]
+    pub streaming_fallback_delay_ms: u32,
     #[serde(default = "default_streaming_fallbacks")]
     pub streaming_fallback_sources: Vec<String>,
     #[serde(default)]
@@ -262,6 +362,9 @@ pub struct Settings {
     pub download_fallback_allow_lossy: bool,
     #[serde(default)]
     pub playlist_directories: Vec<String>,
+}
+fn default_streaming_fallback_delay() -> u32 {
+    1500
 }
 fn default_true() -> bool {
     true
@@ -288,6 +391,8 @@ impl Default for Settings {
         Self {
             music_directory: String::new(),
             auto_preview: false,
+            pause_on_source_open: false,
+            source_open_at_position: false,
             preview_delay_ms: 250,
             theme: "dark".into(),
             yt_dlp_path: "yt-dlp".into(),
@@ -298,6 +403,7 @@ impl Default for Settings {
             preferred_streaming_source: default_stream_source(),
             override_playlist_track_urls: false,
             streaming_fallback_enabled: true,
+            streaming_fallback_delay_ms: default_streaming_fallback_delay(),
             streaming_fallback_sources: default_streaming_fallbacks(),
             download_fallback_enabled: false,
             download_fallback_sources: default_download_fallbacks(),
@@ -327,6 +433,52 @@ pub struct LocalAsset {
     pub final_codec: String,
     pub source_bitrate: Option<f64>,
     pub final_bitrate: Option<f64>,
+    #[serde(default)]
+    pub sample_rate: Option<u32>,
+    #[serde(default)]
+    pub channels: Option<u32>,
+    #[serde(default)]
+    pub bit_depth: Option<u32>,
+    #[serde(default)]
+    pub duration_seconds: Option<f64>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    /// `stream`, `format`, or `file-size-estimate`; estimated values are not codec metadata.
+    #[serde(default)]
+    pub bitrate_origin: Option<String>,
     pub processing: String,
     pub track: Track,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioFacts {
+    pub codec: String,
+    pub bitrate_kbps: Option<f64>,
+    pub bitrate_origin: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u32>,
+    pub bit_depth: Option<u32>,
+    pub duration_seconds: Option<f64>,
+    pub size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "mode",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ReplacementDisposition {
+    Keep,
+    Replace {
+        target_asset_id: String,
+        expected_hash: String,
+    },
+}
+
+impl Default for ReplacementDisposition {
+    fn default() -> Self {
+        Self::Keep
+    }
 }

@@ -1,0 +1,38 @@
+{
+  "id": "monochrome:239910648984977408",
+  "provider": "monochrome",
+  "providerId": "239910648984977408",
+  "sourceUrl": "https://tracks.monochrome.st/track/239910648984977408",
+  "title": "The Bottom of It",
+  "artist": "Fruit Bats",
+  "durationSeconds": 181.4,
+  "isrc": "USMRG1967001",
+  "provenance": {
+    "audioCandidate": {
+      "artworkUrl": "https://tracks.monochrome.st/proxy/mi/239909401132982272-1A01.jpg",
+      "confidence": "review",
+      "durationSeconds": 181.4,
+      "formats": [],
+      "id": "monochrome:239910648984977408",
+      "official": false,
+      "permission": "unknown",
+      "provider": "monochrome",
+      "reasons": [
+        "Selected Monochrome catalog entry; delivered quality must be inspected"
+      ],
+      "score": 0.8,
+      "sourceMetadata": {
+        "catalogTitle": "The Bottom of It",
+        "isrc": "USMRG1967001",
+        "provider": "monochrome",
+        "trackId": "239910648984977408"
+      },
+      "title": "Fruit Bats - The Bottom of It",
+      "uploader": "Fruit Bats",
+      "url": "https://tracks.monochrome.st/track/239910648984977408"
+    },
+    "manualFields": {},
+    "sourceKind": "audioSearch"
+  },
+  "favorite": false
+}

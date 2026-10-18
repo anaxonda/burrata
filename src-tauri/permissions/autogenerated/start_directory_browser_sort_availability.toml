@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-directory-browser-sort-availability"
+description = "Enables the start_directory_browser_sort_availability command without any pre-configured scope."
+commands.allow = ["start_directory_browser_sort_availability"]
+
+[[permission]]
+identifier = "deny-start-directory-browser-sort-availability"
+description = "Denies the start_directory_browser_sort_availability command without any pre-configured scope."
+commands.deny = ["start_directory_browser_sort_availability"]

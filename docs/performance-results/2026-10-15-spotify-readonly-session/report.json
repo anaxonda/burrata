@@ -1,0 +1,51 @@
+{
+  "scope": "Read-only retained isolated Spotify session; no confirmation, credential migration, import or remote write.",
+  "status": {
+    "transport": "native-webview-http",
+    "mode": "native-ready",
+    "confirmedAccounts": {
+      "spotify": true,
+      "youtube": false
+    }
+  },
+  "checks": [
+    {
+      "label": "library",
+      "ok": true,
+      "elapsedMs": 2406,
+      "items": 48,
+      "hasNextCursor": true,
+      "totalCount": null,
+      "truncated": false,
+      "complete": null
+    },
+    {
+      "label": "profile_id",
+      "ok": true,
+      "elapsedMs": 2518,
+      "items": 49,
+      "hasNextCursor": false,
+      "totalCount": 108,
+      "truncated": true,
+      "complete": false
+    },
+    {
+      "label": "profile_url",
+      "ok": true,
+      "elapsedMs": 1738,
+      "items": 49,
+      "hasNextCursor": false,
+      "totalCount": 108,
+      "truncated": true,
+      "complete": false
+    }
+  ],
+  "libraryPagination": {
+    "scope": "Two read-only library pages; not a claim of complete collection.",
+    "firstCount": 48,
+    "secondCount": 49,
+    "uniqueCount": 97,
+    "duplicates": 0,
+    "hasMore": true
+  }
+}

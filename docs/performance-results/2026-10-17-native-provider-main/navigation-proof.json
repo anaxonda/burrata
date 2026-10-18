@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scope": "Bounded normal-profile route navigation; no private queue or screenshot data retained",
+  "runtime": {
+    "binarySha256": "68b12f3bb9663ed492d2e6de7ed53e2d80d3a7ca3501eb4a7d5165242628301e",
+    "pid": 733169,
+    "launchId": 73349,
+    "audioMode": "default-webview",
+    "experimentalNativeProviderSession": true
+  },
+  "transitions": [
+    {"action": "open public Spotify playlist", "completion": "complete", "targetKind": "spotify_playlist"},
+    {"action": "Back to Library", "completion": "complete", "targetKind": "history"},
+    {"action": "Forward to same playlist", "completion": "complete", "targetKind": "history", "loadedRows": 30},
+    {"action": "Back to Library", "completion": "complete", "targetKind": "history"}
+  ],
+  "providerRead": {
+    "spotifyProfileRows": 30,
+    "spotifyProfileReportedTotal": 110,
+    "spotifyProfileComplete": false,
+    "youtubeOwnLibraryRows": 61,
+    "youtubeTerminalObserved": true,
+    "providerWrites": false,
+    "newLoginOrAccountConfirmation": false,
+    "accountRevisionsUnchanged": true
+  },
+  "capturesReviewed": [
+    {"state": "Spotify playlist view", "sha256": "39ff8bc6c72643edadfe2699090b5e021b199ca043f8ad1cfffd97054848c542"},
+    {"state": "Forward-restored playlist view", "sha256": "5b4592781e286a66f4bf48210b0db28c9fa60db9459caa7a59528ac6a8434d1f"}
+  ],
+  "manualReview": "Both retained captures were manually reviewed; screenshots and private queue contents are intentionally not copied here.",
+  "limitation": "This bounded navigation check does not establish complete profile paging, broad provider qualification, or writeback."
+}

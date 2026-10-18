@@ -1,0 +1,15 @@
+{
+  "soleNormalPid": 969956,
+  "binarySha256": "ebf96f8fceb05c8eb803c21686e07d7d4c4e842a850b31d212de2b7d1fe4471e",
+  "queueAndControlsPreserved": {
+    "queue": true,
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "sourceAhead": "seek wait instrumentation currently under test, not present in running binary"
+}

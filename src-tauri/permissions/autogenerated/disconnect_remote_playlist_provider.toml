@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-disconnect-remote-playlist-provider"
+description = "Enables the disconnect_remote_playlist_provider command without any pre-configured scope."
+commands.allow = ["disconnect_remote_playlist_provider"]
+
+[[permission]]
+identifier = "deny-disconnect-remote-playlist-provider"
+description = "Denies the disconnect_remote_playlist_provider command without any pre-configured scope."
+commands.deny = ["disconnect_remote_playlist_provider"]

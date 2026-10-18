@@ -26,6 +26,31 @@ pipeline for validation, tags and library publication. The daemon's original is
 retained. The folder must be readable by Burrata. A daemon connection check does
 not prove that a remote peer is online or has available transfer slots.
 
+## Spotify and YouTube playlist accounts
+
+Connect an account in **Settings → Connections** and review the provider identity
+before confirming it. Depending on platform support and the selected transport,
+Burrata can make provider requests through its app-managed session or a
+browser-based connection; the browser companion remains available for browser
+integration and imports. The app-managed native WebView HTTP transport is
+experimental and currently implemented for Linux and macOS builds. It can be opted
+into in Connections and reuses the confirmed account for on-demand requests.
+The native provider session requires confirmed credentials to be saved in the
+operating system keyring; if secure storage is unavailable, account confirmation
+fails. Burrata never asks MCP clients for streaming passwords.
+
+A confirmed account grants provider-specific read access; confirming Spotify
+does not confirm YouTube. This consent is separate from MCP tool scopes. Account
+reads do not by themselves enable playlist writes. Writing changes requires a
+separate opt-in for each provider and a reviewed, complete preview whose operations are supported by the playlist
+capabilities before changes are sent. The current implementation and its
+live qualification are different claims: Spotify app-managed reads are qualified
+to one Linux account, and bounded YouTube verification covers one account and a
+selected playlist only. This does not establish general account, platform,
+completeness or write qualification. In MCP, remote import and refresh actions
+require Control permission, previews require Read, and applying a preview
+requires Manage permission.
+
 ## Optional artist providers
 
 - **Discogs:** enable it and enter a personal token from your Discogs developer

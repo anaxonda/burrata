@@ -1,0 +1,71 @@
+{
+  "stage": "final_source_and_executable_verified_live_pending",
+  "native": {
+    "passed": 884,
+    "ignored": 16,
+    "failed": 0,
+    "compileSeconds": 210,
+    "testSeconds": 18.69
+  },
+  "ui": {
+    "appPassed": 254,
+    "trackMenuPassed": 6,
+    "playlistMenuPassed": 1,
+    "totalPassed": 261,
+    "failed": 0,
+    "testSeconds": 30.26,
+    "totalSeconds": 41.73,
+    "serialFiles": true
+  },
+  "mcpPassed": 5,
+  "contractsPassed": 8,
+  "svelteErrors": 0,
+  "svelteWarnings": 0,
+  "frontendBuildSeconds": 5.16,
+  "logs": {
+    "native": {
+      "path": ".cache/webview-chapter-final-native-tests.log",
+      "sha256": "1767d20989ba7c12268c7471c61decbca2013a4427451dc113cc33f9eb9fd6a7"
+    },
+    "ui": {
+      "path": ".cache/webview-chapter-final-ui-tests.log",
+      "sha256": "84f7ee8e618c5860b4d50c92a208394854bced1868a9726a246f8258ad0e7e92"
+    },
+    "mcp": {
+      "path": ".cache/webview-chapter-final-mcp-host.log",
+      "sha256": "d6c2bbdf6de88a8c3f0c87d6dbb43b681d8717d26f46ad1b1157104efb4d5a1c"
+    },
+    "contracts": {
+      "path": ".cache/webview-chapter-final-contracts.log",
+      "sha256": "2fd8909711d84ca61929b8e71d1bbe73d136cc14efc1f5ccc2b0f2a44e0083f4"
+    },
+    "check": {
+      "path": ".cache/webview-chapter-final-check.log",
+      "sha256": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695"
+    },
+    "frontendBuild": {
+      "path": ".cache/webview-chapter-final-frontend-build.log",
+      "sha256": "33ce143c4096f63dbe3b6065852251a5c387cc9ed3bb1d107ef04003514e27ba"
+    }
+  },
+  "pins": {
+    "native": {
+      "files": 312,
+      "path": ".cache/webview-chapter-final-native-source-pin.json",
+      "sha256": "d0a3304ab6e46c6315d059a91f010fa21b222dd8572ef807abcf013c0accc50f"
+    },
+    "frontend": {
+      "files": 194,
+      "path": ".cache/webview-chapter-final-frontend-source-pin.json",
+      "sha256": "22912495247e8618a6fb64a81e63b764c1dc23d0520a0b9e6ae2357816271418"
+    }
+  },
+  "liveQualified": false,
+  "normalMainUnchanged": true,
+  "excludedStagedFollowOns": [
+    "Pulse inspection cancellation/deadline reaping",
+    "Explicit artwork retry"
+  ],
+  "binarySha256": "e268072f1d1a4d4565a722caffb52015d422bfb535ff7b2359e11d9d5a9aa2e3",
+  "nativeBuildSeconds": 115
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connect-remote-playlist-provider"
+description = "Enables the connect_remote_playlist_provider command without any pre-configured scope."
+commands.allow = ["connect_remote_playlist_provider"]
+
+[[permission]]
+identifier = "deny-connect-remote-playlist-provider"
+description = "Denies the connect_remote_playlist_provider command without any pre-configured scope."
+commands.deny = ["connect_remote_playlist_provider"]

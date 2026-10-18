@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "workload": "actual_burrata_mcp_library_page_matrix",
+  "count": 1000,
+  "failureCount": 1,
+  "failureCategory": "isolated_matrix_setup_or_read_failed",
+  "processExitCode": 1
+}

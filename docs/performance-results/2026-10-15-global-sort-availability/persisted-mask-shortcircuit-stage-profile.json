@@ -1,0 +1,293 @@
+{
+  "scope": "test-only stage wall counters; synthetic actual Store sparse fixture",
+  "observations": [
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 69
+    },
+    {
+      "aggregateMicros": 5654,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 950
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 89
+    },
+    {
+      "aggregateMicros": 5622,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 916
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 57
+    },
+    {
+      "aggregateMicros": 5735,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 957
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 76
+    },
+    {
+      "aggregateMicros": 5802,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 1005
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 116
+    },
+    {
+      "aggregateMicros": 6572,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 1163
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 58
+    },
+    {
+      "aggregateMicros": 6027,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 944
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 108
+    },
+    {
+      "aggregateMicros": 33528,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 8895
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 77
+    },
+    {
+      "aggregateMicros": 37435,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 7645
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 133
+    },
+    {
+      "aggregateMicros": 30889,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 6015
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 73
+    },
+    {
+      "aggregateMicros": 30441,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 6666
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 124
+    },
+    {
+      "aggregateMicros": 31079,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 6104
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 107
+    },
+    {
+      "aggregateMicros": 31009,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 6119
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 128
+    },
+    {
+      "aggregateMicros": 140192,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 29288
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 148
+    },
+    {
+      "aggregateMicros": 134081,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 27491
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 117
+    },
+    {
+      "aggregateMicros": 139341,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 30376
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 123
+    },
+    {
+      "aggregateMicros": 137224,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 27878
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 164
+    },
+    {
+      "aggregateMicros": 154606,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 37878
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 120
+    },
+    {
+      "aggregateMicros": 127186,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 25666
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 129
+    },
+    {
+      "aggregateMicros": 358080,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 63877
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 119
+    },
+    {
+      "aggregateMicros": 336146,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 63073
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 121
+    },
+    {
+      "aggregateMicros": 334732,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 62792
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 120
+    },
+    {
+      "aggregateMicros": 334819,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 62244
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 120
+    },
+    {
+      "aggregateMicros": 350080,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 71063
+    },
+    {
+      "aggregateMicros": 0,
+      "hasLocalAssets": false,
+      "pending": true,
+      "pendingMicros": 119
+    },
+    {
+      "aggregateMicros": 337905,
+      "hasLocalAssets": false,
+      "pending": false,
+      "pendingMicros": 62609
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{"operationId":"aaa741f5-4f5e-4268-9d58-7dbdf4753e97","atSeconds":0,"action":"search_page_and_playback_state","offset":0,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":2.54}
+{"operationId":"aaa741f5-4f5e-4268-9d58-7dbdf4753e97","atSeconds":15.6,"action":"search_page_and_playback_state","offset":100,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":17.96}
+{"operationId":"aaa741f5-4f5e-4268-9d58-7dbdf4753e97","atSeconds":31,"action":"search_page_and_playback_state","offset":200,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":33.42}
+{"operationId":"aaa741f5-4f5e-4268-9d58-7dbdf4753e97","atSeconds":46.5,"action":"search_page_and_playback_state","offset":300,"returnedRows":100,"playbackStatus":"playing","currentIndex":0,"positionSeconds":48.84}

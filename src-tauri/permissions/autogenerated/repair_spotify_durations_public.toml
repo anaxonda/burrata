@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-repair-spotify-durations-public"
+description = "Enables the repair_spotify_durations_public command without any pre-configured scope."
+commands.allow = ["repair_spotify_durations_public"]
+
+[[permission]]
+identifier = "deny-repair-spotify-durations-public"
+description = "Denies the repair_spotify_durations_public command without any pre-configured scope."
+commands.deny = ["repair_spotify_durations_public"]

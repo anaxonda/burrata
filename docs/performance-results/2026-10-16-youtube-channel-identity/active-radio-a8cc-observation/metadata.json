@@ -1,0 +1,13 @@
+{
+  "durationSeconds": 30.18056293501286,
+  "intervalSeconds": 1.0,
+  "groups": {
+    "process-group": [
+      1823689
+    ]
+  },
+  "operationId": null,
+  "cpuPercentBasis": "100 percent is one logical core",
+  "scope": "each named root and observed descendants; group rows sum process rows only; process rows include their threads, so do not add thread rows",
+  "limitations": "Avoid overlapping named root trees. Processes born and exited between polls and their CPU are omitted. Newly observed tasks need a second sample. Group RSS sums resident sizes and can double-count shared pages. IO bytes are Linux storage counters, not network transfer. Operation ID is a caller label, not inferred app/IPC correlation."
+}

@@ -1,0 +1,20 @@
+{
+  "build": {
+    "binary": "/home/loki/projects/burrata/.cache/immutable-debug-binaries/cached-mcp-ebf96f8fceb0/burrata",
+    "sha256": "ebf96f8fceb05c8eb803c21686e07d7d4c4e842a850b31d212de2b7d1fe4471e",
+    "pid": 952993
+  },
+  "actualAppScreenshot": "private main-track-menu.png",
+  "visualReview": "Compact anchored menu at right edge, grouped aligned icons, direct Add to playlist; menu bottom above player, no overlap; closed after check.",
+  "queuePreserved": {
+    "queue": true,
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "scope": "Actual normal desktop app; screenshot not published because user library is visible. Half-screen component fixtures reviewed separately."
+}

@@ -1,0 +1,14 @@
+{
+  "binarySha256": "472b58f8fb436d82d0de1dc196bab6f54e3a0ecd536fb3846ef57c67a766ea86",
+  "buildKind": "Linux development GUI",
+  "loginState": "Google initial email step, unconfirmed",
+  "samples": 3,
+  "processCounts": [
+    5,
+    5,
+    5
+  ],
+  "pssComplete": true,
+  "medianPssBytes": 616764416,
+  "qualification": false
+}

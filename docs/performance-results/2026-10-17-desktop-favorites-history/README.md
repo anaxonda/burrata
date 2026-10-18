@@ -1,0 +1,7 @@
+# Favorites and History desktop checks
+
+The sole normal native2bb09a9b0ce9/App33260ec39305 was checked in dark theme at1914×515 and956×513. Favorites (Liked Songs) and Listening history show compact controls and readable rows without visible player overlap; all four playback-layout inspections have empty findings. The history row’s version label appeared attached to its title. The shared TrackList source now uses an explicit space before the version;19 existing TrackList tests, Svelte0/0 and production build pass. The initial screenshots show the preceding runtime. Subsequent dark/light component fixtures confirm the exact separating text and visible gap, with no overflow; evidence is `.tmp/track-list-version-gap-current/`. The verified normal-app restart loads the fix, and the actual History capture `history-spacing-final.png` confirms the visible gap with no player overlap. The immediate pre/post restart playback snapshots are exactly equal (`rollout-proof.json`).
+
+The complete app playback snapshot, including all30 occurrences, stays exactly equal before/after. Original window rectangle and tiling are restored, and the app is returned to Library. Evidence: `.cache/qualification-desktop-favorites-history/` (owner-only app screenshots, layout files, logs and `restoration-proof.json`).
+
+This closes only the bounded dark-theme default-layout checks for these routes. Filter interactions, loading/error states, light theme and broader UI acceptance remain open. No history clearing, favorite changes, playback controls or provider writes were performed.

@@ -1,0 +1,20 @@
+{
+  "pausedSeek": {
+    "passed": false,
+    "position": 10,
+    "paused": true,
+    "status": "paused",
+    "serialAdvanced": true
+  },
+  "resume": {
+    "gate": {
+      "status": "ready",
+      "wallMs": 5130.692789000001,
+      "advancedMs": 5077.766439909297,
+      "observations": 43
+    },
+    "sameGeneration": true,
+    "position": 15.077766439909297
+  },
+  "error": "isolated_functional_control_failed"
+}

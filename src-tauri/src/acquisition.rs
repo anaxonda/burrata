@@ -80,6 +80,7 @@ const SEARCH_CACHE_MAX: usize = 128;
 const RAW_AUDIO_SEARCH_CACHE_TTL: Duration = Duration::from_secs(2 * 60);
 const RAW_AUDIO_SEARCH_CACHE_MAX: usize = 64;
 const PREVIEW_SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
+const PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT: usize = 10;
 const PREVIEW_AUDIO_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const PREVIEW_AUDIO_CACHE_MAX: usize = 64;
 const CHAPTER_SOURCE_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
@@ -88,6 +89,11 @@ const INSPECTION_CACHE_TTL: Duration = Duration::from_secs(90);
 const INSPECTION_CACHE_MAX: usize = 128;
 const INSPECTION_PROFILE: &str = "acquisition-inspect-v3-youtube-support";
 const PREVIEW_AUDIO_FORMAT_SELECTOR: &str = "bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio";
+const PREVIEW_AUDIO_ALTERNATE_FORMAT_SELECTOR: &str = "bestaudio[ext=webm][protocol^=http][protocol!*=dash]/bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio";
+const PREVIEW_AUDIO_YOUTUBE_FORMAT_SELECTOR: &str = "bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio/worst[ext=mp4][acodec!=none][vcodec!=none][protocol^=http][protocol!*=dash]";
+const PREVIEW_AUDIO_YOUTUBE_ALTERNATE_FORMAT_SELECTOR: &str = "bestaudio[ext=webm][protocol^=http][protocol!*=dash]/bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio/worst[ext=mp4][acodec!=none][vcodec!=none][protocol^=http][protocol!*=dash]";
+const MAX_PREVIEW_FILE_SIZE: u64 = 16 * 1024 * 1024 * 1024;
+const PREVIEW_TAIL_PROBE_THRESHOLD: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,6 +103,37 @@ pub struct PreviewAudio {
     pub codec: Option<String>,
     pub bitrate_kbps: Option<f64>,
     pub duration_seconds: Option<f64>,
+    /// Selected extractor format identifier (for example `140` or `251`). This is
+    /// safe diagnostic metadata; the signed media URL remains private.
+    #[serde(skip_serializing)]
+    pub selected_format_id: Option<String>,
+    /// Whether yt-dlp selected a muxed stream containing video as well as audio.
+    #[serde(skip_serializing)]
+    pub selected_format_has_video: bool,
+    /// Small identity-only metadata from the same full yt-dlp response used to
+    /// resolve the stream. Never serialize descriptions or signed stream URLs.
+    #[serde(skip_serializing)]
+    pub source_metadata: Option<Value>,
+    /// Stable identity fields from the extractor's full metadata response. These
+    /// are kept separate from search-result metadata for playback verification.
+    #[serde(skip_serializing)]
+    pub resolved_title: Option<String>,
+    #[serde(skip_serializing)]
+    pub resolved_provider_id: Option<String>,
+    /// `Some(empty)` means the full metadata lookup completed and found no
+    /// chapters, so playback does not need a second inspection request.
+    #[serde(skip_serializing)]
+    pub chapters: Option<Vec<Chapter>>,
+    #[serde(skip_serializing)]
+    pub expected_content_length: Option<u64>,
+    #[serde(skip_serializing)]
+    pub headers: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AudioSearchPage {
+    pub tracks: Vec<Track>,
+    pub entry_count: usize,
 }
 
 /// Independent acquisition capability; catalog and preview providers need not implement it.
@@ -165,16 +202,97 @@ fn uses_managed_ytdlp(configured: &str) -> bool {
     configured.is_empty() || configured == "yt-dlp" || configured.starts_with("bundled:")
 }
 
-async fn add_youtube_support_args(args: &mut Vec<String>, provider: &str) -> Result<(), String> {
-    if provider == "youtube" && crate::youtube_support::global().is_some() {
-        args.extend(
-            crate::youtube_support::yt_dlp_provider_args()
-                .await?
-                .into_iter()
-                .map(|arg| arg.to_string_lossy().into_owned()),
-        );
+async fn add_youtube_support_args(
+    args: &mut Vec<String>,
+    provider: &str,
+    settings: &Settings,
+) -> Result<(), String> {
+    if provider != "youtube" || !uses_managed_ytdlp(&settings.yt_dlp_path) {
+        return Ok(());
+    }
+    if let Some(manager) = crate::youtube_support::global() {
+        match managed_provider_action(
+            manager.provider_assets_incomplete(),
+            system_ytdlp().is_file(),
+        ) {
+            ManagedProviderAction::SystemFallback => {
+                // A partial optional bundle must not block the public system
+                // yt-dlp fallback. Do not start the bundled helper at all.
+                return Ok(());
+            }
+            ManagedProviderAction::Unavailable => return Err(
+                "The managed YouTube provider bundle is incomplete and no system yt-dlp is available. Repair the provider bundle or install yt-dlp.".into(),
+            ),
+            ManagedProviderAction::Managed => {}
+        }
+        let provider_args = crate::youtube_support::yt_dlp_provider_args().await?;
+        append_managed_youtube_provider_args(args, provider_args);
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ManagedProviderAction {
+    Managed,
+    SystemFallback,
+    Unavailable,
+}
+
+fn managed_provider_action(incomplete: bool, system_available: bool) -> ManagedProviderAction {
+    match (incomplete, system_available) {
+        (true, true) => ManagedProviderAction::SystemFallback,
+        (true, false) => ManagedProviderAction::Unavailable,
+        (false, _) => ManagedProviderAction::Managed,
+    }
+}
+
+fn system_ytdlp() -> std::path::PathBuf {
+    crate::tools::executable("system:yt-dlp", "yt-dlp")
+}
+
+fn yt_dlp_executable(settings: &Settings) -> std::path::PathBuf {
+    if uses_managed_ytdlp(&settings.yt_dlp_path) {
+        if let Some(manager) = crate::youtube_support::global() {
+            return choose_managed_ytdlp(
+                manager.active_executable(),
+                manager.provider_assets_incomplete(),
+                system_ytdlp(),
+            );
+        }
+    }
+    crate::tools::executable(&settings.yt_dlp_path, "yt-dlp")
+}
+
+fn choose_managed_ytdlp(
+    active: std::path::PathBuf,
+    provider_incomplete: bool,
+    system: std::path::PathBuf,
+) -> std::path::PathBuf {
+    if provider_incomplete && system.is_file() {
+        system
+    } else {
+        active
+    }
+}
+
+fn append_managed_youtube_provider_args(
+    args: &mut Vec<String>,
+    provider_args: Vec<std::ffi::OsString>,
+) {
+    let provides_node_runtime = provider_args
+        .windows(2)
+        .any(|pair| pair[0] == "--js-runtimes" && pair[1].to_string_lossy().starts_with("node:"));
+    if provides_node_runtime {
+        // The managed BgUtils provider supplies the Node runtime yt-dlp uses
+        // for YouTube extraction. Clear a configured runtime such as Deno so
+        // one extraction does not initialize multiple JS engines.
+        args.push("--no-js-runtimes".into());
+    }
+    args.extend(
+        provider_args
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned()),
+    );
 }
 
 fn ffmpeg_location(configured: &str) -> Option<String> {
@@ -280,7 +398,7 @@ fn is_public_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
-async fn public_addresses(url: &url::Url) -> Result<Vec<std::net::SocketAddr>, String> {
+pub(crate) async fn public_addresses(url: &url::Url) -> Result<Vec<std::net::SocketAddr>, String> {
     let host = url.host_str().ok_or("Missing hostname")?;
     let addresses = tokio::time::timeout(
         Duration::from_secs(10),
@@ -294,6 +412,67 @@ async fn public_addresses(url: &url::Url) -> Result<Vec<std::net::SocketAddr>, S
         return Err("Source resolves to a nonpublic address".into());
     }
     Ok(addresses)
+}
+
+async fn run_playback_stage<T, Fut>(
+    cancel: watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
+    timeout_message: &'static str,
+    stage: Fut,
+) -> Result<T, String>
+where
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if tokio::time::Instant::now() >= deadline {
+        return Err(timeout_message.into());
+    }
+    tokio::select! {
+        biased;
+        _ = crate::playback_sources::wait_for_cancellation(cancel) => Err("Cancelled".into()),
+        _ = tokio::time::sleep_until(deadline) => Err(timeout_message.into()),
+        result = stage => result,
+    }
+}
+
+/// Own the helper's process group until its leader is reaped. An outer
+/// deadline/cancellation can drop run_tool_until without polling its select.
+/// Keep the leader unreaped until pipe processing is complete so its PID cannot
+/// be recycled while this guard may still need to signal the process group.
+struct ToolProcess(Child);
+impl std::ops::Deref for ToolProcess {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for ToolProcess {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+impl Drop for ToolProcess {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.0.id() {
+            // The child was spawned with process_group(0). SIGKILL is
+            // synchronous; Child's kill_on_drop remains the leader fallback.
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+    }
+}
+
+struct ToolPipeTasks(Vec<tokio::task::JoinHandle<()>>);
+impl Drop for ToolPipeTasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
+        }
+    }
 }
 
 async fn terminate(child: &mut Child) {
@@ -327,6 +506,34 @@ async fn pump<R: tokio::io::AsyncRead + Unpin>(
     }
 }
 
+#[cfg(unix)]
+async fn wait_for_tool_spawn_retry(
+    cancel: &mut watch::Receiver<bool>,
+    wake_at: tokio::time::Instant,
+) -> Result<(), String> {
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    let mut cancel_open = true;
+    let sleep = tokio::time::sleep_until(wake_at);
+    tokio::pin!(sleep);
+    loop {
+        tokio::select! {
+            _ = &mut sleep => return Ok(()),
+            changed = cancel.changed(), if cancel_open => match changed {
+                Ok(()) if *cancel.borrow() => return Err("Cancelled".into()),
+                Ok(()) => {},
+                Err(_) => {
+                    // A closed watch channel with a retained false value is not
+                    // cancellation. Disable it while waiting so it cannot spin.
+                    cancel_open = false;
+                    if *cancel.borrow() { return Err("Cancelled".into()); }
+                }
+            }
+        }
+    }
+}
+
 async fn run_tool<F: FnMut(&str)>(
     settings: &Settings,
     args: Vec<String>,
@@ -334,16 +541,27 @@ async fn run_tool<F: FnMut(&str)>(
     limit: Duration,
     mut on_line: F,
 ) -> Result<String, String> {
+    run_tool_until(
+        settings,
+        args,
+        cancel,
+        tokio::time::Instant::now() + limit,
+        on_line,
+    )
+    .await
+}
+
+async fn run_tool_until<F: FnMut(&str)>(
+    settings: &Settings,
+    args: Vec<String>,
+    mut cancel: watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
+    mut on_line: F,
+) -> Result<String, String> {
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
-    let yt_dlp = if crate::youtube_support::global().is_some()
-        && uses_managed_ytdlp(&settings.yt_dlp_path)
-    {
-        crate::youtube_support::active_executable()
-    } else {
-        crate::tools::executable(&settings.yt_dlp_path, "yt-dlp")
-    };
+    let yt_dlp = yt_dlp_executable(settings);
     let mut command = Command::new(yt_dlp);
     command
         .args(args)
@@ -360,9 +578,32 @@ async fn run_tool<F: FnMut(&str)>(
     {
         command.creation_flags(0x08000000);
     }
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Could not start yt-dlp: {e}"))?;
+    if tokio::time::Instant::now() >= deadline {
+        return Err("yt-dlp operation timed out".into());
+    }
+    let spawn_result = command.spawn();
+    #[cfg(unix)]
+    let mut child = match spawn_result {
+        Ok(child) => child,
+        Err(error) if error.raw_os_error() == Some(libc::ETXTBSY) => {
+            let retry_at = (tokio::time::Instant::now() + Duration::from_millis(10)).min(deadline);
+            wait_for_tool_spawn_retry(&mut cancel, retry_at).await?;
+            if tokio::time::Instant::now() >= deadline {
+                return Err("yt-dlp operation timed out".into());
+            }
+            if *cancel.borrow() {
+                return Err("Cancelled".into());
+            }
+            command
+                .spawn()
+                .map_err(|error| format!("Could not start yt-dlp: {error}"))?
+        }
+        Err(error) => return Err(format!("Could not start yt-dlp: {error}")),
+    };
+    #[cfg(not(unix))]
+    let mut child = spawn_result.map_err(|error| format!("Could not start yt-dlp: {error}"))?;
+
+    let mut child = ToolProcess(child);
     let (tx, mut rx) = mpsc::channel(32);
     let out = tokio::spawn(pump(
         child.stdout.take().ok_or("Missing stdout")?,
@@ -374,11 +615,11 @@ async fn run_tool<F: FnMut(&str)>(
         false,
         tx,
     ));
-    let timeout = tokio::time::sleep(limit);
+    let _pipe_tasks = ToolPipeTasks(vec![out, err]);
+    let timeout = tokio::time::sleep_until(deadline);
     tokio::pin!(timeout);
     let mut output = String::new();
     let mut errors = String::new();
-    let mut status = None;
     let mut stream_open = true;
     let mut cancel_open = true;
     let result = loop {
@@ -398,14 +639,14 @@ async fn run_tool<F: FnMut(&str)>(
                     }
                 }
             }
-            exit = child.wait(), if status.is_none() => {
-                match exit {
-                    Ok(s) => {
-                        status=Some(s);
-                        if !stream_open { break if s.success() { Ok(output) } else { Err(format!("yt-dlp failed: {}", errors.trim())) }; }
-                    }
-                    Err(e)=>break Err(format!("yt-dlp wait failed: {e}"))
-                }
+            // Reaping is the final await: after it succeeds no future drop
+            // can need to signal the now-recyclable process-group ID.
+            exit = child.wait(), if !stream_open => {
+                break match exit {
+                    Ok(status) if status.success() => Ok(output),
+                    Ok(_) => Err(format!("yt-dlp failed: {}", errors.trim())),
+                    Err(error) => Err(format!("yt-dlp wait failed: {error}")),
+                };
             }
             line = rx.recv(), if stream_open => match line {
                 Some((stdout,line)) => {
@@ -420,13 +661,10 @@ async fn run_tool<F: FnMut(&str)>(
                 }
                 None => {
                     stream_open=false;
-                    if let Some(exit)=status { break if exit.success() { Ok(output) } else { Err(format!("yt-dlp failed: {}",errors.trim())) }; }
                 }
             }
         }
     };
-    out.abort();
-    err.abort();
     result
 }
 
@@ -448,7 +686,7 @@ pub(crate) async fn fetch_youtube_mix_entries(
     let mix_url =
         format!("https://www.youtube.com/watch?v={seed_id}&list=RD{seed_id}&start_radio=1");
     let mut args = base_args(settings);
-    add_youtube_support_args(&mut args, "youtube").await?;
+    // Flat catalog/Mix reads do not extract formats or require a token provider.
     args.extend([
         "--flat-playlist".into(),
         "--dump-single-json".into(),
@@ -503,11 +741,16 @@ pub(crate) fn youtube_video_id(raw: &str) -> Option<String> {
 }
 
 fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
-    let id = info["id"].as_str().unwrap_or_default();
-    let url = info["webpage_url"]
+    let id = info["id"]
         .as_str()
-        .or_else(|| info["original_url"].as_str())
-        .or_else(|| info["url"].as_str())
+        .map(str::trim)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_default();
+    let url = ["webpage_url", "original_url", "url"]
+        .iter()
+        .filter_map(|key| info[*key].as_str())
+        .find(|value| !value.trim().is_empty())
+        .map(str::trim)
         .unwrap_or_default();
     let availability = info["availability"].as_str().unwrap_or("");
     let restricted =
@@ -524,6 +767,9 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
                 .map(|f| {
                     let codec = f["acodec"].as_str().unwrap_or("unknown").to_string();
                     AudioFormat {
+                        bit_depth: None,
+                        channels: None,
+                        size_bytes: None,
                         id: f["format_id"].as_str().unwrap_or_default().into(),
                         lossless: ["flac", "alac", "wav", "pcm"]
                             .iter()
@@ -555,7 +801,50 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
                     .find_map(|item| item["url"].as_str().and_then(valid_artwork))
             })
         });
-    let chapters = info["chapters"]
+    let chapters = parse_source_chapters(info);
+    // Keep optional provider-reported statistics from this existing response.
+    // Counts never trigger another request or become part of recording matching.
+    let mut reported = serde_json::Map::new();
+    let valid_count = |value: &Value| value.as_u64().map(Value::from);
+    if provider == "soundcloud" {
+        if let Some(count) =
+            valid_count(&info["playback_count"]).or_else(|| valid_count(&info["view_count"]))
+        {
+            reported.insert("plays".into(), count);
+        }
+    } else if let Some(count) = valid_count(&info["view_count"]) {
+        reported.insert("views".into(), count);
+    }
+    if let Some(count) = valid_count(&info["play_count"]) {
+        reported.insert("plays".into(), count);
+    }
+    Candidate {
+        source_metadata: (!reported.is_empty()).then_some(Value::Object(reported)),
+        id: format!("{provider}:{id}"),
+        provider: provider.into(),
+        url: url.into(),
+        title: info["title"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Untitled")
+            .into(),
+        uploader: info["uploader"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned),
+        duration_seconds: info["duration"].as_f64(),
+        artwork_url,
+        chapters,
+        formats,
+        permission: if restricted { "restricted" } else { "unknown" }.into(),
+        ..Default::default()
+    }
+}
+
+fn parse_source_chapters(info: &Value) -> Option<Vec<Chapter>> {
+    info["chapters"]
         .as_array()
         .map(|items| {
             items
@@ -585,20 +874,7 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
                 })
                 .collect::<Vec<_>>()
         })
-        .filter(|chapters| !chapters.is_empty());
-    Candidate {
-        id: format!("{provider}:{id}"),
-        provider: provider.into(),
-        url: url.into(),
-        title: info["title"].as_str().unwrap_or("Untitled").into(),
-        uploader: info["uploader"].as_str().map(str::to_owned),
-        duration_seconds: info["duration"].as_f64(),
-        artwork_url,
-        chapters,
-        formats,
-        permission: if restricted { "restricted" } else { "unknown" }.into(),
-        ..Default::default()
-    }
+        .filter(|chapters| !chapters.is_empty())
 }
 
 pub async fn find_candidates(
@@ -626,6 +902,50 @@ async fn find_candidates_with_cancel(
     result_limit: usize,
     per_provider_timeout: Duration,
 ) -> Result<Vec<Candidate>, String> {
+    find_candidates_with_cancel_until(
+        track,
+        provider_ids,
+        settings,
+        cancel,
+        result_limit,
+        per_provider_timeout,
+        None,
+    )
+    .await
+}
+
+async fn find_candidates_with_cancel_until(
+    track: &Track,
+    provider_ids: &[String],
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    result_limit: usize,
+    per_provider_timeout: Duration,
+    shared_deadline: Option<crate::playback_sources::PlaybackDeadline>,
+) -> Result<Vec<Candidate>, String> {
+    find_candidates_with_cancel_until_alias(
+        track,
+        provider_ids,
+        settings,
+        cancel,
+        result_limit,
+        per_provider_timeout,
+        shared_deadline,
+        None,
+    )
+    .await
+}
+
+async fn find_candidates_with_cancel_until_alias(
+    track: &Track,
+    provider_ids: &[String],
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    result_limit: usize,
+    per_provider_timeout: Duration,
+    shared_deadline: Option<crate::playback_sources::PlaybackDeadline>,
+    alternate_artist: Option<String>,
+) -> Result<Vec<Candidate>, String> {
     if let Some(candidate) = track
         .provenance
         .get("audioCandidate")
@@ -643,6 +963,7 @@ async fn find_candidates_with_cancel(
     let provider_results =
         futures_util::stream::iter(provider_ids.iter().cloned().map(|provider| {
             let cancel = cancel.clone();
+            let alternate_artist = alternate_artist.clone();
             async move {
                 search_provider_candidates(
                     &provider,
@@ -651,6 +972,8 @@ async fn find_candidates_with_cancel(
                     cancel,
                     result_limit,
                     per_provider_timeout,
+                    shared_deadline,
+                    alternate_artist,
                 )
                 .await
             }
@@ -682,48 +1005,76 @@ async fn find_candidates_with_cancel(
     }
 }
 
+/// Playback searches must not let an unverified candidate embedded in an
+/// imported playlist row hide alternative provider results. Explicit audio
+/// search tracks keep their captured candidate; other catalog rows search by
+/// recording identity and let playback's strict matcher decide.
+fn track_for_playback_source_search(track: &Track) -> Track {
+    let mut search_track = crate::matching::ephemeral_playback_identity(track).into_owned();
+    if search_track.provenance["sourceKind"].as_str() != Some("audioSearch") {
+        if let Some(provenance) = search_track.provenance.as_object_mut() {
+            provenance.remove("audioCandidate");
+        }
+    }
+    search_track
+}
+
+/// Monochrome uses a canonical query plus at most the first exact cached alias,
+/// matching the existing two-query bound used by YouTube and SoundCloud.
+fn monochrome_search_tracks(track: &Track, alternate_artist: Option<&str>) -> Vec<Track> {
+    let mut tracks = vec![track.clone()];
+    if let Some(artist) = alternate_artist.map(str::trim).filter(|artist| {
+        !artist.is_empty()
+            && crate::matching::normalize(artist) != crate::matching::normalize(track.artist.trim())
+    }) {
+        let mut alternate = track.clone();
+        alternate.artist = artist.to_owned();
+        tracks.push(alternate);
+    }
+    tracks
+}
+
 async fn search_provider_candidates(
     provider: &str,
     track: &Track,
     settings: &Settings,
-    mut cancel: watch::Receiver<bool>,
+    cancel: watch::Receiver<bool>,
     result_limit: usize,
     per_provider_timeout: Duration,
+    shared_deadline: Option<crate::playback_sources::PlaybackDeadline>,
+    alternate_artist: Option<String>,
 ) -> (Vec<Candidate>, Vec<String>) {
     if provider == "monochrome" {
-        let result = tokio::select! {
-            result = async { crate::monochrome::Client::new()?.candidates(track).await } => result,
-            _ = cancel.changed() => Err("Cancelled".into()),
+        let client = match crate::monochrome::Client::new() {
+            Ok(client) => client,
+            Err(error) => return (Vec::new(), vec![error]),
         };
-        return match result {
-            Ok(found) => (found, Vec::new()),
-            Err(error) => (Vec::new(), vec![error]),
-        };
+        let query_tracks = monochrome_search_tracks(track, alternate_artist.as_deref());
+        let provider_deadline = tokio::time::Instant::now() + per_provider_timeout;
+        let deadline = shared_deadline
+            .map(crate::playback_sources::PlaybackDeadline::instant)
+            .map_or(provider_deadline, |shared| shared.min(provider_deadline));
+        return client
+            .candidates_for_tracks_until(&query_tracks, cancel, deadline)
+            .await;
     }
     let prefix = match provider {
         "youtube" => format!("ytsearch{result_limit}"),
         "soundcloud" => format!("scsearch{result_limit}"),
         _ => return (Vec::new(), Vec::new()),
     };
-    let query = search_query(track, true);
-    let fallback_query = search_query(track, false);
+    let queries = playback_search_queries(track, alternate_artist.as_deref());
     let deadline = Instant::now() + per_provider_timeout;
-    let mut queries = vec![query.as_str()];
-    if !fallback_query.is_empty() && fallback_query != query {
-        queries.push(fallback_query.as_str());
-    }
     let mut candidates = Vec::new();
     let mut errors = Vec::new();
-    for query in queries {
+    for query in queries.iter().take(2) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             errors.push(format!("{provider}: search timed out"));
             break;
         }
         let mut args = base_args(settings);
-        if let Err(error) = add_youtube_support_args(&mut args, provider).await {
-            return (Vec::new(), vec![format!("{provider}: {error}")]);
-        }
+        // Defer managed token initialization until a candidate needs extraction.
         args.extend([
             "--flat-playlist".into(),
             "--dump-single-json".into(),
@@ -731,19 +1082,33 @@ async fn search_provider_candidates(
             "--".into(),
             format!("{prefix}:{query}"),
         ]);
-        match run_tool(settings, args, cancel.clone(), remaining, |_| {}).await {
+        let result = if let Some(shared) = shared_deadline {
+            run_tool_until(
+                settings,
+                args,
+                cancel.clone(),
+                shared.cap(remaining),
+                |_| {},
+            )
+            .await
+        } else {
+            run_tool(settings, args, cancel.clone(), remaining, |_| {}).await
+        };
+        match result {
             Ok(raw) => match serde_json::from_str::<Value>(&raw) {
                 Ok(info) => {
                     if let Some(entries) = info["entries"].as_array() {
                         for entry in entries.iter().take(result_limit) {
                             let mut candidate = candidate_from_json(entry, provider);
-                            if provider == "youtube" && candidate.url.is_empty() {
-                                candidate.url = format!(
-                                    "https://www.youtube.com/watch?v={}",
-                                    entry["id"].as_str().unwrap_or("")
-                                );
+                            if provider == "youtube" {
+                                let Some(url) = playback_youtube_search_url(&candidate) else {
+                                    continue;
+                                };
+                                candidate.url = url;
                             }
-                            if validate_source_url(&candidate.url, provider).is_err() {
+                            if candidate.id.ends_with(':')
+                                || validate_source_url(&candidate.url, provider).is_err()
+                            {
                                 continue;
                             }
                             matching::score_candidate(track, &mut candidate);
@@ -758,11 +1123,59 @@ async fn search_provider_candidates(
             },
             Err(error) => errors.push(format!("{provider}: {error}")),
         }
-        if !candidates.is_empty() {
+        // A nonempty search page is not enough to stop: a versioned query may
+        // return unrelated mixes before the exact original recording appears
+        // in the unversioned query. Stop only when a result passes identity
+        // matching or is a narrowly eligible Topic candidate that will be
+        // verified against full metadata during the single audio extraction.
+        if candidates.iter().any(|candidate| {
+            crate::source_fallback::playback_recording_matches(track, candidate)
+                || crate::source_fallback::is_topic_playback_candidate(track, candidate)
+                || crate::source_fallback::is_provisional_playback_candidate(track, candidate)
+        }) {
             break;
         }
     }
     (candidates, errors)
+}
+
+/// Normalize only the bare-video-ID form of a flat YouTube search result.
+/// An explicit URL must still be a permitted video URL bound to the same ID.
+/// This is retrieval parsing; recording/title/version/duration gates are unchanged.
+fn playback_youtube_search_url(candidate: &Candidate) -> Option<String> {
+    if candidate.provider != "youtube" {
+        return None;
+    }
+    let id = candidate.id.strip_prefix("youtube:")?;
+    let raw = candidate.url.as_str();
+    if raw.is_empty() {
+        // Retain the existing missing-URL fallback, including its later URL/ID
+        // validation in search_provider_candidates.
+        return Some(format!("https://www.youtube.com/watch?v={id}"));
+    }
+    let canonical_id = id.len() == 11
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'));
+    if canonical_id && raw == id {
+        return Some(format!("https://www.youtube.com/watch?v={id}"));
+    }
+    let url = validate_source_url(raw, "youtube").ok()?;
+    let actual_id = match url.host_str()? {
+        "youtube.com" | "www.youtube.com" | "music.youtube.com" if url.path() == "/watch" => url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "v").then(|| value.into_owned()))?,
+        "youtu.be" | "www.youtu.be" => {
+            let mut segments = url.path_segments()?;
+            let first = segments.next()?;
+            if first.is_empty() || segments.any(|segment| !segment.is_empty()) {
+                return None;
+            }
+            first.to_owned()
+        }
+        _ => return None,
+    };
+    (actual_id == id).then(|| raw.to_owned())
 }
 
 fn metadata_text(value: &Value) -> Option<String> {
@@ -782,6 +1195,20 @@ fn metadata_text(value: &Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+fn split_source_credit_title(value: &str) -> Option<(String, String)> {
+    let separators = [" — ", " – ", " - "];
+    let matches = separators
+        .iter()
+        .filter_map(|separator| value.find(*separator).map(|index| (index, *separator)))
+        .collect::<Vec<_>>();
+    let [(index, separator)] = matches.as_slice() else {
+        return None;
+    };
+    let artist = value[..*index].trim();
+    let title = value[*index + separator.len()..].trim();
+    (!artist.is_empty() && !title.is_empty()).then(|| (artist.to_owned(), title.to_owned()))
+}
+
 fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     let provider_id = info["id"].as_str().unwrap_or_default().trim().to_owned();
     let provided_artist =
@@ -789,17 +1216,12 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     let provided_title = metadata_text(&info["track"]);
     let raw_title = provided_title
         .clone()
-        .unwrap_or_else(|| candidate.title.clone());
+        .or_else(|| metadata_text(&info["title"]))
+        .unwrap_or_default();
     let (artist, title, artist_source) = if let Some(artist) = provided_artist {
         (artist, raw_title, "metadata")
-    } else if let Some((artist, title)) = raw_title.split_once(" - ") {
-        let artist = artist.trim();
-        let title = title.trim();
-        if !artist.is_empty() && !title.is_empty() && !title.contains(" - ") {
-            (artist.to_owned(), title.to_owned(), "inferred_from_title")
-        } else {
-            (String::new(), raw_title, "unknown")
-        }
+    } else if let Some((artist, title)) = split_source_credit_title(&raw_title) {
+        (artist, title, "inferred_from_title")
     } else {
         (String::new(), raw_title, "unknown")
     };
@@ -824,6 +1246,7 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
             "uploader": candidate.uploader,
             "uploadDate": metadata_text(&info["upload_date"]),
             "audioCandidate": provenance_candidate,
+            "remoteCatalog": candidate.source_metadata,
         }),
         ..Track::default()
     };
@@ -837,6 +1260,26 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     track
 }
 
+fn youtube_search_results_url(query: &str) -> String {
+    let mut url = url::Url::parse("https://www.youtube.com/results")
+        .expect("static YouTube results URL is valid");
+    url.query_pairs_mut().append_pair("search_query", query);
+    url.into()
+}
+
+/// Return a canonical watch URL only when yt-dlp identified a real video URL.
+/// Search rows can also contain channel or playlist entries with unrelated IDs;
+/// those must not be turned into fabricated watch URLs.
+fn youtube_search_video_url(info: &Value, candidate: &Candidate) -> Option<String> {
+    let raw_url = ["webpage_url", "original_url", "url"]
+        .iter()
+        .filter_map(|key| info[*key].as_str())
+        .find(|value| !value.trim().is_empty())?;
+    let video_id = youtube_video_id(raw_url)?;
+    (candidate.id.strip_prefix("youtube:") == Some(video_id.as_str()))
+        .then(|| format!("https://www.youtube.com/watch?v={video_id}"))
+}
+
 async fn search_audio_tracks_raw(
     query: &str,
     provider_ids: &[String],
@@ -846,19 +1289,23 @@ async fn search_audio_tracks_raw(
     let mut tracks = Vec::new();
     let mut errors = Vec::new();
     for provider in provider_ids {
-        let prefix = match provider.as_str() {
-            "youtube" => "ytsearch10",
-            "soundcloud" => "scsearch10",
+        let search_input = match provider.as_str() {
+            "youtube" => youtube_search_results_url(query),
+            "soundcloud" => format!("scsearch50:{query}"),
             _ => continue,
         };
         let mut args = base_args(settings);
-        add_youtube_support_args(&mut args, provider).await?;
+        // Flat searches must remain usable before the extraction helper is ready.
+        // The results URL has no ytsearchN prefix, so keep its legacy 50-row cap explicit.
+        if provider == "youtube" {
+            args.extend(["--playlist-end".into(), "50".into()]);
+        }
         args.extend([
             "--flat-playlist".into(),
             "--dump-single-json".into(),
             "--skip-download".into(),
             "--".into(),
-            format!("{prefix}:{query}"),
+            search_input,
         ]);
         match run_tool(
             settings,
@@ -872,12 +1319,14 @@ async fn search_audio_tracks_raw(
             Ok(raw) => match serde_json::from_str::<Value>(&raw) {
                 Ok(info) => {
                     if let Some(entries) = info["entries"].as_array() {
-                        for entry in entries.iter().take(10) {
+                        for entry in entries.iter().take(50) {
                             let mut candidate = candidate_from_json(entry, provider);
-                            if provider == "youtube" && candidate.url.is_empty() {
-                                if let Some(id) = entry["id"].as_str() {
-                                    candidate.url = format!("https://www.youtube.com/watch?v={id}");
-                                }
+                            if provider == "youtube" {
+                                let Some(video_url) = youtube_search_video_url(entry, &candidate)
+                                else {
+                                    continue;
+                                };
+                                candidate.url = video_url;
                             }
                             if validate_source_url(&candidate.url, provider).is_err()
                                 || candidate.id.ends_with(':')
@@ -906,14 +1355,100 @@ async fn search_audio_tracks_raw(
     }
 }
 
+async fn search_audio_tracks_page_raw(
+    query: &str,
+    provider: &str,
+    offset: usize,
+    limit: usize,
+    settings: &Settings,
+) -> Result<AudioSearchPage, String> {
+    let search_input = match provider {
+        "youtube" => youtube_search_results_url(query),
+        "soundcloud" => format!("scsearchall:{query}"),
+        _ => return Err("Choose YouTube or SoundCloud for audio search".into()),
+    };
+    if offset >= 10_000 || limit == 0 || limit > 30 || offset + limit > 10_000 {
+        return Err("Audio search page is outside the supported range".into());
+    }
+    let start = offset + 1;
+    let end = offset + limit;
+    let mut args = base_args(settings);
+    args.extend([
+        "--flat-playlist".into(),
+        "--playlist-start".into(),
+        start.to_string(),
+        "--playlist-end".into(),
+        end.to_string(),
+        "--dump-single-json".into(),
+        "--skip-download".into(),
+        "--".into(),
+        search_input,
+    ]);
+    let (_tx, cancel) = idle_cancel();
+    let raw = run_tool(settings, args, cancel, Duration::from_secs(20), |_| {}).await?;
+    let info: Value = serde_json::from_str(&raw)
+        .map_err(|error| format!("{provider}: invalid metadata: {error}"))?;
+    let mut tracks = Vec::new();
+    let mut entry_count = 0;
+    if let Some(entries) = info["entries"].as_array() {
+        entry_count = entries.len().min(limit);
+        for entry in entries.iter().take(limit) {
+            let mut candidate = candidate_from_json(entry, provider);
+            if provider == "youtube" {
+                let Some(video_url) = youtube_search_video_url(entry, &candidate) else {
+                    continue;
+                };
+                candidate.url = video_url;
+            }
+            if validate_source_url(&candidate.url, provider).is_err() || candidate.id.ends_with(':')
+            {
+                continue;
+            }
+            candidate.score = 0.8;
+            candidate.confidence = "review".into();
+            candidate.reasons = vec![
+                "Direct source result; track identity has not been verified".into(),
+                "Download permission has not been established".into(),
+            ];
+            tracks.push(raw_search_track(candidate, entry));
+        }
+    }
+    Ok(AudioSearchPage {
+        tracks,
+        entry_count,
+    })
+}
+
+fn playback_search_queries(track: &Track, alternate_artist: Option<&str>) -> Vec<String> {
+    let query = search_query(track, true);
+    let fallback_query = search_query(track, false);
+    let mut queries = vec![query.clone()];
+    // Keep the existing two-call provider bound. A trusted cached identity
+    // variant occupies the old fallback slot and keeps the requested version.
+    if let Some(alias_query) = alternate_artist
+        .map(|artist| search_query_for_artist(track, artist, true))
+        .filter(|candidate| !candidate.is_empty() && candidate != &query)
+    {
+        queries.push(alias_query);
+    } else if !fallback_query.is_empty() && fallback_query != query {
+        queries.push(fallback_query);
+    }
+    queries.truncate(2);
+    queries
+}
+
 fn search_query(track: &Track, include_version: bool) -> String {
+    search_query_for_artist(track, &track.artist, include_version)
+}
+
+fn search_query_for_artist(track: &Track, artist: &str, include_version: bool) -> String {
     let mut parts = vec![
-        matching::normalize(&track.artist),
+        matching::normalize(artist),
         matching::normalize(&track.title),
     ];
     if include_version {
         let version = matching::normalize_version(track.version.as_deref().unwrap_or(""));
-        if !version.is_empty() {
+        if !version.is_empty() && !matches!(version.as_str(), "original" | "original mix") {
             parts.push(version);
         }
     }
@@ -941,6 +1476,7 @@ struct CachedPreviewAudio {
 struct CachedTracks {
     cached_at: Instant,
     tracks: Vec<Track>,
+    entry_count: usize,
 }
 
 #[derive(Clone)]
@@ -1303,10 +1839,16 @@ impl InspectionCache {
     }
 }
 
+struct PreviewAudioFlight {
+    gate: Arc<tokio::sync::Mutex<()>>,
+    trace_id: uuid::Uuid,
+}
+
 #[derive(Default)]
 struct PreviewAudioCache {
+    invalidation_epoch: AtomicU64,
     entries: Mutex<HashMap<String, CachedPreviewAudio>>,
-    in_flight: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    in_flight: Mutex<HashMap<String, Arc<PreviewAudioFlight>>>,
 }
 
 #[derive(Default)]
@@ -1361,6 +1903,7 @@ impl RawAudioSearchCache {
                 CachedTracks {
                     cached_at: Instant::now(),
                     tracks: tracks.clone(),
+                    entry_count: tracks.len(),
                 },
             );
         }
@@ -1368,63 +1911,37 @@ impl RawAudioSearchCache {
         remove_flight_if_unused(&self.in_flight, &key, &gate);
         Ok(tracks)
     }
-}
 
-impl PreviewAudioCache {
-    async fn get_or_resolve<F, Fut>(&self, key: String, resolve: F) -> Result<PreviewAudio, String>
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<PreviewAudio, String>>,
-    {
-        let (_tx, cancel) = idle_cancel();
-        self.get_or_resolve_cancelled(key, cancel, resolve).await
-    }
-
-    async fn get_or_resolve_cancelled<F, Fut>(
+    async fn get_or_search_page<F, Fut>(
         &self,
         key: String,
-        mut cancel: watch::Receiver<bool>,
-        resolve: F,
-    ) -> Result<PreviewAudio, String>
+        search: F,
+    ) -> Result<AudioSearchPage, String>
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<PreviewAudio, String>>,
+        Fut: std::future::Future<Output = Result<AudioSearchPage, String>>,
     {
-        if *cancel.borrow() {
-            return Err("Cancelled".into());
-        }
         let gate = self
             .in_flight
             .lock()
-            .map_err(|_| "Preview audio cache lock poisoned")?
+            .map_err(|_| "Audio search cache lock poisoned")?
             .entry(key.clone())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone();
-        let guard = tokio::select! {
-            guard = gate.lock() => guard,
-            _ = cancel.changed() => {
-                remove_flight_if_unused(&self.in_flight, &key, &gate);
-                return Err("Cancelled".into());
-            }
-        };
-        if *cancel.borrow() {
-            drop(guard);
-            remove_flight_if_unused(&self.in_flight, &key, &gate);
-            return Err("Cancelled".into());
-        }
-        if let Some(cached) = self.entries.lock().ok().and_then(|mut entries| {
-            entries.retain(|_, v| v.cached_at.elapsed() < v.ttl);
-            entries.get(&key).map(|v| v.audio.clone())
+        let guard = gate.lock().await;
+        if let Some(page) = self.entries.lock().ok().and_then(|mut entries| {
+            entries.retain(|_, value| value.cached_at.elapsed() < RAW_AUDIO_SEARCH_CACHE_TTL);
+            entries.get(&key).map(|value| AudioSearchPage {
+                tracks: value.tracks.clone(),
+                entry_count: value.entry_count,
+            })
         }) {
             drop(guard);
             remove_flight_if_unused(&self.in_flight, &key, &gate);
-            return Ok(cached);
+            return Ok(page);
         }
-        let audio = match tokio::select! {
-            result = resolve() => result,
-            _ = cancel.changed() => Err("Cancelled".into()),
-        } {
-            Ok(audio) => audio,
+        let page = match search().await {
+            Ok(page) => page,
             Err(error) => {
                 drop(guard);
                 remove_flight_if_unused(&self.in_flight, &key, &gate);
@@ -1432,45 +1949,257 @@ impl PreviewAudioCache {
             }
         };
         if let Ok(mut entries) = self.entries.lock() {
-            entries.retain(|_, v| v.cached_at.elapsed() < v.ttl);
-            if entries.len() >= PREVIEW_AUDIO_CACHE_MAX {
+            entries.retain(|_, value| value.cached_at.elapsed() < RAW_AUDIO_SEARCH_CACHE_TTL);
+            if entries.len() >= RAW_AUDIO_SEARCH_CACHE_MAX {
                 if let Some(oldest) = entries
                     .iter()
-                    .min_by_key(|(_, v)| v.cached_at)
-                    .map(|(k, _)| k.clone())
+                    .min_by_key(|(_, value)| value.cached_at)
+                    .map(|(key, _)| key.clone())
                 {
                     entries.remove(&oldest);
                 }
             }
             entries.insert(
                 key.clone(),
-                CachedPreviewAudio {
+                CachedTracks {
                     cached_at: Instant::now(),
-                    ttl: preview_audio_cache_ttl(&audio.url),
-                    audio: audio.clone(),
+                    tracks: page.tracks.clone(),
+                    entry_count: page.entry_count,
                 },
             );
         }
         drop(guard);
         remove_flight_if_unused(&self.in_flight, &key, &gate);
+        Ok(page)
+    }
+}
+
+impl PreviewAudioCache {
+    fn invalidate(&self, key: &str) {
+        if let Ok(mut entries) = self.entries.lock() {
+            self.invalidation_epoch.fetch_add(1, Ordering::SeqCst);
+            entries.remove(key);
+        }
+    }
+
+    async fn get_or_resolve<F, Fut>(&self, key: String, resolve: F) -> Result<PreviewAudio, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<PreviewAudio, String>>,
+    {
+        let (_tx, cancel) = idle_cancel();
+        self.get_or_resolve_cancelled(key, cancel, None, |_| resolve())
+            .await
+    }
+
+    async fn get_or_resolve_cancelled<F, Fut>(
+        &self,
+        key: String,
+        mut cancel: watch::Receiver<bool>,
+        trace: Option<crate::playback_sources::SourceTrace>,
+        resolve: F,
+    ) -> Result<PreviewAudio, String>
+    where
+        F: FnOnce(uuid::Uuid) -> Fut,
+        Fut: std::future::Future<Output = Result<PreviewAudio, String>>,
+    {
+        if *cancel.borrow() {
+            if let Some(trace) = &trace {
+                trace.event_scoped(
+                    "preview_audio_lookup_cancelled",
+                    serde_json::json!({"stage":"before_lookup"}),
+                );
+            }
+            return Err("Cancelled".into());
+        }
+        let (flight, created) = {
+            let mut flights = self
+                .in_flight
+                .lock()
+                .map_err(|_| "Preview audio cache lock poisoned")?;
+            if let Some(flight) = flights.get(&key) {
+                (flight.clone(), false)
+            } else {
+                let flight = Arc::new(PreviewAudioFlight {
+                    gate: Arc::new(tokio::sync::Mutex::new(())),
+                    trace_id: uuid::Uuid::new_v4(),
+                });
+                flights.insert(key.clone(), flight.clone());
+                (flight, true)
+            }
+        };
+        if let Some(trace) = &trace {
+            trace.event_scoped(
+                if created {
+                    "preview_audio_lookup_start"
+                } else {
+                    "preview_audio_lookup_join"
+                },
+                serde_json::json!({"sharedLookupId":flight.trace_id.to_string()}),
+            );
+        }
+        let gate = flight.gate.clone();
+        let guard = tokio::select! {
+            guard = gate.lock() => guard,
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
+                if let Some(trace) = &trace {
+                    trace.event_scoped("preview_audio_lookup_cancelled", serde_json::json!({"sharedLookupId":flight.trace_id.to_string(),"stage":"waiting_for_worker"}));
+                }
+                remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+                return Err("Cancelled".into());
+            }
+        };
+        if *cancel.borrow() {
+            drop(guard);
+            if let Some(trace) = &trace {
+                trace.event_scoped("preview_audio_lookup_cancelled", serde_json::json!({"sharedLookupId":flight.trace_id.to_string(),"stage":"after_wait"}));
+            }
+            remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+            return Err("Cancelled".into());
+        }
+        if let Some(cached) = self.entries.lock().ok().and_then(|mut entries| {
+            entries.retain(|_, v| v.cached_at.elapsed() < v.ttl);
+            entries.get(&key).map(|v| v.audio.clone())
+        }) {
+            if let Some(trace) = &trace {
+                trace.event_scoped(
+                    "preview_audio_cache_hit",
+                    serde_json::json!({"sharedLookupId":flight.trace_id.to_string()}),
+                );
+            }
+            drop(guard);
+            remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+            return Ok(cached);
+        }
+        if let Some(trace) = &trace {
+            trace.event_scoped(
+                "preview_audio_cache_miss",
+                serde_json::json!({"sharedLookupId":flight.trace_id.to_string()}),
+            );
+        }
+        let epoch = self.invalidation_epoch.load(Ordering::SeqCst);
+        let audio = match tokio::select! {
+            result = resolve(flight.trace_id) => result,
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+        } {
+            Ok(audio) => audio,
+            Err(error) => {
+                if let Some(trace) = &trace {
+                    trace.event_scoped("preview_audio_lookup_end", serde_json::json!({"sharedLookupId":flight.trace_id.to_string(),"ok":false,"cancelled":error == "Cancelled"}));
+                }
+                drop(guard);
+                remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+                return Err(error);
+            }
+        };
+        if let Some(trace) = &trace {
+            trace.event_scoped(
+                "preview_audio_lookup_end",
+                serde_json::json!({"sharedLookupId":flight.trace_id.to_string(),"ok":true}),
+            );
+        }
+        if let Ok(mut entries) = self.entries.lock() {
+            // A failed URL may be invalidated while its older lookup is still running.
+            // Never let that lookup restore an entry behind a fresh-stream retry.
+            if epoch == self.invalidation_epoch.load(Ordering::SeqCst) {
+                entries.retain(|_, v| v.cached_at.elapsed() < v.ttl);
+                if entries.len() >= PREVIEW_AUDIO_CACHE_MAX {
+                    if let Some(oldest) = entries
+                        .iter()
+                        .min_by_key(|(_, v)| v.cached_at)
+                        .map(|(k, _)| k.clone())
+                    {
+                        entries.remove(&oldest);
+                    }
+                }
+                entries.insert(
+                    key.clone(),
+                    CachedPreviewAudio {
+                        cached_at: Instant::now(),
+                        ttl: preview_audio_cache_ttl(&audio.url),
+                        audio: audio.clone(),
+                    },
+                );
+            }
+        }
+        drop(guard);
+        remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
         Ok(audio)
     }
 }
 
+fn remove_preview_flight_if_unused(
+    flights: &Mutex<HashMap<String, Arc<PreviewAudioFlight>>>,
+    key: &str,
+    flight: &Arc<PreviewAudioFlight>,
+) {
+    if let Ok(mut in_flight) = flights.lock() {
+        if in_flight
+            .get(key)
+            .is_some_and(|current| Arc::ptr_eq(current, flight) && Arc::strong_count(current) == 2)
+        {
+            in_flight.remove(key);
+        }
+    }
+}
+
 fn preview_audio_cache_ttl(raw_url: &str) -> Duration {
-    let Some(expiry) = url::Url::parse(raw_url).ok().and_then(|url| {
-        url.query_pairs().find_map(|(key, value)| {
-            matches!(key.as_ref(), "expire" | "Expires" | "expires")
-                .then(|| value.parse::<i64>().ok())
-                .flatten()
-        })
-    }) else {
+    preview_audio_cache_ttl_at(raw_url, Utc::now().timestamp())
+}
+
+fn preview_audio_cache_ttl_at(raw_url: &str, now: i64) -> Duration {
+    let Ok(url) = url::Url::parse(raw_url) else {
+        return Duration::ZERO;
+    };
+    let mut pairs = HashMap::new();
+    for (key, value) in url.query_pairs() {
+        let key = key.to_ascii_lowercase();
+        let is_expiry = matches!(
+            key.as_str(),
+            "expire"
+                | "expires"
+                | "x-amz-date"
+                | "x-amz-expires"
+                | "x-goog-date"
+                | "x-goog-expires"
+        );
+        if pairs.insert(key, value.into_owned()).is_some() && is_expiry {
+            // Duplicate signing fields have ambiguous server semantics.
+            return Duration::ZERO;
+        }
+    }
+    let mut expiries: Vec<i64> = Vec::new();
+    for key in ["expire", "expires"] {
+        if let Some(raw) = pairs.get(key) {
+            let Ok(expiry) = raw.parse() else {
+                return Duration::ZERO;
+            };
+            expiries.push(expiry);
+        }
+    }
+    // AWS and Google signatures specify a signing timestamp plus a lifetime.
+    // An incomplete signature cannot safely be assigned the ordinary cache TTL.
+    for prefix in ["x-amz", "x-goog"] {
+        let date = pairs.get(&format!("{prefix}-date"));
+        let lifetime = pairs.get(&format!("{prefix}-expires"));
+        if date.is_some() || lifetime.is_some() {
+            let expiry = date
+                .and_then(|date| chrono::NaiveDateTime::parse_from_str(date, "%Y%m%dT%H%M%SZ").ok())
+                .zip(lifetime.and_then(|value| value.parse::<i64>().ok()))
+                .and_then(|(date, lifetime)| {
+                    (lifetime >= 0).then(|| date.and_utc().timestamp().saturating_add(lifetime))
+                });
+            match expiry {
+                Some(expiry) => expiries.push(expiry),
+                None => return Duration::ZERO,
+            }
+        }
+    }
+    let Some(expiry) = expiries.into_iter().min() else {
         return PREVIEW_AUDIO_CACHE_TTL;
     };
-    let seconds = expiry
-        .saturating_sub(Utc::now().timestamp())
-        .saturating_sub(30);
-    Duration::from_secs(seconds.max(0) as u64).min(PREVIEW_AUDIO_CACHE_TTL)
+    Duration::from_secs(expiry.saturating_sub(now).saturating_sub(30).max(0) as u64)
+        .min(PREVIEW_AUDIO_CACHE_TTL)
 }
 
 fn remove_flight_if_unused(
@@ -1494,6 +2223,53 @@ impl CandidateSearchCache {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
     {
+        let (_tx, cancel) = idle_cancel();
+        self.get_or_search_cancelled(key, cancel, load).await
+    }
+
+    async fn get_or_search_cancelled<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        load: F,
+    ) -> Result<Vec<Candidate>, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+    {
+        self.get_or_search_cancelled_observed(key, cancel, None, load)
+            .await
+    }
+
+    async fn get_or_search_cancelled_traced<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        trace: crate::playback_sources::SourceTrace,
+        load: F,
+    ) -> Result<Vec<Candidate>, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+    {
+        self.get_or_search_cancelled_observed(key, cancel, Some(trace), load)
+            .await
+    }
+
+    async fn get_or_search_cancelled_observed<F, Fut>(
+        &self,
+        key: String,
+        mut cancel: watch::Receiver<bool>,
+        trace: Option<crate::playback_sources::SourceTrace>,
+        load: F,
+    ) -> Result<Vec<Candidate>, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+    {
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
         let gate = self
             .in_flight
             .lock()
@@ -1501,20 +2277,75 @@ impl CandidateSearchCache {
             .entry(key.clone())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone();
-        let guard = gate.lock().await;
+        let trace_enabled = trace.as_ref().is_some_and(|trace| trace.is_enabled());
+        let (guard, waited_for_gate) = if trace_enabled {
+            match gate.try_lock() {
+                Ok(guard) => (guard, false),
+                Err(_) => {
+                    let guard = tokio::select! {
+                        guard = gate.lock() => guard,
+                        _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
+                            self.remove_flight_if_unused(&key, &gate);
+                            return Err("Cancelled".into());
+                        }
+                    };
+                    (guard, true)
+                }
+            }
+        } else {
+            let guard = tokio::select! {
+                guard = gate.lock() => guard,
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
+                    self.remove_flight_if_unused(&key, &gate);
+                    return Err("Cancelled".into());
+                }
+            };
+            (guard, false)
+        };
+        if *cancel.borrow() {
+            drop(guard);
+            self.remove_flight_if_unused(&key, &gate);
+            return Err("Cancelled".into());
+        }
         if let Some(cached) = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, v| v.cached_at.elapsed() < SEARCH_CACHE_TTL);
             entries.get(&key).map(|v| v.candidates.clone())
         }) {
             drop(guard);
             self.remove_flight_if_unused(&key, &gate);
+            if trace_enabled {
+                if let Some(trace) = &trace {
+                    trace.event_scoped(
+                        if waited_for_gate {
+                            "playback_candidate_search_cache_waited_hit"
+                        } else {
+                            "playback_candidate_search_cache_hit"
+                        },
+                        serde_json::json!({"resultCount":cached.len()}),
+                    );
+                }
+            }
             return Ok(cached);
         }
+        let cache_miss_observed_elapsed_ms = trace_enabled
+            .then(|| trace.as_ref().map(|trace| trace.elapsed_ms()))
+            .flatten();
         let candidates = match load().await {
             Ok(candidates) => candidates,
             Err(error) => {
                 drop(guard);
                 self.remove_flight_if_unused(&key, &gate);
+                if trace_enabled {
+                    if let Some(trace) = &trace {
+                        trace.event_scoped(
+                            "playback_candidate_search_cache_miss",
+                            serde_json::json!({
+                                "waitedForGate":waited_for_gate,
+                                "observedElapsedMs":cache_miss_observed_elapsed_ms
+                            }),
+                        );
+                    }
+                }
                 return Err(error);
             }
         };
@@ -1539,6 +2370,17 @@ impl CandidateSearchCache {
         }
         drop(guard);
         self.remove_flight_if_unused(&key, &gate);
+        if trace_enabled {
+            if let Some(trace) = &trace {
+                trace.event_scoped(
+                    "playback_candidate_search_cache_miss",
+                    serde_json::json!({
+                        "waitedForGate":waited_for_gate,
+                        "observedElapsedMs":cache_miss_observed_elapsed_ms
+                    }),
+                );
+            }
+        }
         Ok(candidates)
     }
 
@@ -1572,6 +2414,34 @@ fn search_cache_key(
     .to_string()
 }
 
+fn playback_candidate_search_cache_key(
+    track: &Track,
+    provider_ids: &[String],
+    settings: &Settings,
+    alternate_artists: &[String],
+) -> String {
+    format!(
+        "{}:playback-source-search:{}",
+        search_cache_key(track, provider_ids, settings, 3),
+        serde_json::to_string(alternate_artists).unwrap_or_default(),
+    )
+}
+
+fn preview_audio_cache_key(
+    candidate: &Candidate,
+    settings: &Settings,
+    alternate_format: bool,
+) -> String {
+    serde_json::json!([
+        candidate.provider,
+        candidate.url,
+        settings.yt_dlp_path,
+        settings.js_runtime_path,
+        alternate_format,
+    ])
+    .to_string()
+}
+
 pub async fn inspect_candidate(
     track: &Track,
     candidate: &Candidate,
@@ -1593,7 +2463,13 @@ pub async fn inspect_chapters(
 }
 
 fn chapter_artist_title(label: &str) -> (String, String, &'static str) {
-    if let Some((artist, title)) = label.split_once(" - ") {
+    if let Some((separator_at, separator)) = [" — ", " – ", " - "]
+        .iter()
+        .filter_map(|separator| label.find(*separator).map(|index| (index, *separator)))
+        .min_by_key(|(index, _)| *index)
+    {
+        let (artist, title) = label.split_at(separator_at);
+        let title = &title[separator.len()..];
         let artist = artist.trim();
         let title = title.trim();
         if !artist.is_empty() && !title.is_empty() {
@@ -1629,23 +2505,77 @@ fn verified_chapter_suggestion<'a>(
     .then_some(track)
 }
 
-async fn resolve_preview_audio(
+async fn resolve_preview_audio_with_options(
     candidate: &Candidate,
     settings: &Settings,
     mut cancel: watch::Receiver<bool>,
+    alternate_format: bool,
 ) -> Result<PreviewAudio, String> {
+    resolve_preview_audio_with_trace(
+        candidate,
+        settings,
+        cancel,
+        alternate_format,
+        None,
+        crate::playback_sources::PlaybackDeadline::after(PREVIEW_SEARCH_TIMEOUT),
+    )
+    .await
+}
+
+async fn resolve_preview_audio_with_trace(
+    candidate: &Candidate,
+    settings: &Settings,
+    mut cancel: watch::Receiver<bool>,
+    alternate_format: bool,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<PreviewAudio, String> {
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.remaining().is_zero() {
+        return Err("yt-dlp operation timed out".into());
+    }
     if candidate.provider == "monochrome" {
         crate::monochrome::validate_url(&candidate.url)?;
-        let client = crate::monochrome::Client::new()?;
-        let inspected = tokio::select! {
-            result = client.inspect(candidate) => result?,
-            _ = cancel.changed() => return Err("Cancelled".into()),
+        let client_span = trace.clone().map(|trace| {
+            crate::playback_sources::TraceSpan::begin(
+                trace,
+                "monochrome",
+                "monochrome_client_setup_start",
+                "monochrome_client_setup_end",
+            )
+        });
+        let client = match crate::monochrome::Client::new() {
+            Ok(client) => {
+                if let Some(span) = client_span {
+                    span.finish("success");
+                }
+                client
+            }
+            Err(error) => {
+                if let Some(span) = client_span {
+                    span.finish("failed");
+                }
+                return Err(error);
+            }
         };
+        let inspected =
+            traced_monochrome_probe(trace.clone(), cancel.clone(), || client.inspect(candidate))
+                .await?;
         return Ok(PreviewAudio {
             url: inspected.url,
             codec: inspected.formats.first().map(|format| format.codec.clone()),
             bitrate_kbps: inspected.formats.first().and_then(|format| format.bitrate),
             duration_seconds: inspected.duration_seconds,
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: None,
+            resolved_provider_id: None,
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            headers: vec![],
             mime_type: if inspected.formats[0].lossless {
                 "audio/flac"
             } else {
@@ -1654,6 +2584,9 @@ async fn resolve_preview_audio(
             .into(),
         });
     }
+    if candidate.provider == "bandcamp" {
+        return resolve_bandcamp_preview_audio(candidate, cancel, trace, deadline).await;
+    }
     if !matches!(candidate.provider.as_str(), "youtube" | "soundcloud") {
         return Err("Audio preview is available only for YouTube and SoundCloud candidates".into());
     }
@@ -1661,33 +2594,79 @@ async fn resolve_preview_audio(
         return Err("Cancelled".into());
     }
     let source = validate_source_url(&candidate.url, &candidate.provider)?;
-    let _addresses = tokio::select! {
-        result = public_addresses(&source) => result?,
-        _ = cancel.changed() => return Err("Cancelled".into()),
-    };
+    let dns_started = Instant::now();
+    if let Some(trace) = &trace {
+        trace.event(
+            "dns_source_start",
+            &candidate.provider,
+            serde_json::json!({}),
+        );
+    }
+    let addresses_result = run_playback_stage(
+        cancel.clone(),
+        deadline.instant(),
+        "yt-dlp operation timed out",
+        public_addresses(&source),
+    )
+    .await;
+    if let Some(trace) = &trace {
+        trace.event("dns_source_end", &candidate.provider, serde_json::json!({"durationMs":dns_started.elapsed().as_millis(), "ok":addresses_result.is_ok(), "addressCount":addresses_result.as_ref().map_or(0, Vec::len)}));
+    }
+    let _addresses = addresses_result?;
     let mut args = base_args(settings);
-    tokio::select! {
-        result = add_youtube_support_args(&mut args, &candidate.provider) => result?,
-        _ = cancel.changed() => return Err("Cancelled".into()),
+    let helper_started = Instant::now();
+    if let Some(trace) = &trace {
+        trace.event(
+            "provider_prepare_start",
+            &candidate.provider,
+            serde_json::json!({}),
+        );
+    }
+    let helper_result = run_playback_stage(
+        cancel.clone(),
+        deadline.instant(),
+        "yt-dlp operation timed out",
+        add_youtube_support_args(&mut args, &candidate.provider, settings),
+    )
+    .await;
+    if let Some(trace) = &trace {
+        trace.event("provider_prepare_end", &candidate.provider, serde_json::json!({"durationMs":helper_started.elapsed().as_millis(), "ok":helper_result.is_ok()}));
+    }
+    helper_result?;
+    // The bundled provider supports token-bearing mobile web playback. Avoid
+    // selecting a TV URL that does not use the available GVS token provider.
+    if candidate.provider == "youtube"
+        && crate::youtube_support::global().is_some()
+        && uses_managed_ytdlp(&settings.yt_dlp_path)
+    {
+        args.extend([
+            "--extractor-args".into(),
+            "youtube:player_client=mweb".into(),
+        ]);
     }
     args.extend([
         "--dump-single-json".into(),
         "--no-playlist".into(),
         "--skip-download".into(),
         "--format".into(),
-        PREVIEW_AUDIO_FORMAT_SELECTOR.into(),
+        preview_audio_format_selector(alternate_format, candidate.provider == "youtube").into(),
         "--".into(),
         candidate.url.clone(),
     ]);
-    let raw = run_tool(
-        settings,
-        args,
-        cancel.clone(),
-        PREVIEW_SEARCH_TIMEOUT,
-        |_| {},
-    )
-    .await
-    .map_err(|error| {
+    let extraction_started = Instant::now();
+    if let Some(trace) = &trace {
+        trace.event(
+            "extraction_start",
+            &candidate.provider,
+            serde_json::json!({}),
+        );
+    }
+    let extraction_result =
+        run_tool_until(settings, args, cancel.clone(), deadline.instant(), |_| {}).await;
+    if let Some(trace) = &trace {
+        trace.event("extraction_end", &candidate.provider, serde_json::json!({"durationMs":extraction_started.elapsed().as_millis(), "ok":extraction_result.is_ok()}));
+    }
+    let raw = extraction_result.map_err(|error| {
         if error == "Cancelled" {
             "Cancelled".to_string()
         } else if error.contains("timed out") {
@@ -1700,11 +2679,674 @@ async fn resolve_preview_audio(
         .map_err(|_| "yt-dlp returned invalid audio stream metadata".to_string())?;
     let audio = preview_audio_from_metadata(candidate, &info)?;
     let stream = validate_source_url(&audio.url, "direct")?;
-    let _stream_addresses = tokio::select! {
-        result = public_addresses(&stream) => result?,
-        _ = cancel.changed() => return Err("Cancelled".into()),
-    };
+    let dns_started = Instant::now();
+    if let Some(trace) = &trace {
+        trace.event(
+            "dns_stream_start",
+            &candidate.provider,
+            serde_json::json!({}),
+        );
+    }
+    let stream_addresses_result = run_playback_stage(
+        cancel.clone(),
+        deadline.instant(),
+        "yt-dlp operation timed out",
+        public_addresses(&stream),
+    )
+    .await;
+    if let Some(trace) = &trace {
+        trace.event("dns_stream_end", &candidate.provider, serde_json::json!({"durationMs":dns_started.elapsed().as_millis(), "ok":stream_addresses_result.is_ok(), "addressCount":stream_addresses_result.as_ref().map_or(0, Vec::len)}));
+    }
+    let stream_addresses = stream_addresses_result?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(
+            stream.host_str().ok_or("Missing stream host")?,
+            &stream_addresses,
+        )
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|_| "Could not initialize audio access check".to_owned())?;
+    run_playback_stage(
+        cancel.clone(),
+        deadline.instant(),
+        "Audio stream resolution timed out",
+        async {
+            verify_preview_audio_access_with_trace(
+                &client,
+                &stream,
+                &audio.headers,
+                audio.expected_content_length,
+                &mut cancel,
+                trace.clone(),
+                &candidate.provider,
+            )
+            .await
+        },
+    )
+    .await?;
     Ok(audio)
+}
+
+async fn traced_monochrome_probe<F, Fut>(
+    trace: Option<crate::playback_sources::SourceTrace>,
+    cancel: watch::Receiver<bool>,
+    probe: F,
+) -> Result<crate::models::Candidate, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<crate::models::Candidate, String>>,
+{
+    let span = trace.map(|trace| {
+        crate::playback_sources::TraceSpan::begin(
+            trace,
+            "monochrome",
+            "monochrome_probe_start",
+            "monochrome_probe_end",
+        )
+    });
+    let result = tokio::select! {
+        result = probe() => result,
+        _ = crate::playback_sources::wait_for_cancellation(cancel) => Err("Cancelled".into()),
+    };
+    if let Some(span) = span {
+        span.finish(if result.is_ok() {
+            "success"
+        } else if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| error == "Cancelled")
+        {
+            "cancelled"
+        } else {
+            "failed"
+        });
+    }
+    result
+}
+
+async fn resolve_bandcamp_preview_audio(
+    candidate: &Candidate,
+    mut cancel: watch::Receiver<bool>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<PreviewAudio, String> {
+    if !crate::bandcamp::playback_enabled() {
+        return Err("Bandcamp playback is disabled".into());
+    }
+    let resolved = tokio::select! {
+        result = crate::bandcamp::resolve_track_page_audio(&candidate.url, cancel.clone(), deadline.instant()) => result?,
+        _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+        _ = tokio::time::sleep_until(deadline.instant()) => return Err("Audio stream resolution timed out".into()),
+    };
+    let stream = validate_source_url(resolved.stream_url.as_str(), "direct")?;
+    let stream_host = stream.host_str().ok_or("Bandcamp audio host is missing")?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(8))
+        .resolve_to_addrs(stream_host, &resolved.stream_addresses)
+        .build()
+        .map_err(|_| "Could not initialize Bandcamp audio access".to_owned())?;
+    let probe = verify_bandcamp_stream_access(
+        &client,
+        &stream,
+        resolved.duration_seconds,
+        &mut cancel,
+        trace,
+    );
+    let expected_content_length = tokio::time::timeout_at(deadline.instant(), probe)
+        .await
+        .map_err(|_| "Bandcamp audio resolution exceeded the playback deadline".to_owned())??;
+    Ok(PreviewAudio {
+        url: resolved.stream_url.to_string(),
+        mime_type: "audio/mpeg".into(),
+        codec: Some("mp3".into()),
+        bitrate_kbps: Some(128.0),
+        duration_seconds: Some(resolved.duration_seconds),
+        selected_format_id: Some("mp3-128".into()),
+        selected_format_has_video: false,
+        source_metadata: Some(serde_json::json!({
+            "channel": resolved.artist.clone(),
+            "uploader": resolved.artist.clone(),
+        })),
+        // The shared strict matcher expects provider titles to include the
+        // credited artist. Keep the parsed artist separately as well so the
+        // identity gate can reject an artist mismatch directly.
+        resolved_title: Some(format!("{} {}", resolved.artist, resolved.title)),
+        resolved_provider_id: Some(resolved.provider_id),
+        chapters: Some(vec![]),
+        expected_content_length: Some(expected_content_length),
+        headers: vec![],
+    })
+}
+
+/// Metadata extraction can succeed before a CDN edge is ready to serve a fresh
+/// signed URL. Check real bytes before caching it or handing it to the webview.
+/// A single delayed 403 retry gives the same URL time to propagate; throttling
+/// and server errors use a shorter backoff.
+async fn verify_preview_audio_access(
+    client: &reqwest::Client,
+    stream: &url::Url,
+    headers: &[(String, String)],
+    expected_content_length: Option<u64>,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<(), String> {
+    verify_preview_audio_access_with_trace(
+        client,
+        stream,
+        headers,
+        expected_content_length,
+        cancel,
+        None,
+        "other",
+    )
+    .await
+}
+
+async fn verify_preview_audio_access_with_trace(
+    client: &reqwest::Client,
+    stream: &url::Url,
+    headers: &[(String, String)],
+    expected_content_length: Option<u64>,
+    cancel: &mut watch::Receiver<bool>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    provider: &str,
+) -> Result<(), String> {
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if let Some(length) = expected_content_length.filter(|n| *n > 0) {
+        let first_end = length.saturating_sub(1).min(1023);
+        let first_range = (0, first_end);
+        let tail_range =
+            (length > PREVIEW_TAIL_PROBE_THRESHOLD).then(|| (length - 1024, length - 1));
+        let first_future = send_preview_range(
+            client,
+            stream,
+            headers,
+            first_range,
+            cancel.clone(),
+            trace.clone(),
+            provider,
+            "head",
+        );
+        if let Some(tail_range) = tail_range {
+            let tail_future = send_preview_range(
+                client,
+                stream,
+                headers,
+                tail_range,
+                cancel.clone(),
+                trace.clone(),
+                provider,
+                "tail",
+            );
+            let (first, tail) = tokio::try_join!(first_future, tail_future)?;
+            validate_preview_range(
+                first,
+                first_range,
+                length,
+                cancel,
+                trace.clone(),
+                provider,
+                "head",
+            )
+            .await?;
+            validate_preview_range(
+                tail,
+                tail_range,
+                length,
+                cancel,
+                trace.clone(),
+                provider,
+                "tail",
+            )
+            .await?;
+        } else {
+            validate_preview_range(
+                first_future.await?,
+                first_range,
+                length,
+                cancel,
+                trace.clone(),
+                provider,
+                "head",
+            )
+            .await?;
+        }
+        return Ok(());
+    }
+
+    let mut response = send_preview_range(
+        client,
+        stream,
+        headers,
+        (0, 1023),
+        cancel.clone(),
+        trace.clone(),
+        provider,
+        "head",
+    )
+    .await?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Audio source denied stream access (HTTP {})",
+            response.status().as_u16()
+        ));
+    }
+    if response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.to_ascii_lowercase().starts_with("text/html"))
+    {
+        return Err("The audio source returned a web page instead of audio".into());
+    }
+    let body_result = tokio::select! {
+        bytes = response.chunk() => bytes.map_err(|error| ("Audio stream could not deliver audio bytes".to_owned(), preview_probe_error_class(&error))),
+        _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+    };
+    if let Some(trace) = &trace {
+        trace.event("stream_probe_body_end", provider, serde_json::json!({"role":"head","ok":body_result.is_ok(),"errorClass":body_result.as_ref().err().map(|(_, class)| *class)}));
+    }
+    let bytes = body_result.map_err(|(message, _)| message)?;
+    if bytes.is_some_and(|bytes| !bytes.is_empty()) {
+        Ok(())
+    } else {
+        Err("The audio source returned an empty stream".into())
+    }
+}
+
+fn parse_bandcamp_content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let rest = value.strip_prefix("bytes ")?;
+    let (range, total) = rest.split_once('/')?;
+    if total == "*" {
+        return None;
+    }
+    let (start, end) = range.split_once('-')?;
+    Some((start.parse().ok()?, end.parse().ok()?, total.parse().ok()?))
+}
+
+async fn verify_bandcamp_stream_access(
+    client: &reqwest::Client,
+    stream: &url::Url,
+    duration_seconds: f64,
+    cancel: &mut watch::Receiver<bool>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+) -> Result<u64, String> {
+    let mut response = send_preview_range(
+        client,
+        stream,
+        &[],
+        (0, 1023),
+        cancel.clone(),
+        trace.clone(),
+        "bandcamp",
+        "head",
+    )
+    .await?;
+    let content_range = response
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let content_length = response.content_length();
+    let mut bytes = Vec::with_capacity(1024);
+    loop {
+        let chunk = tokio::select! {
+            chunk = response.chunk() => chunk.map_err(|_| "Bandcamp audio stream could not deliver bytes".to_owned())?,
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+        };
+        let Some(chunk) = chunk else { break };
+        if bytes.len().saturating_add(chunk.len()) > 1024 {
+            return Err("Bandcamp audio stream exceeded its bounded probe".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let total = validate_bandcamp_probe(
+        response.status(),
+        content_range.as_deref(),
+        content_length,
+        content_type.as_deref(),
+        duration_seconds,
+        &bytes,
+    )?;
+
+    let tail_range = (total - 1024, total - 1);
+    let mut tail = send_preview_range(
+        client,
+        stream,
+        &[],
+        tail_range,
+        cancel.clone(),
+        trace,
+        "bandcamp",
+        "tail",
+    )
+    .await?;
+    let tail_status = tail.status();
+    let tail_content_range = tail
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let tail_content_type = tail
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let tail_content_length = tail.content_length();
+    let mut tail_bytes = Vec::with_capacity(1024);
+    loop {
+        let chunk = tokio::select! {
+            chunk = tail.chunk() => chunk.map_err(|_| "Bandcamp audio stream could not deliver bytes".to_owned())?,
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+        };
+        let Some(chunk) = chunk else { break };
+        if tail_bytes.len().saturating_add(chunk.len()) > 1024 {
+            return Err("Bandcamp audio stream exceeded its bounded tail probe".into());
+        }
+        tail_bytes.extend_from_slice(&chunk);
+    }
+    validate_bandcamp_tail_probe(
+        tail_status,
+        tail_content_range.as_deref(),
+        tail_content_length,
+        tail_content_type.as_deref(),
+        tail_range,
+        total,
+        &tail_bytes,
+    )?;
+    Ok(total)
+}
+
+fn validate_bandcamp_probe(
+    status: reqwest::StatusCode,
+    content_range: Option<&str>,
+    content_length: Option<u64>,
+    content_type: Option<&str>,
+    duration_seconds: f64,
+    bytes: &[u8],
+) -> Result<u64, String> {
+    if status != reqwest::StatusCode::PARTIAL_CONTENT {
+        return Err(if status.is_client_error() {
+            "Bandcamp did not allow a bounded public audio read".into()
+        } else {
+            "Bandcamp audio stream did not honor a bounded byte-range request".into()
+        });
+    }
+    let Some((start, end, total)) = content_range.and_then(parse_bandcamp_content_range) else {
+        return Err("Bandcamp audio stream returned an invalid bounded range".into());
+    };
+    if start != 0
+        || end < start
+        || end > 1023
+        || total <= end
+        || bytes.len() as u64 != end - start + 1
+        || content_length.is_some_and(|length| length != end - start + 1)
+    {
+        return Err("Bandcamp audio stream returned an invalid bounded range".into());
+    }
+    if !content_type.is_some_and(|value| value.to_ascii_lowercase().starts_with("audio/mpeg")) {
+        return Err("Bandcamp did not return MP3 audio".into());
+    }
+    if !valid_mp3_header(bytes) {
+        return Err("Bandcamp audio stream did not contain a valid MP3 header".into());
+    }
+    if !duration_seconds.is_finite() || duration_seconds <= 0.0 {
+        return Err("Bandcamp track duration is invalid".into());
+    }
+    // At 128 kbps, a full MP3 should be close to 16 kB per second. A 75%
+    // floor tolerates variable bitrate and tag overhead while rejecting short
+    // previews whose page metadata still advertises the full track duration.
+    let expected_minimum = (duration_seconds * 16_000.0 * 0.75).floor() as u64;
+    if total < expected_minimum {
+        return Err("Bandcamp stream is shorter than the advertised full track".into());
+    }
+    Ok(total)
+}
+
+fn valid_mp3_header(bytes: &[u8]) -> bool {
+    if bytes.len() >= 10
+        && &bytes[..3] == b"ID3"
+        && (2..=4).contains(&bytes[3])
+        && bytes[4] != 0xff
+        && bytes[5] & 0x0f == 0
+        && bytes[6..10].iter().all(|byte| byte & 0x80 == 0)
+    {
+        return true;
+    }
+    bytes.windows(4).any(|header| {
+        header[0] == 0xff
+            && header[1] & 0xe0 == 0xe0
+            && (header[1] >> 1) & 0x03 != 0
+            && header[2] >> 4 != 0
+            && header[2] >> 4 != 0x0f
+            && (header[2] >> 2) & 0x03 != 0x03
+    })
+}
+
+fn validate_bandcamp_tail_probe(
+    status: reqwest::StatusCode,
+    content_range: Option<&str>,
+    content_length: Option<u64>,
+    content_type: Option<&str>,
+    expected_range: (u64, u64),
+    expected_total: u64,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let valid_range = content_range.and_then(parse_bandcamp_content_range)
+        == Some((expected_range.0, expected_range.1, expected_total));
+    let expected_bytes = expected_range.1 - expected_range.0 + 1;
+    if status != reqwest::StatusCode::PARTIAL_CONTENT
+        || !valid_range
+        || expected_bytes > 1024
+        || bytes.len() as u64 != expected_bytes
+        || content_length.is_some_and(|length| length != expected_bytes)
+        || !content_type.is_some_and(|value| value.to_ascii_lowercase().starts_with("audio/mpeg"))
+    {
+        return Err("Bandcamp audio stream returned an invalid bounded tail range".into());
+    }
+    Ok(())
+}
+
+async fn send_preview_range(
+    client: &reqwest::Client,
+    stream: &url::Url,
+    headers: &[(String, String)],
+    range: (u64, u64),
+    mut cancel: watch::Receiver<bool>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    provider: &str,
+    role: &'static str,
+) -> Result<reqwest::Response, String> {
+    for attempt in 0..2 {
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        let mut request = client.get(stream.clone()).header(
+            reqwest::header::RANGE,
+            format!("bytes={}-{}", range.0, range.1),
+        );
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+        let probe_started = Instant::now();
+        if let Some(trace) = &trace {
+            trace.event(
+                "stream_probe_start",
+                provider,
+                serde_json::json!({"role":role,"attempt":attempt+1}),
+            );
+        }
+        let (response_result, error_class) = tokio::select! {
+            response = request.send() => match response {
+                Ok(response) => (Ok(response), None),
+                Err(error) => (Err("Audio stream access check failed".to_owned()), Some(preview_probe_error_class(&error))),
+            },
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => (Err("Cancelled".into()), None),
+        };
+        if let Some(trace) = &trace {
+            trace.event("stream_probe_end", provider, serde_json::json!({"role":role,"attempt":attempt+1,"durationMs":probe_started.elapsed().as_millis(),"ok":response_result.is_ok(),"status":response_result.as_ref().ok().map(|r| r.status().as_u16()),"errorClass":error_class}));
+        }
+        let response = response_result?;
+        if attempt == 0 && provider != "bandcamp" {
+            let Some(delay) = preview_access_retry_delay(response.status()) else {
+                return Ok(response);
+            };
+            if let Some(trace) = &trace {
+                trace.event("stream_probe_retry_wait", provider, serde_json::json!({"role":role,"attempt":attempt+1,"status":response.status().as_u16(),"expectedDelayMs":delay.as_millis()}));
+            }
+            drop(response);
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {},
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+            }
+            continue;
+        }
+        return Ok(response);
+    }
+    unreachable!()
+}
+
+async fn validate_preview_range(
+    mut response: reqwest::Response,
+    range: (u64, u64),
+    total: u64,
+    cancel: &mut watch::Receiver<bool>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    provider: &str,
+    role: &'static str,
+) -> Result<(), String> {
+    if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        return Err(if response.status().is_success() {
+            "Audio source did not honor a bounded byte-range request".into()
+        } else {
+            format!(
+                "Audio source denied stream access (HTTP {})",
+                response.status().as_u16()
+            )
+        });
+    }
+    if response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.to_ascii_lowercase().starts_with("text/html"))
+    {
+        return Err("The audio source returned a web page instead of audio".into());
+    }
+    let content_range = response
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_content_range)
+        .ok_or("Audio source returned an invalid byte range")?;
+    if content_range != (range.0, range.1, total) {
+        return Err("Audio source returned an inconsistent byte range".into());
+    }
+    let Some(expected_bytes) = range
+        .1
+        .checked_sub(range.0)
+        .and_then(|size| size.checked_add(1))
+        .filter(|size| (1..=1024).contains(size))
+    else {
+        return Err("Audio source returned an invalid byte range".into());
+    };
+    if response
+        .content_length()
+        .is_some_and(|declared| declared != expected_bytes)
+    {
+        if let Some(trace) = &trace {
+            trace.event(
+                "stream_probe_body_end",
+                provider,
+                serde_json::json!({"role":role,"ok":false,"errorClass":"body"}),
+            );
+        }
+        return Err("Audio source returned an inconsistent byte range".into());
+    }
+    let mut received = 0u64;
+    let body_error = loop {
+        let next = tokio::select! {
+            bytes = response.chunk() => bytes.map_err(|error| ("Audio stream could not deliver audio bytes".to_owned(), preview_probe_error_class(&error))),
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+        };
+        match next {
+            Err((message, class)) => break Some((message, class)),
+            Ok(None) if received != expected_bytes => {
+                break Some((
+                    "Audio source returned a truncated byte range".to_owned(),
+                    "body",
+                ));
+            }
+            Ok(None) => break None,
+            Ok(Some(bytes)) => {
+                let Some(next_received) = received.checked_add(bytes.len() as u64) else {
+                    break Some((
+                        "Audio source returned an oversized byte range".to_owned(),
+                        "body",
+                    ));
+                };
+                if next_received > expected_bytes {
+                    break Some((
+                        "Audio source returned an oversized byte range".to_owned(),
+                        "body",
+                    ));
+                }
+                received = next_received;
+                if received == expected_bytes {
+                    break None;
+                }
+            }
+        }
+    };
+    if let Some(trace) = &trace {
+        trace.event("stream_probe_body_end", provider, serde_json::json!({"role":role,"ok":body_error.is_none(),"errorClass":body_error.as_ref().map(|(_, class)| *class)}));
+    }
+    body_error.map_or(Ok(()), |(message, _)| Err(message))
+}
+
+/// Classify only reqwest's finite error-kind flags. Never inspect or serialize
+/// the error text, request URL, peer address, headers, or response body.
+fn preview_probe_error_class(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_request() || error.is_builder() {
+        "request"
+    } else if error.is_body() || error.is_decode() {
+        "body"
+    } else {
+        "other"
+    }
+}
+
+fn parse_content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let value = value.strip_prefix("bytes ")?;
+    let (range, total) = value.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    Some((start.parse().ok()?, end.parse().ok()?, total.parse().ok()?))
+}
+
+fn preview_access_retry_delay(status: reqwest::StatusCode) -> Option<Duration> {
+    if status == reqwest::StatusCode::FORBIDDEN {
+        Some(Duration::from_millis(1500))
+    } else if status.as_u16() == 429 || status.is_server_error() {
+        Some(Duration::from_millis(300))
+    } else {
+        None
+    }
 }
 
 fn preview_audio_from_metadata(
@@ -1722,15 +3364,20 @@ fn preview_audio_from_metadata(
     let codec = info["acodec"]
         .as_str()
         .filter(|codec| *codec != "none")
-        .ok_or("yt-dlp did not select an audio-only stream")?;
+        .ok_or("yt-dlp did not select an audio stream")?;
     let progressive = matches!(info["protocol"].as_str(), Some("http" | "https"));
     let soundcloud_hls = candidate.provider == "soundcloud"
         && matches!(info["protocol"].as_str(), Some("m3u8" | "m3u8_native"));
     if !progressive && !soundcloud_hls {
         return Err("This source has no supported audio stream".into());
     }
-    if info["vcodec"].as_str().is_some_and(|codec| codec != "none") {
-        return Err("yt-dlp selected a video stream instead of audio-only".into());
+    let has_video = info["vcodec"].as_str().is_some_and(|codec| codec != "none");
+    let muxed_youtube_mp4 = candidate.provider == "youtube"
+        && info["ext"].as_str() == Some("mp4")
+        && info["protocol"].as_str() == Some("https")
+        && has_video;
+    if has_video && !muxed_youtube_mp4 {
+        return Err("yt-dlp selected an unsupported video stream".into());
     }
     if !candidate.id.is_empty() {
         let resolved_id = info["id"].as_str().unwrap_or_default();
@@ -1745,13 +3392,29 @@ fn preview_audio_from_metadata(
     let host = stream.host_str().ok_or("Missing audio stream hostname")?;
     let allowed_cdn = match candidate.provider.as_str() {
         "youtube" => host_matches(host, "googlevideo.com"),
-        "soundcloud" => host_matches(host, "sndcdn.com") || host_matches(host, "soundcloud.com"),
+        "soundcloud" => {
+            host_matches(host, "sndcdn.com")
+                || host_matches(host, "soundcloud.com")
+                // SoundCloud's AAC HLS migration uses this first-party host;
+                // yt-dlp returns it for tracks such as Fred again..'s Secret
+                // Life piano set. Keep the exception exact rather than
+                // trusting arbitrary subdomains of soundcloud.cloud.
+                || host == "playback.media-streaming.soundcloud.cloud"
+        }
         _ => false,
     };
     if !allowed_cdn {
         return Err("yt-dlp returned a stream outside the provider media hosts".into());
     }
-    let mime_type = audio_mime_type(info["ext"].as_str().unwrap_or_default(), codec)?;
+    let mime_type = if info["protocol"]
+        .as_str()
+        .is_some_and(|protocol| protocol.starts_with("m3u8"))
+        || stream.path().to_ascii_lowercase().ends_with(".m3u8")
+    {
+        "application/vnd.apple.mpegurl".into()
+    } else {
+        audio_mime_type(info["ext"].as_str().unwrap_or_default(), codec)?
+    };
     let duration_seconds = info["duration"]
         .as_f64()
         .filter(|duration| duration.is_finite() && *duration > 0.0);
@@ -1763,7 +3426,136 @@ fn preview_audio_from_metadata(
             .as_f64()
             .filter(|value| value.is_finite() && *value > 0.0),
         duration_seconds,
+        selected_format_id: safe_extractor_format_id(info["format_id"].as_str()),
+        selected_format_has_video: info["vcodec"].as_str().is_some_and(|codec| codec != "none"),
+        source_metadata: topic_identity_metadata(candidate, info),
+        resolved_title: info["title"].as_str().map(str::to_owned),
+        resolved_provider_id: info["id"].as_str().map(str::to_owned),
+        chapters: Some(parse_source_chapters(info).unwrap_or_default()),
+        expected_content_length: info["filesize"]
+            .as_u64()
+            .filter(|size| *size > 0 && *size <= MAX_PREVIEW_FILE_SIZE),
+        headers: preview_audio_headers(info),
     })
+}
+
+fn safe_extractor_format_id(value: Option<&str>) -> Option<String> {
+    value
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 40
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-'))
+        })
+        .map(str::to_owned)
+}
+
+fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value> {
+    if candidate.provider != "youtube"
+        || !candidate
+            .uploader
+            .as_deref()
+            .is_some_and(|name| name.trim_end().ends_with("- Topic"))
+    {
+        return None;
+    }
+    let artists = info["artists"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && name.len() <= 120)
+        .take(8)
+        .collect::<Vec<_>>();
+    if artists.is_empty() {
+        return None;
+    }
+    let description = info["description"].as_str().unwrap_or_default();
+    let credit_line = description
+        .lines()
+        .take(80)
+        .map(str::trim)
+        .find(|line| {
+            line.len() <= 300
+                && !line.contains("http://")
+                && !line.contains("https://")
+                && artists.iter().all(|artist| {
+                    crate::matching::normalize(line).contains(&crate::matching::normalize(artist))
+                })
+                && crate::matching::normalize(line).contains(&crate::matching::normalize(
+                    info["track"].as_str().unwrap_or_default(),
+                ))
+        })
+        .map(str::to_owned)?;
+    let channel_id = info["channel_id"].as_str().filter(|id| {
+        id.len() == 24
+            && id.starts_with("UC")
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    })?;
+    Some(serde_json::json!({
+        "provider": "youtube",
+        "channelId": channel_id,
+        "channel": info["channel"].as_str().unwrap_or_default(),
+        "track": info["track"].as_str().unwrap_or_default(),
+        "artist": info["artist"].as_str().unwrap_or_default(),
+        "artists": artists,
+        "descriptionCreditLine": credit_line,
+        "duration": info["duration"].as_f64(),
+    }))
+}
+
+fn preview_audio_format_selector(
+    alternate_format: bool,
+    allow_muxed_youtube: bool,
+) -> &'static str {
+    if allow_muxed_youtube && alternate_format {
+        PREVIEW_AUDIO_YOUTUBE_ALTERNATE_FORMAT_SELECTOR
+    } else if allow_muxed_youtube {
+        PREVIEW_AUDIO_YOUTUBE_FORMAT_SELECTOR
+    } else if alternate_format {
+        PREVIEW_AUDIO_ALTERNATE_FORMAT_SELECTOR
+    } else {
+        PREVIEW_AUDIO_FORMAT_SELECTOR
+    }
+}
+
+fn preview_audio_headers(info: &Value) -> Vec<(String, String)> {
+    const ALLOWED: [(&str, &str); 4] = [
+        ("user-agent", "User-Agent"),
+        ("referer", "Referer"),
+        ("origin", "Origin"),
+        ("accept-language", "Accept-Language"),
+    ];
+    let Some(headers) = info.get("http_headers").and_then(Value::as_object) else {
+        return vec![];
+    };
+    ALLOWED
+        .iter()
+        .filter_map(|(lookup, output)| {
+            let value = headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(lookup))?
+                .1
+                .as_str()?
+                .trim();
+            if value.is_empty() || value.len() > 2048 || value.chars().any(char::is_control) {
+                return None;
+            }
+            if matches!(*lookup, "referer" | "origin") {
+                let url = url::Url::parse(value).ok()?;
+                if !matches!(url.scheme(), "http" | "https")
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                {
+                    return None;
+                }
+            }
+            Some(((*output).to_owned(), value.to_owned()))
+        })
+        .collect()
 }
 
 fn audio_mime_type(extension: &str, codec: &str) -> Result<String, String> {
@@ -1840,7 +3632,7 @@ async fn inspect_ytdlp_metadata(
     cancel: watch::Receiver<bool>,
 ) -> Result<Candidate, String> {
     let mut args = base_args(settings);
-    add_youtube_support_args(&mut args, &candidate.provider).await?;
+    add_youtube_support_args(&mut args, &candidate.provider, settings).await?;
     args.extend([
         "--dump-single-json".into(),
         "--no-playlist".into(),
@@ -1943,7 +3735,7 @@ pub struct AcquisitionManager {
     inner: Arc<Inner>,
 }
 struct Inner {
-    app: tauri::AppHandle,
+    app: Option<tauri::AppHandle>,
     store: Arc<Store>,
     connections: Arc<ConnectionManager>,
     analysis: Mutex<Option<Arc<crate::analysis::AnalysisManager>>>,
@@ -1977,6 +3769,22 @@ pub struct SlskdSearchPoll {
 impl AcquisitionManager {
     pub fn new(
         app: tauri::AppHandle,
+        store: Arc<Store>,
+        connections: Arc<ConnectionManager>,
+    ) -> Self {
+        Self::with_optional_app(Some(app), store, connections)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_playback_test(
+        store: Arc<Store>,
+        connections: Arc<ConnectionManager>,
+    ) -> Self {
+        Self::with_optional_app(None, store, connections)
+    }
+
+    fn with_optional_app(
+        app: Option<tauri::AppHandle>,
         store: Arc<Store>,
         connections: Arc<ConnectionManager>,
     ) -> Self {
@@ -2043,7 +3851,7 @@ impl AcquisitionManager {
             let rows = crate::monochrome::Client::new()?.search(query).await?;
             return rows
                 .into_iter()
-                .map(|(track, _)| self.inner.store.save_track(&track))
+                .map(|(track, _)| self.inner.store.cache_track(&track))
                 .collect();
         }
         let query = query.trim();
@@ -2072,6 +3880,38 @@ impl AcquisitionManager {
         self.inner
             .raw_audio_search_cache
             .get_or_search(key, || search_audio_tracks_raw(query, &providers, settings))
+            .await
+    }
+    pub async fn search_audio_tracks_page(
+        &self,
+        query: &str,
+        provider: &str,
+        offset: usize,
+        limit: usize,
+        settings: &Settings,
+    ) -> Result<AudioSearchPage, String> {
+        let query = query.trim();
+        if query.is_empty() || query.chars().count() > 500 {
+            return Err("Search query must contain 1 to 500 characters".into());
+        }
+        if !matches!(provider, "youtube" | "soundcloud") {
+            return Err("Choose YouTube or SoundCloud for audio search".into());
+        }
+        let key = serde_json::json!([
+            "raw-audio-search-page-v1",
+            query,
+            provider,
+            offset,
+            limit,
+            settings.yt_dlp_path,
+            settings.js_runtime_path,
+        ])
+        .to_string();
+        self.inner
+            .raw_audio_search_cache
+            .get_or_search_page(key, || {
+                search_audio_tracks_page_raw(query, provider, offset, limit, settings)
+            })
             .await
     }
 
@@ -2288,7 +4128,9 @@ impl AcquisitionManager {
     }
     fn update(&self, job: &DownloadJob) -> Result<(), String> {
         self.inner.store.save_job(job)?;
-        let _ = self.inner.app.emit("download-progress", job);
+        if let Some(app) = &self.inner.app {
+            let _ = app.emit("download-progress", job);
+        }
         Ok(())
     }
     async fn cached_preview_candidates(
@@ -2301,7 +4143,7 @@ impl AcquisitionManager {
         let key = search_cache_key(track, provider_ids, settings, 3);
         self.inner
             .search_cache
-            .get_or_search(key, || {
+            .get_or_search_cancelled(key, cancel.clone(), || {
                 find_candidates_with_cancel(
                     track,
                     provider_ids,
@@ -2333,6 +4175,69 @@ impl AcquisitionManager {
         cancel: watch::Receiver<bool>,
     ) -> Result<Vec<Candidate>, String> {
         self.cached_preview_candidates(track, provider_ids, settings, cancel)
+            .await
+    }
+
+    pub async fn prefetch_playback_candidates_cancelled(
+        &self,
+        track: &Track,
+        alternate_artists: &[String],
+        provider_ids: &[String],
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<Vec<Candidate>, String> {
+        let search_track = track_for_playback_source_search(track);
+        // Keep this separate from the ordinary preview cache, which may
+        // contain an imported hint as its sole candidate.
+        let key =
+            playback_candidate_search_cache_key(track, provider_ids, settings, alternate_artists);
+        let alternate_artist = alternate_artists.first().cloned();
+        self.inner
+            .search_cache
+            .get_or_search_cancelled(key, cancel.clone(), || {
+                find_candidates_with_cancel_until_alias(
+                    &search_track,
+                    provider_ids,
+                    settings,
+                    cancel.clone(),
+                    PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                    PREVIEW_SEARCH_TIMEOUT,
+                    Some(deadline),
+                    alternate_artist,
+                )
+            })
+            .await
+    }
+
+    pub(crate) async fn prefetch_playback_candidates_cancelled_traced(
+        &self,
+        track: &Track,
+        alternate_artists: &[String],
+        provider_ids: &[String],
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        trace: crate::playback_sources::SourceTrace,
+    ) -> Result<Vec<Candidate>, String> {
+        let search_track = track_for_playback_source_search(track);
+        let key =
+            playback_candidate_search_cache_key(track, provider_ids, settings, alternate_artists);
+        let alternate_artist = alternate_artists.first().cloned();
+        self.inner
+            .search_cache
+            .get_or_search_cancelled_traced(key, cancel.clone(), trace, || {
+                find_candidates_with_cancel_until_alias(
+                    &search_track,
+                    provider_ids,
+                    settings,
+                    cancel,
+                    PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                    PREVIEW_SEARCH_TIMEOUT,
+                    Some(deadline),
+                    alternate_artist,
+                )
+            })
             .await
     }
 
@@ -2369,25 +4274,147 @@ impl AcquisitionManager {
         settings: &Settings,
         cancel: watch::Receiver<bool>,
     ) -> Result<PreviewAudio, String> {
-        let key = serde_json::json!([
-            candidate.provider,
-            candidate.url,
-            settings.yt_dlp_path,
-            settings.js_runtime_path,
-        ])
-        .to_string();
+        if candidate.provider == "bandcamp" {
+            return resolve_preview_audio_with_options(candidate, settings, cancel, false).await;
+        }
+        let key = preview_audio_cache_key(candidate, settings, false);
         self.inner
             .preview_audio_cache
-            .get_or_resolve_cancelled(key, cancel.clone(), || {
-                resolve_preview_audio(candidate, settings, cancel)
+            .get_or_resolve_cancelled(key, cancel.clone(), None, |_| {
+                resolve_preview_audio_with_options(candidate, settings, cancel, false)
             })
             .await
+    }
+
+    pub(crate) async fn resolve_preview_audio_traced(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<PreviewAudio, String> {
+        if candidate.provider == "bandcamp" {
+            return resolve_preview_audio_with_trace(
+                candidate,
+                settings,
+                cancel,
+                false,
+                Some(trace),
+                deadline,
+            )
+            .await;
+        }
+        let trace = trace.with_event_provider(&candidate.provider);
+        let key = preview_audio_cache_key(candidate, settings, false);
+        self.inner
+            .preview_audio_cache
+            .get_or_resolve_cancelled(key, cancel.clone(), Some(trace.clone()), |worker_id| {
+                resolve_preview_audio_with_trace(
+                    candidate,
+                    settings,
+                    cancel,
+                    false,
+                    Some(trace.with_shared_lookup(worker_id)),
+                    deadline,
+                )
+            })
+            .await
+    }
+
+    pub(crate) async fn resolve_preview_audio_fresh_traced_cancelled(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        alternate_format: bool,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<PreviewAudio, String> {
+        if candidate.provider == "bandcamp" {
+            return resolve_preview_audio_with_trace(
+                candidate,
+                settings,
+                cancel,
+                alternate_format,
+                Some(trace),
+                deadline,
+            )
+            .await;
+        }
+        let trace = trace.with_event_provider(&candidate.provider);
+        self.invalidate_preview_audio(candidate, settings);
+        let key = preview_audio_cache_key(candidate, settings, alternate_format);
+        self.inner
+            .preview_audio_cache
+            .get_or_resolve_cancelled(key, cancel.clone(), Some(trace.clone()), |worker_id| {
+                resolve_preview_audio_with_trace(
+                    candidate,
+                    settings,
+                    cancel,
+                    alternate_format,
+                    Some(trace.with_shared_lookup(worker_id)),
+                    deadline,
+                )
+            })
+            .await
+    }
+
+    /// Resolve a fresh, preflighted stream for the same candidate, bypassing cached signed URLs.
+    pub async fn resolve_preview_audio_fresh_cancelled(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        alternate_format: bool,
+    ) -> Result<PreviewAudio, String> {
+        if candidate.provider == "bandcamp" {
+            return resolve_preview_audio_with_options(
+                candidate,
+                settings,
+                cancel,
+                alternate_format,
+            )
+            .await;
+        }
+        self.invalidate_preview_audio(candidate, settings);
+        let key = preview_audio_cache_key(candidate, settings, alternate_format);
+        self.inner
+            .preview_audio_cache
+            .get_or_resolve_cancelled(key, cancel.clone(), None, |_| {
+                resolve_preview_audio_with_options(candidate, settings, cancel, alternate_format)
+            })
+            .await
+    }
+
+    /// Drop a previously validated stream URL after the playback engine reports a later
+    /// transport failure. The next attempt will resolve a fresh signed URL for the same source.
+    pub fn invalidate_preview_audio(&self, candidate: &Candidate, settings: &Settings) {
+        for alternate_format in [false, true] {
+            self.inner
+                .preview_audio_cache
+                .invalidate(&preview_audio_cache_key(
+                    candidate,
+                    settings,
+                    alternate_format,
+                ));
+        }
     }
     pub async fn enqueue(
         &self,
         mut request: DownloadRequest,
         settings: Settings,
     ) -> Result<DownloadJob, String> {
+        if !matches!(
+            request.disposition,
+            crate::models::ReplacementDisposition::Keep
+        ) && request
+            .chapter_ids
+            .as_ref()
+            .is_some_and(|ids| !ids.is_empty())
+        {
+            return Err("Replacing a file cannot be combined with chapter splitting".into());
+        }
         if let Some(stored) = self.inner.store.get_track(&request.track.id)? {
             let before = serde_json::to_value(stored).map_err(|e| e.to_string())?;
             let requested = serde_json::to_value(&request.track).map_err(|e| e.to_string())?;
@@ -2444,6 +4471,9 @@ impl AcquisitionManager {
         }
         if request.track.id != format!("{}:{}", request.track.provider, request.track.provider_id) {
             return Err("Track identity must be a canonical provider identity".into());
+        }
+        if request.candidate.provider == "bandcamp" {
+            return Err("Bandcamp public streams are available for playback only".into());
         }
         if let Some(ids) = request.chapter_ids.as_ref().filter(|ids| !ids.is_empty()) {
             let chapters = request
@@ -2509,6 +4539,7 @@ impl AcquisitionManager {
             output_profile: request.output_profile,
             format_id: request.format_id,
             chapter_ids: request.chapter_ids,
+            disposition: request.disposition,
             soulseek: None,
         };
         self.start(job, settings).await
@@ -2611,12 +4642,21 @@ impl AcquisitionManager {
     async fn work(&self, mut job: DownloadJob, settings: Settings, rx: watch::Receiver<bool>) {
         let result = self
             .acquire_with_fallback(&mut job, &settings, rx.clone())
-            .await;
+            .await
+            .and_then(|asset| {
+                self.inner
+                    .store
+                    .commit_download_asset(&asset, &job.disposition)
+            });
         match result {
             Ok(asset) => {
                 job.output_path = Some(asset.path.clone());
                 match self.inner.store.save_asset(&asset) {
                     Ok(()) => {
+                        let _ = self
+                            .inner
+                            .store
+                            .set_preferred_track_file(&asset.track.id, &asset.id);
                         if let Err(e) = self.inner.store.add_asset_to_downloads(&asset) {
                             job.state = "failed".into();
                             job.error = Some(format!(
@@ -2859,6 +4899,9 @@ impl AcquisitionManager {
         }
         job.state = "downloading".into();
         self.update(job)?;
+        if job.candidate.provider == "bandcamp" {
+            return Err("Bandcamp public streams are available for playback only".into());
+        }
         // Re-extract formats immediately before acquisition; never reuse expired stream URLs.
         if job.candidate.provider != "slskd" {
             job.candidate =
@@ -2990,7 +5033,7 @@ impl AcquisitionManager {
                 "bestaudio".into()
             };
             let mut args = base_args(settings);
-            add_youtube_support_args(&mut args, &job.candidate.provider).await?;
+            add_youtube_support_args(&mut args, &job.candidate.provider, settings).await?;
             args.extend([
                 "--no-playlist".into(),
                 "--no-simulate".into(),
@@ -3294,21 +5337,23 @@ impl AcquisitionManager {
             &job.id,
         )
         .await?;
-        self.inner.store.save_asset(&source).map_err(|e| {
-            format!(
-                "File published at {} but source library record failed: {e}",
-                source.path
-            )
-        })?;
-        self.inner
-            .store
-            .add_asset_to_downloads(&source)
-            .map_err(|e| {
+        if matches!(job.disposition, crate::models::ReplacementDisposition::Keep) {
+            self.inner.store.save_asset(&source).map_err(|e| {
                 format!(
-                    "File was saved at {}, but Downloads membership failed: {e}",
+                    "File published at {} but source library record failed: {e}",
                     source.path
                 )
             })?;
+            self.inner
+                .store
+                .add_asset_to_downloads(&source)
+                .map_err(|e| {
+                    format!(
+                        "File was saved at {}, but Downloads membership failed: {e}",
+                        source.path
+                    )
+                })?;
+        }
         job.output_path = Some(source.path.clone());
         job.track = source.track.clone();
         media::acknowledge_publication(settings, &job.id)?;
@@ -3613,6 +5658,586 @@ mod tests {
     use super::*;
 
     #[test]
+    fn monochrome_search_is_canonical_plus_at_most_one_distinct_alias() {
+        let track = Track {
+            artist: "Ансамбъл Пирин".into(),
+            title: "Track (Original Mix)".into(),
+            isrc: Some("BGAAA0000001".into()),
+            ..Track::default()
+        };
+        let queries = monochrome_search_tracks(&track, Some("Ensemble Pirin"));
+        assert_eq!(queries.len(), 2);
+        assert_eq!(queries[0].artist, "Ансамбъл Пирин");
+        assert_eq!(queries[1].artist, "Ensemble Pirin");
+        assert_eq!(queries[1].title, track.title);
+        assert_eq!(queries[1].isrc, track.isrc);
+        assert_eq!(monochrome_search_tracks(&track, None).len(), 1);
+        assert_eq!(monochrome_search_tracks(&track, Some("  ")).len(), 1);
+        assert_eq!(
+            monochrome_search_tracks(&track, Some("ансамбъл пирин")).len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_or_cancelled_playback_stage_skips_setup_callback() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (_expired_cancel_tx, expired_cancel) = watch::channel(false);
+        let expired_calls = calls.clone();
+        let expired = run_playback_stage(
+            expired_cancel,
+            tokio::time::Instant::now(),
+            "deadline expired",
+            async move {
+                expired_calls.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, String>(())
+            },
+        )
+        .await;
+        assert_eq!(expired.unwrap_err(), "deadline expired");
+
+        let (cancel_tx, cancelled_rx) = watch::channel(true);
+        let cancelled_calls = calls.clone();
+        let cancelled = run_playback_stage(
+            cancelled_rx,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            "deadline expired",
+            async move {
+                cancelled_calls.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, String>(())
+            },
+        )
+        .await;
+        assert_eq!(cancelled.unwrap_err(), "Cancelled");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        drop(cancel_tx);
+    }
+
+    #[test]
+    fn bandcamp_probe_requires_a_small_audio_partial_response_without_purchase_retry() {
+        let mut id3_header = vec![0; 1024];
+        id3_header[..10].copy_from_slice(b"ID3\x04\x00\x00\x00\x00\x00\x00");
+        let accepted = validate_bandcamp_probe(
+            reqwest::StatusCode::PARTIAL_CONTENT,
+            Some("bytes 0-1023/5098066"),
+            Some(1024),
+            Some("audio/mpeg"),
+            310.254,
+            &id3_header,
+        );
+        assert_eq!(accepted.unwrap(), 5_098_066);
+        for (status, range, length, mime) in [
+            (reqwest::StatusCode::FORBIDDEN, None, None, None),
+            (
+                reqwest::StatusCode::OK,
+                None,
+                Some(5_098_066),
+                Some("audio/mpeg"),
+            ),
+            (
+                reqwest::StatusCode::PARTIAL_CONTENT,
+                Some("bytes 0-2048/5098066"),
+                Some(2049),
+                Some("audio/mpeg"),
+            ),
+            (
+                reqwest::StatusCode::PARTIAL_CONTENT,
+                Some("bytes 0-1023/5098066"),
+                Some(1024),
+                Some("text/html"),
+            ),
+            (
+                reqwest::StatusCode::PARTIAL_CONTENT,
+                None,
+                Some(1024),
+                Some("audio/mpeg"),
+            ),
+        ] {
+            assert!(
+                validate_bandcamp_probe(status, range, length, mime, 310.254, &id3_header).is_err()
+            );
+        }
+        assert!(validate_bandcamp_probe(
+            reqwest::StatusCode::PARTIAL_CONTENT,
+            Some("bytes 0-1023/480000"),
+            Some(1024),
+            Some("audio/mpeg"),
+            310.254,
+            &id3_header,
+        )
+        .is_err());
+        assert!(validate_bandcamp_probe(
+            reqwest::StatusCode::PARTIAL_CONTENT,
+            Some("bytes 0-1023/5098066"),
+            Some(1024),
+            Some("audio/mpeg"),
+            310.254,
+            &id3_header[..512],
+        )
+        .is_err());
+        assert!(validate_bandcamp_probe(
+            reqwest::StatusCode::PARTIAL_CONTENT,
+            Some("bytes 0-1023/5098066"),
+            Some(1024),
+            Some("audio/mpeg"),
+            310.254,
+            &[0; 1024],
+        )
+        .is_err());
+        let tail_start = 5_098_066 - 1024;
+        assert!(validate_bandcamp_tail_probe(
+            reqwest::StatusCode::PARTIAL_CONTENT,
+            Some("bytes 5097042-5098065/5098066"),
+            Some(1024),
+            Some("audio/mpeg"),
+            (tail_start, 5_098_065),
+            5_098_066,
+            &[0; 1024],
+        )
+        .is_ok());
+        assert!(validate_bandcamp_tail_probe(
+            reqwest::StatusCode::PARTIAL_CONTENT,
+            Some("bytes 5097042-5098065/5098066"),
+            Some(1024),
+            Some("audio/mpeg"),
+            (tail_start, 5_098_065),
+            5_098_067,
+            &[0; 1024],
+        )
+        .is_err());
+        assert_eq!(
+            parse_bandcamp_content_range("bytes 0-1023/5098066"),
+            Some((0, 1023, 5_098_066))
+        );
+        assert_eq!(parse_bandcamp_content_range("bytes 0-1023/*"), None);
+    }
+
+    #[test]
+    fn incomplete_managed_provider_falls_back_to_system_ytdlp_only_when_available() {
+        let directory = tempfile::tempdir().unwrap();
+        let active = directory.path().join("managed-ytdlp");
+        let system = directory.path().join("system-ytdlp");
+        std::fs::write(&active, b"managed").unwrap();
+        std::fs::write(&system, b"system").unwrap();
+
+        assert_eq!(
+            choose_managed_ytdlp(active.clone(), true, system.clone()),
+            system
+        );
+        assert_eq!(
+            choose_managed_ytdlp(active.clone(), false, system.clone()),
+            active
+        );
+
+        let missing_system = directory.path().join("missing-system-ytdlp");
+        assert_eq!(
+            choose_managed_ytdlp(active.clone(), true, missing_system),
+            active
+        );
+        assert_eq!(
+            managed_provider_action(true, true),
+            ManagedProviderAction::SystemFallback
+        );
+        assert_eq!(
+            managed_provider_action(true, false),
+            ManagedProviderAction::Unavailable
+        );
+        assert_eq!(
+            managed_provider_action(false, false),
+            ManagedProviderAction::Managed
+        );
+    }
+
+    #[test]
+    fn playback_source_search_drops_imported_unverified_candidate_but_keeps_explicit_audio_search()
+    {
+        let candidate = Candidate {
+            id: "youtube:stale".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=stale".into(),
+            confidence: "low".into(),
+            ..Candidate::default()
+        };
+        let imported = Track {
+            provenance: serde_json::json!({
+                "sourceKind":"playlist",
+                "audioCandidate":candidate
+            }),
+            ..Track::default()
+        };
+        let search_track = track_for_playback_source_search(&imported);
+        assert!(search_track.provenance.get("audioCandidate").is_none());
+
+        let explicit = Track {
+            provenance: serde_json::json!({
+                "sourceKind":"audioSearch",
+                "audioCandidate":candidate
+            }),
+            ..Track::default()
+        };
+        assert!(track_for_playback_source_search(&explicit)
+            .provenance
+            .get("audioCandidate")
+            .is_some());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn playback_search_uses_provider_alternatives_after_imported_hint() {
+        let mut entries = (0..3)
+            .map(|index| {
+                serde_json::json!({
+                    "id":format!("unrelated-{index}"),
+                    "url":format!("https://www.youtube.com/watch?v=unrelated-{index}"),
+                    "title":format!("Unrelated result {index}"),
+                    "duration":180,
+                    "uploader":"Other Artist"
+                })
+            })
+            .collect::<Vec<_>>();
+        let exact = serde_json::json!({
+            "id":"XW9ycmy4CQA",
+            "url":"https://www.youtube.com/watch?v=XW9ycmy4CQA",
+            "title":"Stamatis Kraounakis - Poso S' Agapo",
+            "duration":246,
+            "uploader":"Stamatis Kraounakis"
+        });
+        entries.push(exact);
+        entries.extend((4..11).map(|index| {
+            serde_json::json!({
+                "id":format!("unrelated-{index}"),
+                "url":format!("https://www.youtube.com/watch?v=unrelated-{index}"),
+                "title":format!("Unrelated result {index}"),
+                "duration":180,
+                "uploader":"Other Artist"
+            })
+        }));
+        let output = serde_json::json!({"entries":entries}).to_string();
+        let (_directory, settings) = fake_tool(&format!("cat <<'JSON'\n{output}\nJSON"));
+        let stale = Candidate {
+            id: "youtube:5OdVxV30Ids".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=5OdVxV30Ids".into(),
+            title: "Greek title (Live) (Official Video)".into(),
+            confidence: "low".into(),
+            score: 0.1,
+            ..Candidate::default()
+        };
+        let track = Track {
+            id: "spotify:0Kvqc2zK0UKPTK6pAgyv1v".into(),
+            provider: "spotify".into(),
+            artist: "Stamatis Kraounakis".into(),
+            title: "Poso S' Agapo".into(),
+            duration_seconds: Some(245.48),
+            provenance: serde_json::json!({
+                "sourceKind":"playlist",
+                "audioCandidate":stale
+            }),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        assert_ne!(
+            search_cache_key(&track, &providers, &settings, 3),
+            playback_candidate_search_cache_key(&track, &providers, &settings, &[])
+        );
+        let found = find_candidates_with_cancel(
+            &track_for_playback_source_search(&track),
+            &providers,
+            &settings,
+            idle_cancel().1,
+            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(found.len(), PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT);
+        let exact = found
+            .iter()
+            .find(|candidate| candidate.id == "youtube:XW9ycmy4CQA")
+            .expect("eligible exact source beyond initial search results");
+        assert!(!found
+            .iter()
+            .any(|candidate| candidate.id == "youtube:unrelated-10"));
+        assert!(crate::source_fallback::playback_recording_matches(
+            &track, exact
+        ));
+    }
+
+    #[test]
+    fn source_statistics_preserve_zero_and_distinguish_soundcloud_plays() {
+        let youtube = candidate_from_json(
+            &serde_json::json!({"id":"fixture","view_count":0}),
+            "youtube",
+        );
+        assert_eq!(youtube.source_metadata.unwrap()["views"], 0);
+        let soundcloud = candidate_from_json(
+            &serde_json::json!({"id":"fixture","view_count":123}),
+            "soundcloud",
+        );
+        assert_eq!(soundcloud.source_metadata.unwrap()["plays"], 123);
+        assert!(
+            candidate_from_json(&serde_json::json!({"id":"fixture"}), "youtube")
+                .source_metadata
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn public_magalenha_flat_results_use_the_existing_strict_playback_gate() {
+        let track = Track {
+            id: "traxsource:fixture-recording".into(),
+            provider: "traxsource".into(),
+            provider_id: "fixture-recording".into(),
+            artist: "Simon Fava, Sergio Mendes".into(),
+            title: "Magalenha".into(),
+            version: Some("Extended Mix (4:27)".into()),
+            duration_seconds: Some(267.0),
+            ..Track::default()
+        };
+        // Sanitized fields from the public host-permitted flat search; rank is
+        // retained, while provider IDs and URLs are intentionally omitted.
+        let rows = [
+            (
+                "Sergio Mendes, Simon Fava - Magalenha (Extended Mix)",
+                311.0,
+                "Cefan's sound",
+            ),
+            (
+                "Simon Fava feat. Sergio Mendes - Magalenha (Extended Mix)",
+                267.0,
+                "VeryHouseMusic",
+            ),
+            ("Magalenha (feat. Sergio Mendes)", 171.0, "Release - Topic"),
+            (
+                "Magalenha (feat. Sergio Mendes) [Extended Mix]",
+                311.0,
+                "Simon Fava - Topic",
+            ),
+            (
+                "Simon Fava (Feat. Sergio Mendes) - Magalenha (Extended Mix) [TOOLROOM]",
+                268.0,
+                "PureHouseMusic 2024",
+            ),
+            (
+                "Magalenha (feat. Sergio Mendes) (Extended Mix)",
+                292.0,
+                "Simon Fava - Topic",
+            ),
+            (
+                "Simon Fava ft Sergio Mendes - Magalenha (Extended Mix)",
+                265.0,
+                "Vinyl Idol Music",
+            ),
+            (
+                "Simon Fava & Gregor Salto feat. Sergio Mendes - Magalenha (Official Music Video)",
+                215.0,
+                "Spinnin' Records",
+            ),
+            (
+                "Simon Fava, Sergio Mendes - Magalenha (Extended Mix)",
+                268.0,
+                "Dj Coco",
+            ),
+            (
+                "Simon Fava & Yvvan Back – Magalenha (feat. Sergio Mendes) [Official Music Video]",
+                196.0,
+                "Spinnin' Records",
+            ),
+            (
+                "Simon Fava Feat. Sergio Mendes - Magalenha (Extended Mix)",
+                268.0,
+                "Addicted To Music",
+            ),
+            (
+                "Simon Fava (feat. Sergio Mendes) - Magalenha [Latin House]",
+                267.0,
+                "Toolroom Records",
+            ),
+            (
+                "Simon Fava & Yvvan Back Feat. Sergio Mendes - Magalenha (Extended Mix)",
+                295.0,
+                "Runnin' Music",
+            ),
+            (
+                "Sergio Mendes, Simon Fava - Magalenha (Extended Mix) [Toolroom]",
+                407.0,
+                "SONIQ SOCIETY",
+            ),
+            (
+                "Sergio Mendes - Magalenha (Official Visualizer)",
+                218.0,
+                "The Sergio Mendes Band",
+            ),
+            (
+                "Simon Fava, Gregor Salto Feat. Sergio Mendes - Magalenha (Extended Mix)",
+                311.0,
+                "Nine Music",
+            ),
+            (
+                "Simon Fava, Yvvan Back Feat. Sergio Mendes - Magalenha (Extended Mix)",
+                292.0,
+                "Nine Music",
+            ),
+            ("Magalenha (Sunset Mix)", 203.0, "Simon Fava - Topic"),
+            (
+                "Magalenha (Jøsh Ramz & VANDAM Remix) [Afro House]",
+                310.0,
+                "AFROGON",
+            ),
+            ("Sergio Mendes - Magalenha (Video Original)", 217.0, "VART"),
+        ];
+        let observations = rows.iter().enumerate().map(|(index, (title, duration, uploader))| {
+            let row = serde_json::json!({"id":format!("public-result-{}", index + 1), "title":title, "duration":duration, "uploader":uploader});
+            let mut candidate = candidate_from_json(&row, "youtube");
+            candidate.url = format!("https://www.youtube.com/watch?v=public-result-{}", index + 1);
+            matching::score_candidate(&track, &mut candidate);
+            let eligible = crate::source_fallback::playback_recording_matches(&track, &candidate)
+                || crate::source_fallback::is_topic_playback_candidate(&track, &candidate)
+                || crate::source_fallback::is_provisional_playback_candidate(&track, &candidate);
+            (index + 1, candidate.confidence, eligible)
+        }).collect::<Vec<_>>();
+        let eligible_ranks = observations
+            .iter()
+            .filter_map(|(rank, _, eligible)| eligible.then_some(*rank))
+            .collect::<Vec<_>>();
+        assert_eq!(eligible_ranks, vec![9]);
+        // Feat./ft variants have perfect token coverage and nearly-perfect scores,
+        // but the exact contiguous artist-credit condition leaves them at review;
+        // the strict matcher rejects their extra credit token. The clean credited
+        // result is high confidence and is within production's ten-result cap.
+        for rank in [2, 5, 7, 11] {
+            assert_eq!(
+                observations[rank - 1].1,
+                "review",
+                "public result rank {rank}"
+            );
+            assert!(!observations[rank - 1].2, "public result rank {rank}");
+        }
+        assert_eq!(observations[8].1, "high");
+        assert!(observations[8].2);
+        assert!(eligible_ranks[0] <= PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT);
+    }
+
+    #[test]
+    fn alias_query_uses_second_existing_slot_keeps_version_and_stays_within_two_calls() {
+        let track = Track {
+            artist: "Le Mystère Des Voix Bulgares".into(),
+            title: "Duda E Bolna Legnada".into(),
+            version: Some("Live".into()),
+            ..Track::default()
+        };
+        let queries =
+            playback_search_queries(&track, Some("Bulgarian State Radio Female Vocal Choir"));
+        assert_eq!(queries.len(), 2);
+        assert!(queries[0].contains("live"));
+        assert!(queries[1].contains("bulgarian state radio female vocal choir"));
+        assert!(queries[1].contains("live"));
+        let fallback = playback_search_queries(&track, None);
+        assert_eq!(fallback.len(), 2);
+        assert!(!fallback[1].contains("live"));
+        let unversioned = Track {
+            version: None,
+            ..track
+        };
+        assert_eq!(
+            playback_search_queries(
+                &unversioned,
+                Some("Bulgarian State Radio Female Vocal Choir")
+            )
+            .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn default_original_versions_do_not_pollute_provider_queries() {
+        let mut track = Track {
+            artist: "Massivedrum, Bruno Rosado".into(),
+            title: "Make Me Sway".into(),
+            version: Some("Original Mix (4:23)".into()),
+            ..Track::default()
+        };
+        assert_eq!(
+            search_query(&track, true),
+            "massivedrum bruno rosado make me sway"
+        );
+        track.version = Some("Radio Edit".into());
+        assert_eq!(
+            search_query(&track, true),
+            "massivedrum bruno rosado make me sway radio edit"
+        );
+    }
+
+    #[test]
+    fn topic_metadata_retains_only_structured_identity_and_credit() {
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            uploader: Some("Massivedrum - Topic".into()),
+            ..Candidate::default()
+        };
+        let info = serde_json::json!({
+            "channel_id":"UCOoxO3pt54tPbTMmAj16c9A",
+            "channel":"Massivedrum - Topic",
+            "track":"Make Me Sway",
+            "artist":"Massivedrum, Bruno Rosado",
+            "artists":["Massivedrum","Bruno Rosado"],
+            "duration":263.0,
+            "description":"Make Me Sway · Massivedrum · Bruno Rosado\nhttps://example.invalid/private"
+        });
+        let metadata = topic_identity_metadata(&candidate, &info).unwrap();
+        assert_eq!(metadata["track"], "Make Me Sway");
+        assert_eq!(
+            metadata["artists"],
+            serde_json::json!(["Massivedrum", "Bruno Rosado"])
+        );
+        assert_eq!(
+            metadata["descriptionCreditLine"],
+            "Make Me Sway · Massivedrum · Bruno Rosado"
+        );
+        assert!(!metadata.to_string().contains("example.invalid"));
+    }
+
+    #[test]
+    fn managed_provider_runtime_replaces_configured_runtime_with_bundled_node() {
+        let mut args = vec![
+            "--no-js-runtimes".to_owned(),
+            "--js-runtimes".to_owned(),
+            "deno:/configured/deno".to_owned(),
+        ];
+        append_managed_youtube_provider_args(
+            &mut args,
+            vec![
+                "--plugin-dirs".into(),
+                "/trusted/bgutil/plugin".into(),
+                "--js-runtimes".into(),
+                "node:/bundled/node".into(),
+            ],
+        );
+
+        assert_eq!(
+            args,
+            [
+                "--no-js-runtimes",
+                "--js-runtimes",
+                "deno:/configured/deno",
+                "--no-js-runtimes",
+                "--plugin-dirs",
+                "/trusted/bgutil/plugin",
+                "--js-runtimes",
+                "node:/bundled/node",
+            ]
+        );
+
+        let mut without_runtime = vec!["--js-runtimes".to_owned(), "deno:/configured/deno".into()];
+        append_managed_youtube_provider_args(&mut without_runtime, vec!["--plugin-dirs".into()]);
+        assert_eq!(
+            without_runtime,
+            ["--js-runtimes", "deno:/configured/deno", "--plugin-dirs"]
+        );
+    }
+
+    #[test]
     fn inspection_cache_key_tracks_source_and_effective_tool_profile() {
         let mut candidate = Candidate {
             provider: "youtube".into(),
@@ -3627,6 +6252,379 @@ mod tests {
         let mut changed = settings.clone();
         changed.js_runtime_path = "deno".into();
         assert_ne!(original, inspection_cache_key(&candidate, &changed));
+    }
+
+    #[test]
+    fn preview_audio_cache_separates_default_and_alternate_format_urls() {
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            url: "https://youtube.com/watch?v=verified".into(),
+            ..Candidate::default()
+        };
+        let settings = Settings::default();
+        assert_ne!(
+            preview_audio_cache_key(&candidate, &settings, false),
+            preview_audio_cache_key(&candidate, &settings, true),
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn preview_audio_worker_and_joiner_survive_closed_false_channels() {
+        let cache = PreviewAudioCache::default();
+        let (worker_cancel_tx, worker_cancel_rx) = watch::channel(false);
+        let release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let worker_release = release.clone();
+        let mut worker = Box::pin(cache.get_or_resolve_cancelled(
+            "closed-channel-test-key".into(),
+            worker_cancel_rx,
+            None,
+            move |_| async move {
+                worker_release.notified().await;
+                Ok(PreviewAudio {
+                    url: "https://cdn.example/audio".into(),
+                    mime_type: "audio/mp4".into(),
+                    codec: Some("aac".into()),
+                    bitrate_kbps: None,
+                    duration_seconds: None,
+                    selected_format_id: None,
+                    selected_format_has_video: false,
+                    source_metadata: None,
+                    resolved_title: None,
+                    resolved_provider_id: None,
+                    chapters: None,
+                    expected_content_length: None,
+                    headers: vec![],
+                })
+            },
+        ));
+
+        // The worker has acquired the flight gate and is blocked in its resolver.
+        // Closing false must leave that work pending rather than cancel it.
+        drop(worker_cancel_tx);
+        assert!(
+            poll_once(&mut worker).is_pending(),
+            "closed-false worker remains pending"
+        );
+
+        let (joiner_cancel_tx, joiner_cancel_rx) = watch::channel(false);
+        let mut joiner = Box::pin(cache.get_or_resolve_cancelled(
+            "closed-channel-test-key".into(),
+            joiner_cancel_rx,
+            None,
+            |_| async { Err("joiner must use worker result".into()) },
+        ));
+        // The worker holds the gate. A closed-false joiner must remain queued.
+        drop(joiner_cancel_tx);
+        assert!(
+            poll_once(&mut joiner).is_pending(),
+            "closed-false joiner remains pending"
+        );
+
+        release.notify_one();
+        let worker_audio = worker.await.expect("closed-false worker continues");
+        let joiner_audio = joiner.await.expect("closed-false joiner continues");
+        assert_eq!(worker_audio.url, joiner_audio.url);
+    }
+
+    #[tokio::test]
+    async fn preview_audio_joiner_cancellation_keeps_worker_identity_and_worker_alive() {
+        let cache = std::sync::Arc::new(PreviewAudioCache::default());
+        let (worker_cancel_tx, worker_cancel_rx) = watch::channel(false);
+        let (worker_id_tx, worker_id_rx) = tokio::sync::oneshot::channel();
+        let worker_release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let worker = {
+            let cache = cache.clone();
+            let worker_release = worker_release.clone();
+            tokio::spawn(async move {
+                cache
+                    .get_or_resolve_cancelled(
+                        "internal-test-key".into(),
+                        worker_cancel_rx,
+                        None,
+                        move |worker_id| async move {
+                            let _ = worker_id_tx.send(worker_id);
+                            worker_release.notified().await;
+                            Ok(PreviewAudio {
+                                url: "https://cdn.example/audio".into(),
+                                mime_type: "audio/mp4".into(),
+                                codec: Some("aac".into()),
+                                bitrate_kbps: None,
+                                duration_seconds: None,
+                                selected_format_id: None,
+                                selected_format_has_video: false,
+                                source_metadata: None,
+                                resolved_title: None,
+                                resolved_provider_id: None,
+                                chapters: None,
+                                expected_content_length: None,
+                                headers: vec![],
+                            })
+                        },
+                    )
+                    .await
+            })
+        };
+        let worker_id = worker_id_rx.await.unwrap();
+        assert_eq!(
+            cache
+                .in_flight
+                .lock()
+                .unwrap()
+                .get("internal-test-key")
+                .unwrap()
+                .trace_id,
+            worker_id,
+        );
+        let worker_trace = crate::playback_sources::SourceTrace::new(None, None, None);
+        assert_eq!(
+            worker_trace.with_shared_lookup(worker_id).payload(
+                "lookup",
+                "youtube",
+                serde_json::json!({})
+            )["sharedLookupId"],
+            worker_id.to_string(),
+        );
+
+        let (joiner_cancel_tx, joiner_cancel_rx) = watch::channel(false);
+        let (joiner_invoked_tx, mut joiner_invoked_rx) = tokio::sync::oneshot::channel();
+        let joiner = {
+            let cache = cache.clone();
+            tokio::spawn(async move {
+                cache
+                    .get_or_resolve_cancelled(
+                        "internal-test-key".into(),
+                        joiner_cancel_rx,
+                        None,
+                        move |_| async move {
+                            let _ = joiner_invoked_tx.send(());
+                            Err("joiner should not start a second worker".into())
+                        },
+                    )
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let joined = cache
+                    .in_flight
+                    .lock()
+                    .unwrap()
+                    .get("internal-test-key")
+                    .is_some_and(|flight| Arc::strong_count(flight) >= 3);
+                if joined {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second caller joined the shared worker");
+        joiner_cancel_tx.send_replace(true);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), joiner)
+                .await
+                .expect("cancelled caller completed")
+                .unwrap()
+                .unwrap_err(),
+            "Cancelled"
+        );
+        assert!(joiner_invoked_rx.try_recv().is_err());
+        assert_eq!(
+            cache
+                .in_flight
+                .lock()
+                .unwrap()
+                .get("internal-test-key")
+                .unwrap()
+                .trace_id,
+            worker_id
+        );
+        worker_release.notify_one();
+        assert!(tokio::time::timeout(Duration::from_secs(2), worker)
+            .await
+            .expect("uncancelled worker completed")
+            .unwrap()
+            .is_ok());
+        worker_cancel_tx.send_replace(true);
+    }
+
+    #[tokio::test]
+    async fn coalesced_lookup_short_deadline_does_not_expire_later_caller() {
+        let cache = Arc::new(PreviewAudioCache::default());
+        let (first_cancel_tx, first_cancel_rx) = watch::channel(false);
+        let first_started = Arc::new(tokio::sync::Notify::new());
+        let first_started_in_resolver = first_started.clone();
+        let first_cache = cache.clone();
+        let first = tokio::spawn(async move {
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(60);
+            tokio::time::timeout_at(
+                deadline,
+                first_cache.get_or_resolve_cancelled(
+                    "caller-specific-deadline".into(),
+                    first_cancel_rx,
+                    None,
+                    move |_| async move {
+                        first_started_in_resolver.notify_one();
+                        std::future::pending::<Result<PreviewAudio, String>>().await
+                    },
+                ),
+            )
+            .await
+        });
+        first_started.notified().await;
+
+        let (second_started_tx, second_started_rx) = tokio::sync::oneshot::channel();
+        let second_cache = cache.clone();
+        let second = tokio::spawn(async move {
+            second_cache
+                .get_or_resolve_cancelled(
+                    "caller-specific-deadline".into(),
+                    watch::channel(false).1,
+                    None,
+                    move |_| async move {
+                        let _ = second_started_tx.send(());
+                        Ok(PreviewAudio {
+                            url: "https://cdn.example/second-caller-audio".into(),
+                            mime_type: "audio/mp4".into(),
+                            codec: Some("aac".into()),
+                            bitrate_kbps: None,
+                            duration_seconds: Some(120.0),
+                            selected_format_id: None,
+                            selected_format_has_video: false,
+                            source_metadata: None,
+                            resolved_title: None,
+                            resolved_provider_id: None,
+                            chapters: None,
+                            expected_content_length: None,
+                            headers: vec![],
+                        })
+                    },
+                )
+                .await
+        });
+
+        tokio::time::timeout(Duration::from_secs(2), second_started_rx)
+            .await
+            .expect("later caller takes over after the short caller expires")
+            .expect("second resolver started");
+        assert!(
+            first.await.unwrap().is_err(),
+            "first caller hits its own deadline"
+        );
+        let second_audio = tokio::time::timeout(Duration::from_secs(2), second)
+            .await
+            .expect("later caller is not bounded by first caller's deadline")
+            .unwrap()
+            .expect("later caller resolves successfully");
+        assert_eq!(second_audio.url, "https://cdn.example/second-caller-audio");
+        drop(first_cancel_tx);
+    }
+
+    #[tokio::test]
+    async fn cached_audio_url_and_format_metadata_stay_from_the_same_resolution() {
+        fn audio(
+            url: &str,
+            mime_type: &str,
+            codec: &str,
+            format_id: &str,
+            has_video: bool,
+            expected_bytes: u64,
+        ) -> PreviewAudio {
+            PreviewAudio {
+                url: url.into(),
+                mime_type: mime_type.into(),
+                codec: Some(codec.into()),
+                bitrate_kbps: Some(128.0),
+                duration_seconds: Some(250.0),
+                selected_format_id: Some(format_id.into()),
+                selected_format_has_video: has_video,
+                source_metadata: None,
+                resolved_title: Some("Poso S’ Agapo".into()),
+                resolved_provider_id: Some("hRNx674Z4QE".into()),
+                chapters: Some(vec![]),
+                expected_content_length: Some(expected_bytes),
+                headers: vec![],
+            }
+        }
+
+        let candidate = Candidate {
+            id: "youtube:hRNx674Z4QE".into(),
+            provider: "youtube".into(),
+            url: "https://youtube.com/watch?v=hRNx674Z4QE".into(),
+            ..Candidate::default()
+        };
+        let settings = Settings::default();
+        let cache = PreviewAudioCache::default();
+        let default_key = preview_audio_cache_key(&candidate, &settings, false);
+        let alternate_key = preview_audio_cache_key(&candidate, &settings, true);
+
+        let default = cache
+            .get_or_resolve(default_key.clone(), || async {
+                Ok(audio(
+                    "https://rr1.googlevideo.com/audio140?sig=redacted",
+                    "audio/mp4",
+                    "mp4a.40.2",
+                    "140",
+                    false,
+                    4_048_489,
+                ))
+            })
+            .await
+            .unwrap();
+        let alternate = cache
+            .get_or_resolve(alternate_key.clone(), || async {
+                Ok(audio(
+                    "https://rr1.googlevideo.com/muxed18?sig=redacted",
+                    "video/mp4",
+                    "mp4a.40.2",
+                    "18",
+                    true,
+                    10_032_375,
+                ))
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(default.selected_format_id.as_deref(), Some("140"));
+        assert!(!default.selected_format_has_video);
+        assert_eq!(default.mime_type, "audio/mp4");
+        assert_eq!(default.expected_content_length, Some(4_048_489));
+        assert_eq!(alternate.selected_format_id.as_deref(), Some("18"));
+        assert!(alternate.selected_format_has_video);
+        assert_eq!(alternate.mime_type, "video/mp4");
+        assert_eq!(alternate.expected_content_length, Some(10_032_375));
+
+        let cached_default = cache
+            .get_or_resolve(default_key, || async {
+                Err::<PreviewAudio, _>("default format cache miss".into())
+            })
+            .await
+            .unwrap();
+        let cached_alternate = cache
+            .get_or_resolve(alternate_key, || async {
+                Err::<PreviewAudio, _>("alternate format cache miss".into())
+            })
+            .await
+            .unwrap();
+        assert_eq!(cached_default.url, default.url);
+        assert_eq!(
+            cached_default.selected_format_id,
+            default.selected_format_id
+        );
+        assert_eq!(
+            cached_default.expected_content_length,
+            default.expected_content_length
+        );
+        assert_eq!(cached_alternate.url, alternate.url);
+        assert_eq!(
+            cached_alternate.selected_format_id,
+            alternate.selected_format_id
+        );
+        assert_eq!(
+            cached_alternate.expected_content_length,
+            alternate.expected_content_length
+        );
     }
 
     #[cfg(unix)]
@@ -3744,6 +6742,7 @@ mod tests {
     #[test]
     fn startup_recovers_only_interrupted_authorized_soulseek_jobs() {
         let mut job = DownloadJob {
+            disposition: Default::default(),
             id: "job".into(),
             track: Track::default(),
             candidate: Candidate {
@@ -3894,11 +6893,153 @@ mod tests {
         assert_eq!(chapters[1].confidence, "source_metadata_unverified");
     }
     #[test]
-    fn chapter_label_artist_and_title_are_unverified_and_conservative() {
+    fn playback_flat_youtube_bare_id_is_canonicalized_without_broadening_url_admission() {
+        let make = |id: &str, raw: &str| Candidate {
+            provider: "youtube".into(),
+            id: format!("youtube:{id}"),
+            url: raw.into(),
+            ..Candidate::default()
+        };
+        let id = "XW9ycmy4CQA";
+        let canonical = "https://www.youtube.com/watch?v=XW9ycmy4CQA";
         assert_eq!(
-            chapter_artist_title("Artist Name - Night Drive"),
-            ("Artist Name".into(), "Night Drive".into(), "chapter_label")
+            playback_youtube_search_url(&make(id, id)).as_deref(),
+            Some(canonical)
         );
+        assert_eq!(
+            playback_youtube_search_url(&make(id, "")).as_deref(),
+            Some(canonical)
+        );
+        assert_eq!(
+            playback_youtube_search_url(&make(id, canonical)).as_deref(),
+            Some(canonical)
+        );
+        assert_eq!(
+            playback_youtube_search_url(&make(id, "https://youtu.be/XW9ycmy4CQA")).as_deref(),
+            Some("https://youtu.be/XW9ycmy4CQA")
+        );
+        // Preserve legacy missing-URL behavior; this change only adds the
+        // canonical bare-ID representation and binds explicit URLs to their ID.
+        assert_eq!(
+            playback_youtube_search_url(&make("legacy-fixture", "")).as_deref(),
+            Some("https://www.youtube.com/watch?v=legacy-fixture")
+        );
+        for (id, raw) in [
+            ("short", "short"),
+            ("XW9ycmy4CQ!", "XW9ycmy4CQ!"),
+            ("XW9ycmy4CQA", "A1G8kgXWzig"),
+            ("XW9ycmy4CQA", "https://www.youtube.com/watch?v=A1G8kgXWzig"),
+            ("XW9ycmy4CQA", "https://youtu.be/A1G8kgXWzig"),
+            ("XW9ycmy4CQA", "https://youtu.be/XW9ycmy4CQA/extra"),
+            ("XW9ycmy4CQA", "https://other.invalid/watch?v=XW9ycmy4CQA"),
+            ("XW9ycmy4CQA", "http://www.youtube.com/watch?v=XW9ycmy4CQA"),
+            (
+                "XW9ycmy4CQA",
+                "https://user:secret@www.youtube.com/watch?v=XW9ycmy4CQA",
+            ),
+            ("XW9ycmy4CQA", "https://www.youtube.com/channel/XW9ycmy4CQA"),
+            (
+                "XW9ycmy4CQA",
+                "https://www.youtube.com/playlist?list=XW9ycmy4CQA",
+            ),
+        ] {
+            assert!(
+                playback_youtube_search_url(&make(id, raw)).is_none(),
+                "id={id}, raw={raw}"
+            );
+        }
+        let mut other_provider = make(id, id);
+        other_provider.provider = "soundcloud".into();
+        assert!(playback_youtube_search_url(&other_provider).is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn playback_flat_search_retains_bare_and_missing_urls_but_rejects_id_mismatch() {
+        let output = serde_json::json!({"entries":[
+            {"id":"XW9ycmy4CQA","url":"XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
+            {"id":"A1G8kgXWzig","url":"https://www.youtube.com/watch?v=A1G8kgXWzig","title":"Fixture Artist - Fixture Song","duration":180},
+            {"id":"5OdVxV30Ids","title":"Fixture Artist - Fixture Song","duration":180},
+            {"id":"short","url":"short","title":"Fixture Artist - Fixture Song","duration":180},
+            {"id":"A1G8kgXWzig","url":"https://www.youtube.com/watch?v=XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
+            {"id":"A1G8kgXWzig","url":"https://other.invalid/watch?v=A1G8kgXWzig","title":"Fixture Artist - Fixture Song","duration":180}
+        ]}).to_string();
+        let (_directory, settings) = fake_tool(&format!("cat <<'JSON'\n{output}\nJSON"));
+        let track = Track {
+            artist: "Fixture Artist".into(),
+            title: "Fixture Song".into(),
+            duration_seconds: Some(180.),
+            ..Track::default()
+        };
+        let found = find_candidates_with_cancel(
+            &track,
+            &["youtube".into()],
+            &settings,
+            idle_cancel().1,
+            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert_eq!(found.len(), 3);
+        let bare = found
+            .iter()
+            .find(|candidate| candidate.id == "youtube:XW9ycmy4CQA")
+            .unwrap();
+        assert_eq!(bare.url, "https://www.youtube.com/watch?v=XW9ycmy4CQA");
+        assert!(found
+            .iter()
+            .all(|candidate| validate_source_url(&candidate.url, "youtube").is_ok()));
+    }
+
+    #[test]
+    fn blank_candidate_fields_use_nonempty_fallbacks_without_inventing_identity() {
+        let info = serde_json::json!({
+            "id":"  ",
+            "webpage_url":"",
+            "original_url":"https://www.youtube.com/watch?v=abc",
+            "url":"https://fallback.example/video",
+            "title":"  ",
+            "uploader":""
+        });
+        let candidate = candidate_from_json(&info, "youtube");
+        assert_eq!(candidate.id, "youtube:");
+        assert_eq!(candidate.url, "https://www.youtube.com/watch?v=abc");
+        assert_eq!(candidate.title, "Untitled");
+        assert!(candidate.uploader.is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn candidate_search_discards_results_with_no_source_identity() {
+        let result = serde_json::json!({
+            "entries":[{
+                "id":"",
+                "webpage_url":"https://www.youtube.com/watch?v=abc",
+                "title":"Artist - A Specific Song",
+                "duration":180
+            }]
+        });
+        let script = format!("printf '%s\\n' '{}'", result);
+        let (_directory, settings) = fake_tool(&script);
+        let track = Track {
+            artist: "Artist".into(),
+            title: "A Specific Song".into(),
+            ..Default::default()
+        };
+        let found = find_candidates(&track, &["youtube".into()], &settings)
+            .await
+            .unwrap();
+        assert!(found.is_empty());
+    }
+    #[test]
+    fn chapter_label_artist_and_title_are_unverified_and_conservative() {
+        for separator in [" - ", " — ", " – "] {
+            assert_eq!(
+                chapter_artist_title(&format!("Artist Name{separator}Night Drive")),
+                ("Artist Name".into(), "Night Drive".into(), "chapter_label")
+            );
+        }
         assert_eq!(
             chapter_artist_title("Night Drive"),
             (String::new(), "Night Drive".into(), "unknown")
@@ -3963,6 +7104,12 @@ mod tests {
             ..Track::default()
         };
         let asset = LocalAsset {
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
             id: "asset-1".into(),
             recording_id: id,
             path: directory
@@ -4018,6 +7165,12 @@ mod tests {
             ..Default::default()
         };
         let source = LocalAsset {
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
             id: "source".into(),
             recording_id: "recording".into(),
             path: "/music/source.opus".into(),
@@ -4085,6 +7238,36 @@ mod tests {
         assert_eq!(track.provenance["artistSource"], "unknown");
         assert!(track.release_date.is_none());
         assert_eq!(track.provenance["uploadDate"], "20261012");
+
+        let missing_title = serde_json::json!({
+            "id":"ghi",
+            "title":"  ",
+            "track":null,
+            "uploader":"Channel Name"
+        });
+        let candidate = candidate_from_json(&missing_title, "youtube");
+        assert_eq!(candidate.title, "Untitled");
+        let track = raw_search_track(candidate, &missing_title);
+        assert!(track.title.is_empty());
+        assert!(track.artist.is_empty());
+        assert_eq!(track.provenance["uploader"], "Channel Name");
+    }
+    #[test]
+    fn raw_search_track_recognizes_single_spaced_credit_separators() {
+        for separator in [" — ", " – ", " - "] {
+            let info = serde_json::json!({
+                "id":"source-id",
+                "title":format!("Artist Name{separator}Song Title"),
+                "uploader":"Unrelated Channel"
+            });
+            let candidate = candidate_from_json(&info, "soundcloud");
+            let track = raw_search_track(candidate, &info);
+            assert_eq!(track.artist, "Artist Name");
+            assert_eq!(track.title, "Song Title");
+            assert_eq!(track.provenance["artistSource"], "inferred_from_title");
+        }
+        let ambiguous = split_source_credit_title("Artist - Song – Subtitle");
+        assert!(ambiguous.is_none());
     }
     #[test]
     fn raw_youtube_performance_title_gets_live_version_without_promoting_uploader() {
@@ -4112,10 +7295,10 @@ mod tests {
     #[tokio::test]
     async fn raw_audio_search_uses_query_directly_and_maps_unverified_tracks() {
         let entry = serde_json::json!({
-            "id":"abc123", "url":"https://www.youtube.com/watch?v=abc123",
+            "id":"aBc12345678", "url":"https://www.youtube.com/watch?v=aBc12345678",
             "title":"Luna Vale - Night Drive (Extended Mix)", "artist":"Luna Vale",
             "track":"Night Drive (Extended Mix)", "uploader":"Luna Vale - Topic",
-            "duration":367, "thumbnail":"https://i.ytimg.com/vi/abc123/hqdefault.jpg"
+            "duration":367, "thumbnail":"https://i.ytimg.com/vi/aBc12345678/hqdefault.jpg"
         });
         let script = format!("echo '{}'", serde_json::json!({"entries":[entry]}));
         let (_directory, settings) = fake_tool(&script);
@@ -4127,7 +7310,7 @@ mod tests {
         assert_eq!(found[0].artist, "Luna Vale");
         assert_eq!(found[0].title, "Night Drive (Extended Mix)");
         assert_eq!(found[0].provider, "youtube");
-        assert_eq!(found[0].provider_id, "abc123");
+        assert_eq!(found[0].provider_id, "aBc12345678");
         assert_eq!(
             found[0].provenance["audioCandidate"]["confidence"],
             "review"
@@ -4145,6 +7328,163 @@ mod tests {
         .unwrap();
         assert_eq!(direct.len(), 1);
         assert_eq!(direct[0].url, found[0].source_url);
+    }
+
+    #[test]
+    fn youtube_results_search_url_preserves_verbatim_query_with_safe_encoding() {
+        let query = r#""Ro Myra" and Lena & Rich 東京"#;
+        let url = url::Url::parse(&youtube_search_results_url(query)).unwrap();
+        assert_eq!(url.host_str(), Some("www.youtube.com"));
+        assert_eq!(url.path(), "/results");
+        assert_eq!(
+            url.query_pairs()
+                .find(|(key, _)| key == "search_query")
+                .unwrap()
+                .1,
+            query
+        );
+        assert_eq!(url.query_pairs().count(), 1);
+
+        let video = serde_json::json!({
+            "id": "A1G8kgXWzig",
+            "url": "https://www.youtube.com/watch?v=A1G8kgXWzig",
+            "title": "Ro Myra - Irene (Official Video) | Indie Folk Rock"
+        });
+        let candidate = candidate_from_json(&video, "youtube");
+        assert_eq!(
+            youtube_search_video_url(&video, &candidate).as_deref(),
+            Some("https://www.youtube.com/watch?v=A1G8kgXWzig")
+        );
+        let conflicting = candidate_from_json(
+            &serde_json::json!({"id":"different", "url":"https://www.youtube.com/watch?v=A1G8kgXWzig"}),
+            "youtube",
+        );
+        assert!(youtube_search_video_url(&video, &conflicting).is_none());
+        for row in [
+            serde_json::json!({"id":"UC1234567890", "url":"https://www.youtube.com/channel/UC1234567890"}),
+            serde_json::json!({"id":"PL1234567890", "url":"https://www.youtube.com/playlist?list=PL1234567890"}),
+            serde_json::json!({"id":"A1G8kgXWzig"}),
+        ] {
+            let candidate = candidate_from_json(&row, "youtube");
+            assert!(youtube_search_video_url(&row, &candidate).is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn youtube_results_url_search_preserves_query_paging_and_video_identity() {
+        let args_directory = tempfile::tempdir().unwrap();
+        let args_file = args_directory.path().join("args");
+        let fixture = serde_json::json!({"entries": [
+            {"id":"A1G8kgXWzig", "url":"https://www.youtube.com/watch?v=A1G8kgXWzig", "title":"Ro Myra - Irene"},
+            {"id":"UC1234567890", "url":"https://www.youtube.com/channel/UC1234567890", "title":"Ro Myra"},
+            {"id":"PL1234567890", "url":"https://www.youtube.com/playlist?list=PL1234567890", "title":"Ro Myra set"}
+        ]}).to_string();
+        let args_path = args_file.clone();
+        let script = format!(
+            "for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> '{}'; done\ncat <<'JSON'\n{fixture}\nJSON",
+            args_path.display()
+        );
+        let (_tool_directory, settings) = fake_tool(&script);
+        let query = r#""Ro Myra" and Lena & Rich 東京"#;
+        let page = search_audio_tracks_page_raw(query, "youtube", 1, 3, &settings)
+            .await
+            .unwrap();
+        assert_eq!(page.entry_count, 3);
+        assert_eq!(page.tracks.len(), 1);
+        assert_eq!(page.tracks[0].provider_id, "A1G8kgXWzig");
+
+        let args = std::fs::read_to_string(&args_file).unwrap();
+        let args = args.lines().collect::<Vec<_>>();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--playlist-start", "2"]));
+        assert!(args.windows(2).any(|pair| pair == ["--playlist-end", "4"]));
+        let search_url = args
+            .iter()
+            .find(|argument| argument.starts_with("https://www.youtube.com/results?"))
+            .expect("YouTube results URL must be passed as one argv item");
+        let parsed = url::Url::parse(search_url).unwrap();
+        assert_eq!(parsed.query_pairs().count(), 1);
+        assert_eq!(
+            parsed.query_pairs().next().unwrap(),
+            ("search_query".into(), query.into())
+        );
+        assert!(!args.iter().any(|argument| argument.starts_with("ytsearch")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_youtube_results_url_search_keeps_fifty_row_cap_and_video_identity() {
+        let args_directory = tempfile::tempdir().unwrap();
+        let args_file = args_directory.path().join("args");
+        let fixture = serde_json::json!({"entries": [
+            {"id":"A1G8kgXWzig", "url":"https://www.youtube.com/watch?v=A1G8kgXWzig", "title":"Ro Myra - Irene"},
+            {"id":"UC1234567890", "url":"https://www.youtube.com/channel/UC1234567890", "title":"Ro Myra channel"}
+        ]}).to_string();
+        let script = format!(
+            "for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> '{}'; done\ncat <<'JSON'\n{fixture}\nJSON",
+            args_file.display()
+        );
+        let (_tool_directory, settings) = fake_tool(&script);
+        let query = r#""Ro Myra" and Lena & Rich"#;
+        let tracks = search_audio_tracks_raw(query, &["youtube".into()], &settings)
+            .await
+            .unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].provider_id, "A1G8kgXWzig");
+
+        let args = std::fs::read_to_string(&args_file).unwrap();
+        let args = args.lines().collect::<Vec<_>>();
+        assert!(args.windows(2).any(|pair| pair == ["--playlist-end", "50"]));
+        let search_url = args
+            .iter()
+            .find(|argument| argument.starts_with("https://www.youtube.com/results?"))
+            .expect("YouTube results URL must be passed as one argv item");
+        let parsed = url::Url::parse(search_url).unwrap();
+        assert_eq!(parsed.query_pairs().count(), 1);
+        assert_eq!(parsed.query_pairs().next().unwrap().1, query);
+        assert!(!args.iter().any(|argument| argument.starts_with("ytsearch")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_audio_search_pages_use_playlist_offsets_and_stop_on_empty_page() {
+        let first_page = serde_json::json!({"entries": (0..30).map(|index| serde_json::json!({
+            "id": format!("a{index:010}"), "url": format!("https://www.youtube.com/watch?v=a{index:010}"),
+            "title": format!("Artist - Track {index}"), "duration": 180
+        })).collect::<Vec<_>>()}).to_string();
+        let short_page = serde_json::json!({"entries": (30..32).map(|index| serde_json::json!({
+            "id": format!("a{index:010}"), "url": format!("https://www.youtube.com/watch?v=a{index:010}"),
+            "title": format!("Artist - Track {index}"), "duration": 180
+        })).collect::<Vec<_>>()}).to_string();
+        let script = format!(
+            "start=''; previous=''; for arg in \"$@\"; do if [ \"$previous\" = '--playlist-start' ]; then start=\"$arg\"; fi; previous=\"$arg\"; done; case \"$start\" in 1) echo '{first_page}' ;; 31) echo '{short_page}' ;; *) echo '{{\"entries\":[]}}' ;; esac"
+        );
+        let (_directory, settings) = fake_tool(&script);
+        let first = search_audio_tracks_page_raw("night drive", "youtube", 0, 30, &settings)
+            .await
+            .unwrap();
+        let second = search_audio_tracks_page_raw("night drive", "youtube", 30, 30, &settings)
+            .await
+            .unwrap();
+        let final_page = search_audio_tracks_page_raw("night drive", "youtube", 32, 30, &settings)
+            .await
+            .unwrap();
+        assert_eq!(first.entry_count, 30);
+        assert_eq!(first.tracks.len(), 30);
+        assert_eq!(second.entry_count, 2);
+        assert_eq!(second.tracks.len(), 2);
+        assert_eq!(second.tracks[0].provider_id, "a0000000030");
+        let ids = first
+            .tracks
+            .iter()
+            .chain(second.tracks.iter())
+            .map(|track| track.provider_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), 32);
+        assert_eq!(final_page.entry_count, 0);
+        assert!(final_page.tracks.is_empty());
     }
 
     #[tokio::test]
@@ -4187,6 +7527,19 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn poll_once<F: std::future::Future>(
+        future: &mut std::pin::Pin<Box<F>>,
+    ) -> std::task::Poll<F::Output> {
+        struct NoopWake;
+        impl std::task::Wake for NoopWake {
+            fn wake(self: std::sync::Arc<Self>) {}
+        }
+        let waker = std::task::Waker::from(std::sync::Arc::new(NoopWake));
+        let mut context = std::task::Context::from_waker(&waker);
+        future.as_mut().poll(&mut context)
+    }
+
+    #[cfg(unix)]
     fn fake_tool(script: &str) -> (tempfile::TempDir, Settings) {
         use std::os::unix::fs::PermissionsExt;
         let directory = tempfile::tempdir().unwrap();
@@ -4204,6 +7557,306 @@ mod tests {
             ..Default::default()
         };
         (directory, settings)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn fixture_process_running(pid: u32) -> bool {
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            return false;
+        };
+        // A killed orphan can remain a zombie until the system reaps it.
+        !stat
+            .rsplit_once(") ")
+            .is_some_and(|(_, fields)| fields.starts_with('Z'))
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn assert_outer_drop_kills_helper_descendant(parent_exits_first: bool, cancelled: bool) {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("processes");
+        // Even the unfixed regression fixture self-terminates within two seconds.
+        // No persistent orphan survives a failing assertion.
+        let script = format!(
+            "sleep 2 &\ndescendant=$!\nprintf '%s %s' \"$$\" \"$descendant\" > '{}'\n{}",
+            marker.display(),
+            if parent_exits_first { "exit 0" } else { "wait" },
+        );
+        let (_tool_directory, settings) = fake_tool(&script);
+        let (_inner_stop, inner_cancel) = idle_cancel();
+        let inner_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let mut inner = Box::pin(run_tool_until(
+            &settings,
+            vec![],
+            inner_cancel,
+            inner_deadline,
+            |_| {},
+        ));
+        assert!(poll_once(&mut inner).is_pending());
+        let pids = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&marker) {
+                    let pids = text
+                        .split_whitespace()
+                        .map(str::parse::<u32>)
+                        .collect::<Result<Vec<_>, _>>();
+                    if let Ok(pids) = pids {
+                        if pids.len() == 2 {
+                            break pids;
+                        }
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("fixture parent and descendant did not start");
+        assert!(fixture_process_running(pids[1]));
+        if parent_exits_first {
+            // Poll once after leader exit, while its descendant still owns the
+            // pipes. Reaping here would lose safe process-group ownership.
+            tokio::time::timeout(Duration::from_millis(500), async {
+                while fixture_process_running(pids[0]) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("fixture leader did not exit before the drop test");
+            assert!(poll_once(&mut inner).is_pending());
+        }
+        let (outer_stop, outer_cancel) = idle_cancel();
+        if cancelled {
+            outer_stop.send_replace(true);
+        }
+        let outer_deadline = if cancelled {
+            inner_deadline
+        } else {
+            tokio::time::Instant::now()
+        };
+        let result = run_playback_stage(outer_cancel, outer_deadline, "outer timeout", inner).await;
+        assert_eq!(
+            result.unwrap_err(),
+            if cancelled {
+                "Cancelled"
+            } else {
+                "outer timeout"
+            }
+        );
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while fixture_process_running(pids[0]) || fixture_process_running(pids[1]) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("dropping the nested tool left a fixture process running");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn outer_cancellation_drop_kills_live_helper_process_group() {
+        assert_outer_drop_kills_helper_descendant(false, true).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn outer_cancellation_drop_preserves_group_until_descendant_pipes_close() {
+        assert_outer_drop_kills_helper_descendant(true, true).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn outer_deadline_drop_kills_helper_process_group() {
+        assert_outer_drop_kills_helper_descendant(false, false).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_tool_retries_one_transient_text_file_busy_spawn() {
+        use std::fs::OpenOptions;
+
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("launched");
+        let script = format!("touch '{}'; echo launched", marker.display());
+        let (_tool_directory, settings) = fake_tool(&script);
+        let writer = OpenOptions::new()
+            .write(true)
+            .open(&settings.yt_dlp_path)
+            .unwrap();
+        let error = std::process::Command::new(&settings.yt_dlp_path)
+            .spawn()
+            .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ETXTBSY));
+
+        let (_tx, cancel) = idle_cancel();
+        let mut run = Box::pin(run_tool(
+            &settings,
+            vec![],
+            cancel,
+            Duration::from_secs(1),
+            |_| {},
+        ));
+        assert!(poll_once(&mut run).is_pending(), "expected ETXTBSY backoff");
+        drop(writer);
+        let output = run.await.unwrap();
+        assert!(output.contains("launched"));
+        assert!(marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_tool_busy_spawn_deadline_is_bounded_and_does_not_launch() {
+        use std::fs::OpenOptions;
+
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("launched");
+        let (_tool_directory, settings) = fake_tool(&format!("touch '{}'", marker.display()));
+        let _writer = OpenOptions::new()
+            .write(true)
+            .open(&settings.yt_dlp_path)
+            .unwrap();
+        let (_tx, cancel) = idle_cancel();
+        let started = Instant::now();
+        let mut run = Box::pin(run_tool(
+            &settings,
+            vec![],
+            cancel,
+            Duration::from_millis(3),
+            |_| {},
+        ));
+        assert!(poll_once(&mut run).is_pending(), "expected ETXTBSY backoff");
+        let result = run.await;
+        assert_eq!(result.unwrap_err(), "yt-dlp operation timed out");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn nested_search_and_extraction_share_one_absolute_deadline() {
+        let directory = tempfile::tempdir().unwrap();
+        let search_started = directory.path().join("search-started");
+        let extraction_started = directory.path().join("extraction-started");
+        let (_tool_directory, settings) = fake_tool(&format!(
+            "case \"$*\" in *search*) touch '{}'; sleep 60 ;; *extract*) touch '{}'; echo extracted ;; esac",
+            search_started.display(), extraction_started.display()
+        ));
+        let (_tx, cancel) = idle_cancel();
+        let shared_deadline = tokio::time::Instant::now() + Duration::from_millis(80);
+
+        let search = tokio::time::timeout(
+            Duration::from_secs(2),
+            run_tool_until(
+                &settings,
+                vec!["search".into()],
+                cancel.clone(),
+                shared_deadline,
+                |_| {},
+            ),
+        )
+        .await
+        .expect("nested search must stop at the shared deadline");
+        assert_eq!(search.unwrap_err(), "yt-dlp operation timed out");
+        assert!(
+            search_started.exists(),
+            "the slow search fixture should start"
+        );
+
+        let extraction = run_tool_until(
+            &settings,
+            vec!["extract".into()],
+            cancel,
+            shared_deadline,
+            |_| {},
+        )
+        .await;
+        assert_eq!(extraction.unwrap_err(), "yt-dlp operation timed out");
+        assert!(
+            !extraction_started.exists(),
+            "the nested extraction must not receive a fresh timeout"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shared_deadline_keeps_attempt_cancellation_independent() {
+        let directory = tempfile::tempdir().unwrap();
+        let started = directory.path().join("started");
+        let (_tool_directory, settings) =
+            fake_tool(&format!("touch '{}'; sleep 60", started.display()));
+        let (cancel_sender, cancel) = idle_cancel();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let worker = tokio::spawn(async move {
+            run_tool_until(&settings, vec![], cancel, deadline, |_| {}).await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !started.exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("fake tool process did not start");
+        cancel_sender.send(true).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(2), worker)
+            .await
+            .expect("cancelled nested operation must stop promptly")
+            .unwrap();
+        assert_eq!(result.unwrap_err(), "Cancelled");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_tool_persistent_busy_spawn_uses_at_most_one_retry() {
+        use std::fs::OpenOptions;
+
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("launched");
+        let (_tool_directory, settings) = fake_tool(&format!("touch '{}'", marker.display()));
+        let _writer = OpenOptions::new()
+            .write(true)
+            .open(&settings.yt_dlp_path)
+            .unwrap();
+        let (_tx, cancel) = idle_cancel();
+        let mut run = Box::pin(run_tool(
+            &settings,
+            vec![],
+            cancel,
+            Duration::from_secs(1),
+            |_| {},
+        ));
+        assert!(
+            poll_once(&mut run).is_pending(),
+            "expected first ETXTBSY backoff"
+        );
+        let error = run.await.unwrap_err();
+        assert!(error.starts_with("Could not start yt-dlp:"), "{error}");
+        assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_tool_cancellation_during_busy_spawn_backoff_prevents_launch() {
+        use std::fs::OpenOptions;
+
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("launched");
+        let (_tool_directory, settings) = fake_tool(&format!("touch '{}'", marker.display()));
+        let _writer = OpenOptions::new()
+            .write(true)
+            .open(&settings.yt_dlp_path)
+            .unwrap();
+        let (tx, cancel) = idle_cancel();
+        let mut run = Box::pin(run_tool(
+            &settings,
+            vec![],
+            cancel,
+            Duration::from_secs(1),
+            |_| {},
+        ));
+        assert!(poll_once(&mut run).is_pending(), "expected ETXTBSY backoff");
+        tx.send(true).unwrap();
+        assert!(
+            matches!(poll_once(&mut run), std::task::Poll::Ready(Err(error)) if error == "Cancelled")
+        );
+        assert!(!marker.exists());
     }
 
     #[cfg(unix)]
@@ -4312,7 +7965,7 @@ mod tests {
     async fn one_provider_failure_does_not_discard_other_provider_candidates() {
         let output = r#"{"entries":[{"id":"x","url":"https://www.youtube.com/watch?v=x","title":"Artist One - Night Drive (Extended Mix)","duration":360,"uploader":"Artist One"}]}"#;
         let script = format!(
-            "case \"$*\" in *scsearch10:*) echo 'SoundCloud unavailable' >&2; exit 1 ;; *) echo '{}' ;; esac",
+            "case \"$*\" in *scsearch*) echo 'SoundCloud unavailable' >&2; exit 1 ;; *) echo '{}' ;; esac",
             output
         );
         let (_directory, settings) = fake_tool(&script);
@@ -4427,6 +8080,476 @@ echo "$result"
         assert_eq!(found.len(), 3);
     }
 
+    #[tokio::test]
+    async fn preview_probe_error_classes_use_only_reqwest_categories() {
+        use std::io::Read;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 2048];
+            let _ = socket.read(&mut request).unwrap();
+            std::thread::sleep(Duration::from_millis(150));
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_millis(25))
+            .build()
+            .unwrap();
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let output = events.clone();
+        let trace = crate::playback_sources::SourceTrace::new(None, None, None)
+            .with_test_sink(Arc::new(move |event| output.lock().unwrap().push(event)));
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let url = url::Url::parse(&format!("http://{address}/probe-private-url")).unwrap();
+        let error = send_preview_range(
+            &client,
+            &url,
+            &[],
+            (0, 1023),
+            cancel,
+            Some(trace),
+            "youtube",
+            "head",
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error, "Audio stream access check failed");
+        let events = events.lock().unwrap();
+        let end = events
+            .iter()
+            .find(|event| event["phase"] == "stream_probe_end")
+            .unwrap();
+        assert_eq!(end["details"]["errorClass"], "timeout");
+        assert!(end["details"]["status"].is_null());
+        let serialized = serde_json::to_string(&*events).unwrap();
+        assert!(!serialized.contains("probe-private-url"));
+        assert!(!serialized.contains("127.0.0.1"));
+        drop(events);
+        server.join().unwrap();
+
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let closed_address = closed.local_addr().unwrap();
+        drop(closed);
+        let connect = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap()
+            .get(format!("http://{closed_address}/probe"))
+            .send()
+            .await
+            .unwrap_err();
+        assert_eq!(preview_probe_error_class(&connect), "connect");
+
+        let request = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get("http://127.0.0.1:1/probe")
+            .header("not a valid header name", "value")
+            .send()
+            .await
+            .unwrap_err();
+        assert_eq!(preview_probe_error_class(&request), "request");
+    }
+
+    #[tokio::test]
+    async fn preview_probe_error_classifies_truncated_local_response_body() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 2048];
+            let _ = socket.read(&mut request).unwrap();
+            write!(socket, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-1023/1024\r\nContent-Length: 1024\r\nContent-Type: audio/mpeg\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let output = events.clone();
+        let trace = crate::playback_sources::SourceTrace::new(None, None, None)
+            .with_test_sink(Arc::new(move |event| output.lock().unwrap().push(event)));
+        let url = url::Url::parse(&format!("http://{address}/probe-private-url")).unwrap();
+        let (_cancel_tx, mut cancel) = watch::channel(false);
+        let response = send_preview_range(
+            &client,
+            &url,
+            &[],
+            (0, 1023),
+            cancel.clone(),
+            Some(trace.clone()),
+            "youtube",
+            "head",
+        )
+        .await
+        .unwrap();
+        let error = validate_preview_range(
+            response,
+            (0, 1023),
+            1024,
+            &mut cancel,
+            Some(trace),
+            "youtube",
+            "head",
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error, "Audio stream could not deliver audio bytes");
+        let events = events.lock().unwrap();
+        let body_end = events
+            .iter()
+            .find(|event| event["phase"] == "stream_probe_body_end")
+            .unwrap();
+        assert_eq!(body_end["details"]["errorClass"], "body");
+        assert!(!serde_json::to_string(&*events)
+            .unwrap()
+            .contains("probe-private-url"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn known_length_range_probe_requires_exact_bounded_body_and_honors_cancellation() {
+        use std::io::{Read, Write};
+
+        async fn serve(body_headers: &str, body: &str, end: u64) -> Result<(), String> {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let body_headers = body_headers.to_owned();
+            let body = body.to_owned();
+            let total = end.max(7) + 1;
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0; 2048];
+                let _ = socket.read(&mut request).unwrap();
+                write!(socket, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-{end}/{total}\r\nContent-Type: audio/mpeg\r\n{body_headers}Connection: close\r\n\r\n{body}").unwrap();
+            });
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(2))
+                .build()
+                .unwrap();
+            let url = url::Url::parse(&format!("http://{address}/probe")).unwrap();
+            let (_cancel_tx, mut cancel) = watch::channel(false);
+            let response = send_preview_range(
+                &client,
+                &url,
+                &[],
+                (0, end),
+                cancel.clone(),
+                None,
+                "youtube",
+                "head",
+            )
+            .await
+            .unwrap();
+            let result = validate_preview_range(
+                response,
+                (0, end),
+                total,
+                &mut cancel,
+                None,
+                "youtube",
+                "head",
+            )
+            .await;
+            server.join().unwrap();
+            result
+        }
+
+        assert!(
+            serve(
+                "Transfer-Encoding: chunked\r\n",
+                "4\r\nabcd\r\n4\r\nefgh\r\n0\r\n\r\n",
+                7
+            )
+            .await
+            .is_ok(),
+            "valid multi-chunk range body is accepted"
+        );
+        assert_eq!(
+            serve("Transfer-Encoding: chunked\r\n", "3\r\nabc\r\n0\r\n\r\n", 7)
+                .await
+                .unwrap_err(),
+            "Audio source returned a truncated byte range"
+        );
+        assert_eq!(
+            serve(
+                "Transfer-Encoding: chunked\r\n",
+                "5\r\nabcde\r\n0\r\n\r\n",
+                3
+            )
+            .await
+            .unwrap_err(),
+            "Audio source returned an oversized byte range"
+        );
+        assert_eq!(
+            serve("Content-Length: 16\r\n", "", 7).await.unwrap_err(),
+            "Audio source returned an inconsistent byte range"
+        );
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 2048];
+            let _ = socket.read(&mut request).unwrap();
+            write!(socket, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-7/64\r\nContent-Length: 8\r\nContent-Type: audio/mpeg\r\nConnection: close\r\n\r\n").unwrap();
+            std::thread::sleep(Duration::from_millis(250));
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let url = url::Url::parse(&format!("http://{address}/probe")).unwrap();
+        let (cancel_tx, mut cancel) = watch::channel(false);
+        let response = send_preview_range(
+            &client,
+            &url,
+            &[],
+            (0, 7),
+            cancel.clone(),
+            None,
+            "youtube",
+            "head",
+        )
+        .await
+        .unwrap();
+        cancel_tx.send(true).unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_millis(200),
+            validate_preview_range(response, (0, 7), 64, &mut cancel, None, "youtube", "head"),
+        )
+        .await
+        .expect("cancelled body read must not hang");
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn preview_access_retries_transient_denial_and_requires_real_bytes() {
+        use std::io::{Read, Write};
+        for (responses, expected_error) in [
+            (vec![(429, "busy"), (206, "audio bytes")], None),
+            (vec![(403, "warming"), (206, "audio bytes")], None),
+            (
+                vec![(403, "warming"), (403, "still warming")],
+                Some("HTTP 403"),
+            ),
+            (vec![(206, "")], Some("empty stream")),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                for (status, body) in responses {
+                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                    let (mut stream, _) = loop {
+                        match listener.accept() {
+                            Ok(connection) => break connection,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                assert!(
+                                    std::time::Instant::now() < deadline,
+                                    "timed out waiting for range probe"
+                                );
+                                std::thread::sleep(Duration::from_millis(5));
+                            }
+                            Err(error) => panic!("failed to accept range probe: {error}"),
+                        }
+                    };
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    let mut request = [0; 4096];
+                    let count = stream.read(&mut request).unwrap();
+                    assert!(String::from_utf8_lossy(&request[..count])
+                        .to_lowercase()
+                        .contains("range: bytes=0-1023"));
+                    write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: audio/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+            });
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(3))
+                .build()
+                .unwrap();
+            let (_sender, mut cancel) = watch::channel(false);
+            let result = verify_preview_audio_access(
+                &client,
+                &url::Url::parse(&format!("http://{address}/audio")).unwrap(),
+                &[],
+                None,
+                &mut cancel,
+            )
+            .await;
+            if let Some(message) = expected_error {
+                assert!(result.unwrap_err().contains(message));
+            } else {
+                result.unwrap();
+            }
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn preview_access_checks_known_length_start_and_tail_ranges() {
+        use std::io::{Read, Write};
+        const TOTAL_BYTES: u64 = 2 * 1024 * 1024;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut ranges = Vec::new();
+            for _ in 0..2 {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "timed out waiting for range probe"
+                            );
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("failed to accept range probe: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = [0; 4096];
+                let count = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..count]).to_ascii_lowercase();
+                let range = request
+                    .lines()
+                    .find_map(|line| line.strip_prefix("range: bytes="))
+                    .unwrap()
+                    .to_owned();
+                ranges.push(range.clone());
+                let (start, end) = range.split_once('-').unwrap();
+                let (start, end) = (start.parse::<u64>().unwrap(), end.parse::<u64>().unwrap());
+                let content_len = (end - start + 1) as usize;
+                write!(
+                    stream,
+                    "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mp4\r\nContent-Range: bytes {start}-{end}/{TOTAL_BYTES}\r\nContent-Length: {content_len}\r\nConnection: close\r\n\r\n"
+                )
+                .unwrap();
+                stream.write_all(&vec![b'a'; content_len]).unwrap();
+            }
+            ranges
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let (_sender, mut cancel) = watch::channel(false);
+        verify_preview_audio_access(
+            &client,
+            &url::Url::parse(&format!("http://{address}/audio")).unwrap(),
+            &[("User-Agent".into(), "AudioClient/1.0".into())],
+            Some(TOTAL_BYTES),
+            &mut cancel,
+        )
+        .await
+        .unwrap();
+        let mut ranges = server.join().unwrap();
+        ranges.sort();
+        assert_eq!(ranges, vec!["0-1023", "2096128-2097151"]);
+    }
+
+    #[test]
+    fn fresh_stream_forbidden_gets_longer_bounded_retry_than_throttling() {
+        assert_eq!(
+            preview_access_retry_delay(reqwest::StatusCode::FORBIDDEN),
+            Some(Duration::from_millis(1500))
+        );
+        assert_eq!(
+            preview_access_retry_delay(reqwest::StatusCode::TOO_MANY_REQUESTS),
+            Some(Duration::from_millis(300))
+        );
+        assert_eq!(
+            preview_access_retry_delay(reqwest::StatusCode::BAD_GATEWAY),
+            Some(Duration::from_millis(300))
+        );
+        assert_eq!(
+            preview_access_retry_delay(reqwest::StatusCode::NOT_FOUND),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn preview_access_probe_reuses_safe_stream_headers() {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for _ in 0..3 {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                let (mut stream, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "timed out waiting for header probe"
+                            );
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("failed to accept header probe: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = [0; 4096];
+                let count = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..count]).to_lowercase();
+                assert!(request.contains("range: bytes=0-1023"));
+                let headers_present = request.contains("user-agent: audioclient/1.0")
+                    && request.contains("referer: https://www.youtube.com/watch?v=public-id");
+                if headers_present {
+                    write!(stream, "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mp4\r\nContent-Length: 10\r\nConnection: close\r\n\r\naudio bytes").unwrap();
+                } else {
+                    write!(stream, "HTTP/1.1 403 Forbidden\r\nContent-Length: 7\r\nConnection: close\r\n\r\nblocked").unwrap();
+                }
+            }
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let headers = vec![
+            ("User-Agent".into(), "AudioClient/1.0".into()),
+            (
+                "Referer".into(),
+                "https://www.youtube.com/watch?v=public-id".into(),
+            ),
+        ];
+        let (_sender, mut cancel) = watch::channel(false);
+        let url = url::Url::parse(&format!("http://{address}/audio")).unwrap();
+        assert!(
+            verify_preview_audio_access(&client, &url, &[], None, &mut cancel)
+                .await
+                .unwrap_err()
+                .contains("HTTP 403")
+        );
+        verify_preview_audio_access(&client, &url, &headers, None, &mut cancel)
+            .await
+            .unwrap();
+        server.join().unwrap();
+    }
+
     #[test]
     fn preview_audio_metadata_requires_audio_only_and_trusted_public_hosts() {
         let candidate = Candidate {
@@ -4439,13 +8562,38 @@ echo "$result"
             "url":"https://rr5---sn.googlevideo.com/videoplayback?signature=redacted",
             "ext":"m4a",
             "protocol":"https",
+            "format_id":"140",
             "acodec":"mp4a.40.2",
             "vcodec":"none",
-            "duration":156
+            "duration":156,
+            "filesize":4096
         });
         let audio = preview_audio_from_metadata(&candidate, &info).unwrap();
         assert_eq!(audio.mime_type, "audio/mp4");
         assert_eq!(audio.duration_seconds, Some(156.0));
+        assert_eq!(audio.expected_content_length, Some(4096));
+        assert_eq!(audio.selected_format_id.as_deref(), Some("140"));
+        assert!(!audio.selected_format_has_video);
+
+        let muxed = preview_audio_from_metadata(
+            &candidate,
+            &serde_json::json!({
+                "id":"hghqd1eBTYQ",
+                "url":"https://rr5---sn.googlevideo.com/video-mp4?signature=redacted",
+                "ext":"mp4",
+                "protocol":"https",
+                "format_id":"18",
+                "acodec":"mp4a.40.2",
+                "vcodec":"avc1",
+                "duration":156,
+                "filesize":10000
+            }),
+        )
+        .unwrap();
+        assert_eq!(muxed.selected_format_id.as_deref(), Some("18"));
+        assert!(muxed.selected_format_has_video);
+        assert!(muxed.expected_content_length.is_some());
+        assert_eq!(safe_extractor_format_id(Some("bad format/token")), None);
         let soundcloud = Candidate {
             id: "soundcloud:123".into(),
             provider: "soundcloud".into(),
@@ -4455,6 +8603,24 @@ echo "$result"
             &soundcloud,
             &serde_json::json!({"id":"123","url":"https://cf-media.sndcdn.com/audio.m3u8","ext":"m4a","protocol":"m3u8_native","acodec":"mp4a.40.2","vcodec":"none"})
         ).is_ok());
+        let migrated_soundcloud = Candidate {
+            id: "soundcloud:1998651815".into(),
+            provider: "soundcloud".into(),
+            ..Default::default()
+        };
+        let hls_audio = preview_audio_from_metadata(
+            &migrated_soundcloud,
+            &serde_json::json!({"id":"1998651815","url":"https://playback.media-streaming.soundcloud.cloud/trackid/aac_160k/uuid/playlist.m3u8?token=redacted","ext":"m4a","protocol":"m3u8_native","acodec":"mp4a.40.2","vcodec":"none"})
+        ).unwrap();
+        assert_eq!(hls_audio.mime_type, "application/vnd.apple.mpegurl");
+        assert!(preview_audio_from_metadata(
+            &migrated_soundcloud,
+            &serde_json::json!({"id":"1998651815","url":"https://user:pass@playback.media-streaming.soundcloud.cloud/trackid/aac_160k/uuid/playlist.m3u8","ext":"m4a","protocol":"m3u8_native","acodec":"mp4a.40.2","vcodec":"none"})
+        ).is_err());
+        assert!(preview_audio_from_metadata(
+            &migrated_soundcloud,
+            &serde_json::json!({"id":"1998651815","url":"https://192.168.1.10/trackid/aac_160k/uuid/playlist.m3u8","ext":"m4a","protocol":"m3u8_native","acodec":"mp4a.40.2","vcodec":"none"})
+        ).is_err());
         assert!(preview_audio_from_metadata(
             &soundcloud,
             &serde_json::json!({"id":"123","url":"https://attacker.example/audio.m3u8","ext":"m4a","protocol":"m3u8_native","acodec":"mp4a.40.2","vcodec":"none"})
@@ -4464,11 +8630,106 @@ echo "$result"
             &serde_json::json!({"id":"hghqd1eBTYQ","url":"https://rr5---sn.googlevideo.com/a","ext":"mp4","acodec":"mp4a.40.2","vcodec":"avc1"})
         )
         .is_err());
+        let muxed_youtube = preview_audio_from_metadata(
+            &candidate,
+            &serde_json::json!({
+                "id":"hghqd1eBTYQ",
+                "url":"https://rr5---sn.googlevideo.com/videoplayback?signature=redacted",
+                "ext":"mp4",
+                "protocol":"https",
+                "acodec":"mp4a.40.2",
+                "vcodec":"avc1.42001E",
+                "abr":96.5,
+                "tbr":512.0,
+                "filesize":4436187
+            }),
+        )
+        .unwrap();
+        assert_eq!(muxed_youtube.mime_type, "audio/mp4");
+        assert_eq!(muxed_youtube.codec.as_deref(), Some("mp4a.40.2"));
+        assert_eq!(muxed_youtube.bitrate_kbps, Some(96.5));
+        assert_eq!(muxed_youtube.expected_content_length, Some(4436187));
+        assert!(preview_audio_from_metadata(
+            &candidate,
+            &serde_json::json!({"id":"hghqd1eBTYQ","url":"https://rr5---sn.googlevideo.com/videoplayback","ext":"mp4","protocol":"https","acodec":"none","vcodec":"avc1.42001E"})
+        )
+        .is_err());
+        assert!(preview_audio_from_metadata(
+            &candidate,
+            &serde_json::json!({"id":"different","url":"https://rr5---sn.googlevideo.com/videoplayback","ext":"mp4","protocol":"https","acodec":"mp4a.40.2","vcodec":"avc1.42001E"})
+        )
+        .is_err());
+        assert!(preview_audio_from_metadata(
+            &candidate,
+            &serde_json::json!({"id":"hghqd1eBTYQ","url":"https://attacker.example/videoplayback","ext":"mp4","protocol":"https","acodec":"mp4a.40.2","vcodec":"avc1.42001E"})
+        )
+        .is_err());
+        assert!(preview_audio_from_metadata(
+            &candidate,
+            &serde_json::json!({"id":"hghqd1eBTYQ","url":"https://rr5---sn.googlevideo.com/videoplayback","ext":"mp4","protocol":"m3u8_native","acodec":"mp4a.40.2","vcodec":"avc1.42001E"})
+        )
+        .is_err());
+        assert!(preview_audio_from_metadata(
+            &soundcloud,
+            &serde_json::json!({"id":"123","url":"https://cf-media.sndcdn.com/audio.mp4","ext":"mp4","protocol":"https","acodec":"mp4a.40.2","vcodec":"avc1"})
+        )
+        .is_err());
         assert!(preview_audio_from_metadata(
             &candidate,
             &serde_json::json!({"id":"hghqd1eBTYQ","url":"https://attacker.example/a","ext":"mp4","acodec":"mp4a.40.2","vcodec":"none"})
         )
         .is_err());
+    }
+
+    #[test]
+    fn alternate_preview_audio_format_prefers_webm_then_m4a_without_changing_default() {
+        assert_eq!(
+            preview_audio_format_selector(false, false),
+            PREVIEW_AUDIO_FORMAT_SELECTOR
+        );
+        let alternate = preview_audio_format_selector(true, false);
+        assert!(alternate.starts_with("bestaudio[ext=webm]"));
+        assert!(alternate.contains("/bestaudio[ext=m4a]"));
+
+        let youtube = preview_audio_format_selector(false, true);
+        assert!(youtube.starts_with("bestaudio[ext=m4a]"));
+        assert!(youtube.find("/bestaudio").unwrap() < youtube.find("/worst[ext=mp4]").unwrap());
+        assert!(youtube.contains("[acodec!=none][vcodec!=none]"));
+        let youtube_alternate = preview_audio_format_selector(true, true);
+        assert!(youtube_alternate.starts_with("bestaudio[ext=webm]"));
+        assert!(
+            youtube_alternate.find("/bestaudio").unwrap()
+                < youtube_alternate.find("/worst[ext=mp4]").unwrap()
+        );
+        assert!(!preview_audio_format_selector(false, false).contains("/worst[ext=mp4]"));
+    }
+
+    #[test]
+    fn preview_audio_headers_keep_only_safe_allowlisted_values() {
+        let headers = preview_audio_headers(&serde_json::json!({
+            "http_headers": {
+                "user-agent": "AudioClient/1.0",
+                "Referer": "https://www.youtube.com/watch?v=public-id",
+                "Origin": "https://www.youtube.com",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cookie": "secret=session",
+                "Authorization": "Bearer secret",
+                "X-Api-Key": "secret",
+                "X-Newline": "safe\r\nCookie: secret"
+            }
+        }));
+        assert_eq!(
+            headers,
+            vec![
+                ("User-Agent".into(), "AudioClient/1.0".into()),
+                (
+                    "Referer".into(),
+                    "https://www.youtube.com/watch?v=public-id".into()
+                ),
+                ("Origin".into(), "https://www.youtube.com".into()),
+                ("Accept-Language".into(), "en-US,en;q=0.9".into()),
+            ]
+        );
     }
 
     #[cfg(unix)]
@@ -4498,6 +8759,110 @@ echo "$result"
             assert_eq!(found.len(), 1);
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn traced_playback_candidate_cache_reports_observed_miss_then_hit_only() {
+        use std::sync::{Arc, Mutex};
+        let cache = CandidateSearchCache::default();
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let trace = || {
+            let events = events.clone();
+            crate::playback_sources::SourceTrace::new(None, None, Some(7))
+                .with_event_provider("youtube")
+                .with_test_sink(Arc::new(move |value| events.lock().unwrap().push(value)))
+        };
+        let (_tx, cancel) = idle_cancel();
+        let found = cache
+            .get_or_search_cancelled_traced(
+                "private-playback-key".into(),
+                cancel.clone(),
+                trace(),
+                || async {
+                    Ok(vec![Candidate {
+                        id: "youtube:fixture".into(),
+                        ..Candidate::default()
+                    }])
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            events.lock().unwrap()[0]["phase"],
+            "playback_candidate_search_cache_miss"
+        );
+        assert_eq!(events.lock().unwrap()[0]["details"]["waitedForGate"], false);
+        assert!(events.lock().unwrap()[0]["details"]["observedElapsedMs"].is_number());
+
+        let hit = cache
+            .get_or_search_cancelled_traced(
+                "private-playback-key".into(),
+                cancel,
+                trace(),
+                || async { Err("cache-hit-loader-was-invoked".into()) },
+            )
+            .await
+            .unwrap();
+        assert_eq!(hit.len(), 1);
+        let events = events.lock().unwrap();
+        assert_eq!(events[1]["phase"], "playback_candidate_search_cache_hit");
+        assert_eq!(events[1]["details"]["resultCount"], 1);
+        assert!(!events[1].to_string().contains("private-playback-key"));
+    }
+
+    #[tokio::test]
+    async fn traced_playback_candidate_cache_distinguishes_waited_hit() {
+        use std::sync::{Arc, Mutex};
+        use tokio::sync::oneshot;
+        let cache = Arc::new(CandidateSearchCache::default());
+        let (owner_started_tx, owner_started_rx) = oneshot::channel();
+        let (release_owner_tx, release_owner_rx) = oneshot::channel();
+        let owner_cache = cache.clone();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_search("waited-hit-key".into(), || async move {
+                    let _ = owner_started_tx.send(());
+                    let _ = release_owner_rx.await;
+                    Ok(vec![Candidate {
+                        id: "youtube:fixture".into(),
+                        ..Candidate::default()
+                    }])
+                })
+                .await
+        });
+        owner_started_rx.await.unwrap();
+
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let traced_events = events.clone();
+        let trace = crate::playback_sources::SourceTrace::new(None, None, Some(9))
+            .with_event_provider("youtube")
+            .with_test_sink(Arc::new(move |value| {
+                traced_events.lock().unwrap().push(value)
+            }));
+        let (_tx, cancel) = idle_cancel();
+        let waiter = cache.get_or_search_cancelled_traced(
+            "waited-hit-key".into(),
+            cancel,
+            trace,
+            || async { Err("waited-cache-hit-loader-was-invoked".into()) },
+        );
+        tokio::pin!(waiter);
+        assert!(matches!(
+            futures_util::poll!(waiter.as_mut()),
+            std::task::Poll::Pending
+        ));
+        release_owner_tx.send(()).unwrap();
+        assert_eq!(owner.await.unwrap().unwrap().len(), 1);
+        assert_eq!(waiter.await.unwrap().len(), 1);
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0]["phase"],
+            "playback_candidate_search_cache_waited_hit"
+        );
+        assert_eq!(events[0]["details"]["resultCount"], 1);
+        assert!(!events[0].to_string().contains("waited-hit-key"));
     }
 
     #[cfg(unix)]
@@ -4531,6 +8896,115 @@ echo "$result"
     }
 
     #[tokio::test]
+    async fn cancelled_speculative_search_owner_leaves_foreground_waiter_independent() {
+        use tokio::sync::oneshot;
+        let cache = Arc::new(CandidateSearchCache::default());
+        let (cancel_speculative, speculative_cancel) = watch::channel(false);
+        let (started, owner_started) = oneshot::channel();
+        let owner_cache = cache.clone();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_search_cancelled(
+                    "upcoming-playback-search".into(),
+                    speculative_cancel.clone(),
+                    || async move {
+                        let _ = started.send(());
+                        crate::playback_sources::wait_for_cancellation(speculative_cancel).await;
+                        Err("Cancelled".into())
+                    },
+                )
+                .await
+        });
+        owner_started.await.unwrap();
+        let foreground_cache = cache.clone();
+        let (_foreground_sender, foreground_cancel) = idle_cancel();
+        let foreground = tokio::spawn(async move {
+            foreground_cache
+                .get_or_search_cancelled(
+                    "upcoming-playback-search".into(),
+                    foreground_cancel,
+                    || async {
+                        Ok(vec![Candidate {
+                            id: "independent-foreground-result".into(),
+                            ..Candidate::default()
+                        }])
+                    },
+                )
+                .await
+        });
+        tokio::task::yield_now().await;
+        cancel_speculative.send(true).unwrap();
+        assert_eq!(owner.await.unwrap().unwrap_err(), "Cancelled");
+        let result = tokio::time::timeout(Duration::from_secs(1), foreground)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(result[0].id, "independent-foreground-result");
+        assert_eq!(
+            cache
+                .get_or_search("upcoming-playback-search".into(), || async {
+                    panic!("foreground result must remain cached")
+                })
+                .await
+                .unwrap()[0]
+                .id,
+            "independent-foreground-result"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_candidate_cache_waiter_does_not_cancel_owner_or_lose_result() {
+        use tokio::sync::oneshot;
+
+        let cache = Arc::new(CandidateSearchCache::default());
+        let owner_cache = cache.clone();
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_search("shared-candidate-key".into(), || async move {
+                    let _ = started_tx.send(());
+                    let _ = release_rx.await;
+                    Ok(Vec::<Candidate>::new())
+                })
+                .await
+        });
+        started_rx.await.unwrap();
+
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let waiter_cache = cache.clone();
+        let waiter = tokio::spawn(async move {
+            waiter_cache
+                .get_or_search_cancelled("shared-candidate-key".into(), cancel_rx, || async {
+                    panic!("a waiter must not become the search owner after cancellation")
+                })
+                .await
+        });
+        tokio::task::yield_now().await;
+        cancel_tx.send(true).unwrap();
+        let cancelled = tokio::time::timeout(Duration::from_millis(100), waiter)
+            .await
+            .expect("cancelled waiter should leave the cache gate promptly")
+            .unwrap();
+        assert_eq!(cancelled.unwrap_err(), "Cancelled");
+        assert!(
+            !owner.is_finished(),
+            "waiter cancellation must not cancel owner"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(owner.await.unwrap().unwrap().is_empty());
+        let cached = cache
+            .get_or_search("shared-candidate-key".into(), || async {
+                panic!("the completed owner's result should remain cached")
+            })
+            .await
+            .unwrap();
+        assert!(cached.is_empty());
+    }
+
+    #[tokio::test]
     async fn concurrent_preview_audio_resolutions_share_one_lookup() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let calls = AtomicUsize::new(0);
@@ -4544,6 +9018,14 @@ echo "$result"
                 codec: None,
                 bitrate_kbps: None,
                 duration_seconds: Some(156.0),
+                selected_format_id: None,
+                selected_format_has_video: false,
+                source_metadata: None,
+                resolved_title: None,
+                resolved_provider_id: None,
+                chapters: None,
+                expected_content_length: None,
+                headers: vec![],
             })
         };
         let first = cache.get_or_resolve("same-candidate".into(), resolve);
@@ -4552,6 +9034,235 @@ echo "$result"
         assert_eq!(first.unwrap().mime_type, "audio/mp4");
         assert_eq!(second.unwrap().duration_seconds, Some(156.0));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn preview_audio_cache_hit_is_correlated_but_emits_no_monochrome_probe() {
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let output = events.clone();
+        let trace = crate::playback_sources::SourceTrace::new(
+            Some("native-fruit-start".into()),
+            None,
+            None,
+        )
+        .with_event_provider("monochrome")
+        .with_test_sink(Arc::new(move |event| output.lock().unwrap().push(event)));
+        let cache = PreviewAudioCache::default();
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let audio = || PreviewAudio {
+            url: "https://tracks.monochrome.st/track/239910648984977408".into(),
+            mime_type: "audio/flac".into(),
+            codec: Some("flac".into()),
+            bitrate_kbps: None,
+            duration_seconds: Some(181.4),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: None,
+            resolved_provider_id: None,
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            headers: vec![],
+        };
+
+        let worker_trace = trace.clone();
+        let probe_cancel = cancel_rx.clone();
+        cache
+            .get_or_resolve_cancelled(
+                "pinned-monochrome-recording".into(),
+                cancel_rx.clone(),
+                Some(trace.clone()),
+                move |lookup_id| async move {
+                    traced_monochrome_probe(
+                        Some(worker_trace.with_shared_lookup(lookup_id)),
+                        probe_cancel,
+                        || async { Ok(crate::models::Candidate::default()) },
+                    )
+                    .await
+                    .unwrap();
+                    Ok(audio())
+                },
+            )
+            .await
+            .unwrap();
+        let first_events = events.lock().unwrap().len();
+
+        cache
+            .get_or_resolve_cancelled(
+                "pinned-monochrome-recording".into(),
+                cancel_rx,
+                Some(trace),
+                |_| async { panic!("cache hit must not invoke the probe worker") },
+            )
+            .await
+            .unwrap();
+        drop(cancel_tx);
+
+        let events = events.lock().unwrap();
+        let second = &events[first_events..];
+        assert!(second
+            .iter()
+            .any(|event| event["phase"] == "preview_audio_cache_hit"));
+        assert!(!second
+            .iter()
+            .any(|event| event["phase"] == "monochrome_probe_start"));
+        assert!(!second
+            .iter()
+            .any(|event| event["phase"] == "monochrome_probe_end"));
+        assert!(second
+            .iter()
+            .all(|event| event["nativeOperationId"] == "native-fruit-start"));
+        assert!(second.iter().all(|event| event["provider"] == "monochrome"));
+    }
+
+    #[tokio::test]
+    async fn monochrome_probe_trace_marks_explicit_cancel_and_outer_deadline_drop() {
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let output = events.clone();
+        let trace = crate::playback_sources::SourceTrace::new(
+            Some("native-fruit-start".into()),
+            None,
+            None,
+        )
+        .with_event_provider("monochrome")
+        .with_test_sink(Arc::new(move |event| output.lock().unwrap().push(event)));
+        let lookup_id = uuid::Uuid::new_v4();
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let cancel_trace = trace.clone().with_shared_lookup(lookup_id);
+        let cancelled_probe = tokio::spawn(async move {
+            traced_monochrome_probe(Some(cancel_trace), cancel_rx, || async move {
+                let _ = started_tx.send(());
+                std::future::pending::<Result<crate::models::Candidate, String>>().await
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+        cancel_tx.send(true).unwrap();
+        assert_eq!(cancelled_probe.await.unwrap().unwrap_err(), "Cancelled");
+
+        let (deadline_sender, deadline_cancel) = watch::channel(false);
+        let deadline_trace = trace.clone().with_shared_lookup(lookup_id);
+        let deadline = tokio::time::timeout(
+            Duration::from_millis(5),
+            traced_monochrome_probe(Some(deadline_trace.clone()), deadline_cancel, || async {
+                std::future::pending::<Result<crate::models::Candidate, String>>().await
+            }),
+        )
+        .await;
+        assert!(
+            deadline.is_err(),
+            "fixture must exercise future-drop cleanup"
+        );
+        deadline_trace.event(
+            "resolution_end",
+            "monochrome",
+            serde_json::json!({"deadline":true,"cancelled":false}),
+        );
+        drop(deadline_sender);
+
+        let events = events.lock().unwrap();
+        let endings = events
+            .iter()
+            .filter(|event| event["phase"] == "monochrome_probe_end")
+            .map(|event| event["details"]["outcome"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(endings, ["cancelled", "abandoned"]);
+        assert!(events.iter().any(|event| {
+            event["phase"] == "resolution_end" && event["details"]["deadline"] == true
+        }));
+        assert!(events.iter().all(|event| {
+            event["nativeOperationId"] == "native-fruit-start"
+                && event["sharedLookupId"] == lookup_id.to_string()
+                && event["provider"] == "monochrome"
+                && event.get("url").is_none()
+                && event.get("headers").is_none()
+                && event.get("title").is_none()
+        }));
+    }
+
+    #[tokio::test]
+    async fn failed_stream_cache_entry_can_be_invalidated_before_same_source_retry() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = AtomicUsize::new(0);
+        let cache = PreviewAudioCache::default();
+        let resolve = || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(PreviewAudio {
+                url: "https://rr5---sn.googlevideo.com/audio?expire=4102444800".into(),
+                mime_type: "audio/mp4".into(),
+                codec: None,
+                bitrate_kbps: None,
+                duration_seconds: Some(156.0),
+                selected_format_id: None,
+                selected_format_has_video: false,
+                source_metadata: None,
+                resolved_title: None,
+                resolved_provider_id: None,
+                chapters: None,
+                expected_content_length: None,
+                headers: vec![(
+                    "Referer".into(),
+                    "https://www.youtube.com/watch?v=id".into(),
+                )],
+            })
+        };
+        let first = cache
+            .get_or_resolve("same-source".into(), resolve)
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        cache.invalidate("same-source");
+        let second = cache
+            .get_or_resolve("same-source".into(), resolve)
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(first.url, second.url);
+        assert_eq!(second.headers[0].0, "Referer");
+    }
+
+    #[tokio::test]
+    async fn invalidation_during_lookup_cannot_restore_a_stale_stream() {
+        let cache = PreviewAudioCache::default();
+        let audio = |url: &str| PreviewAudio {
+            url: url.into(),
+            mime_type: "audio/mp4".into(),
+            codec: None,
+            bitrate_kbps: None,
+            duration_seconds: Some(100.),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: None,
+            resolved_provider_id: None,
+            chapters: None,
+            expected_content_length: None,
+            headers: vec![],
+        };
+        let (started, waiting) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let stale = cache.get_or_resolve("source".into(), || async {
+            let _ = started.send(());
+            released.await.unwrap();
+            Ok(audio("https://cdn.example/expired"))
+        });
+        tokio::pin!(stale);
+        tokio::select! {
+            _ = &mut stale => panic!("lookup must wait for invalidation"),
+            _ = waiting => {},
+        }
+        cache.invalidate("source");
+        release.send(()).unwrap();
+        stale.await.unwrap();
+        let next = cache
+            .get_or_resolve("source".into(), || async {
+                Ok(audio("https://cdn.example/fresh"))
+            })
+            .await
+            .unwrap();
+        assert_eq!(next.url, "https://cdn.example/fresh");
     }
 
     #[test]
@@ -4564,6 +9275,60 @@ echo "$result"
         assert_eq!(
             preview_audio_cache_ttl("https://cdn.example/audio"),
             PREVIEW_AUDIO_CACHE_TTL
+        );
+    }
+
+    #[test]
+    fn relative_signed_url_expiry_is_anchored_to_signing_time() {
+        let now = chrono::NaiveDateTime::parse_from_str("20261015T120000Z", "%Y%m%dT%H%M%SZ")
+            .unwrap()
+            .and_utc()
+            .timestamp();
+        for prefix in ["X-Amz", "X-Goog"] {
+            assert_eq!(
+                preview_audio_cache_ttl_at(
+                    &format!(
+                        "https://cdn.example/a?{prefix}-Date=20261015T115900Z&{prefix}-Expires=120"
+                    ),
+                    now
+                ),
+                Duration::from_secs(30)
+            );
+            assert_eq!(
+                preview_audio_cache_ttl_at(
+                    &format!(
+                        "https://cdn.example/a?{prefix}-Date=20261015T115000Z&{prefix}-Expires=120"
+                    ),
+                    now
+                ),
+                Duration::ZERO
+            );
+            assert_eq!(
+                preview_audio_cache_ttl_at(
+                    &format!("https://cdn.example/a?{prefix}-Expires=120"),
+                    now
+                ),
+                Duration::ZERO
+            );
+        }
+        assert_eq!(
+            preview_audio_cache_ttl_at(
+                &format!(
+                    "https://cdn.example/a?Expires={}&expire={}",
+                    now + 90,
+                    now + 45
+                ),
+                now
+            ),
+            Duration::from_secs(15)
+        );
+        assert_eq!(
+            preview_audio_cache_ttl_at("https://cdn.example/a?expire=1&expire=4102444800", now),
+            Duration::ZERO
+        );
+        assert_eq!(
+            preview_audio_cache_ttl_at("https://cdn.example/a?Expires=invalid", now),
+            Duration::ZERO
         );
     }
 
@@ -4685,6 +9450,139 @@ echo "$result"
         let error = result.unwrap_err();
         assert!(error.contains("timed out"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[tokio::test]
+    async fn preview_audio_cancelled_owner_hands_off_to_already_queued_waiter() {
+        use tokio::sync::oneshot;
+
+        let cache = Arc::new(PreviewAudioCache::default());
+        let (owner_cancel_tx, owner_cancel_rx) = watch::channel(false);
+        let (owner_started_tx, owner_started_rx) = oneshot::channel();
+        let owner_cache = cache.clone();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_resolve_cancelled(
+                    "owner-cancel-handoff".into(),
+                    owner_cancel_rx,
+                    None,
+                    move |_| async move {
+                        let _ = owner_started_tx.send(());
+                        std::future::pending::<Result<PreviewAudio, String>>().await
+                    },
+                )
+                .await
+        });
+        owner_started_rx.await.unwrap();
+
+        let (waiter_resolver_tx, waiter_resolver_rx) = oneshot::channel();
+        let waiter_cache = cache.clone();
+        let waiter = tokio::spawn(async move {
+            waiter_cache
+                .get_or_resolve_cancelled(
+                    "owner-cancel-handoff".into(),
+                    watch::channel(false).1,
+                    None,
+                    move |_| async move {
+                        let _ = waiter_resolver_tx.send(());
+                        Ok(PreviewAudio {
+                            url: "https://cdn.example/takeover-audio".into(),
+                            mime_type: "audio/mp4".into(),
+                            codec: Some("aac".into()),
+                            bitrate_kbps: None,
+                            duration_seconds: Some(131.706),
+                            selected_format_id: None,
+                            selected_format_has_video: false,
+                            source_metadata: None,
+                            resolved_title: None,
+                            resolved_provider_id: None,
+                            chapters: None,
+                            expected_content_length: None,
+                            headers: vec![],
+                        })
+                    },
+                )
+                .await
+        });
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiter_has_joined = cache
+                    .in_flight
+                    .lock()
+                    .unwrap()
+                    .get("owner-cancel-handoff")
+                    .is_some_and(|flight| Arc::strong_count(flight) >= 3);
+                if waiter_has_joined {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("waiter should be queued on the owner's shared flight");
+
+        owner_cancel_tx.send_replace(true);
+        assert_eq!(owner.await.unwrap().unwrap_err(), "Cancelled");
+        let audio = tokio::time::timeout(Duration::from_secs(2), waiter)
+            .await
+            .expect("queued waiter should take over after owner cancellation")
+            .unwrap()
+            .unwrap();
+        assert_eq!(audio.url, "https://cdn.example/takeover-audio");
+        waiter_resolver_rx
+            .await
+            .expect("waiter's resolver should run after owner releases the gate");
+
+        let cached = cache
+            .get_or_resolve("owner-cancel-handoff".into(), || async {
+                panic!("waiter takeover result should be cached")
+            })
+            .await
+            .unwrap();
+        assert_eq!(cached.url, audio.url);
+    }
+
+    #[tokio::test]
+    async fn expired_candidate_search_entry_is_refreshed_and_then_reused() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let cache = CandidateSearchCache::default();
+        let key = "expired-candidate-fixture".to_string();
+        cache.entries.lock().unwrap().insert(
+            key.clone(),
+            CachedCandidates {
+                cached_at: Instant::now() - SEARCH_CACHE_TTL - Duration::from_secs(1),
+                candidates: vec![Candidate {
+                    id: "youtube:stale-fixture".into(),
+                    ..Candidate::default()
+                }],
+            },
+        );
+
+        let refresh_calls = AtomicUsize::new(0);
+        let refreshed = cache
+            .get_or_search(key.clone(), || async {
+                refresh_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![Candidate {
+                    id: "youtube:refreshed-fixture".into(),
+                    ..Candidate::default()
+                }])
+            })
+            .await
+            .unwrap();
+        assert_eq!(refreshed.len(), 1);
+        assert_eq!(refreshed[0].id, "youtube:refreshed-fixture");
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
+
+        let cached = cache
+            .get_or_search(key, || async {
+                panic!("refreshed candidate result should be reused")
+            })
+            .await
+            .unwrap();
+        assert_eq!(cached[0].id, "youtube:refreshed-fixture");
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

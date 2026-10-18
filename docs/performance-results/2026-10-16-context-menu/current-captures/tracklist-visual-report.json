@@ -1,0 +1,29 @@
+{
+  "scope": "Synthetic fixture mounting actual TrackList component; not live normal application. Root visually inspected half-screen capture.",
+  "viewports": [
+    1280,
+    707
+  ],
+  "halfScreen": {
+    "menu": {
+      "left": 511,
+      "right": 695,
+      "top": 63,
+      "bottom": 384
+    },
+    "footerTop": 400,
+    "documentScrollWidth": 707,
+    "rowHeight": 36,
+    "iconSize": 20
+  },
+  "findings": [],
+  "sourceHashes": {
+    "src/TrackList.svelte": "fd0a32bb2831b4aee927f61cd9b5140dad1ee244e7f0cd88bcce73976ff7e679",
+    "src/MenuIcon.svelte": "a66736383766b195fc78ecbff1c736a5b9bf660d136f541524104e81f9bc4c20"
+  },
+  "captures": [
+    "tracklist-1280-cdp.png",
+    "tracklist-707-cdp.png",
+    "tracklist-source-error-707-cdp.png"
+  ]
+}

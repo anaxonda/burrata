@@ -1,0 +1,31 @@
+{
+  "scope": "Merged frontend source, protected normal window still uses the prior frontend pin until relaunch.",
+  "svelte": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "tests": {
+    "passed": 334,
+    "files": 7
+  },
+  "frontendBuild": true,
+  "regressions": {
+    "sidebarBack": "Fails on baseline with Spotify heading instead of Library; passes after removing intermediate route.",
+    "duplicateQueuePanel": "Keyboard movement preserves exact duplicate occurrence ID and current index without playback.",
+    "resume": "20s deadline, explicit pause/seek/new-source cancellation, late settlement protection, delayed seek-completion preservation."
+  },
+  "logs": [
+    ".cache/navigation-queue-baseline-focused.log",
+    ".cache/navigation-queue-fixed-focused.log",
+    ".cache/resume-navigation-merged-check.log",
+    ".cache/resume-navigation-merged-ui-tests.log",
+    ".cache/resume-navigation-frontend-build.log"
+  ],
+  "sourcePin": ".cache/resume-navigation-frontend-source-pin.json",
+  "limitations": "Actual WebKit Resume/network event behavior awaits isolated relaunch; no claim that the earlier10s observer timeout was resolved.",
+  "musicIsolation": {
+    "qualified": false,
+    "audit": "../2026-10-17-isolation-audit/manual-profile-audit.json",
+    "scope": "XDG/process isolation was checked; standard Music isolation was missing. Functional checks are not performance qualification."
+  }
+}

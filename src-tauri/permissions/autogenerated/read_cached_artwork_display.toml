@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-read-cached-artwork-display"
+description = "Enables the read_cached_artwork_display command without any pre-configured scope."
+commands.allow = ["read_cached_artwork_display"]
+
+[[permission]]
+identifier = "deny-read-cached-artwork-display"
+description = "Denies the read_cached_artwork_display command without any pre-configured scope."
+commands.deny = ["read_cached_artwork_display"]

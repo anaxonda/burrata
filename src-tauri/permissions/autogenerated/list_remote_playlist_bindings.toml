@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-remote-playlist-bindings"
+description = "Enables the list_remote_playlist_bindings command without any pre-configured scope."
+commands.allow = ["list_remote_playlist_bindings"]
+
+[[permission]]
+identifier = "deny-list-remote-playlist-bindings"
+description = "Denies the list_remote_playlist_bindings command without any pre-configured scope."
+commands.deny = ["list_remote_playlist_bindings"]

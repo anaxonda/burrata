@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-playback-resolution"
+description = "Enables the cancel_playback_resolution command without any pre-configured scope."
+commands.allow = ["cancel_playback_resolution"]
+
+[[permission]]
+identifier = "deny-cancel-playback-resolution"
+description = "Denies the cancel_playback_resolution command without any pre-configured scope."
+commands.deny = ["cancel_playback_resolution"]

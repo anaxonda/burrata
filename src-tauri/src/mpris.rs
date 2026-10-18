@@ -520,7 +520,11 @@ fn duration_seconds(snapshot: &JsonValue) -> f64 {
     .unwrap_or(0.0)
 }
 fn queue_len(snapshot: &JsonValue) -> usize {
-    snapshot["queue"].as_array().map_or(0, Vec::len)
+    snapshot["queueTotal"]
+        .as_u64()
+        .map(|value| value as usize)
+        .or_else(|| snapshot["queue"].as_array().map(Vec::len))
+        .unwrap_or(0)
 }
 fn queue_index(snapshot: &JsonValue) -> usize {
     snapshot["currentIndex"].as_u64().unwrap_or(0) as usize
@@ -675,6 +679,13 @@ mod tests {
         assert_eq!(loop_status(&json!({"repeat":"all"})), "Playlist");
         assert_eq!(loop_status(&json!({"repeat":"one"})), "Track");
         assert_eq!(loop_status(&json!({"repeat":"off"})), "None");
+    }
+
+    #[test]
+    fn mpris_queue_len_uses_compact_queue_total_and_keeps_legacy_fallback() {
+        assert_eq!(queue_len(&json!({"queueTotal":20_000})), 20_000);
+        assert_eq!(queue_len(&json!({"queue":[1,2,3]})), 3);
+        assert_eq!(queue_len(&json!({})), 0);
     }
 
     #[test]

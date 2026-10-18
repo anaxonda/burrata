@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-mpv-status"
+description = "Enables the get_mpv_status command without any pre-configured scope."
+commands.allow = ["get_mpv_status"]
+
+[[permission]]
+identifier = "deny-get-mpv-status"
+description = "Denies the get_mpv_status command without any pre-configured scope."
+commands.deny = ["get_mpv_status"]

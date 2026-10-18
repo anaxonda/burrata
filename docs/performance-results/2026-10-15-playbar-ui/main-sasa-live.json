@@ -1,0 +1,17 @@
+{
+  "binarySha256": "68dfb9bfc202b28ba2b40b69625109e7614f6482a5961bb6346062b9396e5734",
+  "recording": "Sasa — Timmy Regisford — Main Version (4:41)",
+  "trackId": "traxsource:15044160",
+  "expectedSeconds": 281,
+  "muted": true,
+  "physicalAudibilityMeasured": false,
+  "playRequestSucceeded": false,
+  "requestElapsedMs": 9694,
+  "status": "idle",
+  "durationSeconds": 0,
+  "exactSelectedTrack": true,
+  "actionableReasonPresent": true,
+  "deadlineReason": false,
+  "errorRowVisible": true,
+  "layoutFindings": []
+}

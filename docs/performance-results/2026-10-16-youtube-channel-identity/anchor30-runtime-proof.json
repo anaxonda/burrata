@@ -1,0 +1,24 @@
+{
+  "preserved": {
+    "queue": true,
+    "queueEntryIds": true,
+    "trackId": true,
+    "currentIndex": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "paused": true
+  },
+  "guiProcesses": [
+    {
+      "pid": 2467764,
+      "parent": 2467533,
+      "sha256": "988a80468c54a7124d0c94c760489d3b51e2be355eb62da861f21b13d59155aa",
+      "flags": {
+        "BURRATA_EXPERIMENTAL_MANAGED_PROVIDER_SESSION": "1",
+        "BURRATA_EXPERIMENTAL_NATIVE_PROVIDER_SESSION": "1"
+      }
+    }
+  ]
+}

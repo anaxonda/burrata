@@ -1,0 +1,22 @@
+{
+  "checks": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "paused": true
+  },
+  "queueTotal": 13,
+  "currentIndex": 6,
+  "position": 29.087175,
+  "occurrenceIdsPersisted": true,
+  "duplicateRecordingGroups": 0,
+  "manualRestoreSeekResume": false,
+  "frontendSourcePin": ".cache/resume-navigation-frontend-source-pin.json",
+  "launchSession": 53212,
+  "scope": "Fresh pre-handoff state vs current published compact queue projection and controls; not every Track field."
+}

@@ -1,0 +1,134 @@
+{
+  "capturedAt": "2026-10-15T18:22:32.916779+00:00",
+  "recording": {
+    "title": "Sasa",
+    "artist": "Timmy Regisford",
+    "version": "Main Version",
+    "durationSeconds": 281
+  },
+  "scope": "Anonymous flat search metadata only; no authenticated session, stream URL, audio decode or playback qualification.",
+  "catalogEvidence": "https://www.traxsource.com/artist/10828/timmy-regisford",
+  "attempts": [
+    {
+      "provider": "youtube",
+      "queryKind": "exact-version",
+      "status": "metadata-only",
+      "candidates": [
+        {
+          "title": "Suncebeat 4 - Timmy Regisford - Boat Party - Video one of way too many - captured by Colin Williams",
+          "durationSeconds": 117,
+          "uploader": "Realtime Media",
+          "sourceIdHash": "dddaa095a4dee4b6"
+        },
+        {
+          "title": "TIMMY REGISFORD @TRADE CLUB MIAMI WMC (2014) \"SHELTER PARTY\" 26/03/2014",
+          "durationSeconds": 55,
+          "uploader": "KLOE NEUHM",
+          "sourceIdHash": "895c35a720ca41f1"
+        },
+        {
+          "title": "Timmy Regisford | Mixmag Lab London | 30 Years of Nervous Records & Club Shelter",
+          "durationSeconds": 6081,
+          "uploader": "Mixmag",
+          "sourceIdHash": "1e819518451cdf97"
+        },
+        {
+          "title": "Shining (feat. Mikey Dance)",
+          "durationSeconds": 333,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "bf3947c9e5921e86"
+        },
+        {
+          "title": "I Love You More Than You'll Ever Know (Mixed) (Tyrone Francis BNY Rub Dub)",
+          "durationSeconds": 268,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "880935de0b60edc1"
+        }
+      ]
+    },
+    {
+      "provider": "youtube",
+      "queryKind": "title-artist",
+      "status": "metadata-only",
+      "candidates": [
+        {
+          "title": "Shining (feat. Mikey Dance)",
+          "durationSeconds": 333,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "bf3947c9e5921e86"
+        },
+        {
+          "title": "Timmy Regisford | Mixmag Lab London | 30 Years of Nervous Records & Club Shelter",
+          "durationSeconds": 6081,
+          "uploader": "Mixmag",
+          "sourceIdHash": "1e819518451cdf97"
+        },
+        {
+          "title": "I Love You More Than You'll Ever Know (Mixed) (Tyrone Francis BNY Rub Dub)",
+          "durationSeconds": 268,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "880935de0b60edc1"
+        },
+        {
+          "title": "Thank You (Frankie Feliciano Vocal Mix)",
+          "durationSeconds": 386,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "42b930982ea98710"
+        },
+        {
+          "title": "Timmy Regisford Live Shelter NYC 199?",
+          "durationSeconds": 4675,
+          "uploader": "Cello & Ciccio",
+          "sourceIdHash": "39b7b3bc4bb691dc"
+        },
+        {
+          "title": "Bathi Ndiyabanda",
+          "durationSeconds": 288,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "cca9b5c5a9199050"
+        },
+        {
+          "title": "Shining (Sean McCabe Instrumental Mix)",
+          "durationSeconds": 446,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "50e9842d5db9caff"
+        },
+        {
+          "title": "Shining (Sean McCabe Vocal Mix) (feat. Mikey Dance)",
+          "durationSeconds": 446,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "2bde17e1e6ae9d8b"
+        },
+        {
+          "title": "I Fell in Love",
+          "durationSeconds": 342,
+          "uploader": "Timmy Regisford - Topic",
+          "sourceIdHash": "3dc393f66f7423e3"
+        },
+        {
+          "title": "Stay Away (Timmy Regisford Instrumental Mix)",
+          "durationSeconds": 450,
+          "uploader": "nathanadamsofficial",
+          "sourceIdHash": "2331e92a7bb65138"
+        }
+      ]
+    },
+    {
+      "provider": "soundcloud",
+      "queryKind": "exact-version",
+      "status": "metadata-only",
+      "candidates": []
+    }
+  ],
+  "exactCatalogEvidence": {
+    "trackUrl": "https://www.traxsource.com/track/15044160/sasa-main-version",
+    "trackId": "15044160",
+    "releaseUrl": "https://www.traxsource.com/title/2875589/shelter-lab-tracks-vol-2",
+    "releaseId": "2875589",
+    "releaseTitle": "Shelter Lab Tracks Vol 2",
+    "label": "Access Records",
+    "reportedReleaseDate": "2026-10-16",
+    "durationSeconds": 281,
+    "scope": "Primary catalog metadata; no complete playable source verified."
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "profile": "release",
+  "system": "Linux",
+  "architecture": "x86_64",
+  "revision": "c8abff1f2ee192fa0ee0cbe04347364fd8cdc26d",
+  "dirty": true,
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28) (Arch Linux rust 1:1.99.0-1)",
+  "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "cargoLockSha256": "e76f49e61b8a2a0a198aaa2250a94e4a04e420ae00b12d80e68f61c1d04e9731",
+  "nativeOutputSha256": "4d17bd226488381a793a4ab903db9748a85c74d2e84166dcf6d93746d21ea951",
+  "durationSeconds": 300,
+  "repetitionsPerPosition": 20,
+  "fractions": [
+    0.01,
+    0.5,
+    0.95
+  ],
+  "scope": "decoder first PCM; excludes resolver, mixer, device and renderer",
+  "cpuScope": "decode worker thread; reaped FFmpeg child CPU separately on Linux",
+  "failures": []
+}

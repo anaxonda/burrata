@@ -1,0 +1,45 @@
+{
+  "binarySha256": "ed9eed62d8d8e2b390e9c6bfa4cd6842708d1550980e354361ec7506d840b0dd",
+  "build": "development",
+  "playbackStatus": "idle",
+  "scope": "post-handshake idle window; not complete startup or playback",
+  "durationSeconds": 60.07707140399725,
+  "groups": {
+    "app": {
+      "samples": 107,
+      "cpuSeconds": 6.889991,
+      "cpuPercentOneCore": {
+        "median": 1.743,
+        "p95": 99.791,
+        "worst": 103.152
+      },
+      "peakRssBytes": 640823296
+    },
+    "vite": {
+      "samples": 107,
+      "cpuSeconds": 0.0,
+      "cpuPercentOneCore": {
+        "median": 0.0,
+        "p95": 0.0,
+        "worst": 0.0
+      },
+      "peakRssBytes": 467574784
+    }
+  },
+  "startupTrace": {
+    "analysisAssets": 15,
+    "analysisRecords": 14,
+    "analysisQueued": 0,
+    "analysisQueueMs": 11,
+    "qualityFactsAssets": 0
+  },
+  "confirmedManagedAccounts": {
+    "spotify": false,
+    "youtube": false
+  },
+  "limitations": [
+    "Group RSS sums resident sizes and can double-count shared pages.",
+    "IO counters measure storage, not network bytes.",
+    "No attribution to periodic reconciliation until phase timing is captured."
+  ]
+}

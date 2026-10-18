@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "scope": "One strict live control run and one reserve-enabled pilot run on the same built candidate. Exploratory only; n=1 per arm, not causal or statistical qualification.",
+  "binarySha256": "51f9347cd3e6a7cb137ea850f69c3b83a0d9f16cd606fc492158315141cff734",
+  "control": {
+    "reserve": "disabled",
+    "passed": true,
+    "firstMixerMs": 2320,
+    "sustainedPlayback": "passed 5s after 95% and 1% seeks",
+    "seekTargetsPercent": [
+      95,
+      1
+    ]
+  },
+  "pilot": {
+    "reserve": "enabled for this isolated run only",
+    "passed": false,
+    "firstMixerMs": 2026,
+    "reserveTargetSamples": 176400,
+    "reserveReleasedSamples": 180224,
+    "failure": "continued_playback_interrupted after the 95% seek",
+    "maxObservedSeekMs": 6422,
+    "pcmProducedSamples": 36864,
+    "pcmConsumedSamples": 36864
+  },
+  "policy": {
+    "normalDefault": "off",
+    "mainProfileReserveFlag": "disabled"
+  },
+  "limitations": [
+    "One run per arm; no causal or statistical inference.",
+    "Pilot did not complete the post-seek sustained-playback gate.",
+    "No speakers/audibility, live Fruit qualification, or release-performance conclusion.",
+    "The result does not establish that reserve caused or would fix the interruption."
+  ]
+}

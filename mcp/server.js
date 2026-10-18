@@ -6,10 +6,11 @@ import { isIP } from 'node:net';
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const DEFAULT_SCHEMA = { type: 'object', properties: {}, additionalProperties: false };
 export const REGISTRY_TIMEOUT_MS = 5_000;
 export const CALL_TIMEOUT_MS = 65_000;
+export const PUBLIC_DURATION_REPAIR_TIMEOUT_MS = 75_000;
 export const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 export const MAX_STRUCTURED_RESULT_BYTES = 4 * 1024 * 1024;
 export const MAX_RESULT_TEXT_CHARS = 16_000;
@@ -68,8 +69,13 @@ function redactToken(value, token) {
   return value;
 }
 
-export function requestTimeoutFor(endpoint) {
-  return endpoint === '/automation/tools' ? REGISTRY_TIMEOUT_MS : CALL_TIMEOUT_MS;
+export function requestTimeoutFor(endpoint, toolName) {
+  if (endpoint === '/automation/tools') return REGISTRY_TIMEOUT_MS;
+  if (endpoint === '/automation/call' && toolName === 'create_verification_playlist') return 110_000;
+  if (endpoint === '/automation/call' && toolName === 'repair_spotify_durations_public') {
+    return PUBLIC_DURATION_REPAIR_TIMEOUT_MS;
+  }
+  return CALL_TIMEOUT_MS;
 }
 
 export function requestErrorCode(error) {
@@ -83,7 +89,7 @@ export function requestErrorCode(error) {
 
 export async function apiRequest(discovery, endpoint, options = {}, dependencies = {}) {
   const fetcher = dependencies.fetchImpl ?? fetch;
-  const timeoutMs = dependencies.timeoutMs ?? requestTimeoutFor(endpoint);
+  const timeoutMs = dependencies.timeoutMs ?? requestTimeoutFor(endpoint, dependencies.toolName);
   const response = await fetcher(`${discovery.baseUrl}${endpoint}`, {
     ...options,
     redirect: 'error',
@@ -136,7 +142,7 @@ async function callAppTool(name, args, discoveryPath) {
   try {
     const { response, payload } = await apiRequest(discovery, '/automation/call', {
       method: 'POST', body: JSON.stringify({ name, arguments: args ?? {} }),
-    });
+    }, { toolName: name });
     if (!response.ok || !payload || typeof payload !== 'object') {
       const errorCode = payload?.code ?? payload?.error?.code ?? payload?.structuredContent?.error?.code;
       const code = errorCode === 'PLAYER_NOT_RUNNING' ? errorCode : 'NETWORK_UNAVAILABLE';

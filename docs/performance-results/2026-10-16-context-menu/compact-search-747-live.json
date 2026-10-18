@@ -1,0 +1,32 @@
+{
+  "nativeBuild": "74788300db6e",
+  "frontendPin": ".cache/compact-search-webkit-frontend-source-pin.json",
+  "sourceFiles": 193,
+  "scope": "Actual normal-profile desktop UI; constrained component fixture renders separate",
+  "viewport": {
+    "height": 515,
+    "width": 1914
+  },
+  "footerHeight": 98.5,
+  "layoutFindings": [],
+  "artistResultTitleAppearsOnce": true,
+  "directArtistActionVisible": true,
+  "providerScopeSelectTextFullyVisible": true,
+  "scopeSelectTargetHeightPixels": 34,
+  "libraryRestored": true,
+  "fullQueueAndPausedPlaybackUnchanged": true,
+  "resumeOrSeekPerformed": false,
+  "providerWritesPerformed": false,
+  "verification": {
+    "nativePassed": 840,
+    "nativeIgnored": 16,
+    "appPassed": 249,
+    "appSeconds": 37.25,
+    "searchPanelPassed": 38,
+    "artistAndQueueFocusedPassed": 72,
+    "svelteErrors": 0,
+    "svelteWarnings": 0,
+    "productionBuildSeconds": 5.91,
+    "countsAreSeparateRunsWithOverlap": true
+  }
+}

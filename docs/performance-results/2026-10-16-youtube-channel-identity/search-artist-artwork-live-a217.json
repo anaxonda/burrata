@@ -1,0 +1,8 @@
+{
+  "build": "a21733938f82a05c183a355e62e89a9c080ba64321c67993db891e44f67efa8f",
+  "method": "Visible Spotify artist search followed by exact Radiohead result action guarded by GUI PID 2147434 and executable identity; app-owned capture visually inspected by root",
+  "search": {"query": "Radiohead", "kind": "artists", "source": "spotify", "results": 30, "hasMore": true},
+  "viewport": {"width": 1914, "height": 515},
+  "observed": {"artistArtwork": "loaded Radiohead image", "artistName": "Radiohead", "releaseControlsVisible": true, "releaseControlsCompactInline": true, "loadedReleases": 20, "reportedReleases": 45, "footerVisible": true},
+  "status": "Exact selected search artist artwork is retained on the native artist page. This does not qualify artist top tracks or broader navigation/restoration."
+}

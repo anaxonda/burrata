@@ -1,0 +1,88 @@
+{
+  "viewport": {
+    "width": 707,
+    "height": 757
+  },
+  "document": {
+    "width": 707,
+    "height": 757,
+    "bodyScrollWidth": 707,
+    "horizontalOverflow": false
+  },
+  "card": {
+    "x": 8,
+    "y": 8,
+    "width": 691,
+    "height": 741,
+    "right": 699,
+    "bottom": 749,
+    "scrollWidth": 676,
+    "clientWidth": 676,
+    "scrollHeight": 1267,
+    "clientHeight": 741,
+    "horizontalOverflow": false
+  },
+  "controls": [
+    {
+      "label": "Filter tracks",
+      "x": 24,
+      "y": 309.453125,
+      "width": 203,
+      "height": 34,
+      "right": 227,
+      "bottom": 343.453125
+    },
+    {
+      "label": "Sort tracks",
+      "x": 233.390625,
+      "y": 309.453125,
+      "width": 195,
+      "height": 34,
+      "right": 428.390625,
+      "bottom": 343.453125
+    },
+    {
+      "label": "Sort direction",
+      "x": 434.78125,
+      "y": 309.453125,
+      "width": 109,
+      "height": 34,
+      "right": 543.78125,
+      "bottom": 343.453125
+    },
+    {
+      "label": "Minimum track duration",
+      "x": 114.296875,
+      "y": 349.84375,
+      "width": 76,
+      "height": 34,
+      "right": 190.296875,
+      "bottom": 383.84375
+    },
+    {
+      "label": "Maximum track duration",
+      "x": 213.859375,
+      "y": 349.84375,
+      "width": 76,
+      "height": 34,
+      "right": 289.859375,
+      "bottom": 383.84375
+    }
+  ],
+  "primary": {
+    "x": 183.78125,
+    "y": 200.453125,
+    "width": 125.84375,
+    "height": 40,
+    "right": 309.625,
+    "bottom": 240.453125,
+    "color": "rgb(16, 20, 18)",
+    "background": "rgb(184, 236, 140)"
+  },
+  "rows": 14,
+  "focus": {
+    "focused": true,
+    "visible": true,
+    "outlineWidth": "2px"
+  }
+}

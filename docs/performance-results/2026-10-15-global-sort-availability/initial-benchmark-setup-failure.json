@@ -1,0 +1,7 @@
+{
+  "scope": "Ignored Store microbenchmark fixture setup; no timing data collected",
+  "outcome": "failed",
+  "reason": "Fixture bound multiple values to a work-insert statement with one placeholder",
+  "productionFailure": false,
+  "fix": "Bind only the generated work ID; rerun benchmark after recompilation"
+}

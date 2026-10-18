@@ -1,0 +1,11 @@
+{
+  "extension/provider-operations.js": {
+    "sha256": "305ef0f9a16979a4b41a9b1d10da5c516adb63a64888ac19110b66dc87b9067a",
+    "fullSourceBytesEmbedded": true
+  },
+  "scripts/provider-session-worker.mjs": {
+    "sha256": "ae1e1fa48bed988e38a0384686eb54ac1bfd47bac30f221af598762e839d8ad8",
+    "fullSourceBytesEmbedded": true
+  },
+  "appendCommandPresent": true
+}

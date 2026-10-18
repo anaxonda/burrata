@@ -1,0 +1,19 @@
+{
+  "guiSha256": "a8cc7aa1dab282b6de3715880cf049c91cf22450305027339d90d85ed34a4735",
+  "scope": "One explicitly initiated live MCP identification check while existing user radio playback continued; no retry, stop, resume or queue change",
+  "engine": "webview",
+  "identification": {
+    "outcome": "OPERATION_FAILED",
+    "message": "Selected stream stopped producing audio",
+    "elapsedToolSeconds": 4.6
+  },
+  "after": {
+    "status": "playing",
+    "paused": false,
+    "currentIndex": 0,
+    "volume": 0.8,
+    "sourceGenerationPresent": true
+  },
+  "qualificationPass": false,
+  "limitation": "Playing status and advancing clock do not prove audible output or successful PCM capture."
+}

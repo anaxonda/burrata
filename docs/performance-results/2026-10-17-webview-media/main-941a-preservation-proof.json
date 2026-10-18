@@ -1,0 +1,22 @@
+{
+  "freshPreHandoffStatePreserved": true,
+  "checks": {
+    "queue": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "paused": true
+  },
+  "queueTotal": 13,
+  "currentIndex": 6,
+  "position": 29.087175,
+  "occurrenceMigration": {
+    "legacyIdsAbsent": true,
+    "newIdsAlignedUnique": true,
+    "persistenceInMainNotYetVerified": true
+  },
+  "limitations": "Compared full compact published queue projection(id, artist, title), not every Track field. No manual queue restoration, seek or resume. Single-entry isolated occurrence persistence verified separately."
+}

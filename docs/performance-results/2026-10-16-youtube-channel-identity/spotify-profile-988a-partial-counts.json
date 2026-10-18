@@ -1,0 +1,23 @@
+{
+  "binarySha256": "988a80468c54a7124d0c94c760489d3b51e2be355eb62da861f21b13d59155aa",
+  "pages": [
+    {
+      "count": 30,
+      "total": 110,
+      "complete": false,
+      "truncated": false,
+      "hasMore": true,
+      "snapshotConsistency": "progressive"
+    },
+    {
+      "count": 30,
+      "total": 110,
+      "complete": false,
+      "truncated": false,
+      "hasMore": true,
+      "snapshotConsistency": "progressive"
+    }
+  ],
+  "uniquePlaylists": 60,
+  "duplicateRows": 0
+}

@@ -1,0 +1,18 @@
+{
+  "soleNormalInstance": {
+    "binary": "/home/loki/projects/burrata/.cache/immutable-debug-binaries/seek-wait-ef47b3320b72/burrata",
+    "sha256": "ef47b3320b7220a5073b6b801430b931dcac6893e14a17c206df16ae3f1c42c7",
+    "pid": 998273
+  },
+  "queueAndControlsPreserved": {
+    "queue": true,
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "pendingSource": "Controlled input-gap regression being compiled; running binary has916test seek diagnostics."
+}

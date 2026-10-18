@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "scope": "Matched 50k asset-backed configured-root startup-only comparison, one run per binary.",
+  "workload": {
+    "assetOccurrences": 50000,
+    "grantLayout": "configured-root",
+    "registrationTimeoutSeconds": 20,
+    "timedPageReads": 0,
+    "projectionReadinessWaited": false
+  },
+  "baseline": {
+    "candidate": "a1b8013b10e1 historical pinned build",
+    "binaryProfileVerified": true,
+    "fullStartupWaitMs": 31066.3,
+    "storeOpenMs": 1091,
+    "downloadsBackfillMs": 4376,
+    "assetGrantMs": 9863,
+    "automationEndpointRegistrationMs": 15340,
+    "assetGrantCount": 50000,
+    "grantPages": 100
+  },
+  "current": {
+    "candidate": "8ed8ca63de48",
+    "binaryProfileVerified": true,
+    "fullStartupWaitMs": 22759.3,
+    "storeOpenMs": 932,
+    "downloadsBackfillMs": 3851,
+    "assetGrantMs": 4438,
+    "automationEndpointRegistrationMs": 9270,
+    "assetGrantCount": 50000,
+    "classificationPages": 100,
+    "allowFileCalls": 0,
+    "reusedExisting": 50000
+  },
+  "singleRunDeltas": {
+    "fullStartupWaitMs": -8307.0,
+    "fullStartupWaitPercent": -26.7,
+    "assetGrantMs": -5425,
+    "automationEndpointRegistrationMs": -6070
+  },
+  "interpretation": "The current run was faster on this specific startup-only fixture. With one run per candidate and many source differences, this is descriptive only and does not isolate the cause or establish a general performance improvement.",
+  "limitations": [
+    "n=1 per candidate; no p95, variance estimate, or performance promotion.",
+    "Startup-only workload did not time page reads or projection readiness.",
+    "The 20-second registration allowance is distinct from full startup wait; neither run timed out.",
+    "An earlier attempt failed during synthetic fixture seeding due to temporary quota before the app started; a retry correctly refused a stale binary before launch. Neither is an app startup measurement.",
+    "The historical baseline profile archive was first rejected because an internal hardlink target was omitted; the source profile remained intact. The corrected archive verified all 744 regular-file hashes and made 50,000 identical synthetic WAV hardlinks reconstructible from a verified master before the temporary profile was removed.",
+    "The comparison does not establish causality across the code changes or broader startup, page, user-library, development/release, or whole-app performance."
+  ]
+}

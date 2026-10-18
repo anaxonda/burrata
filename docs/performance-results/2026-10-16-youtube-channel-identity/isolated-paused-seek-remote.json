@@ -1,0 +1,32 @@
+{
+  "pausedSeek": {
+    "passed": true,
+    "position": 10,
+    "status": "paused",
+    "generationAdvanced": true,
+    "serialAdvanced": true,
+    "firstSeekAudio": null
+  },
+  "resume": {
+    "gate": {
+      "status": "ready",
+      "wallMs": 5169.6169,
+      "advancedMs": 5108.390022675737,
+      "observations": 44
+    },
+    "sameSeekGeneration": true,
+    "position": 15.108390022675737
+  },
+  "remote": {
+    "gate": {
+      "status": "ready",
+      "wallMs": 5197.570589000001,
+      "advancedMs": 5154.829931972789,
+      "observations": 44
+    },
+    "expectedDuration": 245.48,
+    "actualDuration": 250,
+    "sourceTitle": "\u03a3\u03c4\u03b1\u03bc\u03ac\u03c4\u03b7\u03c2 \u039a\u03c1\u03b1\u03bf\u03c5\u03bd\u03ac\u03ba\u03b7\u03c2 - \u03a0\u03cc\u03c3\u03bf \u03a3' \u0391\u03b3\u03b1\u03c0\u03ce | Stamatis Kraounakis - Poso S' Agapo (Official Lyric Video)",
+    "sourceProvider": "youtube"
+  }
+}

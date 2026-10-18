@@ -1,0 +1,23 @@
+{
+  "fixture": "isolated RemotePlaylistDetail component; synthetic browse_remote_playlist failure",
+  "assertions": {
+    "failedBrowseAlert": "Could not load playlist tracks: Error: Spotify playlist request was denied",
+    "genericEmptyStatus": null,
+    "retryButton": { "text": "Retry loading playlist", "widthCssPx": 149.125, "heightCssPx": 34, "xCssPx": 12, "horizontalOverflow": false }
+  },
+  "renderings": [
+    { "screenshot": "playlist-error-wide.png", "imageViewport": { "width": 1914, "height": 515 }, "browserInnerViewport": { "width": 1914, "height": 372 }, "retryYCssPx": 150.78 },
+    { "screenshot": "playlist-error-narrow.png", "imageViewport": { "width": 707, "height": 515 }, "browserInnerViewport": { "width": 707, "height": 372 }, "retryYCssPx": 190.78 }
+  ],
+  "verification": {
+    "vitest": "npm test -- --run src/RemotePlaylistDetail.test.ts — 24 passed",
+    "svelteCheck": "npm run check — 0 errors, 0 warnings",
+    "server": "isolated Vite localhost:5179 stopped after capture",
+    "browser": "isolated headless Chromium processes exited after capture"
+  },
+  "sourceSha256": {
+    "src/RemotePlaylistDetail.svelte": "494a44199fa01fc56c286d53f30fd34d54078aaf7a3c0018a722742c70bc43ff",
+    "src/RemotePlaylistDetail.test.ts": "2b2ea1263ea082eeb281c1fdd1999b2655dc43e8806150a909f00954b5743f71"
+  },
+  "limitation": "Fixture reproduces a provider failure but does not call Spotify or verify the live provider response."
+}

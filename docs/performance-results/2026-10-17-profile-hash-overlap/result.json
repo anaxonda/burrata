@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "scope": "Read-only native profile pagination and hash-overlap audit",
+  "requestsCompleted": 8,
+  "providerWrites": 0,
+  "queueOrAudioActions": 0,
+  "standardWindows": {
+    "offsets": [0, 30, 60, 90],
+    "returnedRows": 99,
+    "uniqueRows": 99,
+    "duplicates": 0
+  },
+  "boundaryProbes": {
+    "offsets": [58, 59, 89, 99],
+    "additionalUniqueRows": 0,
+    "observed60To89IndexShift": 28,
+    "requestedOffsetDelta": 29,
+    "interpretation": "Consistent with one omitted returned slot; does not identify the item or prove complete provider reachability."
+  },
+  "terminalAndRepeatReads": {
+    "requests": 8,
+    "repeatedAnchorOffsets": [0, 60, 89, 99],
+    "anchorsMatchedPriorOrderedHashesRowsAndReportedTotals": true,
+    "repeatedZeroOffsetAnchorMatched": true,
+    "emptyResponseOffsets": [100, 110, 120],
+    "emptyResponses": "HTTP 200 with empty, non-binary bodies and no decoded total; exhaustion is unverified.",
+    "interpretation": "Empty responses do not establish that all reported entries exist, are deleted, or are private."
+  },
+  "cursorSpan": {
+    "observedPageOffset": 60,
+    "requestedPageSize": 30,
+    "returnedRows": 29,
+    "nextOffset": 90,
+    "overlapAnchorOffset": 89,
+    "interpretation": "Advancing by the requested span avoids repeating the last row seen at offset 60; advancing by returned row count would overlap. No production cursor change is indicated."
+  },
+  "providerCountBehavior": "Reported totals and returned page counts varied with requested offset.",
+  "snapshotPreservation": "Current normal candidate was mounted; full saved-state snapshot matched the preserved pre-run snapshot.",
+  "limitations": [
+    "No completeness claim: 99 unique rows is not proof the provider's full underlying list was retrieved.",
+    "Hash overlap reveals relative displacement only; it does not reveal the identity or cause of an omitted row.",
+    "The report omits playlist IDs, row hashes, account identifiers, names, URLs and credentials."
+  ]
+}

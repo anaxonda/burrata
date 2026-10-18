@@ -22,6 +22,8 @@ export interface Track {
   bpm?: number | null;
   key?: string | null;
   releaseDate?: string | null;
+  /** Raw legacy JSON; sort normalization treats non-string values as unknown. */
+  dateAdded?: unknown;
   artworkUrl?: string | null;
   isrc?: string | null;
   catalogNumber?: string | null;
@@ -59,7 +61,10 @@ export interface CandidatePreviewStatus {
   sessionId: string; sourceId: string; provider: string; paused: boolean; position: number; duration: number; canSeek: boolean; canVolume: boolean; error?: string | null; closed?: boolean;
 }
 export interface Preview {
-  audioCodec?:string; audioBitrateKbps?:number;
+  sourceHeaderPolicy?: {headerCount:number;authorization:boolean;cookie:boolean;referer:boolean;origin:boolean;userAgent:boolean;other:boolean};
+  sourceGeneration?: number;
+  audioCodec?:string; audioBitrateKbps?:number; audioMimeType?:string;
+  audioFormatId?:string; audioFormatHasVideo?:boolean; audioExpectedContentLength?:number;
   sessionId?: string; provider?: string; title?: string;
   kind: string;
   url: string;
@@ -68,12 +73,64 @@ export interface Preview {
   canAutoplay: boolean;
   isExcerpt: boolean;
 }
+export interface NativePlaybackSnapshot {
+  engine: "native" | "webview";
+  revision: number;
+  naturalQueueEnd?: boolean;
+  diagnostics?: {
+    lastSourceFailure?: NativePlaybackFailure | null;
+    lastSkippedTrackFailure?: NativePlaybackFailure | null;
+    recentTrackFailures?: PlaybackTrackFailure[];
+  };
+  generation: number;
+  status: "idle" | "resolving" | "buffering" | "playing" | "paused" | "ended" | "failed";
+  trackId: string | null;
+  track: Track | null;
+  candidate: Candidate | null;
+  queue: Track[];
+  queueRevision?: number;
+  currentIndex: number;
+  paused: boolean;
+  position: number;
+  duration: number;
+  volume: number;
+  canSeek: boolean;
+  canVolume: boolean;
+  shuffle: boolean;
+  repeat: "off" | "all" | "one" | string;
+  playerMessage: string;
+  quality: { assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string };
+  chapter?: { title: string; startSeconds: number; endSeconds?: number } | null;
+  radioNowPlaying?: { id: string; title: string; artist: string; stationName: string; metadata?: Record<string, unknown> | null } | null;
+  radioHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];
+}
+export interface NativePlaybackFailure {
+  trackId: string | null;
+  provider?: string | null;
+  providerId?: string | null;
+  title: string;
+  artist: string;
+  reason: string;
+}
+/** Ephemeral bounded failure history; entryId identifies duplicate queue occurrences. */
+export interface PlaybackTrackFailure extends NativePlaybackFailure {
+  queueRevision: string | number;
+  generation: number;
+  operationId: string | null;
+  entryId: string;
+  outcome: "skipped" | "queue_exhausted";
+  category: "no_playable_match" | "source_identity_mismatch" | "unsupported_audio_stream" | "failed_with_reason";
+  version?: string | null;
+}
 export interface AudioFormat {
   id: string;
   codec: string;
   extension: string;
   bitrate?: number | null;
   sampleRate?: number | null;
+  bitDepth?: number | null;
+  channels?: number | null;
+  sizeBytes?: number | null;
   lossless: boolean;
 }
 export interface Chapter { id: string; title: string; startTime: number; endTime: number; confidence: string; suggestedTrack?: Track | null; suggestionConfidence?: string | null; }
@@ -143,6 +200,8 @@ export interface Collection {
 export interface Settings {
   musicDirectory: string;
   autoPreview: boolean;
+  pauseOnSourceOpen?: boolean;
+  sourceOpenAtPosition?: boolean;
   previewDelayMs: number;
   theme: string;
   ytDlpPath: string;
@@ -152,6 +211,7 @@ export interface Settings {
   preferredDownloadSource?: string;
   preferredStreamingSource?: string; overridePlaylistTrackUrls?: boolean;
   streamingFallbackEnabled?: boolean;
+  streamingFallbackDelayMs?: number;
   streamingFallbackSources?: string[];
   downloadFallbackEnabled?: boolean;
   downloadFallbackSources?: string[];
@@ -173,6 +233,12 @@ export interface LocalAsset {
   finalCodec: string;
   sourceBitrate?: number | null;
   finalBitrate?: number | null;
+  sampleRate?: number | null;
+  channels?: number | null;
+  bitDepth?: number | null;
+  durationSeconds?: number | null;
+  sizeBytes?: number | null;
+  bitrateOrigin?: string | null;
   processing: string;
   track: Track;
 }

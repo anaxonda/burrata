@@ -1,0 +1,12 @@
+{
+  "scripts/youtube-session-worker.mjs": "77406bbb381550dfc571fb3e947fa6615b055cb5a2e689fc712f0903d8d85d10",
+  "scripts/youtube-session-worker.test.mjs": "c9301477077ea5aa2b254e9c423b5e82d08d37cc0fcdd6d9f7e86f30581d863a",
+  "scripts/provider-session-worker.mjs": "b83dd3f9f3d6fd60cfbb90356d823a5c3ee2f1120798ea9d84e1601d40c0d4b5",
+  "scripts/provider-session-worker.test.mjs": "f03505f35c616a1d8f2208e8be4f11c4d1a8065b547a9a13d7838ca09a7fe561",
+  "scripts/provider-session-auth-cache.test.mjs": "4e5635c37f42c305711a9c1c1d4edaa822b1588389783e15027e8d5a7e0d476e",
+  "extension/provider-operations.js": "68f03b1f6b3c26305cd2da4f1be2f7232b0ad3fb93ae5c06c4a61e3c4ebeabdb",
+  "extension/tests/provider-adapter.test.mjs": "c02e0d069b45ebec6d57f8992b46fa36cacf516f54f818ed4b8898f06102833e",
+  "extension/spotify-auth.js": "965e1f22af7b70963b19ebe9a86c86987ff244f073317e87a5b4a705f101d2ec",
+  "extension/tests/spotify-auth.test.mjs": "cfb967af8d543e5fcd6b51f2cc6372173a73f0dfbcabd87c8aab2b2383f467d8",
+  "extension/youtube-session-provider.js": "3c3fb83edf8ec47fc9b950e2c9f442e396c90b300b53db4f8e2475655bd12baf"
+}

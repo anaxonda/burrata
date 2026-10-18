@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-append-playlist-entries"
+description = "Enables the append_playlist_entries command without any pre-configured scope."
+commands.allow = ["append_playlist_entries"]
+
+[[permission]]
+identifier = "deny-append-playlist-entries"
+description = "Denies the append_playlist_entries command without any pre-configured scope."
+commands.deny = ["append_playlist_entries"]

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scope": "Allowlisted startup timing fields from the retained 50k synthetic asset-backed optimized run; excludes profile paths and all other app-log content.",
+  "binarySha256": "a1b8013b10e1733529b6b8c4c1fa742665f37634808342654fd4b9ef999e59fc",
+  "registrationTimeoutSeconds": 20,
+  "events": [
+    {
+      "phase": "setup.begin",
+      "elapsedMs": 0
+    },
+    {
+      "phase": "store.open",
+      "beginElapsedMs": 16,
+      "endElapsedMs": 917,
+      "durationMs": 901
+    },
+    {
+      "phase": "store.downloads_backfill",
+      "beginElapsedMs": 917,
+      "endElapsedMs": 4559,
+      "durationMs": 3642
+    },
+    {
+      "phase": "store.recovery",
+      "beginElapsedMs": 4571,
+      "endElapsedMs": 4571,
+      "durationMs": 0
+    },
+    {
+      "phase": "asset_protocol_grants",
+      "count": 50000,
+      "pages": 100,
+      "elapsedMs": 6305,
+      "totalElapsedMs": 10877
+    },
+    {
+      "phase": "browser_bridge",
+      "beginElapsedMs": 10928,
+      "endElapsedMs": 10929,
+      "durationMs": 1
+    },
+    {
+      "phase": "automation_endpoint",
+      "beginElapsedMs": 10929,
+      "registeredElapsedMs": 10930
+    }
+  ],
+  "endpointRegisteredAtMs": 10930,
+  "matrixStartupWaitMs": 15257.0,
+  "interpretation": "The endpoint trace reaches registration at 10.930s; the matrix harness startup/registration wait is 15.257s. These are distinct measurements. The phase trace is not a complete decomposition of the matrix wait."
+}

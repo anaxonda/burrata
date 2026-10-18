@@ -1,0 +1,17 @@
+{
+  "status": "playing",
+  "elapsedMs": 8717,
+  "firstAudioMs": null,
+  "duration": 181.394266666,
+  "sourceProvider": null,
+  "previewKind": "audio",
+  "position": 0.996913,
+  "commandCompleted": true,
+  "durationCorrect": true,
+  "reason": "Playing youtube audio",
+  "scope": "One muted main-profile WebView playback observation, restored volume and paused afterward; not isolated or a performance percentile.",
+  "binary": "f3924ca5",
+  "selectedProvider": "youtube",
+  "expectedDurationSeconds": 181,
+  "savedTagsChanged": false
+}

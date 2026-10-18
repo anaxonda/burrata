@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-16",
+  "benchmark": "persisted sort availability, asset-backed Store first page",
+  "qualification": "exploratory development microbenchmark; three measured samples after three warmups per mode; not performance qualification",
+  "scope": {
+    "guiIncluded": false,
+    "endToEnd": false,
+    "cpuTimeReported": false,
+    "pageSize": 200,
+    "sortField": "bpm",
+    "view": "library",
+    "fixture": "sparse catalog metadata with one distinct zero-byte local file per listing; asset payload supplies BPM and key; descriptor/hydration only"
+  },
+  "measurements": [
+    {
+      "recordCount": 1000,
+      "readyPageBeforeBackfillMs": {
+        "median": 609.09,
+        "p95": 627.94,
+        "worst": 627.94
+      },
+      "warmReadyPageMs": {
+        "median": 610.32,
+        "p95": 624.77,
+        "worst": 624.77
+      },
+      "legacyPageMs": {
+        "median": 607.15,
+        "p95": 652.61,
+        "worst": 652.61
+      },
+      "coldBackfillAllBatchesMs": {
+        "median": 2.15,
+        "p95": 2.16,
+        "worst": 2.16
+      }
+    },
+    {
+      "recordCount": 5000,
+      "readyPageBeforeBackfillMs": {
+        "median": 2589.95,
+        "p95": 2654.78,
+        "worst": 2654.78
+      },
+      "warmReadyPageMs": {
+        "median": 2674.26,
+        "p95": 2683.45,
+        "worst": 2683.45
+      },
+      "legacyPageMs": {
+        "median": 2560.04,
+        "p95": 2560.47,
+        "worst": 2560.47
+      },
+      "coldBackfillAllBatchesMs": {
+        "median": 11.21,
+        "p95": 14.93,
+        "worst": 14.93
+      }
+    }
+  ],
+  "instrumented5000AssetProfile": {
+    "qualification": "18 emitted stage observations across warmup and measured calls; descriptive medians only, with instrumentation enabled; not qualification",
+    "readyPageMs": {
+      "median": 2741.99,
+      "p95": 2774.24,
+      "worst": 2774.24
+    },
+    "legacyPageMs": {
+      "median": 2663.2,
+      "p95": 2683.66,
+      "worst": 2683.66
+    },
+    "medianStageMs": {
+      "assetDiscovery": 17.57,
+      "assetDecodeAndHydrate": 1803.64,
+      "assetHydrationAndMask": 2452.3,
+      "assetMaskSerializeAndInsert": 596.88,
+      "sortAvailability": 44.56,
+      "total": 2709.89
+    }
+  },
+  "preservedDataMigration": {
+    "sourceSchemaVersion": 7,
+    "testedSchemaVersions": [
+      7,
+      8
+    ],
+    "resultSchemaVersion": 9,
+    "listingCountEach": 4948,
+    "originalTableCount": 21,
+    "originalColumnRowMultisetsMatching": 21,
+    "membershipPreserved": true,
+    "sortMasksRemainPending": true,
+    "downloadJobsStartupReconciliation": "all 44 jobs were terminal and unchanged (10 cancelled, 15 completed, 19 failed)",
+    "quickCheck": "ok",
+    "foreignKeyErrors": 0
+  },
+  "nativePrototypeTests": {
+    "passed": 705,
+    "failed": 0,
+    "ignored": 15
+  },
+  "mainNativeCheckpoint": {
+    "passed": 693,
+    "prototype705IsSeparate": true
+  },
+  "e5Gui": {
+    "verifiedLauncherMountedHandshake": "passed",
+    "viewport": {
+      "width": 1914,
+      "height": 341
+    },
+    "footerHeight": 86,
+    "layoutFindings": 0,
+    "trackListVisibleRows": 0,
+    "qualification": "loaded Library view; filters/header/player fill the 343px captured surface, leaving no row visible. Zero overlap findings do not establish populated-row visibility; compact-height UI patch is in progress",
+    "libraryTracks": 4948,
+    "loadedRows": 200
+  },
+  "youtubeAccountConfirmation": "open; UI still requests sign-in on music.youtube.com; account not confirmed",
+  "playbackSmoke": {
+    "track": "Fruit Bats, Monochrome",
+    "successfulPlays": 3,
+    "observedDurationSeconds": 181.4,
+    "timingsMs": [
+      5506,
+      797,
+      793
+    ],
+    "timingMeaning": "command/poll measurements on warm caches, not first-mixer latency"
+  }
+}

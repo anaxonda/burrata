@@ -1,0 +1,142 @@
+{
+  "scope": "Read-only native Spotify profile pagination audit",
+  "guard": {
+    "pid": 998273,
+    "sha256": "ef47b3320b7220a5073b6b801430b931dcac6893e14a17c206df16ae3f1c42c7",
+    "soleExact": true
+  },
+  "ordinary": {
+    "pages": [
+      {
+        "page": 0,
+        "rows": 30,
+        "total": 110,
+        "hasCursor": true,
+        "complete": false,
+        "truncated": false
+      },
+      {
+        "page": 1,
+        "rows": 30,
+        "total": 110,
+        "hasCursor": true,
+        "complete": false,
+        "truncated": false
+      },
+      {
+        "page": 2,
+        "rows": 29,
+        "total": 110,
+        "hasCursor": true,
+        "complete": false,
+        "truncated": true
+      },
+      {
+        "page": 3,
+        "rows": 10,
+        "total": 110,
+        "hasCursor": true,
+        "complete": false,
+        "truncated": true
+      },
+      {
+        "page": 4,
+        "rows": 0,
+        "total": 110,
+        "hasCursor": false,
+        "complete": false,
+        "truncated": true
+      }
+    ],
+    "rows": 99,
+    "unique": 99,
+    "duplicates": 0,
+    "providerWrites": false,
+    "queueOrAudioWrites": false
+  },
+  "adjacentCountProbes": [
+    {
+      "offset": 100,
+      "limit": 2,
+      "rows": 0,
+      "reportedTotal": null,
+      "httpStatus": 200,
+      "bodyBytes": 0,
+      "failureClass": "content_type"
+    },
+    {
+      "offset": 58,
+      "limit": 30,
+      "rows": 29,
+      "reportedTotal": 109,
+      "httpStatus": 200,
+      "bodyBytes": 7614,
+      "failureClass": "page_count"
+    },
+    {
+      "offset": 59,
+      "limit": 30,
+      "rows": 29,
+      "reportedTotal": 109,
+      "httpStatus": 200,
+      "bodyBytes": 7620,
+      "failureClass": "page_count"
+    },
+    {
+      "offset": 60,
+      "limit": 30,
+      "rows": 29,
+      "reportedTotal": 109,
+      "httpStatus": 200,
+      "bodyBytes": 7494,
+      "failureClass": "page_count"
+    },
+    {
+      "offset": 89,
+      "limit": 30,
+      "rows": 11,
+      "reportedTotal": 91,
+      "httpStatus": 200,
+      "bodyBytes": 2582,
+      "failureClass": "page_count"
+    },
+    {
+      "offset": 90,
+      "limit": 30,
+      "rows": 10,
+      "reportedTotal": 90,
+      "httpStatus": 200,
+      "bodyBytes": 2436,
+      "failureClass": "page_count"
+    },
+    {
+      "offset": 99,
+      "limit": 2,
+      "rows": 1,
+      "reportedTotal": 81,
+      "httpStatus": 200,
+      "bodyBytes": 271,
+      "failureClass": "page_count"
+    }
+  ],
+  "limitation": "Inspector exposes structural counts only, so adjacent-window ID overlap cannot be proven using existing public MCP schema. No forged cursors or direct credential transport used.",
+  "conclusion": "Returned totals depend on requested window. Stable underlying cardinality and missing-source-slot behavior remain unverified; 99 reachable unique playlists is not proof all110 were retrieved.",
+  "providerWrites": false,
+  "queueOrAudioWrites": false,
+  "totalProvenance": {
+    "endpointClass": "Spotify user-profile-view v3 paged playlists",
+    "binaryField": {
+      "number": 2,
+      "wire": 0,
+      "name": "totalPublicPlaylistsCount",
+      "scope": "top-level paged message"
+    },
+    "inspector": "decodeSpotifyProfilePlaylistPage(bytes).totalPublicPlaylistsCount copied into decodedTotal",
+    "regularPage": "same decoder; totalCount is maximum observed raw total carried across verified cursor pages",
+    "native": "RemotePlaylistPage.total_count copies provider totalCount; does not independently recompute",
+    "capturedFieldCount": "Every nonempty adjacent inspector response contains exactly one top-level field2 wire0 and N field1 wire2 rows",
+    "pinnedWebPlayerSha256": "1b9dcc42aeb9c4a7abfc673da946478b100d9fb62acb8bf7f27aa63ef8769602",
+    "differentFullProfileCodec": "Full profile uses rows field8 and total field9; current paged parser does not use it",
+    "conclusion": "No evidence total is read from an unrelated nested section. Decoded current responses report offset-dependent top-level totals. Meaning of that provider field remains unresolved."
+  }
+}

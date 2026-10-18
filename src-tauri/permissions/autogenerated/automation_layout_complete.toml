@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-automation-layout-complete"
+description = "Enables the automation_layout_complete command without any pre-configured scope."
+commands.allow = ["automation_layout_complete"]
+
+[[permission]]
+identifier = "deny-automation-layout-complete"
+description = "Denies the automation_layout_complete command without any pre-configured scope."
+commands.deny = ["automation_layout_complete"]

@@ -1,0 +1,331 @@
+{
+  "availabilityRevision": 1,
+  "benchmark": "canonical_library_metrics_partial_indexes",
+  "foreignKeyErrors": 0,
+  "indexBuilds": [
+    {
+      "columns": "sort_availability_revision,sort_availability_mask",
+      "creationMsSingleObservation": 169.494226,
+      "indexBytesIfDbstatAvailable": 573440,
+      "name": "bench_canonical_metrics_lean"
+    },
+    {
+      "columns": "sort_availability_revision,sort_availability_mask,(CASE WHEN sort_projection_revision=1 AND sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END)",
+      "creationMsSingleObservation": 214.30479499999998,
+      "indexBytesIfDbstatAvailable": 622592,
+      "name": "bench_canonical_metrics_coverage"
+    }
+  ],
+  "measuredPerQuery": 3,
+  "phases": [
+    {
+      "baselineNaturalPlanBeforeCandidates": {
+        "baseTableColumnReads": 3,
+        "deferredSeekOps": 0,
+        "details": [
+          "SCAN l"
+        ]
+      },
+      "identicalResult": [
+        50000,
+        null,
+        null
+      ],
+      "naturalPlanWithBothCandidates": {
+        "baseTableColumnReads": 0,
+        "deferredSeekOps": 1,
+        "details": [
+          "SCAN l USING INDEX bench_canonical_metrics_coverage"
+        ]
+      },
+      "phase": "count",
+      "variants": [
+        {
+          "medianMs": 85.062422,
+          "p95Ms": 99.58418300000001,
+          "plan": {
+            "baseTableColumnReads": 3,
+            "deferredSeekOps": 0,
+            "details": [
+              "SCAN l"
+            ]
+          },
+          "samplesMs": [
+            99.58418300000001,
+            84.841629,
+            85.062422
+          ],
+          "sql": "SELECT COUNT(*) FROM catalog_listings l NOT INDEXED WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "baselineTableScan",
+          "worstMs": 99.58418300000001
+        },
+        {
+          "medianMs": 11.941425,
+          "p95Ms": 14.278289,
+          "plan": {
+            "baseTableColumnReads": 0,
+            "deferredSeekOps": 1,
+            "details": [
+              "SCAN l USING INDEX bench_canonical_metrics_lean"
+            ]
+          },
+          "samplesMs": [
+            14.278289,
+            10.698526,
+            11.941425
+          ],
+          "sql": "SELECT COUNT(*) FROM catalog_listings l INDEXED BY bench_canonical_metrics_lean WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "leanPartial",
+          "worstMs": 14.278289
+        },
+        {
+          "medianMs": 11.649586999999999,
+          "p95Ms": 12.858901000000001,
+          "plan": {
+            "baseTableColumnReads": 0,
+            "deferredSeekOps": 1,
+            "details": [
+              "SCAN l USING INDEX bench_canonical_metrics_coverage"
+            ]
+          },
+          "samplesMs": [
+            12.858901000000001,
+            10.518661,
+            11.649586999999999
+          ],
+          "sql": "SELECT COUNT(*) FROM catalog_listings l INDEXED BY bench_canonical_metrics_coverage WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "coverageCasePartial",
+          "worstMs": 12.858901000000001
+        }
+      ]
+    },
+    {
+      "baselineNaturalPlanBeforeCandidates": {
+        "baseTableColumnReads": 5,
+        "deferredSeekOps": 0,
+        "details": [
+          "SCAN l"
+        ]
+      },
+      "identicalResult": [
+        50000,
+        1023,
+        null
+      ],
+      "naturalPlanWithBothCandidates": {
+        "baseTableColumnReads": 0,
+        "deferredSeekOps": 1,
+        "details": [
+          "SCAN l USING INDEX bench_canonical_metrics_coverage"
+        ]
+      },
+      "phase": "countAndAvailability",
+      "variants": [
+        {
+          "medianMs": 116.691238,
+          "p95Ms": 135.327684,
+          "plan": {
+            "baseTableColumnReads": 5,
+            "deferredSeekOps": 0,
+            "details": [
+              "SCAN l"
+            ]
+          },
+          "samplesMs": [
+            115.675995,
+            135.327684,
+            116.691238
+          ],
+          "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l NOT INDEXED WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "baselineTableScan",
+          "worstMs": 135.327684
+        },
+        {
+          "medianMs": 40.432414,
+          "p95Ms": 40.577396,
+          "plan": {
+            "baseTableColumnReads": 0,
+            "deferredSeekOps": 1,
+            "details": [
+              "SCAN l USING INDEX bench_canonical_metrics_lean"
+            ]
+          },
+          "samplesMs": [
+            40.577396,
+            40.432414,
+            39.620409
+          ],
+          "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l INDEXED BY bench_canonical_metrics_lean WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "leanPartial",
+          "worstMs": 40.577396
+        },
+        {
+          "medianMs": 45.373408,
+          "p95Ms": 54.164553999999995,
+          "plan": {
+            "baseTableColumnReads": 0,
+            "deferredSeekOps": 1,
+            "details": [
+              "SCAN l USING INDEX bench_canonical_metrics_coverage"
+            ]
+          },
+          "samplesMs": [
+            45.373408,
+            54.164553999999995,
+            40.46359
+          ],
+          "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END) FROM catalog_listings l INDEXED BY bench_canonical_metrics_coverage WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "coverageCasePartial",
+          "worstMs": 54.164553999999995
+        }
+      ]
+    },
+    {
+      "baselineNaturalPlanBeforeCandidates": {
+        "baseTableColumnReads": 7,
+        "deferredSeekOps": 0,
+        "details": [
+          "SCAN l"
+        ]
+      },
+      "identicalResult": [
+        50000,
+        1023,
+        1
+      ],
+      "naturalPlanWithBothCandidates": {
+        "baseTableColumnReads": 0,
+        "deferredSeekOps": 1,
+        "details": [
+          "SCAN l USING INDEX bench_canonical_metrics_coverage"
+        ]
+      },
+      "phase": "countAvailabilityAndBpmCoverage",
+      "variants": [
+        {
+          "medianMs": 161.338436,
+          "p95Ms": 183.896606,
+          "plan": {
+            "baseTableColumnReads": 7,
+            "deferredSeekOps": 0,
+            "details": [
+              "SCAN l"
+            ]
+          },
+          "samplesMs": [
+            150.81923899999998,
+            161.338436,
+            183.896606
+          ],
+          "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision=1 AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END) FROM catalog_listings l NOT INDEXED WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "baselineTableScan",
+          "worstMs": 183.896606
+        },
+        {
+          "medianMs": 134.405478,
+          "p95Ms": 151.21103,
+          "plan": {
+            "baseTableColumnReads": 2,
+            "deferredSeekOps": 1,
+            "details": [
+              "SCAN l USING INDEX bench_canonical_metrics_lean"
+            ]
+          },
+          "samplesMs": [
+            131.578098,
+            134.405478,
+            151.21103
+          ],
+          "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision=1 AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END) FROM catalog_listings l INDEXED BY bench_canonical_metrics_lean WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "leanPartial",
+          "worstMs": 151.21103
+        },
+        {
+          "medianMs": 49.241591,
+          "p95Ms": 53.812103,
+          "plan": {
+            "baseTableColumnReads": 0,
+            "deferredSeekOps": 1,
+            "details": [
+              "SCAN l USING INDEX bench_canonical_metrics_coverage"
+            ]
+          },
+          "samplesMs": [
+            47.346675999999995,
+            49.241591,
+            53.812103
+          ],
+          "sql": "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision=1 THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision=1 AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END) FROM catalog_listings l INDEXED BY bench_canonical_metrics_coverage WHERE l.id=l.recording_id AND l.in_library=1",
+          "variant": "coverageCasePartial",
+          "worstMs": 53.812103
+        }
+      ]
+    }
+  ],
+  "recordCount": 50000,
+  "scope": "paired aggregate SQL on one disposable actual Store; forced baseline/index paths; excludes page hydration, mutex contention, GUI and end-to-end work; index build observations are not qualification",
+  "semanticChecks": [
+    {
+      "check": "demotedMembership",
+      "identicalResult": [
+        49999,
+        1023,
+        1
+      ]
+    },
+    {
+      "check": "promotedMembership",
+      "identicalCount": 50000
+    },
+    {
+      "check": "aliasMembership",
+      "identicalResult": [
+        49999,
+        1023,
+        1
+      ]
+    },
+    {
+      "check": "staleAvailability",
+      "identicalResult": [
+        50000,
+        2047,
+        1
+      ]
+    },
+    {
+      "check": "nullAvailability",
+      "identicalResult": [
+        50000,
+        2047,
+        1
+      ]
+    },
+    {
+      "check": "nullProjection",
+      "identicalResult": [
+        50000,
+        1023,
+        0
+      ]
+    },
+    {
+      "check": "staleProjection",
+      "identicalResult": [
+        50000,
+        1023,
+        0
+      ]
+    },
+    {
+      "check": "metadataInvalidation",
+      "identicalResult": [
+        50000,
+        2047,
+        0
+      ]
+    }
+  ],
+  "sqliteVersion": "3.46.0",
+  "warmupsPerQuery": 3
+}

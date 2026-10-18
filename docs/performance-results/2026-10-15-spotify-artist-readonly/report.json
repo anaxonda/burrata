@@ -1,0 +1,13 @@
+{
+  "scope": "Read-only public artist/release/album pages using the retained isolated confirmed session; no confirmation, import, credentials or remote writes.",
+  "checks": [
+    {
+      "label": "artist_first_page",
+      "ok": false,
+      "elapsedMs": 1806,
+      "apiDenied": false,
+      "authenticationUnavailable": false,
+      "rateLimited": true
+    }
+  ]
+}

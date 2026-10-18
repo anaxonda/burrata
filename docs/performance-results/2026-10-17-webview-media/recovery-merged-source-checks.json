@@ -1,0 +1,61 @@
+{
+  "scope": "Merged source verification; not a new live runtime qualification",
+  "svelte": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "frontendTests": {
+    "passed": 306,
+    "files": 6
+  },
+  "nativeTests": {
+    "passed": 888,
+    "failed": 0,
+    "ignored": 16,
+    "seconds": 17
+  },
+  "productionFrontendBuild": {
+    "passed": true,
+    "seconds": 5.35
+  },
+  "restrictedRun": {
+    "passed": 866,
+    "failed": 22,
+    "reason": "Local fixture/process operations denied; retained log and successful host-access rerun."
+  },
+  "sourceHashes": {
+    "src/App.svelte": "c127fa77bc34f2f4c8787d6f38309f21d36d17c29af1abc574ae7b79128c4528",
+    "src/App.integration.test.ts": "7d74098404703fbb15e04d1421193955894c7ca109991df8dc4bda84dc79820d",
+    "src/lib/types.ts": "74e74190b66543637637b69a48b8b371c6dd1247c28fecabb7351f90513d5250",
+    "src-tauri/src/lib.rs": "03959a8e41fca548ace54162d9fa82d52d4821cc5481357b3aed43541a554b41",
+    "src-tauri/src/playback_sources.rs": "c5676a31404699e6e02bb99457c399ac1a19ff9ca671a206defe9f3671f1c775",
+    "src-tauri/src/local_audio.rs": "775778f95d686df58f4b463d29b92fc32b4e372ece2c871f92941f84e63054cf",
+    "src-tauri/src/automation.rs": "face2f4b6dc22ee4ce12c176aa4b3aebe3816cdb815ba69787ce9c7bb895fa7d"
+  },
+  "logs": [
+    ".cache/recovery-merged-check.log",
+    ".cache/recovery-merged-ui-tests.log",
+    ".cache/recovery-merged-native-tests.log",
+    ".cache/recovery-merged-native-host-tests.log",
+    ".cache/recovery-merged-frontend-build.log"
+  ],
+  "followup": {
+    "rustfmt": "passed; formatting-only delta after888-test run",
+    "benchmarkHelpers": "Ignored-only benchmark summaries corrected for even medians and raw sample order; actual benchmark runs pending",
+    "nativeBuild": {
+      "pass": true,
+      "seconds": 119,
+      "sha256": "941a59f361285c3cdd7425d484d4b3dafd8bd5cf078a0fa2c2f65bcff6bf9399"
+    },
+    "contracts": 8,
+    "mcpTests": 6,
+    "nativeFinalSourceTests": {
+      "passed": 888,
+      "failed": 0,
+      "ignored": 16,
+      "seconds": 20.71,
+      "log": ".cache/recovery-formatted-native-host-tests.log",
+      "scope": "Final formatted Rust source including corrected ignored benchmark helpers"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "build": "74671c4862b1",
+  "scope": "Live API metadata only; availability flags do not establish acoustic playability",
+  "total": 62,
+  "count": 62,
+  "complete": true,
+  "hasCursor": false,
+  "uniqueRecordingIds": 62,
+  "durationsKnown": 62,
+  "artworkKnown": 62,
+  "firstDurationSeconds": 148
+}

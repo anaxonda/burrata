@@ -1,0 +1,10 @@
+{
+  "src/App.svelte": "4504067d801f6e6a0d1aaa19f6d8b744f18c2d7385aef6b4730f949d7c0b8209",
+  "src/App.integration.test.ts": "acfda5010ce7d7abc51bce19c9ba89fa6cfe19aef333240d2301694d425d529a",
+  "src/TrackList.svelte": "07d6dcb96b642d58b292d8fe93910c5f7dcd7c2a5d03a5e5791e90d7ea140d43",
+  "src/TrackList.test.ts": "80f44afa681fe2004d2c5a02254800e5fc73d8dbc7c915ca14504f5e6591b3c6",
+  "src/BrowserConnections.svelte": "c9572082fb4b2a9c5b97e5e02e47edf40b7483fd7bf67debe015267f5387664d",
+  "src/BrowserConnections.test.ts": "4f89673a4c3befab88e578b06b76516b21728b86c978164c74ae85e3d1ade3c5",
+  "src/LibrarySidebar.svelte": "c5bc092ca14e663dc5b67546ad4adcce7919539a89f5b90fe531259b21496dd8",
+  "src/LibrarySidebar.test.ts": "3190d1fb4025dacb393cd8d05c3de5c33df478470fcc97237ea202fce20fa168"
+}

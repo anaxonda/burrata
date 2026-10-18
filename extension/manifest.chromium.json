@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Burrata Browser Companion",
-  "version": "0.1.8",
+  "version": "0.2.1",
   "description": "Import public chart, playlist, and album metadata into the local Burrata desktop app.",
   "permissions": [
     "activeTab",
@@ -14,6 +14,10 @@
     "https://www.beatport.com/*",
     "https://www.traxsource.com/*",
     "https://open.spotify.com/*",
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://francescograzioso.github.io/Meld/*",
+    "https://api.github.com/gists/*",
     "https://www.shazam.com/*",
     "https://shazam.com/*",
     "https://www.last.fm/*",
@@ -33,6 +37,8 @@
         "https://www.beatport.com/*",
         "https://www.traxsource.com/*",
         "https://open.spotify.com/*",
+        "https://www.youtube.com/*",
+        "https://music.youtube.com/*",
         "https://www.shazam.com/*",
         "https://shazam.com/*",
         "https://www.last.fm/*",

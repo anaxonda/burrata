@@ -1,0 +1,40 @@
+{
+  "build": "f991afb32bd9",
+  "provider": "youtube",
+  "pages": [
+    {
+      "page": 1,
+      "tracks": 116,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "cumulative": 116,
+      "reportedUnavailable": 0
+    },
+    {
+      "page": 2,
+      "tracks": 113,
+      "total": 240,
+      "complete": false,
+      "hasMore": true,
+      "cumulative": 229,
+      "reportedUnavailable": 0
+    },
+    {
+      "page": 3,
+      "tracks": 11,
+      "total": 240,
+      "complete": true,
+      "hasMore": false,
+      "cumulative": 240,
+      "reportedUnavailable": 0
+    }
+  ],
+  "loaded": 240,
+  "occurrenceIds": 240,
+  "uniqueOccurrenceIds": 240,
+  "elapsedMs": 3942,
+  "writesPerformed": false,
+  "qualification": "Reported count and terminal completion verified; playback availability not yet qualified",
+  "availabilityIssue": "19 rows with missing explicit playable flags were incorrectly marked available; source fix awaits live validation"
+}

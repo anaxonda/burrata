@@ -1102,7 +1102,7 @@ impl RawPageTitle for BrowserSnapshot {
     }
 }
 
-fn extract_tralbum_data(html: &str) -> Option<Value> {
+pub(crate) fn extract_tralbum_data(html: &str) -> Option<Value> {
     // Bandcamp currently embeds a JSON object in its public page script. Keep
     // extraction bracket-aware so braces inside strings do not truncate it.
     let anchors = ["TralbumData =", "TralbumData=", "data-tralbum="];

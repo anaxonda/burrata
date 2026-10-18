@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "engine": "webview",
+  "mode": "kaval-default",
+  "binarySha256": "68b12f3bb9663ed492d2e6de7ed53e2d80d3a7ca3501eb4a7d5165242628301e",
+  "pass": true,
+  "physicalAudibilityMeasured": false,
+  "steps": [
+    {
+      "step": "startup",
+      "pass": true,
+      "trackId": "spotify:64rvuYgKLuIHqacdZZiwPr",
+      "sessionId": "f41e086e-32d2-416f-835d-cf69119ddc31",
+      "sourceGeneration": 1792228111146005,
+      "readyState": 4,
+      "actualPaused": false,
+      "actualCurrentTime": 6.215082,
+      "decodedDuration": 131.726,
+      "expectedDuration": 131,
+      "progressed": true,
+      "sustained": {
+        "wallMs": 5178.252626000001,
+        "advancedMs": 5163.38,
+        "observations": 8,
+        "physicalAudibilityMeasured": false
+      },
+      "localFixtureIdentity": null,
+      "provider": null,
+      "providerId": null,
+      "identityLimitation": "Natural resolver source recording identity is unproven"
+    },
+    {
+      "step": "paused_seek",
+      "pass": true,
+      "paused": true,
+      "currentTime": 10,
+      "seekSerialAdvanced": true,
+      "generation": 1792228111146005
+    },
+    {
+      "step": "resume_progress",
+      "pass": true,
+      "sustained": {
+        "wallMs": 5305.520411000001,
+        "advancedMs": 5333.350999999999,
+        "observations": 8,
+        "physicalAudibilityMeasured": false
+      },
+      "paused": false,
+      "currentTime": 16.149858
+    }
+  ],
+  "sourceIdentityQualified": false,
+  "staleMediaSampleRetries": 0,
+  "skewRetryCount": 0,
+  "occurrenceIdsAvailable": true,
+  "singleTrackIdentityOnly": false,
+  "providerPreferences": {
+    "preferredStreamingSource": "monochrome",
+    "streamingFallbackEnabled": true,
+    "streamingFallbackSources": [
+      "youtube",
+      "soundcloud"
+    ],
+    "streamingFallbackDelayMs": 1500
+  },
+  "engineSnapshot": null,
+  "initialMedia": {
+    "engine": "webview",
+    "applicable": true,
+    "currentIndex": 0,
+    "queueTotal": 1,
+    "sourceGeneration": 1792228111146005,
+    "seekSerial": 2,
+    "media": {
+      "currentTime": 0.454618,
+      "duration": 131.726,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "catalogueDurationSeconds": 131,
+    "sourceIdentityQualified": false
+  },
+  "sourceDiagnostics": {
+    "lastResolvedSource": {
+      "headerPolicy": {
+        "authorization": false,
+        "cookie": false,
+        "headerCount": 0,
+        "origin": false,
+        "other": false,
+        "referer": false,
+        "userAgent": false
+      },
+      "id": "monochrome:188668061304786944",
+      "provider": "monochrome"
+    },
+    "lastMediaFailureSource": null,
+    "lastMediaFailure": null,
+    "playerMessage": "Playing monochrome audio",
+    "status": "playing",
+    "queueEntryIds": [
+      "451284a1-198d-4a56-8c97-41db3d4f22e1"
+    ],
+    "entryId": "451284a1-198d-4a56-8c97-41db3d4f22e1"
+  },
+  "pausedFinally": true,
+  "observerOverhead": {
+    "guardCalls": 72,
+    "guardWallMs": 12841.818057999993,
+    "limits": "Functional observer overhead only; no CPU, latency percentile or performance qualification"
+  }
+}

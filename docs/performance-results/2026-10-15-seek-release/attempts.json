@@ -1,0 +1,6002 @@
+[
+  {
+    "decodeThreadCpuMs": 0.47459199999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.427948,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 0.701728,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18138700000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.221552,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.329132,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.20990899999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.23540599999999998,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 0.31785599999999997,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.156912,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.17290799999999998,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.262405,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.200669,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.205203,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 0.32809,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.187182,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.19220700000000002,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.304536,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.203208,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.193385,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.320173,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.20047500000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.23937399999999998,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.349028,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16904200000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.18729400000000002,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.284246,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.301293,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.198697,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.396436,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.19053799999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.15589999999999998,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.274265,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.360507,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.263455,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.44460700000000003,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.359656,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.295554,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.46216999999999997,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16312300000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14452099999999998,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.237317,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.193376,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.175719,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.271443,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.169457,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.141998,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.261198,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.201352,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.234851,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.341512,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.155616,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.176399,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.293596,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.158688,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.122975,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.263729,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.183942,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.15756900000000001,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.287744,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.17524699999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.136404,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.23992999999999998,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.19043100000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.151226,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.24840600000000002,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16472599999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.13524899999999998,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.226305,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.189006,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.152871,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.267617,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.187833,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.168033,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.241704,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.159837,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.12298300000000001,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.211518,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.191848,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.148276,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.287421,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.160996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.134101,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.223362,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18615199999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14630900000000002,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.270695,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.157616,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.165014,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.244454,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16730899999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.146055,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.269153,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.188379,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.18913600000000003,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.28363,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.345442,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.27619299999999997,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.455944,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.20041199999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.222775,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.316456,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.153688,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.167815,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.257347,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18126599999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.18127200000000002,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.24137,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.180001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.143683,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.234127,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.157722,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.12795499999999999,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.214901,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.17975,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14261,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.263171,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.153643,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.151436,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.20746299999999998,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.179589,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14013599999999998,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.23005,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.15793100000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.117701,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.259699,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.155101,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.12925999999999999,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.215549,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.19995500000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.149545,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.25482899999999997,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.161058,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.12333,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.21314200000000003,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.206608,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.147629,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.287062,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.163124,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.129518,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.219519,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.190473,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14863300000000002,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.24260800000000002,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.324727,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.17062,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.382559,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.186823,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.208035,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.287177,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.19095,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.186341,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.256957,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16097,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.126864,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.215591,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18783,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.149555,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.240474,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16195,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.168529,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.263252,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.15845299999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.15617499999999998,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.220555,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.189591,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.150461,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.24363600000000002,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.157342,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.120655,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.208526,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.19117,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.155275,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.248231,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.160126,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.12507800000000002,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.21417,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.188931,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.146932,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.24000200000000002,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.188026,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.145404,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.238036,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.177231,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.159087,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.287019,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.188747,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.198331,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.292861,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.17292600000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.138125,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.286823,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18135600000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.15386999999999998,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.300327,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.175662,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.157557,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.263415,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.155259,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.171657,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.250888,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.183543,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.156269,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.24658599999999997,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.158422,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.12045900000000001,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.217565,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.19685799999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.202265,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.335798,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.154381,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.161217,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.254131,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18157700000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.145563,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.23561200000000002,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18429500000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.151786,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.24149199999999998,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.15696400000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.161132,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.247762,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18252600000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.1434,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.233559,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.153784,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.119527,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.205271,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.199753,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.140672,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.323613,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.163287,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.16655199999999998,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.286715,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.15831299999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.149858,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.216809,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.184578,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.147727,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.23812,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.157945,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.16612300000000002,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.22151,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.356875,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.260063,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.441925,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.336661,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.26392,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.420943,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.188943,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.16381300000000001,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.255402,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.183467,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14922000000000002,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.23981,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.15581799999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.120849,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.210164,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.183732,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.146335,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.237605,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.154496,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.134217,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.230909,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.182656,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.160827,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.25227499999999997,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16035100000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14483700000000002,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.236226,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.303505,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.228758,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.451657,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18893300000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.16755599999999998,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.25799599999999995,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.15779100000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.14077699999999999,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.228176,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.18299200000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.150606,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.242387,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.28219700000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.183039,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.356897,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.227341,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.211201,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.296743,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.23009300000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.238371,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.34415,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.215111,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.199611,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.331191,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.198265,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.202381,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.313107,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16052499999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.133567,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.22342299999999998,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.375607,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.27784000000000003,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.472396,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.169035,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.21709,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.31459000000000004,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16236,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.16131199999999998,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.252921,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.201598,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.198162,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.298589,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.163302,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.187173,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.24112999999999998,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.207432,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.18572,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.27760799999999997,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.255944,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.155192,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.40440099999999995,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.29651900000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.24769499999999997,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.476142,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.229736,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.208503,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 0.319906,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.167503,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.15909,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.24865199999999998,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.199897,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.19882999999999998,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 0.29678,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.15784700000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.150395,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.272144,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.187048,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.195151,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 0.25465699999999997,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.204875,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.198166,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.320137,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.161638,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.21332,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.27197099999999996,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.195051,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.238144,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.29838,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.16169,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.212148,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.302548,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.19308799999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.24415199999999998,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.343949,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.180996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.22471899999999997,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.32575699999999996,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.203922,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.177035,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.297347,
+    "codec": "wav"
+  },
+  {
+    "decodeThreadCpuMs": 0.5417339999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.48544099999999996,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 0.708643,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.28364900000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.319839,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.451581,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.44799199999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.514399,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 0.592098,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.321441,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.375168,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.482458,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.420456,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.474118,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 0.528621,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.294007,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.375403,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.44775099999999995,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.274235,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.282575,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.414511,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.456885,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.457723,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.609581,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.31916500000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.400292,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.47827,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.590748,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.591602,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.7763289999999999,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.304051,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.346644,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.46133399999999997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.39843399999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.45067799999999997,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.5286829999999999,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.367678,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.302292,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.499241,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.273648,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.28100400000000003,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.40452,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.407758,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.465028,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.5311670000000001,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.288445,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.353933,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.425087,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.37871299999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.423907,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.46294100000000005,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.271928,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.365869,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.433339,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.24747999999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.21459699999999998,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.33821399999999996,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.381736,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30439099999999997,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.46774899999999997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.300011,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.373753,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.44506599999999996,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.394066,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.412833,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.47934699999999997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.274927,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.341941,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.408225,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.37047,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.384609,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.486012,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.358978,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.283274,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.435898,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.256593,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.218678,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.330017,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.373211,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.38767199999999996,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.451307,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.27518,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.299457,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.34065799999999996,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.395521,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.46347,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.531366,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.30137600000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.32702000000000003,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.432634,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.246336,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.260855,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.347693,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.37159800000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.328338,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.49880300000000005,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.5079940000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.5754379999999999,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.690581,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.625235,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.551395,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.6992050000000001,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.267901,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.275351,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.339432,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.604309,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.520108,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.666632,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.432319,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.331764,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.502735,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.25780000000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.247063,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.36524700000000004,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.377737,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.404482,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.476736,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.37650500000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.362122,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.5240509999999999,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.4961920000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.473309,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.65831,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.35520399999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.34571999999999997,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.470185,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.24629299999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.25249099999999997,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.35411699999999996,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.46933099999999994,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.363321,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.6185,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.321709,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.371237,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.449526,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.398789,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.473482,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.511771,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.274993,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.31597800000000004,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.39077300000000004,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.36586399999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.38829100000000005,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.454882,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.340706,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.286393,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.432869,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.253346,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.22128499999999998,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.334849,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.368338,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.38262,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.42028,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.274723,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30227299999999996,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.36093200000000003,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.362728,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.377248,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.43927,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.33413400000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.279052,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.423438,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.278299,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.233484,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.391872,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.376966,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.329559,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.49224700000000005,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.310865,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.357032,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.412098,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.37612100000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.385083,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.428694,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.26260500000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.284029,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.342241,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.354262,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.36422499999999997,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.42668300000000003,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.346198,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.27125499999999997,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.430123,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.249611,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.20553300000000002,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.321181,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.36331199999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.377497,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.41360399999999997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.270191,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.29952100000000004,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.36111200000000004,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.36413,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.373562,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.417622,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.25940799999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.251578,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.311055,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.24681,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.220329,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.332415,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.363568,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.300091,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.4148,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.37551500000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.261604,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.439808,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.373343,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.39159,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.44491,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.256481,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.290857,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.353725,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.364842,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.366112,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.43213300000000004,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.346771,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.278745,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.42139,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.259407,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.23131000000000002,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.34527599999999997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.375435,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.376514,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.443705,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.274423,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.297138,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.366429,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.36595599999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.403963,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.468149,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.257441,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.289412,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.348366,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.249668,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.198043,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.310289,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.367295,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.319575,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.45460900000000004,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.311928,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.283559,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.38359,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.649553,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.606461,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.76372,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.28834899999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.305492,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.369898,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.432327,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.42017299999999996,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.504703,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.359859,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.288792,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.484987,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.281904,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.26855,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.39465,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.439321,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.519493,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.554348,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.324368,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.38625200000000004,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.42762300000000003,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.395882,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.418167,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.549705,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.276532,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.341277,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.409035,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.253582,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.224766,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.338832,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.392878,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.351645,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.489161,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.35045000000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.37306,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.46409100000000003,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.398251,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.398971,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.46685299999999996,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.276487,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.310973,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.387869,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.514042,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.49584300000000003,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.6878690000000001,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.356396,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.29824799999999996,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.42692,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.273065,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.303969,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.388997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.45557499999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.489834,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.564162,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.28464199999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.314616,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.38507199999999997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.38491,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.409445,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.504125,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.278921,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.342451,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.408464,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.257006,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.28514300000000004,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.371177,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.761374,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.730757,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.93748,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.293838,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.33633799999999997,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.404367,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.40327,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.429644,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.479056,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.278469,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.321396,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.38947,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.385666,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.382932,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.45397299999999996,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.424098,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.347897,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 0.541931,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.274969,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.21943200000000002,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.354323,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.41855,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.445956,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 0.532415,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.286033,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30855200000000005,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.41596299999999997,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.376049,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.402163,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 0.47426,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.27788500000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.358495,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.390395,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.24995100000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.237161,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.352798,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.38951600000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.373119,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.524829,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.303668,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.367093,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.430998,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.40087,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.465831,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.506644,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.278486,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.36373500000000003,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.432813,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.49385900000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.485422,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.665485,
+    "codec": "flac"
+  },
+  {
+    "decodeThreadCpuMs": 0.565026,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.580821,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 0.788122,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.48482800000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.444561,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.6350169999999999,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.305679,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.299745,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 1.466861,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.3831440000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.355398,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 1.493749,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.928871,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.925342,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 2.098807,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.018342,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.000836,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 1.168074,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.38365,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.337788,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.49343,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.42636300000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.429271,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.5762029999999999,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.0501660000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.056881,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 1.179528,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.040008,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.005081,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 1.142375,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.9813029999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.964117,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 1.053853,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.5999830000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.572827,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 1.720603,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.456226,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.39081,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.572779,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.328536,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30748400000000004,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.42243800000000004,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.082335,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.047505,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 1.180164,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.022218,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.035417,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 1.18763,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.690005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.669924,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 1.797117,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.0481770000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.025013,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 1.172982,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.323989,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30083699999999997,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.43980199999999997,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.409103,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.362037,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.47218200000000005,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.052718,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.043387,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 1.1851850000000002,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.060524,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.035963,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 1.176416,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.086237,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.027777,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 1.224745,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.7573329999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.737495,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 1.8870770000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.418125,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.422973,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.589185,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.339394,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.357381,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.49116100000000007,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.172237,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.181875,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 1.326091,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.1753529999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.134875,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 1.3000850000000002,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.902349,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.960006,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 2.11277,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.076586,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.048622,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 1.19052,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.357267,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.37071,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.533336,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.44555200000000006,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.429919,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.591379,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.159549,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.1832209999999999,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 1.3817460000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.217056,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.220475,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 1.387799,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.075525,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.076187,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 1.224428,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.7860589999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.782896,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 1.9338980000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.435469,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.431075,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.617032,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.35509599999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.356968,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.496398,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.3077809999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.282396,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 1.468644,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.112072,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.139616,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 1.290902,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 2.072154,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 2.119942,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 2.329519,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.14991,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.084621,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 1.290868,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.36326400000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.337993,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.48771600000000004,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.478925,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.444488,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.6126,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.210023,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.214286,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 1.354956,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.196944,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.167524,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 1.314944,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.0608279999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.097481,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 1.224075,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.734993,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.7314990000000001,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 1.903477,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.431489,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.405986,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.565199,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.351504,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.34373,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.49764700000000006,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.186002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.205066,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 1.358916,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.127408,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.141405,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 1.282748,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.789702,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.7961260000000001,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 1.943915,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.019945,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.037369,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 1.178723,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.34230700000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.316132,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.453704,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.438938,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.438616,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.592409,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.044007,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.019484,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 1.1905329999999998,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.0729609999999998,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0704060000000002,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 1.230519,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.006027,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0132819999999998,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 1.15285,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.950794,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.947744,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 2.1032379999999997,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.452387,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.43453600000000003,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.590523,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.350885,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.32509200000000005,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.46650800000000003,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.316692,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.3367360000000001,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 1.504659,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.140203,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.16129,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 1.298825,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.887021,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.942326,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 2.077461,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.259273,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.272502,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 1.4918209999999998,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.384595,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.418292,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.5433410000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.443823,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.455496,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.605526,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.217127,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.230009,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 1.3716970000000002,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.12818,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.123294,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 1.279464,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.0583690000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.039981,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 1.21517,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.718698,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.7156820000000002,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 1.888389,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.434573,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.432377,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.590234,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.344935,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.31850599999999996,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.479672,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.093165,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0981619999999999,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 1.257212,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.026003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0608309999999999,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 1.191249,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.7284220000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.794288,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 1.9256060000000002,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.05609,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.054708,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 1.197209,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.354553,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.32927599999999996,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.468702,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.44915099999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.402956,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.5609109999999999,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.131766,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.1460489999999999,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 1.2925090000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.173795,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.201449,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 1.350102,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.122719,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.130792,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 1.2698049999999999,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 2.248508,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 2.233765,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 2.417992,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.44861700000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.41176500000000005,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.595525,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.361206,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.402074,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.5327860000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.59817,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.537778,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 1.768635,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.477101,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.398757,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 1.6136499999999998,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 2.026995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.953889,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 2.190786,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.1462020000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.1471840000000002,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 1.278312,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.35340699999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.314659,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.483955,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.538827,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.540174,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.697558,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.132405,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.1319080000000001,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 1.2442410000000002,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.1781840000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.143449,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 1.260513,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.1124420000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.124958,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 1.2610729999999999,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.788286,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.774671,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 1.933113,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.44264000000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.422813,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.5853510000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.356701,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.367907,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.50659,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.220864,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.2251969999999999,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 1.388545,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.001988,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.004494,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 1.142672,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.69621,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.700732,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 1.863428,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.9908579999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.016646,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 1.157387,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.351895,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.361141,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.49996700000000005,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.43592000000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.43167500000000003,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.576985,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.1106479999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.132236,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 1.278026,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.086107,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.086468,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 1.248213,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.036095,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.0616,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 1.1911230000000002,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.68834,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.682436,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 1.828818,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.447022,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.42268999999999995,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 0.582205,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.347009,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.32338700000000004,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.46486900000000003,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.090979,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.079401,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.228821,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.977559,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.980166,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 1.116683,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.657933,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.635219,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.798216,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.122105,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.1415799999999998,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 1.3155409999999998,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.35078,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.350443,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.490282,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 0.44609800000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.432876,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.595459,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.111476,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.123804,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 1.263929,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.1516469999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.166016,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 1.3175050000000001,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.116191,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.1220080000000001,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 1.236634,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 2.0150569999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 2.004244,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 2.1770370000000003,
+    "codec": "mp3"
+  },
+  {
+    "decodeThreadCpuMs": 1.409543,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.461628,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 1.707627,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.35992999999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.346987,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.513245,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 1.0034589999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.984728,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 1.246286,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.358201,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.38064099999999995,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.547459,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.908013,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.855705,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 1.045874,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.327564,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.296298,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 0.452231,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.33935,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.324278,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.48444299999999996,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.8938670000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.884902,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 1.042845,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.460822,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.543461,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.694431,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 1.109683,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.938628,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 1.2349240000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.528042,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.390266,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 0.634896,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.849802,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.821206,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 0.98713,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.820288,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.814783,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.9871540000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.296599,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.260456,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.37085999999999997,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7965899999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.747272,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 0.883057,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.31894599999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.319615,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.466985,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.854132,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.939174,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 1.106184,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.30092399999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30310899999999996,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 0.43512599999999996,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.31237499999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.32209699999999997,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.458984,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.903264,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.8506619999999999,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 1.001315,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.352195,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.295381,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.45533900000000005,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7663580000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.784871,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 0.944724,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29304399999999997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.279275,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 0.441983,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.8563419999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.747485,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 1.016414,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7731750000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.766065,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.927187,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.298249,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.304516,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.44292000000000004,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.746396,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.731124,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.886331,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.282083,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.26870099999999997,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.400351,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.740235,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.711654,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 0.858226,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29490900000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.308449,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 0.441452,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.292671,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.256701,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.425844,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.761065,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.773023,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.9278,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.299658,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.29953,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.45175899999999997,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7481329999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7125779999999999,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.8714000000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.28486999999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.294989,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 0.4313,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7600739999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.758125,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 0.921038,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.77379,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.77972,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.942025,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.292072,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30067,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.427803,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.853966,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.856545,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 1.0045760000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.374444,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30993699999999996,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.456826,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7633390000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.754328,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 0.896344,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.290219,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.290043,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 0.436438,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.284221,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.262582,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.369082,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7512709999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.718247,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.8658859999999999,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.34009100000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.271897,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.46130299999999996,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.752922,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.732811,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.892494,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29045,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.290481,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 0.42066800000000004,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.766997,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7766449999999999,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 0.938106,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.763564,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.76307,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.933785,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.292486,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.301344,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.40369,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.815222,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.75274,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.97589,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.291473,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.3085,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.432707,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7747109999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7572650000000001,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 0.951546,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.290774,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.28182,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 0.42786199999999996,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.296965,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.313114,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.41959199999999996,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7895300000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.93863,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 1.0874540000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29888000000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.304772,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.442989,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.754599,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.750587,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.90636,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.294445,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.290397,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 0.429818,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7651290000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.760785,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 0.886472,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7428089999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.702246,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.861185,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29166400000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.29895,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.427628,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7740130000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.737035,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.925481,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29743,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.29485999999999996,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.416068,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.758027,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.73405,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 0.903027,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29230100000000003,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.271821,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 0.405499,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.275002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.234034,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.363333,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7634759999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7314160000000001,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.907309,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.301986,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.286279,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.415578,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.75525,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.769211,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.9253739999999999,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.34837300000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.277434,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 0.46498,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.782501,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.756814,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 0.936206,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7570830000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.721475,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.847063,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.292487,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.302026,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.425394,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.757781,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.771191,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.9246690000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.284315,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.307556,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.417978,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.757996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7273419999999999,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 0.9278609999999999,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.295487,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.297745,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 0.442478,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.291845,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.322037,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.45069400000000004,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7656630000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.774431,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.935856,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.339755,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.310602,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.523543,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.75295,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7244550000000001,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 0.852069,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.283093,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.263586,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 0.397251,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.927194,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.874967,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 1.06061,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.776503,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7638360000000001,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.969243,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.359948,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.32745,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.512924,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.75708,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.747861,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.9027339999999999,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.469582,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.354328,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.575453,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.761539,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.746089,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 0.914152,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.291165,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.26146600000000003,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 0.431912,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.288612,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.254233,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.439544,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7688969999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.757081,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.934724,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.302657,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.287756,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.42433,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7496830000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.734292,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.884417,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29047500000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.295137,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 0.39557600000000004,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.761535,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7398710000000001,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 0.8983450000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7530279999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7361139999999999,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.8968389999999999,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.295236,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.298564,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.438157,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.753634,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7485299999999999,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 0.8745390000000001,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.291221,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.285275,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.42126199999999997,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 1.1709370000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.156895,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 1.422388,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.290396,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.31995999999999997,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 0.435678,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.292388,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.29459599999999997,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.422152,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7852159999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.779499,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.9401849999999999,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.302905,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.30201300000000003,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.442688,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.755059,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.7470359999999999,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 0.8850079999999999,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29084299999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.281459,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 0.42111699999999996,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.9342649999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.914868,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 1.080585,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.8988940000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.928806,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.049861,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.30712399999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.255444,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.45133199999999996,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.922574,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.811767,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.033976,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.301959,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.270563,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.407397,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 1.1435030000000002,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 1.017281,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 1.268037,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.283409,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.26052600000000004,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 0.412166,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29500699999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.301128,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.440075,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.961304,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.963214,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 1.131708,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.297296,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.313921,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.446515,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7878029999999999,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.742343,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.935046,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.29063799999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.302452,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 0.430179,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.7552190000000001,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 0.749436,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 0.90849,
+    "codec": "m4a"
+  },
+  {
+    "decodeThreadCpuMs": 0.500217,
+    "decoderChildCpuMs": 72.71500000000002,
+    "firstPcmMs": 72.58407,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 81.163417,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.588974,
+    "decoderChildCpuMs": 74.142,
+    "firstPcmMs": 74.32458799999999,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 81.149688,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.381858,
+    "decoderChildCpuMs": 65.745,
+    "firstPcmMs": 65.343237,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 70.95695,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.364045,
+    "decoderChildCpuMs": 70.207,
+    "firstPcmMs": 71.38004000000001,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 81.121659,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.469504,
+    "decoderChildCpuMs": 92.61500000000001,
+    "firstPcmMs": 94.220345,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "fresh",
+    "wallMs": 101.044165,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.510344,
+    "decoderChildCpuMs": 98.68,
+    "firstPcmMs": 99.308724,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "retained",
+    "wallMs": 101.21391,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.418182,
+    "decoderChildCpuMs": 77.01499999999999,
+    "firstPcmMs": 77.077616,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 80.801188,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.407745,
+    "decoderChildCpuMs": 63.22500000000002,
+    "firstPcmMs": 64.255973,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 70.929887,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.37505299999999997,
+    "decoderChildCpuMs": 67.85000000000002,
+    "firstPcmMs": 67.67282,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 70.819778,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.42752500000000004,
+    "decoderChildCpuMs": 81.96199999999999,
+    "firstPcmMs": 81.914395,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 90.940038,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.434579,
+    "decoderChildCpuMs": 111.06999999999994,
+    "firstPcmMs": 111.745914,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "retained",
+    "wallMs": 121.074178,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.375487,
+    "decoderChildCpuMs": 66.10699999999997,
+    "firstPcmMs": 66.242043,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "fresh",
+    "wallMs": 70.89413499999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.382162,
+    "decoderChildCpuMs": 65.10799999999995,
+    "firstPcmMs": 64.990616,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 71.252392,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.390444,
+    "decoderChildCpuMs": 67.81800000000021,
+    "firstPcmMs": 69.108705,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 70.84844799999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.394945,
+    "decoderChildCpuMs": 71.452,
+    "firstPcmMs": 77.290102,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 80.904195,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.430854,
+    "decoderChildCpuMs": 76.58799999999997,
+    "firstPcmMs": 77.140991,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 80.904205,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.358775,
+    "decoderChildCpuMs": 66.5469999999998,
+    "firstPcmMs": 66.189444,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "fresh",
+    "wallMs": 70.81941,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.432595,
+    "decoderChildCpuMs": 65.2170000000001,
+    "firstPcmMs": 65.419515,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "retained",
+    "wallMs": 71.357029,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.9128820000000001,
+    "decoderChildCpuMs": 74.50099999999998,
+    "firstPcmMs": 75.14599600000001,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 81.944859,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.38828399999999996,
+    "decoderChildCpuMs": 72.43700000000013,
+    "firstPcmMs": 74.183247,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 81.18078600000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.354452,
+    "decoderChildCpuMs": 68.48700000000008,
+    "firstPcmMs": 68.25809500000001,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 70.836424,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.360276,
+    "decoderChildCpuMs": 65.83899999999994,
+    "firstPcmMs": 69.78841800000001,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 70.900371,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.397952,
+    "decoderChildCpuMs": 67.12199999999984,
+    "firstPcmMs": 69.367446,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "retained",
+    "wallMs": 70.745346,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.364492,
+    "decoderChildCpuMs": 69.33400000000006,
+    "firstPcmMs": 71.352604,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "fresh",
+    "wallMs": 80.90854,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.409196,
+    "decoderChildCpuMs": 69.02200000000016,
+    "firstPcmMs": 71.140928,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 81.118243,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.38213199999999997,
+    "decoderChildCpuMs": 69.05999999999995,
+    "firstPcmMs": 69.490003,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 71.227312,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.44986000000000004,
+    "decoderChildCpuMs": 69.80599999999959,
+    "firstPcmMs": 69.47255600000001,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 71.02202000000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.390287,
+    "decoderChildCpuMs": 78.14000000000033,
+    "firstPcmMs": 78.37271899999999,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 81.036818,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.41728600000000005,
+    "decoderChildCpuMs": 79.13400000000001,
+    "firstPcmMs": 79.32731199999999,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "fresh",
+    "wallMs": 80.903925,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.38618,
+    "decoderChildCpuMs": 78.52199999999993,
+    "firstPcmMs": 78.593497,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "retained",
+    "wallMs": 80.773319,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.417013,
+    "decoderChildCpuMs": 87.91399999999976,
+    "firstPcmMs": 88.174219,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 91.085404,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.39371900000000004,
+    "decoderChildCpuMs": 75.39100000000053,
+    "firstPcmMs": 77.42930100000001,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 80.865314,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.448148,
+    "decoderChildCpuMs": 74.99599999999964,
+    "firstPcmMs": 76.50602300000001,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 80.948797,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.384923,
+    "decoderChildCpuMs": 86.28900000000021,
+    "firstPcmMs": 86.30595000000001,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 91.253556,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.372907,
+    "decoderChildCpuMs": 67.63699999999972,
+    "firstPcmMs": 69.52585499999999,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "retained",
+    "wallMs": 71.07967,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.48025799999999996,
+    "decoderChildCpuMs": 75.04700000000003,
+    "firstPcmMs": 74.564451,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "fresh",
+    "wallMs": 80.951216,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.46608099999999997,
+    "decoderChildCpuMs": 90.66400000000021,
+    "firstPcmMs": 92.169354,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 100.88092999999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.471606,
+    "decoderChildCpuMs": 76.84400000000005,
+    "firstPcmMs": 76.74966699999999,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 80.963012,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.3894,
+    "decoderChildCpuMs": 73.07600000000002,
+    "firstPcmMs": 75.347719,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 81.201728,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.362976,
+    "decoderChildCpuMs": 66.16499999999996,
+    "firstPcmMs": 65.84832999999999,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 71.217703,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.36590599999999995,
+    "decoderChildCpuMs": 69.57600000000002,
+    "firstPcmMs": 71.908074,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "fresh",
+    "wallMs": 81.472498,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.520588,
+    "decoderChildCpuMs": 80.17199999999957,
+    "firstPcmMs": 83.869062,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "retained",
+    "wallMs": 91.94086399999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.412314,
+    "decoderChildCpuMs": 75.56500000000051,
+    "firstPcmMs": 75.520195,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 80.932146,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.354618,
+    "decoderChildCpuMs": 68.72099999999955,
+    "firstPcmMs": 70.774824,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 81.21798600000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.39191,
+    "decoderChildCpuMs": 66.53999999999996,
+    "firstPcmMs": 68.591206,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 70.910657,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.46779,
+    "decoderChildCpuMs": 83.14000000000033,
+    "firstPcmMs": 86.380571,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 90.92737100000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.43447,
+    "decoderChildCpuMs": 88.23300000000017,
+    "firstPcmMs": 91.054808,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "retained",
+    "wallMs": 101.020955,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.39247600000000005,
+    "decoderChildCpuMs": 69.16699999999946,
+    "firstPcmMs": 69.027175,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "fresh",
+    "wallMs": 70.77393599999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.38954500000000003,
+    "decoderChildCpuMs": 73.92500000000018,
+    "firstPcmMs": 74.36772699999999,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 80.963436,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.42474,
+    "decoderChildCpuMs": 84.78300000000036,
+    "firstPcmMs": 85.806964,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 90.98066200000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.4397,
+    "decoderChildCpuMs": 81.7460000000001,
+    "firstPcmMs": 83.40365800000001,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 91.028295,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.5270699999999999,
+    "decoderChildCpuMs": 106.02899999999954,
+    "firstPcmMs": 106.63916599999999,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 111.24025999999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.44060900000000003,
+    "decoderChildCpuMs": 79.17799999999988,
+    "firstPcmMs": 82.409472,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "fresh",
+    "wallMs": 90.916236,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.41762999999999995,
+    "decoderChildCpuMs": 81.875,
+    "firstPcmMs": 84.522451,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "retained",
+    "wallMs": 91.255031,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.555278,
+    "decoderChildCpuMs": 101.30400000000009,
+    "firstPcmMs": 106.378058,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 111.06805899999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.46475000000000005,
+    "decoderChildCpuMs": 96.2539999999999,
+    "firstPcmMs": 98.13123999999999,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 101.650244,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.49885399999999996,
+    "decoderChildCpuMs": 98.20100000000002,
+    "firstPcmMs": 99.853972,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 101.18051899999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.514176,
+    "decoderChildCpuMs": 92.56900000000041,
+    "firstPcmMs": 96.31633500000001,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 101.022858,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.43406500000000003,
+    "decoderChildCpuMs": 76.3090000000002,
+    "firstPcmMs": 77.897243,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "retained",
+    "wallMs": 80.973486,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.432409,
+    "decoderChildCpuMs": 76.48699999999917,
+    "firstPcmMs": 78.406423,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "fresh",
+    "wallMs": 80.854157,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.407773,
+    "decoderChildCpuMs": 77.36700000000019,
+    "firstPcmMs": 77.460028,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 81.02098600000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.386604,
+    "decoderChildCpuMs": 77.42100000000028,
+    "firstPcmMs": 78.725437,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 81.00166,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.43515800000000004,
+    "decoderChildCpuMs": 81.10199999999986,
+    "firstPcmMs": 80.721041,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 91.03250799999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.470065,
+    "decoderChildCpuMs": 75.31900000000041,
+    "firstPcmMs": 74.958336,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 81.188192,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.49288300000000007,
+    "decoderChildCpuMs": 86.17100000000028,
+    "firstPcmMs": 88.22919999999999,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "fresh",
+    "wallMs": 91.19246,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.446915,
+    "decoderChildCpuMs": 78.91199999999935,
+    "firstPcmMs": 80.801867,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "retained",
+    "wallMs": 90.93691600000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.447453,
+    "decoderChildCpuMs": 76.25799999999981,
+    "firstPcmMs": 76.966875,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 80.968501,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.381189,
+    "decoderChildCpuMs": 83.22200000000066,
+    "firstPcmMs": 83.084317,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 90.96731199999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.431416,
+    "decoderChildCpuMs": 75.76699999999983,
+    "firstPcmMs": 76.48290200000001,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 81.015964,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.44432400000000005,
+    "decoderChildCpuMs": 89.40399999999954,
+    "firstPcmMs": 89.378777,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 90.9478,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.438142,
+    "decoderChildCpuMs": 99.22100000000046,
+    "firstPcmMs": 99.309611,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "retained",
+    "wallMs": 101.4396,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.476946,
+    "decoderChildCpuMs": 86.95399999999972,
+    "firstPcmMs": 87.014228,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "fresh",
+    "wallMs": 90.99962000000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.482035,
+    "decoderChildCpuMs": 101.73500000000058,
+    "firstPcmMs": 101.77891,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 111.529487,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.405946,
+    "decoderChildCpuMs": 76.53699999999935,
+    "firstPcmMs": 76.227419,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 81.13650799999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.425859,
+    "decoderChildCpuMs": 78.97900000000027,
+    "firstPcmMs": 79.61428,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 80.912213,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.48230300000000004,
+    "decoderChildCpuMs": 87.04299999999967,
+    "firstPcmMs": 87.919265,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 90.86764799999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.528536,
+    "decoderChildCpuMs": 102.6210000000001,
+    "firstPcmMs": 103.883197,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "fresh",
+    "wallMs": 111.174787,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.384656,
+    "decoderChildCpuMs": 77.50900000000001,
+    "firstPcmMs": 77.65218,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "retained",
+    "wallMs": 80.935298,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.409303,
+    "decoderChildCpuMs": 76.16899999999987,
+    "firstPcmMs": 76.21277,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 81.033877,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.388353,
+    "decoderChildCpuMs": 84.03600000000006,
+    "firstPcmMs": 83.681722,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 91.022014,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.412011,
+    "decoderChildCpuMs": 85.48700000000008,
+    "firstPcmMs": 85.315605,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 91.060951,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.43035100000000004,
+    "decoderChildCpuMs": 77.22299999999996,
+    "firstPcmMs": 77.002642,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 80.863005,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.481168,
+    "decoderChildCpuMs": 85.52400000000034,
+    "firstPcmMs": 85.43523499999999,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "retained",
+    "wallMs": 90.891802,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.38292400000000004,
+    "decoderChildCpuMs": 78.10599999999977,
+    "firstPcmMs": 77.959114,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "fresh",
+    "wallMs": 81.067598,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.43449499999999996,
+    "decoderChildCpuMs": 80.0039999999999,
+    "firstPcmMs": 80.642634,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 81.038048,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.418738,
+    "decoderChildCpuMs": 76.36599999999999,
+    "firstPcmMs": 76.22920900000001,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 80.799408,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.458028,
+    "decoderChildCpuMs": 82.1210000000001,
+    "firstPcmMs": 81.635718,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 90.933834,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.459901,
+    "decoderChildCpuMs": 90.82399999999961,
+    "firstPcmMs": 91.269729,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 101.22963299999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.447342,
+    "decoderChildCpuMs": 78.61599999999999,
+    "firstPcmMs": 78.440918,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "fresh",
+    "wallMs": 80.99283,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.448995,
+    "decoderChildCpuMs": 84.8080000000009,
+    "firstPcmMs": 86.688008,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "retained",
+    "wallMs": 91.040318,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.40724,
+    "decoderChildCpuMs": 78.8109999999997,
+    "firstPcmMs": 78.770017,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 80.83272,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.41076500000000005,
+    "decoderChildCpuMs": 91.83500000000004,
+    "firstPcmMs": 92.436715,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 101.043563,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.43800500000000003,
+    "decoderChildCpuMs": 89.67199999999957,
+    "firstPcmMs": 92.707297,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 101.076295,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.42129,
+    "decoderChildCpuMs": 75.20300000000043,
+    "firstPcmMs": 75.232353,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 80.91949,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.4485950000000001,
+    "decoderChildCpuMs": 87.15200000000004,
+    "firstPcmMs": 90.600656,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "retained",
+    "wallMs": 91.009853,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.423377,
+    "decoderChildCpuMs": 81.73099999999977,
+    "firstPcmMs": 84.09163699999999,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "fresh",
+    "wallMs": 91.062928,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.417636,
+    "decoderChildCpuMs": 80.6269999999995,
+    "firstPcmMs": 83.316487,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 91.30831,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.401381,
+    "decoderChildCpuMs": 68.15400000000045,
+    "firstPcmMs": 67.99060399999999,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 71.00736500000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.405478,
+    "decoderChildCpuMs": 87.54399999999987,
+    "firstPcmMs": 87.59889899999999,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 90.890491,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.46249,
+    "decoderChildCpuMs": 86.79200000000037,
+    "firstPcmMs": 87.500856,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 91.07997800000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.425952,
+    "decoderChildCpuMs": 73.5590000000002,
+    "firstPcmMs": 73.20352600000001,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "fresh",
+    "wallMs": 80.923238,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.37463799999999997,
+    "decoderChildCpuMs": 73.27399999999943,
+    "firstPcmMs": 73.046741,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "retained",
+    "wallMs": 80.95720800000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.353545,
+    "decoderChildCpuMs": 66.69499999999971,
+    "firstPcmMs": 67.256947,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 71.045485,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.373997,
+    "decoderChildCpuMs": 69.17200000000048,
+    "firstPcmMs": 68.87597299999999,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 71.310962,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.7778900000000001,
+    "decoderChildCpuMs": 70.08300000000054,
+    "firstPcmMs": 71.85729500000001,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 81.625049,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.354396,
+    "decoderChildCpuMs": 67.47499999999854,
+    "firstPcmMs": 67.24669,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 70.92144,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.397991,
+    "decoderChildCpuMs": 74.12800000000061,
+    "firstPcmMs": 74.089916,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "retained",
+    "wallMs": 80.945063,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.432809,
+    "decoderChildCpuMs": 79.33699999999953,
+    "firstPcmMs": 79.247391,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "fresh",
+    "wallMs": 80.94147,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.402414,
+    "decoderChildCpuMs": 81.31200000000172,
+    "firstPcmMs": 81.261749,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 90.90214,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.401998,
+    "decoderChildCpuMs": 75.34999999999854,
+    "firstPcmMs": 74.98719600000001,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 81.01469,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.419391,
+    "decoderChildCpuMs": 75.82800000000134,
+    "firstPcmMs": 75.59816099999999,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 81.31408699999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.38455,
+    "decoderChildCpuMs": 66.27399999999943,
+    "firstPcmMs": 67.621873,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 70.793178,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.38973399999999997,
+    "decoderChildCpuMs": 65.22400000000016,
+    "firstPcmMs": 66.17988700000001,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "fresh",
+    "wallMs": 70.86390300000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.399878,
+    "decoderChildCpuMs": 70.41399999999885,
+    "firstPcmMs": 72.74473200000001,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "retained",
+    "wallMs": 81.204427,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.366353,
+    "decoderChildCpuMs": 67.0520000000015,
+    "firstPcmMs": 68.474798,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 70.959184,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.351558,
+    "decoderChildCpuMs": 69.91499999999905,
+    "firstPcmMs": 71.50796600000001,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 80.94138500000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.34522,
+    "decoderChildCpuMs": 64.60100000000057,
+    "firstPcmMs": 64.498205,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 71.182103,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.338057,
+    "decoderChildCpuMs": 63.49399999999878,
+    "firstPcmMs": 63.21305400000001,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 70.825352,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.395528,
+    "decoderChildCpuMs": 68.95000000000073,
+    "firstPcmMs": 68.89066600000001,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "retained",
+    "wallMs": 70.753356,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.37142699999999995,
+    "decoderChildCpuMs": 68.6830000000009,
+    "firstPcmMs": 68.29040499999999,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "fresh",
+    "wallMs": 70.819355,
+    "codec": "opus"
+  }
+]

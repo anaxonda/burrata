@@ -1,0 +1,1202 @@
+[
+  {
+    "decodeThreadCpuMs": 2.21401,
+    "decoderChildCpuMs": 103.42399999999998,
+    "firstPcmMs": 101.775633,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "ffmpegFresh",
+    "wallMs": 111.038707,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 66.839772,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 66.52162799999999,
+    "fraction": 0.01,
+    "iteration": 0,
+    "strategy": "opusRetained",
+    "wallMs": 67.942018,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.456671,
+    "decoderChildCpuMs": 114.49899999999997,
+    "firstPcmMs": 114.275366,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "ffmpegFresh",
+    "wallMs": 122.441025,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 54.376941,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 55.337882,
+    "fraction": 0.5,
+    "iteration": 0,
+    "strategy": "opusRetained",
+    "wallMs": 56.786815,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.0825619999999998,
+    "decoderChildCpuMs": 70.95800000000008,
+    "firstPcmMs": 69.671819,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.967907,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 43.874877999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 43.633073,
+    "fraction": 0.95,
+    "iteration": 0,
+    "strategy": "opusRetained",
+    "wallMs": 44.328516,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 35.693412,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 35.527314999999994,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "opusRetained",
+    "wallMs": 36.069346,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.9701739999999999,
+    "decoderChildCpuMs": 62.83999999999992,
+    "firstPcmMs": 61.417059,
+    "fraction": 0.01,
+    "iteration": 1,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.333861,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 38.858748,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 38.66578,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "opusRetained",
+    "wallMs": 39.323722,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.8523630000000002,
+    "decoderChildCpuMs": 74.82400000000007,
+    "firstPcmMs": 74.61788399999999,
+    "fraction": 0.5,
+    "iteration": 1,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.95683700000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 39.673641999999994,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 39.53779,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "opusRetained",
+    "wallMs": 40.139523000000004,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.6508429999999998,
+    "decoderChildCpuMs": 68.09499999999991,
+    "firstPcmMs": 66.280306,
+    "fraction": 0.95,
+    "iteration": 1,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.15463,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.736393,
+    "decoderChildCpuMs": 70.56500000000005,
+    "firstPcmMs": 68.59214,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.860524,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 33.987762,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 33.913238,
+    "fraction": 0.01,
+    "iteration": 2,
+    "strategy": "opusRetained",
+    "wallMs": 34.373643,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.3488479999999998,
+    "decoderChildCpuMs": 66.077,
+    "firstPcmMs": 64.366998,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.08721899999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 38.269683,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 38.253027,
+    "fraction": 0.5,
+    "iteration": 2,
+    "strategy": "opusRetained",
+    "wallMs": 38.771287,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.724712,
+    "decoderChildCpuMs": 67.33900000000006,
+    "firstPcmMs": 65.44609,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.30655499999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 38.293307999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 38.07146,
+    "fraction": 0.95,
+    "iteration": 2,
+    "strategy": "opusRetained",
+    "wallMs": 38.671251,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 32.571692,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 32.376771,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "opusRetained",
+    "wallMs": 32.90933,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.869104,
+    "decoderChildCpuMs": 69.673,
+    "firstPcmMs": 67.91128,
+    "fraction": 0.01,
+    "iteration": 3,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.22896,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 45.445323,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 45.392978,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "opusRetained",
+    "wallMs": 46.078506999999995,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.7586089999999999,
+    "decoderChildCpuMs": 67.20299999999997,
+    "firstPcmMs": 65.163218,
+    "fraction": 0.5,
+    "iteration": 3,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.173151,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 34.554362000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 34.359244999999994,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "opusRetained",
+    "wallMs": 34.937701000000004,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.0369579999999998,
+    "decoderChildCpuMs": 62.64499999999998,
+    "firstPcmMs": 61.429643,
+    "fraction": 0.95,
+    "iteration": 3,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.991099,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.865399,
+    "decoderChildCpuMs": 71.05700000000002,
+    "firstPcmMs": 69.43799100000001,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.546087,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 35.838374,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 35.692538000000006,
+    "fraction": 0.01,
+    "iteration": 4,
+    "strategy": "opusRetained",
+    "wallMs": 36.281901999999995,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.779672,
+    "decoderChildCpuMs": 69.61400000000003,
+    "firstPcmMs": 67.592703,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.10741900000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 42.267873,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 42.203938,
+    "fraction": 0.5,
+    "iteration": 4,
+    "strategy": "opusRetained",
+    "wallMs": 42.796316000000004,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.475936,
+    "decoderChildCpuMs": 66.1869999999999,
+    "firstPcmMs": 64.711374,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.080361,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 37.638039,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 37.523744,
+    "fraction": 0.95,
+    "iteration": 4,
+    "strategy": "opusRetained",
+    "wallMs": 38.089906,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 36.895056,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 36.656199,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "opusRetained",
+    "wallMs": 37.252174,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.750303,
+    "decoderChildCpuMs": 71.63200000000006,
+    "firstPcmMs": 70.029691,
+    "fraction": 0.01,
+    "iteration": 5,
+    "strategy": "ffmpegFresh",
+    "wallMs": 81.15262700000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 41.41493,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 41.309628000000004,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "opusRetained",
+    "wallMs": 41.781633,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.268267,
+    "decoderChildCpuMs": 66.05299999999988,
+    "firstPcmMs": 64.697293,
+    "fraction": 0.5,
+    "iteration": 5,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.010908,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 40.343838,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 40.102803,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "opusRetained",
+    "wallMs": 40.792865,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.9681170000000001,
+    "decoderChildCpuMs": 93.94000000000005,
+    "firstPcmMs": 92.760906,
+    "fraction": 0.95,
+    "iteration": 5,
+    "strategy": "ffmpegFresh",
+    "wallMs": 100.99489200000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 2.075639,
+    "decoderChildCpuMs": 109.20000000000005,
+    "firstPcmMs": 109.740026,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "ffmpegFresh",
+    "wallMs": 111.147143,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 42.771976,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 43.161227000000004,
+    "fraction": 0.01,
+    "iteration": 6,
+    "strategy": "opusRetained",
+    "wallMs": 43.726349,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.653306,
+    "decoderChildCpuMs": 85.03399999999988,
+    "firstPcmMs": 83.209441,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "ffmpegFresh",
+    "wallMs": 90.832822,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 44.251078,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 44.293003,
+    "fraction": 0.5,
+    "iteration": 6,
+    "strategy": "opusRetained",
+    "wallMs": 44.874929,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.402892,
+    "decoderChildCpuMs": 76.30300000000011,
+    "firstPcmMs": 74.616931,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.969526,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 35.631789999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 35.539753,
+    "fraction": 0.95,
+    "iteration": 6,
+    "strategy": "opusRetained",
+    "wallMs": 36.081482,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 37.661986,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 37.590353,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "opusRetained",
+    "wallMs": 38.170868,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 0.969401,
+    "decoderChildCpuMs": 66.13400000000001,
+    "firstPcmMs": 65.19926400000001,
+    "fraction": 0.01,
+    "iteration": 7,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.888424,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 48.191949,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 48.080837,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "opusRetained",
+    "wallMs": 49.069958,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.302475,
+    "decoderChildCpuMs": 94.2610000000002,
+    "firstPcmMs": 95.259796,
+    "fraction": 0.5,
+    "iteration": 7,
+    "strategy": "ffmpegFresh",
+    "wallMs": 100.889811,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 44.324787,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 44.096786,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "opusRetained",
+    "wallMs": 44.937321000000004,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.619753,
+    "decoderChildCpuMs": 88.54199999999946,
+    "firstPcmMs": 87.38172700000001,
+    "fraction": 0.95,
+    "iteration": 7,
+    "strategy": "ffmpegFresh",
+    "wallMs": 90.927733,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.1701110000000001,
+    "decoderChildCpuMs": 79.9970000000003,
+    "firstPcmMs": 79.28797999999999,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.91308799999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 43.900313,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 43.918326,
+    "fraction": 0.01,
+    "iteration": 8,
+    "strategy": "opusRetained",
+    "wallMs": 44.552794999999996,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.5652080000000002,
+    "decoderChildCpuMs": 67.89699999999993,
+    "firstPcmMs": 66.166097,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.346327,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 56.323858,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 57.060087,
+    "fraction": 0.5,
+    "iteration": 8,
+    "strategy": "opusRetained",
+    "wallMs": 57.545348000000004,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.437976,
+    "decoderChildCpuMs": 77.4090000000001,
+    "firstPcmMs": 76.040751,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.8263,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 43.470405,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 44.002331999999996,
+    "fraction": 0.95,
+    "iteration": 8,
+    "strategy": "opusRetained",
+    "wallMs": 44.638723,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 40.555183,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 40.269112,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "opusRetained",
+    "wallMs": 40.96015800000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.851619,
+    "decoderChildCpuMs": 67.54800000000023,
+    "firstPcmMs": 65.906894,
+    "fraction": 0.01,
+    "iteration": 9,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.21227400000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 45.115677000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 45.204532,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "opusRetained",
+    "wallMs": 45.741381,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.681937,
+    "decoderChildCpuMs": 61.960999999999785,
+    "firstPcmMs": 59.872432,
+    "fraction": 0.5,
+    "iteration": 9,
+    "strategy": "ffmpegFresh",
+    "wallMs": 60.863273,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 33.195571,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 33.029931999999995,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "opusRetained",
+    "wallMs": 33.596962,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.751644,
+    "decoderChildCpuMs": 67.59299999999985,
+    "firstPcmMs": 66.426952,
+    "fraction": 0.95,
+    "iteration": 9,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.322353,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.235113,
+    "decoderChildCpuMs": 71.23300000000017,
+    "firstPcmMs": 70.673467,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.851427,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 35.284926,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 37.152956,
+    "fraction": 0.01,
+    "iteration": 10,
+    "strategy": "opusRetained",
+    "wallMs": 37.698059,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.6832589999999998,
+    "decoderChildCpuMs": 63.36400000000003,
+    "firstPcmMs": 61.430093,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.11113800000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 43.693245999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 43.41082,
+    "fraction": 0.5,
+    "iteration": 10,
+    "strategy": "opusRetained",
+    "wallMs": 44.127116,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.500707,
+    "decoderChildCpuMs": 64.86299999999983,
+    "firstPcmMs": 63.786078999999994,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.200962,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 37.386861999999994,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 37.480885,
+    "fraction": 0.95,
+    "iteration": 10,
+    "strategy": "opusRetained",
+    "wallMs": 38.045631,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 35.557109,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 35.332628,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "opusRetained",
+    "wallMs": 35.91449,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.9616979999999997,
+    "decoderChildCpuMs": 74.81700000000001,
+    "firstPcmMs": 73.551168,
+    "fraction": 0.01,
+    "iteration": 11,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.980379,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 52.780302999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 52.692594,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "opusRetained",
+    "wallMs": 53.28227,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.4615710000000002,
+    "decoderChildCpuMs": 91.50700000000006,
+    "firstPcmMs": 90.962523,
+    "fraction": 0.5,
+    "iteration": 11,
+    "strategy": "ffmpegFresh",
+    "wallMs": 100.804565,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 42.75266,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 42.78405,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "opusRetained",
+    "wallMs": 43.433907,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.714438,
+    "decoderChildCpuMs": 85.22199999999975,
+    "firstPcmMs": 83.973797,
+    "fraction": 0.95,
+    "iteration": 11,
+    "strategy": "ffmpegFresh",
+    "wallMs": 91.20813899999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.107661,
+    "decoderChildCpuMs": 86.29300000000057,
+    "firstPcmMs": 86.520293,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "ffmpegFresh",
+    "wallMs": 91.083827,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 49.448237,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 49.253932,
+    "fraction": 0.01,
+    "iteration": 12,
+    "strategy": "opusRetained",
+    "wallMs": 50.214487000000005,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.818684,
+    "decoderChildCpuMs": 77.09799999999996,
+    "firstPcmMs": 75.241013,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "ffmpegFresh",
+    "wallMs": 81.224225,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 64.785296,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 66.51740000000001,
+    "fraction": 0.5,
+    "iteration": 12,
+    "strategy": "opusRetained",
+    "wallMs": 67.00233399999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.444923,
+    "decoderChildCpuMs": 71.86699999999973,
+    "firstPcmMs": 70.04636599999999,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.043199,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 36.372213,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 36.277734,
+    "fraction": 0.95,
+    "iteration": 12,
+    "strategy": "opusRetained",
+    "wallMs": 36.841974,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 45.757681,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 45.750189,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "opusRetained",
+    "wallMs": 46.401161,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.823961,
+    "decoderChildCpuMs": 78.16599999999971,
+    "firstPcmMs": 77.13313500000001,
+    "fraction": 0.01,
+    "iteration": 13,
+    "strategy": "ffmpegFresh",
+    "wallMs": 81.135136,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 48.557473,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 49.341141,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "opusRetained",
+    "wallMs": 50.171366,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.919038,
+    "decoderChildCpuMs": 79.94600000000037,
+    "firstPcmMs": 78.02353099999999,
+    "fraction": 0.5,
+    "iteration": 13,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.959109,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 35.524854,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 35.362166,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "opusRetained",
+    "wallMs": 35.923243,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.099901,
+    "decoderChildCpuMs": 68.36699999999973,
+    "firstPcmMs": 67.309779,
+    "fraction": 0.95,
+    "iteration": 13,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.906064,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.493302,
+    "decoderChildCpuMs": 65.05400000000009,
+    "firstPcmMs": 63.367567,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.199637,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 33.986202,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 33.967552999999995,
+    "fraction": 0.01,
+    "iteration": 14,
+    "strategy": "opusRetained",
+    "wallMs": 34.49121,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.72227,
+    "decoderChildCpuMs": 65.40999999999985,
+    "firstPcmMs": 63.46708700000001,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.272776,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 36.831443,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 36.793257000000004,
+    "fraction": 0.5,
+    "iteration": 14,
+    "strategy": "opusRetained",
+    "wallMs": 37.30123,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.2754599999999998,
+    "decoderChildCpuMs": 62.96700000000055,
+    "firstPcmMs": 61.691361,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.17702,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 34.745201,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 34.523602000000004,
+    "fraction": 0.95,
+    "iteration": 14,
+    "strategy": "opusRetained",
+    "wallMs": 35.094266,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 32.805510999999996,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 32.559394999999995,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "opusRetained",
+    "wallMs": 33.153786999999994,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.6006879999999999,
+    "decoderChildCpuMs": 66.70599999999968,
+    "firstPcmMs": 64.887241,
+    "fraction": 0.01,
+    "iteration": 15,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.239999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 37.888914,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 37.764140000000005,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "opusRetained",
+    "wallMs": 38.260987,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.626303,
+    "decoderChildCpuMs": 69.50900000000001,
+    "firstPcmMs": 67.751195,
+    "fraction": 0.5,
+    "iteration": 15,
+    "strategy": "ffmpegFresh",
+    "wallMs": 71.59299299999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 56.328622,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 56.882951,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "opusRetained",
+    "wallMs": 57.328241000000006,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.3179189999999998,
+    "decoderChildCpuMs": 67.23199999999997,
+    "firstPcmMs": 65.67867500000001,
+    "fraction": 0.95,
+    "iteration": 15,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.867295,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.294224,
+    "decoderChildCpuMs": 68.86400000000003,
+    "firstPcmMs": 67.64440400000001,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.746967,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 47.534414,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 47.351684,
+    "fraction": 0.01,
+    "iteration": 16,
+    "strategy": "opusRetained",
+    "wallMs": 48.108493,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.484683,
+    "decoderChildCpuMs": 88.30299999999988,
+    "firstPcmMs": 86.57716,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "ffmpegFresh",
+    "wallMs": 91.021228,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 56.359704,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 56.048277,
+    "fraction": 0.5,
+    "iteration": 16,
+    "strategy": "opusRetained",
+    "wallMs": 57.115005000000004,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.447921,
+    "decoderChildCpuMs": 78.93199999999979,
+    "firstPcmMs": 77.52894,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.77869,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 48.621393000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 48.348957,
+    "fraction": 0.95,
+    "iteration": 16,
+    "strategy": "opusRetained",
+    "wallMs": 49.049677,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 43.951319000000005,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 43.997342,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "opusRetained",
+    "wallMs": 44.651081000000005,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.793324,
+    "decoderChildCpuMs": 73.09700000000066,
+    "firstPcmMs": 70.885571,
+    "fraction": 0.01,
+    "iteration": 17,
+    "strategy": "ffmpegFresh",
+    "wallMs": 81.105277,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 45.998086,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 45.923548000000004,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "opusRetained",
+    "wallMs": 46.530839,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.46546,
+    "decoderChildCpuMs": 76.04599999999937,
+    "firstPcmMs": 74.560213,
+    "fraction": 0.5,
+    "iteration": 17,
+    "strategy": "ffmpegFresh",
+    "wallMs": 81.087159,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 41.982947,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 42.005283999999996,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "opusRetained",
+    "wallMs": 42.660973,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 2.076331,
+    "decoderChildCpuMs": 81.01100000000042,
+    "firstPcmMs": 79.097474,
+    "fraction": 0.95,
+    "iteration": 17,
+    "strategy": "ffmpegFresh",
+    "wallMs": 81.055313,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 2.1708909999999997,
+    "decoderChildCpuMs": 79.79899999999998,
+    "firstPcmMs": 77.29598999999999,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "ffmpegFresh",
+    "wallMs": 80.97918899999999,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 49.385130999999994,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 49.168603999999995,
+    "fraction": 0.01,
+    "iteration": 18,
+    "strategy": "opusRetained",
+    "wallMs": 49.908640999999996,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.312662,
+    "decoderChildCpuMs": 81.1899999999996,
+    "firstPcmMs": 80.49799200000001,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "ffmpegFresh",
+    "wallMs": 91.01944400000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 45.586008,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 45.424471000000004,
+    "fraction": 0.5,
+    "iteration": 18,
+    "strategy": "opusRetained",
+    "wallMs": 46.108729000000004,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.54693,
+    "decoderChildCpuMs": 105.3100000000004,
+    "firstPcmMs": 104.170138,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "ffmpegFresh",
+    "wallMs": 111.20350900000001,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 52.833566999999995,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 55.052494,
+    "fraction": 0.95,
+    "iteration": 18,
+    "strategy": "opusRetained",
+    "wallMs": 55.77449,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 45.094667,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 45.425360999999995,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "opusRetained",
+    "wallMs": 46.034555999999995,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.440399,
+    "decoderChildCpuMs": 89.15499999999975,
+    "firstPcmMs": 87.785914,
+    "fraction": 0.01,
+    "iteration": 19,
+    "strategy": "ffmpegFresh",
+    "wallMs": 91.187154,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 43.969984000000004,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 43.957582,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "opusRetained",
+    "wallMs": 44.557027999999995,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.536252,
+    "decoderChildCpuMs": 79.16300000000047,
+    "firstPcmMs": 78.041043,
+    "fraction": 0.5,
+    "iteration": 19,
+    "strategy": "ffmpegFresh",
+    "wallMs": 81.361926,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 39.929535,
+    "decoderChildCpuMs": 0.0,
+    "firstPcmMs": 39.699369999999995,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "opusRetained",
+    "wallMs": 40.337103,
+    "codec": "opus"
+  },
+  {
+    "decodeThreadCpuMs": 1.5337189999999998,
+    "decoderChildCpuMs": 71.13400000000001,
+    "firstPcmMs": 69.460036,
+    "fraction": 0.95,
+    "iteration": 19,
+    "strategy": "ffmpegFresh",
+    "wallMs": 70.807594,
+    "codec": "opus"
+  }
+]

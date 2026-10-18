@@ -1,0 +1,89 @@
+{
+  "scope": "Derived from safe tool outputs during the user-authorized main-app YouTube account review. No cookie values, account IDs, names, raw responses or playlist writes. No completed connection claimed.",
+  "publicBootstrapComparison": [
+    {
+      "request": "minimal public HTTP user agent",
+      "bytes": 2012,
+      "configPresent": false,
+      "deprecatedBrowserPage": true
+    },
+    {
+      "request": "fixed desktop browser user agent",
+      "bytes": 657467,
+      "configPresent": true,
+      "deprecatedBrowserPage": false
+    }
+  ],
+  "liveReviewObservations": [
+    {
+      "change": "desktop user-agent",
+      "phase": "account_identity",
+      "authenticationRequired": true
+    },
+    {
+      "change": "safe account schema diagnostics",
+      "phase": "account_selection",
+      "items": 0,
+      "selected": 0,
+      "renderers": 0
+    },
+    {
+      "change": "source-verified channel-switcher payload",
+      "phase": "account_selection",
+      "items": 0,
+      "selected": 0,
+      "renderers": 0
+    },
+    {
+      "change": "source-verified Music account-menu fallback",
+      "phase": "account_selection",
+      "items": 0,
+      "selected": 0,
+      "renderers": 0
+    },
+    {
+      "change": "X-Origin header",
+      "phase": "account_selection",
+      "items": 0,
+      "selected": 0,
+      "renderers": 0
+    },
+    {
+      "change": "SAPISID-family authorization schemes",
+      "phase": "account_selection",
+      "items": 0,
+      "selected": 0,
+      "renderers": 0
+    },
+    {
+      "change": "bounded schema-only inspection",
+      "phase": "account_selection",
+      "items": 0,
+      "selected": 0,
+      "renderers": 0,
+      "listShape": 1,
+      "menuShape": 3,
+      "structures": [
+        "openPopupAction",
+        "multiPageMenuRenderer",
+        "multiPageMenuSectionRenderer",
+        "compactLinkRenderer",
+        "signalAction",
+        "sendFeedbackAction"
+      ]
+    }
+  ],
+  "interpretation": "Client bootstrap parses, but the freshly signed-in three-proof-cookie handoff receives LOGGED_IN=false from the HTTP bootstrap and has no verified selected identity. Meld retains its full provider cookie header plus page context; the bounded native collector is being extended to known provider authentication/session cookies, with unknown cookies excluded. No raw cookie values or account names were logged.",
+  "liveAccountChecks": [
+    {
+      "build": "69576e11",
+      "bootstrapLoggedIn": "false",
+      "phase": "account_selection",
+      "selected": 0,
+      "activeAccountHeader": false,
+      "credentialsLogged": false,
+      "accountConfirmed": false,
+      "remoteWrites": false
+    }
+  ]
+}

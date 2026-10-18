@@ -1,0 +1,22 @@
+{
+  "scope": "Steady-state synthetic asset-backed MCP read fixture, not audio duration/acoustic or background contention qualification.",
+  "physicalFiles": "One valid2-frame WAV inode with unique isolated per-recording hardlinks. Recorded provider durations are synthetic catalog metadata.",
+  "analysis": "Completed exact-hash rows at the current source-pinned analysis version suppress automatic reanalysis. Sparse exact BPM and extra stale-hash controls remain. No future timestamps.",
+  "retainedFailures": [
+    {
+      "stage": "first asset fixture",
+      "reason": "Pre-created analysis table under schema1 conflicted with native migration; fixture bootstrap repaired with actualv2/v3 tables."
+    },
+    {
+      "stage": "sandbox-only smoke",
+      "reason": "Vite loopbackEPERM; no app measurement."
+    },
+    {
+      "stage": "changing analysis fixture",
+      "reason": "Startup current-version failed analyses superseded older fixture analyses, changing effective BPM during continuation. Not a proved page-boundary bug."
+    }
+  ],
+  "result": "pass: seven scenarios, three warmups and twenty measured reads each, exact continuation order verified",
+  "proof": "asset-matrix-1000-steady.json",
+  "performanceLimitation": "Development MCP compatibility path still globally hydrates assets for metadata sorts: p95title811ms/BPM634\u2013673ms at1k. This is not frontend/page-ready projection or release performance, and larger matrices remain pending."
+}

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "date": "2026-10-17",
+  "scope": "Two independent UI regressions: import terminal-outcome handling under cancellation races, and coherent unavailable-track skip notice composition.",
+  "changes": [
+    {
+      "area": "Import terminal outcomes",
+      "behavior": "A terminal native job result of completed or partial remains authoritative if cancellation races with completion; the UI does not misreport it as cancellation or invite a retry.",
+      "coverage": "Four added overview/detail cases cover completed-partial outcomes; existing explicit-cancellation coverage remains."
+    },
+    {
+      "area": "Unavailable-track skip notice",
+      "behavior": "Known no-match WebView skips show the version reason and one coherent action without truncating the action tail at the former 180-character boundary.",
+      "coverage": "Two App fixtures cover the notice and URL redaction."
+    }
+  ],
+  "verification": {
+    "appTests": {
+      "status": "passed",
+      "tests": 311,
+      "files": 2,
+      "durationSeconds": 48.42,
+      "log": ".cache/import-skip-root-tests.log",
+      "sha256": "bf1cdaa47754ff8ed2d4d41fb50ead8eb6d2385da3a2625383b16245f12b88cc"
+    },
+    "svelteCheck": {
+      "status": "passed",
+      "errors": 0,
+      "warnings": 0,
+      "log": ".cache/import-skip-root-check.log",
+      "sha256": "52cb303173b1e8a770a549012e6933b0367989c2f5d54230e79afc55d47f5695"
+    },
+    "productionFrontendBuild": {
+      "status": "passed",
+      "durationSeconds": 6.39,
+      "log": ".cache/import-skip-root-build.log",
+      "sha256": "997ef9fc47e024ca5c9c2b2bc441c20bc959e4032907bac426ac61cc5a46e3e8"
+    }
+  },
+  "limitations": [
+    "No live provider import or remote writeback is claimed.",
+    "No broad playback or recording-match qualification is claimed.",
+    "The normal GUI was stopped during this verification; no live UI acceptance is included."
+  ]
+}

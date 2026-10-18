@@ -1,0 +1,4 @@
+c61d8657fa23f218005389b9c02f87f8b885d8c5547b4247d3fc5fb50f9e4e21  Meld-QobuzAudioProvider-dc7a272.kt
+revision=dc7a27224acee33fa475ab70e1935dc03d3ef4ef
+source=https://raw.githubusercontent.com/FrancescoGrazioso/Meld/dc7a27224acee33fa475ab70e1935dc03d3ef4ef/app/src/main/kotlin/com/metrolist/music/qobuz/QobuzAudioProvider.kt
+bytes=67823

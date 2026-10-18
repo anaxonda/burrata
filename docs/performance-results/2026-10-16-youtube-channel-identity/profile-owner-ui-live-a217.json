@@ -1,0 +1,51 @@
+{
+  "build": "a21733938f82a05c183a355e62e89a9c080ba64321c67993db891e44f67efa8f",
+  "viewport": {
+    "width": 1914,
+    "height": 515
+  },
+  "profile": {
+    "query": "dkkelsh1",
+    "searchResults": 1,
+    "nativeProfileBrowse": true,
+    "reportedPlaylists": 110,
+    "collectionComplete": false,
+    "limitation": "Provider explicitly warns bounded/incomplete; all 110 not qualified."
+  },
+  "ownerNavigation": {
+    "playlistTrackCount": 16,
+    "creatorProfileOpenedInsideApp": true,
+    "appBackRestoredPlaylist": true,
+    "noImportOrPlaybackActions": true
+  },
+  "ui": {
+    "playlistBrowser": "Compacted header/forms; two full playlist rows visible in short window. One scroll surface.",
+    "playlistDetail": "Oversized duration inputs and clipped native select text corrected; three full tracks visible; footer visible.",
+    "playerFindings": [],
+    "resizeRequest954x1036": "Compositor kept1914x515; original size requested again. No half-width acceptance claimed."
+  },
+  "libraryAfter": {
+    "tracks": 4949,
+    "assets": 15,
+    "playlists": 36
+  },
+  "playbackAfter": {
+    "paused": true,
+    "status": "idle",
+    "queueTotal": 1,
+    "currentIndex": 0,
+    "position": 699.309783,
+    "volume": 0.8,
+    "repeat": "off",
+    "shuffle": false
+  },
+  "frontendSourceSha256": {
+    "src/App.svelte": "f7fb2de3c53429d03be78be241d74418b6e344300544a54f2271811ac8fac7c8",
+    "src/SpotifyArtist.svelte": "98a1e5aade7e7cf1d57ac5d3a62eceff0ed06e1d0adf7e812759a04a5ad0aa07",
+    "src/RemotePlaylists.svelte": "e920bd126ddb85441189a73e69ca08433edb82746d8615ded81c553485b501bd",
+    "src/RemotePlaylistDetail.svelte": "df8a563c27d92611cbd9983e47088ba18927cd7638e7f3bedfdfcaa867583245",
+    "src/lib/spotify-profile-url.ts": "21d303389c2bbaf74def9367e4f0e941caf2c1c0083c339b7a2592df2f032517",
+    "src/desktop-layout.css": "43c9d75446902b0e329581b192d6a0daa22ba5d7c8fb0d4473318f4ce4f6fa60"
+  },
+  "captures": "Private app-owned PNGs in .cache/private-ui-checks, visually inspected by root."
+}

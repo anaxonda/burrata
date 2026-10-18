@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-add-directory-browser-root"
+description = "Enables the add_directory_browser_root command without any pre-configured scope."
+commands.allow = ["add_directory_browser_root"]
+
+[[permission]]
+identifier = "deny-add-directory-browser-root"
+description = "Denies the add_directory_browser_root command without any pre-configured scope."
+commands.deny = ["add_directory_browser_root"]

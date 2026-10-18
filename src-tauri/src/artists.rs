@@ -2,6 +2,12 @@
 //!
 //! MusicBrainz is the primary identity source. Discogs results remain separate
 //! provider identities until a provider URL explicitly cross-links them.
+pub(crate) use crate::spotify_mb_crosswalk::ReleaseOccurrence;
+use crate::spotify_mb_crosswalk::{
+    exact_release_id, normalize_musicbrainz_release, normalize_url_relations, resolve_occurrence,
+    spotify_track_occurrence_count, valid_mbid as valid_crosswalk_mbid, valid_spotify_id,
+    validate_spotify_target,
+};
 use crate::{
     matching,
     models::{Candidate, Chapter, Track},
@@ -1280,7 +1286,7 @@ impl ArtistService {
         validate_artist_ref(artist)?;
         let edition = match release.release.provider.as_str() {
             "musicbrainz" => {
-                if !valid_mbid(&release.release.id) {
+                if !valid_crosswalk_mbid(&release.release.id) {
                     return Err("Invalid MusicBrainz release identity".into());
                 }
                 let entity =
@@ -1303,7 +1309,7 @@ impl ArtistService {
                     }
                     _ => return Err("Unsupported MusicBrainz release entity".into()),
                 };
-                if !valid_mbid(&edition_id) {
+                if !valid_crosswalk_mbid(&edition_id) {
                     return Err("MusicBrainz returned an invalid edition identity".into());
                 }
                 let data = self
@@ -1789,6 +1795,156 @@ impl ArtistService {
         result
     }
 
+    /// Resolve a verified Spotify album occurrence to one exact MusicBrainz release
+    /// occurrence. The caller must supply the complete album snapshot produced by
+    /// RemotePlaylistService after account, paging, album-echo, and position checks.
+    /// This reads catalog sidecar data only; it does not rewrite the Spotify Track.
+    pub(crate) async fn verify_spotify_album_recording(
+        &self,
+        spotify_album: &Value,
+        target_track_id: &str,
+        target_album_position: u32,
+    ) -> Result<ReleaseOccurrence, String> {
+        validate_spotify_target(spotify_album, target_track_id, target_album_position)
+            .map_err(|_| "Spotify album occurrence is incomplete or inconsistent".to_owned())?;
+        let album_id = spotify_album["albumId"]
+            .as_str()
+            .ok_or_else(|| "Spotify album identity is missing".to_owned())?;
+        let canonical_url = format!("https://open.spotify.com/album/{album_id}");
+        let relation_data = self
+            .musicbrainz_json(
+                "url",
+                &[
+                    ("resource", canonical_url.clone()),
+                    ("inc", "release-rels".into()),
+                ],
+                "artists.spotify-album-crosswalk.musicbrainz-url",
+                &canonical_url,
+                LIST_TTL,
+            )
+            .await?;
+        let normalized_relations = normalize_url_relations(&relation_data)
+            .map_err(|_| "MusicBrainz URL relation response is incomplete".to_owned())?;
+        let release_id = exact_release_id(&normalized_relations, album_id).map_err(|_| {
+            "Spotify album URL does not identify exactly one MusicBrainz release".to_owned()
+        })?;
+        let release_data = self
+            .musicbrainz_json(
+                &format!("release/{release_id}"),
+                &[("inc", "recordings+artist-credits".into())],
+                "artists.spotify-album-crosswalk.musicbrainz-release",
+                &release_id,
+                LIST_TTL,
+            )
+            .await?;
+        let normalized_release = normalize_musicbrainz_release(&release_data)
+            .map_err(|_| "MusicBrainz release occurrence list is incomplete".to_owned())?;
+        let occurrence = resolve_occurrence(
+            spotify_album,
+            target_track_id,
+            target_album_position,
+            &normalized_relations,
+            &normalized_release,
+        )
+        .map_err(|_| {
+            "Spotify and MusicBrainz release occurrences do not safely align".to_owned()
+        })?;
+        let occurrence_count = spotify_track_occurrence_count(spotify_album, target_track_id);
+        self.store.set_provider_cache(
+            "artists.release-tracks.musicbrainz",
+            &release_id,
+            &release_data,
+            LIST_TTL,
+        )?;
+        write_verified_spotify_recording_sidecar(&self.store, &occurrence, occurrence_count)?;
+        Ok(occurrence)
+    }
+
+    /// Optional alias warming: await inside the existing outer deadline/cancel future.
+    /// Dropping this future cancels pending HTTP; playback reads cached profiles only.
+    pub(crate) async fn prepare_verified_spotify_artist_profiles(
+        &self,
+        occurrence: &ReleaseOccurrence,
+    ) {
+        let mut seen = std::collections::HashSet::new();
+        for credit in &occurrence.musicbrainz_artist_credits {
+            if !valid_crosswalk_mbid(&credit.artist_id) || !seen.insert(&credit.artist_id) {
+                continue;
+            }
+            let _ = self
+                .musicbrainz_json(
+                    &format!("artist/{}", credit.artist_id),
+                    &[("inc", "aliases+genres+tags+artist-rels+url-rels".into())],
+                    "artists.profile.musicbrainz",
+                    &credit.artist_id,
+                    PROFILE_TTL,
+                )
+                .await;
+        }
+    }
+
+    /// Invalidate only after the caller has validated repeated complete album reads.
+    /// A missing or repeated target must supersede an older unique index entry.
+    pub(crate) fn invalidate_verified_spotify_recording(
+        &self,
+        album_id: &str,
+        track_id: &str,
+        occurrence_count: usize,
+    ) -> Result<(), String> {
+        invalidate_verified_spotify_recording_sidecar(
+            &self.store,
+            album_id,
+            track_id,
+            occurrence_count,
+        )
+    }
+
+    /// Read only the versioned, source-anchored sidecar written by the exact album
+    /// verifier. Album ID is required to prevent same-track-ID cross-album reuse.
+    pub(crate) fn get_verified_spotify_recording(
+        &self,
+        spotify_album_id: &str,
+        spotify_track_id: &str,
+        target_album_position: u32,
+    ) -> Result<Option<ReleaseOccurrence>, String> {
+        if !valid_spotify_id(spotify_album_id)
+            || !valid_spotify_id(spotify_track_id)
+            || target_album_position == 0
+        {
+            return Ok(None);
+        }
+        let cache_key = verified_spotify_occurrence_key(
+            spotify_album_id,
+            spotify_track_id,
+            target_album_position,
+        );
+        let Some(payload) = self
+            .store
+            .get_provider_cache("artists.spotify-album-crosswalk.verified-v2", &cache_key)?
+        else {
+            return Ok(None);
+        };
+        let occurrence: ReleaseOccurrence = serde_json::from_value(payload)
+            .map_err(|_| "Verified Spotify recording sidecar is invalid".to_owned())?;
+        if occurrence.spotify_album_id != spotify_album_id
+            || occurrence.spotify_track_id != spotify_track_id
+            || occurrence.spotify_position != target_album_position
+        {
+            return Ok(None);
+        }
+        Ok(Some(occurrence))
+    }
+
+    /// Resolve by provider album + track ID only when the complete source album
+    /// proved this ID occurs exactly once. Ambiguous marker entries never return a mapping.
+    pub(crate) fn get_verified_spotify_recording_by_album_track(
+        &self,
+        spotify_album_id: &str,
+        spotify_track_id: &str,
+    ) -> Result<Option<ReleaseOccurrence>, String> {
+        read_verified_spotify_recording_sidecar(&self.store, spotify_album_id, spotify_track_id)
+    }
+
     pub(crate) async fn json_for_metadata(
         &self,
         provider: &str,
@@ -1820,9 +1976,161 @@ impl ArtistService {
     }
 }
 
+fn invalidate_verified_spotify_recording_sidecar(
+    store: &Store,
+    album_id: &str,
+    track_id: &str,
+    occurrence_count: usize,
+) -> Result<(), String> {
+    if !valid_spotify_id(album_id) || !valid_spotify_id(track_id) || occurrence_count == 1 {
+        return Err("Invalid Spotify crosswalk invalidation evidence".into());
+    }
+    store.set_provider_cache(
+        "artists.spotify-album-crosswalk.verified-v2",
+        &verified_spotify_album_track_key(album_id, track_id),
+        &json!({"status":"ambiguous", "spotifyAlbumId":album_id,
+            "spotifyTrackId":track_id, "occurrenceCount":occurrence_count}),
+        LIST_TTL,
+    )?;
+    Ok(())
+}
+
+/// Persist exact-position provenance and an album+track index only when the
+/// complete album proves that provider ID is unique. Duplicates get a tombstone
+/// so an older unique entry cannot be reused after the album snapshot changes.
+pub(crate) fn write_verified_spotify_recording_sidecar(
+    store: &Store,
+    occurrence: &ReleaseOccurrence,
+    occurrence_count: usize,
+) -> Result<(), String> {
+    if occurrence_count == 0 {
+        return Err("Verified Spotify occurrence is absent from its album".into());
+    }
+    let payload = serde_json::to_value(occurrence)
+        .map_err(|_| "Verified Spotify recording sidecar could not be encoded".to_owned())?;
+    let index_key = verified_spotify_album_track_key(
+        &occurrence.spotify_album_id,
+        &occurrence.spotify_track_id,
+    );
+    let album_track_payload = if occurrence_count == 1 {
+        payload.clone()
+    } else {
+        serde_json::json!({
+            "status":"ambiguous",
+            "spotifyAlbumId":occurrence.spotify_album_id,
+            "spotifyTrackId":occurrence.spotify_track_id,
+            "occurrenceCount":occurrence_count
+        })
+    };
+    store.set_provider_cache(
+        "artists.spotify-album-crosswalk.verified-v2",
+        &index_key,
+        &album_track_payload,
+        LIST_TTL,
+    )?;
+    let position_key = verified_spotify_occurrence_key(
+        &occurrence.spotify_album_id,
+        &occurrence.spotify_track_id,
+        occurrence.spotify_position,
+    );
+    store.set_provider_cache(
+        "artists.spotify-album-crosswalk.verified-v2",
+        &position_key,
+        &payload,
+        LIST_TTL,
+    )?;
+    Ok(())
+}
+
+/// Read the unique verified sidecar without network access, suitable for the
+/// metadata alias consumer. Malformed, ambiguous, stale, or identity-mismatched
+/// cache payloads return no mapping.
+pub(crate) fn read_verified_spotify_recording_sidecar(
+    store: &Store,
+    spotify_album_id: &str,
+    spotify_track_id: &str,
+) -> Result<Option<ReleaseOccurrence>, String> {
+    if !valid_spotify_id(spotify_album_id) || !valid_spotify_id(spotify_track_id) {
+        return Ok(None);
+    }
+    let key = verified_spotify_album_track_key(spotify_album_id, spotify_track_id);
+    let Some(payload) =
+        store.get_provider_cache("artists.spotify-album-crosswalk.verified-v2", &key)?
+    else {
+        return Ok(None);
+    };
+    if payload["status"].as_str() == Some("ambiguous") {
+        return Ok(None);
+    }
+    let Ok(occurrence) = serde_json::from_value::<ReleaseOccurrence>(payload) else {
+        return Ok(None);
+    };
+    if occurrence.spotify_album_id != spotify_album_id
+        || occurrence.spotify_track_id != spotify_track_id
+        || occurrence.spotify_position == 0
+        || !valid_crosswalk_mbid(&occurrence.musicbrainz_release_id)
+        || !valid_crosswalk_mbid(&occurrence.musicbrainz_recording_id)
+        || !valid_crosswalk_mbid(&occurrence.musicbrainz_track_id)
+        || occurrence.spotify_title.trim().is_empty()
+        || occurrence.spotify_title.len() > 512
+        || occurrence.spotify_artist.len() > 1024
+        || occurrence
+            .spotify_duration_ms
+            .is_some_and(|duration| duration == 0 || duration > 86_400_000)
+        || occurrence.musicbrainz_title.trim().is_empty()
+        || occurrence.musicbrainz_title.len() > 512
+        || occurrence.musicbrainz_artist.len() > 1024
+        || occurrence
+            .musicbrainz_duration_ms
+            .is_some_and(|duration| duration == 0 || duration > 86_400_000)
+        || occurrence.medium_position == 0
+        || occurrence.medium_track_position == 0
+    {
+        return Ok(None);
+    }
+    if occurrence.musicbrainz_artist_credits.is_empty()
+        || occurrence.musicbrainz_artist_credits.len() > 32
+        || occurrence.musicbrainz_artist_credits.iter().any(|credit| {
+            !valid_crosswalk_mbid(&credit.artist_id)
+                || credit.name.trim().is_empty()
+                || credit.name.len() > 512
+                || credit.joinphrase.len() > 128
+        })
+    {
+        return Ok(None);
+    }
+    let primary_key = verified_spotify_occurrence_key(
+        spotify_album_id,
+        spotify_track_id,
+        occurrence.spotify_position,
+    );
+    let Some(primary) =
+        store.get_provider_cache("artists.spotify-album-crosswalk.verified-v2", &primary_key)?
+    else {
+        return Ok(None);
+    };
+    let Ok(primary) = serde_json::from_value::<ReleaseOccurrence>(primary) else {
+        return Ok(None);
+    };
+    if primary != occurrence {
+        return Ok(None);
+    }
+    Ok(Some(occurrence))
+}
+
+fn verified_spotify_occurrence_key(album_id: &str, track_id: &str, position: u32) -> String {
+    format!("{album_id}:{track_id}:{position}")
+}
+fn verified_spotify_album_track_key(album_id: &str, track_id: &str) -> String {
+    format!("{album_id}:{track_id}")
+}
+
 fn parse_musicbrainz_artist(value: &Value) -> Option<ArtistSearchResult> {
     let id = value["id"].as_str()?.to_owned();
-    let name = value["name"].as_str()?.to_owned();
+    let name = value["name"]
+        .as_str()
+        .filter(|name| !name.trim().is_empty())?
+        .to_owned();
     Some(ArtistSearchResult {
         artist: ArtistRef {
             provider: "musicbrainz".into(),
@@ -1860,7 +2168,12 @@ fn parse_discogs_artist(value: &Value) -> Option<ArtistSearchResult> {
     let id = value["id"].as_u64()?.to_string();
     let name = value["title"]
         .as_str()
-        .or(value["name"].as_str())?
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| {
+            value["name"]
+                .as_str()
+                .filter(|name| !name.trim().is_empty())
+        })?
         .to_owned();
     Some(ArtistSearchResult {
         artist: ArtistRef {
@@ -2005,7 +2318,14 @@ fn mb_credit_name(credits: &Value) -> String {
         .into_iter()
         .flatten()
         .filter_map(|item| {
-            let name = item["name"].as_str().or(item["artist"]["name"].as_str())?;
+            let name = item["name"]
+                .as_str()
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| {
+                    item["artist"]["name"]
+                        .as_str()
+                        .filter(|name| !name.trim().is_empty())
+                })?;
             Some(format!(
                 "{}{}",
                 name,
@@ -2025,7 +2345,10 @@ fn discogs_credit_values(
         .into_iter()
         .flatten()
         .filter_map(|item| {
-            let name = item["name"].as_str()?.to_owned();
+            let name = item["name"]
+                .as_str()
+                .filter(|name| !name.trim().is_empty())?
+                .to_owned();
             let id = item["id"]
                 .as_u64()
                 .map(|id| id.to_string())
@@ -2033,12 +2356,16 @@ fn discogs_credit_values(
             Some(ArtistCredit {
                 name: name.clone(),
                 artist: id
-                    .filter(|id| id.chars().all(|c| c.is_ascii_digit()))
+                    .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
                     .map(|id| ArtistRef {
                         provider: "discogs".into(),
                         id,
                     }),
-                role: item["role"].as_str().unwrap_or(default_role).to_owned(),
+                role: item["role"]
+                    .as_str()
+                    .filter(|role| !role.trim().is_empty())
+                    .unwrap_or(default_role)
+                    .to_owned(),
                 credited_as: Some(name),
                 join_phrase: item["join"].as_str().map(str::to_owned),
                 source_url: source_url.to_owned(),
@@ -2053,6 +2380,7 @@ fn format_discogs_credits(credits: &[ArtistCredit]) -> String {
         .filter(|credit| {
             credit.role.eq_ignore_ascii_case("artist")
                 || credit.role.eq_ignore_ascii_case("main artist")
+                || credit.role.eq_ignore_ascii_case("main")
         })
         .map(|credit| {
             format!(
@@ -2083,7 +2411,7 @@ fn discogs_duration(value: Option<&str>) -> Option<f64> {
     })
 }
 
-fn parse_musicbrainz_release_tracks(
+pub(crate) fn parse_musicbrainz_release_tracks(
     data: &Value,
     edition_id: &str,
     requested_source_url: &str,
@@ -2117,12 +2445,20 @@ fn parse_musicbrainz_release_tracks(
             .enumerate()
         {
             let recording = &track["recording"];
-            let title = track["title"].as_str().or(recording["title"].as_str());
+            let title = track["title"]
+                .as_str()
+                .filter(|title| !title.trim().is_empty())
+                .or_else(|| {
+                    recording["title"]
+                        .as_str()
+                        .filter(|title| !title.trim().is_empty())
+                });
             let Some(title) = title.filter(|title| !title.trim().is_empty()) else {
                 continue;
             };
             let position = track["number"]
                 .as_str()
+                .filter(|position| !position.trim().is_empty())
                 .map(str::to_owned)
                 .or_else(|| {
                     track["position"]
@@ -2133,21 +2469,22 @@ fn parse_musicbrainz_release_tracks(
             let numeric_position = track["position"]
                 .as_u64()
                 .unwrap_or((track_index + 1) as u64) as u32;
-            let mut credits = if recording["artist-credit"].is_array() {
-                parse_musicbrainz_credits(&recording["artist-credit"], &release_url)
+            let recording_credits =
+                parse_musicbrainz_credits(&recording["artist-credit"], &release_url);
+            let track_credits = parse_musicbrainz_credits(&track["artist-credit"], &release_url);
+            let credits = if !recording_credits.is_empty() {
+                recording_credits.clone()
+            } else if !track_credits.is_empty() {
+                track_credits.clone()
             } else {
-                Vec::new()
+                parse_musicbrainz_credits(release_artist_credits, &release_url)
             };
-            if credits.is_empty() && track["artist-credit"].is_array() {
-                credits = parse_musicbrainz_credits(&track["artist-credit"], &release_url);
-            }
-            if credits.is_empty() {
-                credits = parse_musicbrainz_credits(release_artist_credits, &release_url);
-            }
-            let track_artist_credits = if recording["artist-credit"].is_array() {
+            let track_artist_credits = if !recording_credits.is_empty() {
                 &recording["artist-credit"]
-            } else {
+            } else if !track_credits.is_empty() {
                 &track["artist-credit"]
+            } else {
+                release_artist_credits
             };
             let track_artist_name = mb_credit_name(track_artist_credits);
             let album_artist_is_various = is_various_artist(&release_artist);
@@ -2280,7 +2617,7 @@ fn parse_discogs_release_tracks(
         };
         let position = value["position"]
             .as_str()
-            .filter(|position| !position.is_empty())
+            .filter(|position| !position.trim().is_empty())
             .map(str::to_owned)
             .unwrap_or_else(|| (index + 1).to_string());
         let key = (medium, position.clone());
@@ -2289,8 +2626,10 @@ fn parse_discogs_release_tracks(
             .and_modify(|value| *value += 1)
             .or_insert(1);
         let track_credits = discogs_credit_values(&value["artists"], &release_url, "Artist");
-        let artist = if !track_credits.is_empty() {
-            format_discogs_credits(&track_credits)
+        let track_artist = format_discogs_credits(&track_credits);
+        let use_release_artist = track_artist.trim().is_empty();
+        let artist = if !track_artist.trim().is_empty() {
+            track_artist
         } else if !release_artist.trim().is_empty() && !is_various_artist(&release_artist) {
             release_artist.clone()
         } else if is_various_artist(&release_artist) {
@@ -2298,11 +2637,16 @@ fn parse_discogs_release_tracks(
         } else {
             selected_artist_name.unwrap_or("Unknown artist").to_owned()
         };
-        let mut credits = if track_credits.is_empty() {
+        let mut credits = if track_credits.is_empty() || use_release_artist {
             release_credits.clone()
         } else {
-            track_credits
+            track_credits.clone()
         };
+        if use_release_artist {
+            // Keep release-level context alongside the track's own artist credit.
+            // Contributors in `extraartists` remain separately role-labelled below.
+            credits.extend(track_credits);
+        }
         credits.extend(discogs_credit_values(
             &value["extraartists"],
             &release_url,
@@ -2337,7 +2681,10 @@ fn parse_discogs_release_tracks(
 
 fn parse_musicbrainz_release_group(value: &Value) -> Option<ArtistReleaseRef> {
     let id = value["id"].as_str()?.to_owned();
-    let title = value["title"].as_str()?.to_owned();
+    let title = value["title"]
+        .as_str()
+        .filter(|title| !title.trim().is_empty())?
+        .to_owned();
     let source_url = format!("https://musicbrainz.org/release-group/{id}");
     let release_date = value["first-release-date"].as_str().map(str::to_owned);
     let credits = parse_musicbrainz_credits(&value["artist-credit"], &source_url);
@@ -2363,7 +2710,10 @@ fn parse_musicbrainz_release_group(value: &Value) -> Option<ArtistReleaseRef> {
 
 fn parse_musicbrainz_release(value: &Value, artist: &ArtistRef) -> Option<ArtistReleaseRef> {
     let id = value["id"].as_str()?.to_owned();
-    let title = value["title"].as_str()?.to_owned();
+    let title = value["title"]
+        .as_str()
+        .filter(|title| !title.trim().is_empty())?
+        .to_owned();
     let release_date = value["date"].as_str().map(str::to_owned);
     let credits = parse_musicbrainz_credits(
         &value["artist-credit"],
@@ -2441,7 +2791,10 @@ fn parse_discogs_release(value: &Value) -> Option<ArtistReleaseRef> {
         "release"
     };
     let id = raw_id.clone();
-    let title = value["title"].as_str()?.to_owned();
+    let title = value["title"]
+        .as_str()
+        .filter(|title| !title.trim().is_empty())?
+        .to_owned();
     let role = value["role"].as_str().unwrap_or("artist credit").to_owned();
     let credited_as = value["artist"].as_str().map(str::to_owned);
     let format = value["format"]
@@ -2489,7 +2842,10 @@ fn parse_discogs_release(value: &Value) -> Option<ArtistReleaseRef> {
 
 fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Track> {
     let id = value["id"].as_str()?.to_owned();
-    let title = value["title"].as_str()?.to_owned();
+    let title = value["title"]
+        .as_str()
+        .filter(|title| !title.trim().is_empty())?
+        .to_owned();
     let source_url = format!("https://musicbrainz.org/recording/{id}");
     let credits = parse_musicbrainz_credits(&value["artist-credit"], &source_url);
     let artist = credits
@@ -2590,20 +2946,30 @@ fn parse_musicbrainz_credits(value: &Value, source_url: &str) -> Vec<ArtistCredi
         .into_iter()
         .flatten()
         .filter_map(|item| {
-            let artist = item["artist"].as_object()?;
-            let id = artist.get("id")?.as_str()?.to_owned();
+            let artist = item["artist"].as_object();
             let name = item["name"]
                 .as_str()
-                .or(artist.get("name").and_then(Value::as_str))?
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| {
+                    artist?
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .filter(|name| !name.trim().is_empty())
+                })?
                 .to_owned();
+            let artist_ref = artist
+                .and_then(|artist| artist.get("id"))
+                .and_then(Value::as_str)
+                .filter(|id| valid_mbid(id))
+                .map(|id| ArtistRef {
+                    provider: "musicbrainz".into(),
+                    id: id.to_owned(),
+                });
             Some(ArtistCredit {
                 name,
-                artist: Some(ArtistRef {
-                    provider: "musicbrainz".into(),
-                    id,
-                }),
+                artist: artist_ref,
                 role: "artist credit".into(),
-                credited_as: item["name"].as_str().map(str::to_owned),
+                credited_as: nonempty(item["name"].as_str()),
                 join_phrase: item["joinphrase"].as_str().map(str::to_owned),
                 source_url: source_url.to_owned(),
             })
@@ -2613,7 +2979,7 @@ fn parse_musicbrainz_credits(value: &Value, source_url: &str) -> Vec<ArtistCredi
 
 fn parse_lastfm_tracks(value: &Value, artist_name: &str, artist: &ArtistRef) -> Vec<Track> {
     value["toptracks"]["track"].as_array().into_iter().flatten().filter_map(|item| {
-        let title = item["name"].as_str()?.to_owned();
+        let title = item["name"].as_str().filter(|title| !title.trim().is_empty())?.to_owned();
         let url = item["url"].as_str().and_then(secure_url).unwrap_or_else(|| format!("https://www.last.fm/music/{}/_/{}", url_component(artist_name), url_component(&title)));
         Some(Track {
             id: format!("lastfm:{}:{}", artist.id, title.to_lowercase()),
@@ -3529,6 +3895,31 @@ mod tests {
     }
 
     #[test]
+    fn musicbrainz_track_parser_uses_track_credit_when_recording_credit_is_empty() {
+        let rows = parse_musicbrainz_release_tracks(
+            &json!({
+                "title":"Compilation",
+                "artist-credit":[{"name":"Various Artists"}],
+                "media":[{"position":1,"tracks":[{
+                    "id":"00000000-0000-4000-8000-000000000008",
+                    "number":"1","position":1,"title":"Guest Song",
+                    "artist-credit":[{"name":"","artist":{"id":"00000000-0000-4000-8000-000000000009","name":"Guest"}}],
+                    "recording":{"id":"00000000-0000-4000-8000-000000000010","length":120000,"artist-credit":[]}
+                }]}]
+            }),
+            "00000000-0000-4000-8000-000000000002",
+            "https://musicbrainz.org/release/00000000-0000-4000-8000-000000000002",
+            false,
+            Some("Selected Artist"),
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].artist, "Guest");
+        assert_eq!(rows[0].provenance["artistCredits"][0]["name"], "Guest");
+        assert_tracks_round_trip(&rows);
+    }
+
+    #[test]
     fn discogs_parser_flattens_subtracks_and_keeps_various_artist_credit() {
         let rows = parse_discogs_release_tracks(
             &json!({
@@ -3554,5 +3945,244 @@ mod tests {
         assert_eq!(rows[0].duration_seconds, Some(90.0));
         assert_eq!(rows[2].title, "End");
         assert_tracks_round_trip(&rows);
+    }
+
+    #[test]
+    fn discogs_parser_uses_main_credits_and_defaults_empty_track_credit_roles() {
+        let rows = parse_discogs_release_tracks(
+            &json!({
+                "title":"Secret Life at the Coliseum",
+                "artists":[
+                    {"id":8664813,"name":"Fred again..","role":"Main","join":" & "},
+                    {"id":634,"name":"Brian Eno","role":"Main"}
+                ],
+                "tracklist":[
+                    {"type_":"track","title":"Enough...","position":"A1","artists":[
+                        {"id":8664813,"name":"Fred again..","role":"","join":" & "},
+                        {"id":634,"name":"Brian Eno","role":""}
+                    ]},
+                    {"type_":"track","title":"Secret","position":"A2"}
+                ]
+            }),
+            "36487582",
+            "https://www.discogs.com/release/36487582",
+            false,
+            None,
+        );
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].title, "Enough...");
+        assert_eq!(rows[0].artist, "Fred again.. & Brian Eno");
+        assert_eq!(rows[1].artist, "Fred again.. & Brian Eno");
+        assert_tracks_round_trip(&rows);
+    }
+
+    #[test]
+    fn discogs_non_artist_track_credit_does_not_blank_the_release_artist() {
+        let rows = parse_discogs_release_tracks(
+            &json!({
+                "title":"Release",
+                "artists":[{"id":8664813,"name":"Fred again..","role":"Main"}],
+                "tracklist":[{"type_":"track","title":"Enough...","position":"A1","artists":[
+                    {"id":634,"name":"Brian Eno","role":"Remix"}
+                ]}]
+            }),
+            "12345",
+            "https://www.discogs.com/release/12345",
+            false,
+            None,
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].artist, "Fred again..");
+        let credits = rows[0].provenance["artistCredits"].as_array().unwrap();
+        assert_eq!(credits.len(), 2);
+        assert_eq!(credits[0]["role"], "Main");
+        assert_eq!(credits[1]["role"], "Remix");
+    }
+    #[tokio::test]
+    async fn spotify_album_crosswalk_fetches_exact_url_and_release_then_returns_occurrence() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let responses = [
+                include_str!("../fixtures/mb-url-relations.json"),
+                include_str!("../fixtures/mb-release-public.json"),
+            ];
+            let mut paths = Vec::new();
+            for body in responses {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 1024];
+                loop {
+                    let read = stream.read(&mut chunk).await.unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&request);
+                paths.push(request.lines().next().unwrap_or_default().to_owned());
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+            paths
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(Store::open(&temp.path().join("spotify-mb-crosswalk.sqlite")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+        let album: Value =
+            serde_json::from_str(include_str!("../fixtures/spotify-album.json")).unwrap();
+        let mapped = service
+            .verify_spotify_album_recording(&album, "0j8ulfrtVtBnyBr6p0CfFu", 1)
+            .await
+            .unwrap();
+        assert_eq!(
+            mapped.musicbrainz_release_id,
+            "b8254485-3b63-4e55-8776-7bd713fe3dd7"
+        );
+        assert_eq!(
+            mapped.musicbrainz_recording_id,
+            "5a1d6c4a-bd16-4d09-87da-6af8d4daf36c"
+        );
+        assert_eq!(mapped.spotify_position, 1);
+        assert_eq!(mapped.musicbrainz_title, "Kaval Sviri (The Flute Plays)");
+        assert_eq!(mapped.musicbrainz_duration_ms, Some(131000));
+        assert!(!mapped.provider_artist_credit_matches);
+        let cached = service
+            .get_verified_spotify_recording("6E4eD35ZrPXH2bF6LnPphg", "0j8ulfrtVtBnyBr6p0CfFu", 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cached, mapped);
+        assert_eq!(
+            service
+                .get_verified_spotify_recording_by_album_track(
+                    "6E4eD35ZrPXH2bF6LnPphg",
+                    "0j8ulfrtVtBnyBr6p0CfFu",
+                )
+                .unwrap()
+                .unwrap(),
+            mapped,
+        );
+        write_verified_spotify_recording_sidecar(&service.store, &mapped, 2).unwrap();
+        assert!(service
+            .get_verified_spotify_recording_by_album_track(
+                "6E4eD35ZrPXH2bF6LnPphg",
+                "0j8ulfrtVtBnyBr6p0CfFu",
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            service
+                .get_verified_spotify_recording(
+                    "6E4eD35ZrPXH2bF6LnPphg",
+                    "0j8ulfrtVtBnyBr6p0CfFu",
+                    1,
+                )
+                .unwrap()
+                .unwrap(),
+            mapped
+        );
+        assert!(service
+            .get_verified_spotify_recording("6E4eD35ZrPXH2bF6LnPphX", "0j8ulfrtVtBnyBr6p0CfFu", 1,)
+            .unwrap()
+            .is_none());
+        assert!(service
+            .get_verified_spotify_recording_by_album_track(
+                "6E4eD35ZrPXH2bF6LnPphX",
+                "0j8ulfrtVtBnyBr6p0CfFu",
+            )
+            .unwrap()
+            .is_none());
+        let paths = server.await.unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths[0].starts_with("GET /ws/2/url?"));
+        assert!(paths[0]
+            .contains("resource=https%3A%2F%2Fopen.spotify.com%2Falbum%2F6E4eD35ZrPXH2bF6LnPphg"));
+        let request_target = paths[0].split_whitespace().nth(1).unwrap();
+        let request_url = Url::parse(&format!("http://localhost{request_target}")).unwrap();
+        let includes = request_url
+            .query_pairs()
+            .filter(|(key, _)| key == "inc")
+            .map(|(_, value)| value.into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(includes, vec!["release-rels"]);
+        let release_target = paths[1].split_whitespace().nth(1).unwrap();
+        let release_url = Url::parse(&format!("http://localhost{release_target}")).unwrap();
+        let release_includes = release_url
+            .query_pairs()
+            .filter(|(key, _)| key == "inc")
+            .map(|(_, value)| value.into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(release_includes, vec!["recordings+artist-credits"]);
+        assert!(paths[1].starts_with("GET /ws/2/release/b8254485-3b63-4e55-8776-7bd713fe3dd7?"));
+    }
+
+    #[test]
+    fn verified_spotify_unique_index_is_invalidated_by_duplicate_or_missing_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::open(&temp.path().join("spotify-mb-invalidation.sqlite")).unwrap();
+        let album: Value =
+            serde_json::from_str(include_str!("../fixtures/spotify-album.json")).unwrap();
+        let relations = normalize_url_relations(
+            &serde_json::from_str::<Value>(include_str!("../fixtures/mb-url-relations.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let release = normalize_musicbrainz_release(
+            &serde_json::from_str::<Value>(include_str!("../fixtures/mb-release-public.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let occurrence =
+            resolve_occurrence(&album, "0j8ulfrtVtBnyBr6p0CfFu", 1, &relations, &release).unwrap();
+        for occurrence_count in [2, 0] {
+            write_verified_spotify_recording_sidecar(&store, &occurrence, 1).unwrap();
+            assert!(read_verified_spotify_recording_sidecar(
+                &store,
+                &occurrence.spotify_album_id,
+                &occurrence.spotify_track_id
+            )
+            .unwrap()
+            .is_some());
+            invalidate_verified_spotify_recording_sidecar(
+                &store,
+                &occurrence.spotify_album_id,
+                &occurrence.spotify_track_id,
+                occurrence_count,
+            )
+            .unwrap();
+            assert!(read_verified_spotify_recording_sidecar(
+                &store,
+                &occurrence.spotify_album_id,
+                &occurrence.spotify_track_id
+            )
+            .unwrap()
+            .is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn spotify_same_title_track_outside_album_is_rejected_before_catalog_http() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temp.path().join("spotify-mb-negative.sqlite")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = "http://127.0.0.1:9/ws/2".into();
+        let album: Value =
+            serde_json::from_str(include_str!("../fixtures/spotify-album.json")).unwrap();
+        let error = service
+            .verify_spotify_album_recording(&album, "64rvuYgKLuIHqacdZZiwPr", 1)
+            .await
+            .unwrap_err();
+        assert!(error.contains("Spotify album occurrence"));
     }
 }

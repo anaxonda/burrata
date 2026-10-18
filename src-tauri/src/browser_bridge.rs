@@ -16,13 +16,18 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     io::{Read, Write},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::oneshot;
 
 pub const MAX_MESSAGE: usize = 1024 * 1024;
+const MAX_PROVIDER_RESULT: usize = 512 * 1024;
+const PROVIDER_OPERATION_TIMEOUT: Duration = Duration::from_secs(45);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowserSnapshot {
@@ -83,6 +88,8 @@ pub struct BrowserStatus {
     pub connected: bool,
     pub pending_count: usize,
     pub last_seen: Option<String>,
+    #[serde(default)]
+    pub provider_protocol_version: Option<u32>,
     pub host_name: String,
 }
 #[derive(Debug, Clone, Serialize)]
@@ -109,14 +116,64 @@ enum NativeRequest {
         #[serde(rename = "albumUrls")]
         album_urls: Vec<String>,
     },
-    Heartbeat,
-    Poll,
+    Heartbeat {
+        #[serde(default, rename = "providerProtocolVersion")]
+        provider_protocol_version: Option<u32>,
+        #[serde(default, rename = "managedSessionId")]
+        managed_session_id: Option<String>,
+    },
+    Poll {
+        #[serde(default, rename = "providerProtocolVersion")]
+        provider_protocol_version: Option<u32>,
+        #[serde(default, rename = "managedSessionId")]
+        managed_session_id: Option<String>,
+    },
     Status {
         #[serde(rename = "requestId")]
         request_id: String,
         state: String,
         message: String,
     },
+    #[serde(rename = "providerResult")]
+    ProviderResult {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "operationId")]
+        operation_id: String,
+        ok: bool,
+        #[serde(default)]
+        result: Option<Value>,
+        #[serde(default)]
+        error: Option<ProviderOperationError>,
+        #[serde(default, rename = "managedSessionId")]
+        managed_session_id: Option<String>,
+    },
+    #[serde(rename = "youtubeSessionHandoff")]
+    YoutubeSessionHandoff {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "pairingCode")]
+        pairing_code: String,
+        session: Value,
+    },
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProviderOperationError {
+    code: String,
+    message: String,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderOperationRequest {
+    id: String,
+    kind: &'static str,
+    operation_id: String,
+    provider: String,
+    operation: String,
+    args: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    managed_session_id: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -131,6 +188,7 @@ pub fn provider_from_url(value: &str) -> Result<&'static str, String> {
         Some("beatport.com" | "www.beatport.com") => "beatport",
         Some("traxsource.com" | "www.traxsource.com") => "traxsource",
         Some("open.spotify.com") => "spotify",
+        Some("music.youtube.com" | "www.youtube.com" | "youtube.com") => "youtube",
         Some("shazam.com" | "www.shazam.com") => "shazam",
         Some("last.fm" | "www.last.fm") => "lastfm",
         Some(host) if host == "bandcamp.com" || host.ends_with(".bandcamp.com") => "bandcamp",
@@ -145,6 +203,7 @@ fn provider_url(value: &str, provider: &str) -> Result<url::Url, String> {
         "beatport" => &["beatport.com", "www.beatport.com"],
         "traxsource" => &["traxsource.com", "www.traxsource.com"],
         "spotify" => &["open.spotify.com"],
+        "youtube" => &["music.youtube.com", "www.youtube.com", "youtube.com"],
         "shazam" => &["shazam.com", "www.shazam.com"],
         "lastfm" => &["last.fm", "www.last.fm"],
         "bandcamp" => &["bandcamp.com"],
@@ -185,6 +244,11 @@ fn provider_url(value: &str, provider: &str) -> Result<url::Url, String> {
             .collect::<Vec<_>>();
         pairs.sort();
         pairs
+    } else if provider == "youtube" {
+        u.query_pairs()
+            .filter(|(key, _)| matches!(key.as_ref(), "list" | "v"))
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>()
     } else {
         vec![]
     };
@@ -224,6 +288,15 @@ fn canonical_id(provider: &str, u: Option<&url::Url>, id: Option<&str>) -> Optio
         })?;
         return Some(format!("{:x}", Sha256::digest(valid.as_str().as_bytes())));
     }
+    let youtube_url_id = if provider == "youtube" {
+        u.and_then(|url| {
+            url.query_pairs()
+                .find(|(key, _)| key == "v")
+                .map(|(_, value)| value.into_owned())
+        })
+    } else {
+        None
+    };
     let from_url = match provider {
         "beatport" if parts.first() == Some(&"track") => parts.last().copied(),
         "traxsource" if parts.first() == Some(&"track") => parts.get(1).copied(),
@@ -232,10 +305,17 @@ fn canonical_id(provider: &str, u: Option<&url::Url>, id: Option<&str>) -> Optio
             .iter()
             .position(|p| *p == "track")
             .and_then(|i| parts.get(i + 1).copied()),
+        "youtube" => youtube_url_id.as_deref(),
         _ => None,
     };
     let valid = |s: &str| match provider {
         "spotify" => s.len() == 22 && s.bytes().all(|b| b.is_ascii_alphanumeric()),
+        "youtube" => {
+            !s.is_empty()
+                && s.len() <= 128
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        }
         _ => !s.is_empty() && s.len() < 32 && s.bytes().all(|b| b.is_ascii_digit()),
     };
     // URL and explicit ID must agree. A DOM-only ID still needs its provider's syntax.
@@ -310,8 +390,10 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
     }
     chrono::DateTime::parse_from_rfc3339(&s.captured_at)
         .map_err(|_| "Invalid capture timestamp")?;
-    if s.entries.is_empty() || s.entries.len() > 10000 {
-        return Err("Capture must contain 1–10,000 entries".into());
+    let verified_empty_playlist =
+        s.kind == "playlist" && s.complete && s.expected_total == Some(0) && s.entries.is_empty();
+    if (!verified_empty_playlist && s.entries.is_empty()) || s.entries.len() > 10000 {
+        return Err("Capture must contain 1–10,000 entries or be a complete playlist reporting zero entries".into());
     }
     let mut tracks: Vec<Track> = Vec::new();
     let mut indices = HashMap::new();
@@ -394,6 +476,8 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
         indices.insert(id.clone(), tracks.len());
         let canonical_source = if provider == "spotify" {
             format!("https://open.spotify.com/track/{provider_id}")
+        } else if provider == "youtube" {
+            format!("https://music.youtube.com/watch?v={provider_id}")
         } else {
             entry_url.map(|u| u.to_string()).unwrap_or_default()
         };
@@ -461,8 +545,19 @@ pub fn expand_playlist_occurrences(tracks: Vec<Track>) -> Vec<Track> {
 }
 
 struct BridgeState {
-    queue: VecDeque<ImportRequest>,
+    queue: VecDeque<Value>,
     active: HashMap<String, ImportRequest>,
+    provider_operations: HashMap<
+        String,
+        (
+            String,
+            Option<String>,
+            oneshot::Sender<Result<Value, String>>,
+        ),
+    >,
+    provider_protocol_version: Option<u32>,
+    expected_managed_session: Option<String>,
+    managed_session_seen: Option<(String, Instant)>,
     seen: Option<(Instant, String)>,
 }
 pub struct BrowserBridge {
@@ -473,6 +568,42 @@ pub struct BrowserBridge {
     discovery: PathBuf,
     inner: Mutex<BridgeState>,
     stop: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+struct PendingProviderOperationGuard<'a> {
+    bridge: &'a BrowserBridge,
+    id: String,
+}
+impl Drop for PendingProviderOperationGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.bridge.inner.lock() {
+            state.provider_operations.remove(&self.id);
+            state
+                .queue
+                .retain(|request| request.get("id").and_then(Value::as_str) != Some(&self.id));
+        }
+    }
+}
+
+#[async_trait::async_trait]
+pub trait ProviderTransport: Send + Sync {
+    fn provider_operations_supported(&self) -> bool;
+    fn native_write_sync_enabled(&self) -> bool {
+        false
+    }
+    async fn provider_operation(
+        &self,
+        provider: &str,
+        operation: &str,
+        args: Value,
+    ) -> Result<Value, String>;
+    async fn provider_operation_cancellable(
+        &self,
+        provider: &str,
+        operation: &str,
+        args: Value,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<Value, String>;
 }
 impl BrowserBridge {
     pub fn start(
@@ -532,6 +663,10 @@ impl BrowserBridge {
             inner: Mutex::new(BridgeState {
                 queue: VecDeque::new(),
                 active: HashMap::new(),
+                provider_operations: HashMap::new(),
+                provider_protocol_version: None,
+                expected_managed_session: None,
+                managed_session_seen: None,
                 seen: None,
             }),
             stop: Mutex::new(Some(tx)),
@@ -541,6 +676,11 @@ impl BrowserBridge {
             .route("/browser/heartbeat", post(heartbeat_route))
             .route("/browser/poll", post(poll_route))
             .route("/browser/status", post(status_route))
+            .route("/browser/provider-result", post(provider_result_route))
+            .route(
+                "/browser/youtube-session-handoff",
+                post(youtube_session_handoff_route),
+            )
             .with_state(bridge.clone())
             .merge(extra_router)
             .layer(DefaultBodyLimit::max(MAX_MESSAGE));
@@ -562,10 +702,75 @@ impl BrowserBridge {
         let s = self.inner.lock().unwrap();
         BrowserStatus {
             connected: companion_seen_is_fresh(s.seen.as_ref().map(|(time, _)| time)),
-            pending_count: s.active.len(),
+            pending_count: s.active.len() + s.provider_operations.len(),
             last_seen: s.seen.as_ref().map(|(_, date)| date.clone()),
+            provider_protocol_version: s.provider_protocol_version,
             host_name: "org.burrata.browser".into(),
         }
+    }
+    pub fn provider_operations_supported(&self) -> bool {
+        let status = self.status();
+        let session_matches = self.inner.lock().ok().is_some_and(|state| {
+            state
+                .expected_managed_session
+                .as_ref()
+                .is_none_or(|expected| {
+                    state
+                        .managed_session_seen
+                        .as_ref()
+                        .is_some_and(|(actual, at)| {
+                            actual == expected && at.elapsed() <= Duration::from_secs(15)
+                        })
+                })
+        });
+        session_matches
+            && status.connected
+            && status
+                .provider_protocol_version
+                .is_some_and(|version| version >= 2)
+    }
+    pub fn set_managed_session(&self, session_id: Option<String>) -> Result<(), String> {
+        if session_id.as_ref().is_some_and(|id| {
+            id.len() < 16
+                || id.len() > 128
+                || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        }) {
+            return Err("Managed session ID is invalid".into());
+        }
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|_| "Browser bridge is unavailable")?;
+        if state.expected_managed_session != session_id {
+            let previous = state.expected_managed_session.clone();
+            let stale: Vec<String> = state
+                .provider_operations
+                .iter()
+                .filter_map(|(id, (_, expected, _))| (*expected == previous).then_some(id.clone()))
+                .collect();
+            for id in stale {
+                if let Some((_, _, sender)) = state.provider_operations.remove(&id) {
+                    let _ = sender.send(Err("Browser provider session changed".into()));
+                }
+                state.queue.retain(|request| {
+                    request.get("id").and_then(Value::as_str) != Some(id.as_str())
+                });
+            }
+        }
+        state.expected_managed_session = session_id;
+        state.managed_session_seen = None;
+        Ok(())
+    }
+    pub fn managed_session_seen(&self, session_id: &str) -> bool {
+        self.inner.lock().ok().is_some_and(|state| {
+            state.expected_managed_session.as_deref() == Some(session_id)
+                && state
+                    .managed_session_seen
+                    .as_ref()
+                    .is_some_and(|(actual, at)| {
+                        actual == session_id && at.elapsed() <= Duration::from_secs(15)
+                    })
+        })
     }
     pub fn request_import(&self, value: &str) -> Result<String, String> {
         let provider = provider_from_url(value)?;
@@ -588,8 +793,119 @@ impl BrowserBridge {
             return Err("Too many pending browser requests".into());
         }
         s.active.insert(id.clone(), request.clone());
-        s.queue.push_back(request);
+        s.queue
+            .push_back(serde_json::to_value(request).map_err(|e| e.to_string())?);
         Ok(id)
+    }
+    /// Run one fixed, validated provider operation through the authenticated browser companion.
+    /// The extension owns provider session state; the native app never receives cookies or tokens.
+    pub async fn provider_operation(
+        &self,
+        provider: &str,
+        operation: &str,
+        args: Value,
+    ) -> Result<Value, String> {
+        self.provider_operation_cancellable(provider, operation, args, None)
+            .await
+    }
+    pub async fn provider_operation_cancellable(
+        &self,
+        provider: &str,
+        operation: &str,
+        args: Value,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<Value, String> {
+        validate_provider_operation(provider, operation, &args)?;
+        if !self.status().connected {
+            return Err("Browser companion is not connected".into());
+        }
+        if self
+            .status()
+            .provider_protocol_version
+            .is_none_or(|version| version < 2)
+        {
+            return Err("Reload the Burrata browser companion and enable app-driven imports to use remote playlists".into());
+        }
+        if !self.provider_operations_supported() {
+            return Err("The expected browser provider session is not connected".into());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        let request = ProviderOperationRequest {
+            id: id.clone(),
+            kind: "providerOperation",
+            operation_id: operation_id.clone(),
+            provider: provider.to_owned(),
+            operation: operation.to_owned(),
+            args,
+            managed_session_id: self
+                .inner
+                .lock()
+                .ok()
+                .and_then(|state| state.expected_managed_session.clone()),
+        };
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut state = self
+                .inner
+                .lock()
+                .map_err(|_| "Browser bridge is unavailable")?;
+            if state.active.len() + state.provider_operations.len() >= 100 {
+                return Err("Too many pending browser requests".into());
+            }
+            state.provider_operations.insert(
+                id.clone(),
+                (operation_id, request.managed_session_id.clone(), tx),
+            );
+            state
+                .queue
+                .push_back(serde_json::to_value(request).map_err(|e| e.to_string())?);
+        }
+        // A canceled native read drops its waiter and frees the bridge slot. A read may still
+        // finish in the extension if it already received the request; it has no library write.
+        let _pending_guard = PendingProviderOperationGuard {
+            bridge: self,
+            id: id.clone(),
+        };
+        let wait = async move {
+            if let Some(cancel) = cancel {
+                tokio::select! {
+                    result = rx => result.map_err(|_| "Browser provider operation was cancelled".to_owned())?,
+                    _ = wait_for_cancel(cancel) => Err("Browser provider operation was cancelled".into()),
+                }
+            } else {
+                rx.await
+                    .map_err(|_| "Browser provider operation was cancelled".to_owned())?
+            }
+        };
+        match tokio::time::timeout(PROVIDER_OPERATION_TIMEOUT, wait).await {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(message)) => {
+                let mut state = self
+                    .inner
+                    .lock()
+                    .map_err(|_| "Browser bridge is unavailable")?;
+                state.provider_operations.remove(&id);
+                state
+                    .queue
+                    .retain(|request| request.get("id").and_then(Value::as_str) != Some(&id));
+                Err(message)
+            }
+            Err(_) => {
+                let mut state = self
+                    .inner
+                    .lock()
+                    .map_err(|_| "Browser bridge is unavailable")?;
+                state.provider_operations.remove(&id);
+                state
+                    .queue
+                    .retain(|request| request.get("id").and_then(Value::as_str) != Some(&id));
+                Err(
+                    "Browser provider operation timed out; retry after checking the provider state"
+                        .into(),
+                )
+            }
+        }
     }
     fn authorize(&self, h: &HeaderMap) -> bool {
         h.get("authorization")
@@ -600,6 +916,24 @@ impl BrowserBridge {
         self.inner.lock().unwrap().seen = Some((Instant::now(), chrono::Utc::now().to_rfc3339()));
         let _ = self.app.emit("browser-status", self.status());
     }
+    fn seen_provider_protocol(
+        &self,
+        version: Option<u32>,
+        managed_session_id: Option<&str>,
+    ) -> bool {
+        let mut state = self.inner.lock().unwrap();
+        if state.expected_managed_session.as_deref() != managed_session_id {
+            return false;
+        }
+        state.seen = Some((Instant::now(), chrono::Utc::now().to_rfc3339()));
+        state.provider_protocol_version = version;
+        if let Some(id) = managed_session_id {
+            state.managed_session_seen = Some((id.to_owned(), Instant::now()));
+        }
+        drop(state);
+        let _ = self.app.emit("browser-status", self.status());
+        true
+    }
     pub fn shutdown(&self) {
         if let Some(stop) = self.stop.lock().unwrap().take() {
             let _ = stop.send(());
@@ -609,6 +943,34 @@ impl BrowserBridge {
                 let _ = std::fs::remove_file(&self.discovery);
             }
         }
+    }
+}
+#[async_trait::async_trait]
+impl ProviderTransport for BrowserBridge {
+    fn provider_operations_supported(&self) -> bool {
+        BrowserBridge::provider_operations_supported(self)
+    }
+    async fn provider_operation(
+        &self,
+        provider: &str,
+        operation: &str,
+        args: Value,
+    ) -> Result<Value, String> {
+        BrowserBridge::provider_operation(self, provider, operation, args).await
+    }
+    async fn provider_operation_cancellable(
+        &self,
+        provider: &str,
+        operation: &str,
+        args: Value,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<Value, String> {
+        BrowserBridge::provider_operation_cancellable(self, provider, operation, args, cancel).await
+    }
+}
+async fn wait_for_cancel(cancel: Arc<AtomicBool>) {
+    while !cancel.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
 fn companion_seen_is_fresh(seen: Option<&Instant>) -> bool {
@@ -693,6 +1055,46 @@ async fn import_route(
         Err(e) => (StatusCode::BAD_REQUEST, error(e)),
     }
 }
+
+async fn youtube_session_handoff_route(
+    State(b): State<Arc<BrowserBridge>>,
+    Json(r): Json<NativeRequest>,
+) -> (StatusCode, Json<Value>) {
+    let NativeRequest::YoutubeSessionHandoff {
+        request_id,
+        pairing_code,
+        session,
+    } = r
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            error("Expected YouTube session handoff"),
+        );
+    };
+    if request_id.len() > 200 || !request_id.starts_with("youtube-session-") {
+        return (
+            StatusCode::BAD_REQUEST,
+            error("Invalid YouTube handoff request"),
+        );
+    }
+    let Some(state) = b.app.try_state::<crate::AppState>() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            error("Provider session is unavailable"),
+        );
+    };
+    match state
+        .managed_provider_session
+        .accept_youtube_handoff(&pairing_code, session)
+        .await
+    {
+        Ok(account) => (StatusCode::OK, Json(json!({"ok":true,"account":account}))),
+        Err(message) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok":false,"error":{"code":"SIGN_IN_REQUIRED","message":message}})),
+        ),
+    }
+}
 async fn heartbeat_route(
     State(b): State<Arc<BrowserBridge>>,
     headers: HeaderMap,
@@ -701,10 +1103,19 @@ async fn heartbeat_route(
     if !b.authorize(&headers) {
         return (StatusCode::UNAUTHORIZED, error("Unauthorized"));
     }
-    if !matches!(r, NativeRequest::Heartbeat) {
+    let NativeRequest::Heartbeat {
+        provider_protocol_version,
+        managed_session_id,
+    } = r
+    else {
         return (StatusCode::BAD_REQUEST, error("Expected heartbeat request"));
+    };
+    if !b.seen_provider_protocol(provider_protocol_version, managed_session_id.as_deref()) {
+        return (
+            StatusCode::FORBIDDEN,
+            error("Browser session is not authorized for this bridge"),
+        );
     }
-    b.seen();
     (StatusCode::OK, Json(json!({"ok":true})))
 }
 async fn poll_route(
@@ -715,11 +1126,43 @@ async fn poll_route(
     if !b.authorize(&headers) {
         return (StatusCode::UNAUTHORIZED, error("Unauthorized"));
     }
-    if !matches!(r, NativeRequest::Poll) {
+    let NativeRequest::Poll {
+        provider_protocol_version,
+        managed_session_id,
+    } = r
+    else {
         return (StatusCode::BAD_REQUEST, error("Expected poll request"));
+    };
+    if !b.seen_provider_protocol(provider_protocol_version, managed_session_id.as_deref()) {
+        return (
+            StatusCode::FORBIDDEN,
+            error("Browser session is not authorized for this bridge"),
+        );
     }
-    b.seen();
-    let requests: Vec<_> = b.inner.lock().unwrap().queue.drain(..).collect();
+    let requests: Vec<_> = {
+        let mut state = b.inner.lock().unwrap();
+        let expected = state.expected_managed_session.clone();
+        let mut ready = Vec::new();
+        let mut pending = VecDeque::new();
+        while let Some(request) = state.queue.pop_front() {
+            let is_provider =
+                request.get("kind").and_then(Value::as_str) == Some("providerOperation");
+            let request_session = request.get("managedSessionId").and_then(Value::as_str);
+            let eligible = provider_request_eligible(
+                is_provider,
+                request_session,
+                expected.as_deref(),
+                managed_session_id.as_deref(),
+            );
+            if eligible {
+                ready.push(request);
+            } else {
+                pending.push_back(request);
+            }
+        }
+        state.queue = pending;
+        ready
+    };
     (StatusCode::OK, Json(json!({"ok":true,"requests":requests})))
 }
 async fn status_route(
@@ -758,6 +1201,532 @@ async fn status_route(
         json!({"requestId":request_id,"state":state,"message":message}),
     );
     (StatusCode::OK, Json(json!({"ok":true})))
+}
+
+async fn provider_result_route(
+    State(b): State<Arc<BrowserBridge>>,
+    headers: HeaderMap,
+    Json(r): Json<NativeRequest>,
+) -> (StatusCode, Json<Value>) {
+    if !b.authorize(&headers) {
+        return (StatusCode::UNAUTHORIZED, error("Unauthorized"));
+    }
+    let NativeRequest::ProviderResult {
+        request_id,
+        operation_id,
+        ok,
+        result,
+        error: remote_error,
+        managed_session_id,
+    } = r
+    else {
+        return (StatusCode::BAD_REQUEST, error("Expected provider result"));
+    };
+    let pending = {
+        let mut state = b.inner.lock().unwrap();
+        match state.provider_operations.remove(&request_id) {
+            Some((expected_operation, expected_session, sender))
+                if provider_result_matches(
+                    &expected_operation,
+                    expected_session.as_deref(),
+                    &operation_id,
+                    managed_session_id.as_deref(),
+                ) =>
+            {
+                Some(sender)
+            }
+            Some(pending) => {
+                state.provider_operations.insert(request_id, pending);
+                None
+            }
+            None => None,
+        }
+    };
+    let Some(sender) = pending else {
+        return (
+            StatusCode::BAD_REQUEST,
+            error("Unknown or mismatched provider operation"),
+        );
+    };
+    b.seen();
+    let answer = if ok {
+        match result {
+            Some(value)
+                if serde_json::to_vec(&value)
+                    .is_ok_and(|bytes| bytes.len() <= MAX_PROVIDER_RESULT) =>
+            {
+                Ok(value)
+            }
+            Some(_) => Err("Provider result exceeds size limit".into()),
+            None => Err("Provider result was empty".into()),
+        }
+    } else {
+        let remote_error = remote_error
+            .filter(|e| !e.code.is_empty() && e.code.len() <= 64 && e.message.len() <= 1000);
+        Err(remote_error
+            .map(|e| format!("{}: {}", e.code, e.message))
+            .unwrap_or_else(|| "Provider operation failed".into()))
+    };
+    let _ = sender.send(answer);
+    (StatusCode::OK, Json(json!({"ok":true})))
+}
+
+fn provider_request_eligible(
+    is_provider: bool,
+    request_session: Option<&str>,
+    expected_session: Option<&str>,
+    caller_session: Option<&str>,
+) -> bool {
+    if is_provider {
+        request_session == expected_session && request_session == caller_session
+    } else {
+        caller_session.is_none()
+    }
+}
+
+fn provider_result_matches(
+    expected_operation: &str,
+    expected_session: Option<&str>,
+    actual_operation: &str,
+    actual_session: Option<&str>,
+) -> bool {
+    expected_operation == actual_operation && expected_session == actual_session
+}
+
+fn validate_provider_operation(
+    provider: &str,
+    operation: &str,
+    args: &Value,
+) -> Result<(), String> {
+    if !matches!(provider, "spotify" | "youtube") {
+        return Err("Unsupported remote playlist provider".into());
+    }
+    let object = args
+        .as_object()
+        .ok_or("Provider operation args must be an object")?;
+    let allowed: &[&str] = match operation {
+        "connect" | "status" => &[],
+        "createVerificationPlaylist" => &["accountId"],
+        "verifyVerificationPlaylist" => &["accountId", "playlistId"],
+        "search" => &["query", "kind", "limit", "cursor"],
+        "listPlaylists" => &["ownerId", "limit", "cursor"],
+        "getPlaylist" => &["playlistId", "limit", "cursor"],
+        "getTrack" => &["trackId"],
+        "getArtist" => &["artistId"],
+        "getArtistAlbums" | "getArtistTracks" => &["artistId", "limit", "cursor"],
+        "getAlbum" => &["albumId"],
+        "getAlbumTracks" => &["albumId", "limit", "cursor"],
+        "addTracks" => &["playlistId", "trackUris"],
+        "removeTracks" => &["playlistId", "entryIds"],
+        "moveTracks" => &["playlistId", "entryIds", "beforeEntryId"],
+        "applyPlaylistEdits" => &[
+            "previewApproved",
+            "playlistId",
+            "expectedEntries",
+            "actions",
+            "syncPreview",
+        ],
+        "applySyncPreview" => &[
+            "previewApproved",
+            "playlistId",
+            "expectedEntries",
+            "removeEntryIds",
+            "addTrackUris",
+            "desiredTrackUris",
+            "syncPreview",
+        ],
+        _ => return Err("Unsupported provider operation".into()),
+    };
+    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("Provider operation contains an unsupported argument".into());
+    }
+    if operation == "verifyVerificationPlaylist"
+        && (provider != "spotify"
+            || object
+                .get("accountId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| {
+                    id.is_empty() || id.len() > 256 || id.chars().any(char::is_control)
+                })
+            || object
+                .get("playlistId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.len() != 22 || !id.bytes().all(|b| b.is_ascii_alphanumeric())))
+    {
+        return Err(
+            "Verification readback requires a bounded Spotify account and playlist ID".into(),
+        );
+    }
+    if operation == "createVerificationPlaylist"
+        && object
+            .get("accountId")
+            .and_then(Value::as_str)
+            .is_none_or(|id| id.is_empty() || id.len() > 256 || id.chars().any(char::is_control))
+    {
+        return Err("Verification playlist creation requires a bounded confirmed account".into());
+    }
+    if operation == "applyPlaylistEdits" {
+        if provider != "youtube"
+            || object.get("previewApproved").and_then(Value::as_bool) != Some(true)
+            || object
+                .get("playlistId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| !valid_remote_id(id))
+        {
+            return Err("YouTube playlist edits require an approved, valid sync preview".into());
+        }
+        let entries = object
+            .get("expectedEntries")
+            .and_then(Value::as_array)
+            .ok_or("YouTube sync preview has no verified playlist snapshot")?;
+        let actions = object
+            .get("actions")
+            .and_then(Value::as_array)
+            .ok_or("YouTube sync preview has no edit actions")?;
+        let preview = object
+            .get("syncPreview")
+            .and_then(Value::as_object)
+            .ok_or("YouTube edits require a stored sync preview")?;
+        if preview.len() != 5
+            || preview
+                .get("previewId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.len() > 128 || id.is_empty())
+            || preview
+                .get("accountId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.is_empty() || id.len() > 256)
+            || preview
+                .get("baselineRevision")
+                .and_then(Value::as_str)
+                .is_none_or(|value| value.len() > 256)
+            || preview
+                .get("remoteRevision")
+                .and_then(Value::as_str)
+                .is_none_or(|value| value.len() > 256)
+            || preview
+                .get("remoteHash")
+                .and_then(Value::as_str)
+                .is_none_or(|value| {
+                    value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+        {
+            return Err("YouTube edits require a valid stored sync preview".into());
+        }
+        if entries.len() > 10_000 || actions.is_empty() || actions.len() > 500 {
+            return Err("YouTube sync preview exceeds the safe edit limits".into());
+        }
+        for entry in entries {
+            let row = entry
+                .as_object()
+                .ok_or("YouTube playlist snapshot is invalid")?;
+            if row.len() != 2
+                || row
+                    .get("entryId")
+                    .and_then(Value::as_str)
+                    .is_none_or(|id| !valid_provider_occurrence_id(id))
+                || !row.get("trackId").is_some_and(|id| {
+                    id.is_null() || id.as_str().is_some_and(valid_youtube_video_id)
+                })
+            {
+                return Err("YouTube playlist snapshot contains an invalid occurrence".into());
+            }
+        }
+        for action in actions {
+            let row = action
+                .as_object()
+                .ok_or("YouTube playlist action is invalid")?;
+            match row.get("type").and_then(Value::as_str) {
+                Some("add")
+                    if row.len() == 2
+                        && row
+                            .get("trackId")
+                            .and_then(Value::as_str)
+                            .is_some_and(valid_youtube_video_id) => {}
+                Some("remove")
+                    if row.len() == 3
+                        && row
+                            .get("entryId")
+                            .and_then(Value::as_str)
+                            .is_some_and(valid_provider_occurrence_id)
+                        && row
+                            .get("trackId")
+                            .and_then(Value::as_str)
+                            .is_some_and(valid_youtube_video_id) => {}
+                Some("moveBefore")
+                    if row.len() == 4
+                        && row
+                            .get("entryId")
+                            .and_then(Value::as_str)
+                            .is_some_and(valid_provider_occurrence_id)
+                        && row
+                            .get("trackId")
+                            .and_then(Value::as_str)
+                            .is_some_and(valid_youtube_video_id)
+                        && row.get("successorEntryId").is_some_and(|id| {
+                            id.is_null() || id.as_str().is_some_and(valid_provider_occurrence_id)
+                        }) => {}
+                _ => return Err("YouTube playlist action is not supported".into()),
+            }
+        }
+    }
+    if operation == "applySyncPreview" {
+        if provider != "spotify"
+            || object.get("previewApproved").and_then(Value::as_bool) != Some(true)
+            || object
+                .get("playlistId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| !valid_remote_id(id))
+        {
+            return Err("Spotify playlist edits require an approved, valid sync preview".into());
+        }
+        let entries = object
+            .get("expectedEntries")
+            .and_then(Value::as_array)
+            .ok_or("Spotify sync preview has no verified playlist snapshot")?;
+        let removals = object
+            .get("removeEntryIds")
+            .and_then(Value::as_array)
+            .ok_or("Spotify sync preview has no removal list")?;
+        let additions = object
+            .get("addTrackUris")
+            .and_then(Value::as_array)
+            .ok_or("Spotify sync preview has no addition list")?;
+        let desired = object
+            .get("desiredTrackUris")
+            .and_then(Value::as_array)
+            .ok_or("Spotify sync preview has no desired order")?;
+        let preview = object
+            .get("syncPreview")
+            .and_then(Value::as_object)
+            .ok_or("Spotify edits require a stored sync preview")?;
+        if entries.len() > 10_000
+            || desired.len() > 10_000
+            || removals.len() + additions.len() > 500
+            || preview.len() != 5
+            || preview
+                .get("previewId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.is_empty() || id.len() > 128)
+            || preview
+                .get("accountId")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.is_empty() || id.len() > 256)
+            || preview
+                .get("baselineRevision")
+                .and_then(Value::as_str)
+                .is_none_or(|v| v.len() > 256)
+            || preview
+                .get("remoteRevision")
+                .and_then(Value::as_str)
+                .is_none_or(|v| v.len() > 256)
+            || preview
+                .get("remoteHash")
+                .and_then(Value::as_str)
+                .is_none_or(|v| v.len() != 64 || !v.bytes().all(|b| b.is_ascii_hexdigit()))
+            || entries.iter().any(|row| {
+                row.as_object().is_none_or(|row| {
+                    row.len() != 2
+                        || row
+                            .get("entryId")
+                            .and_then(Value::as_str)
+                            .is_none_or(|id| !valid_provider_occurrence_id(id))
+                        || row
+                            .get("trackId")
+                            .and_then(Value::as_str)
+                            .is_none_or(|id| !valid_spotify_id(id))
+                })
+            })
+            || removals.iter().any(|id| {
+                id.as_str()
+                    .is_none_or(|id| !valid_provider_occurrence_id(id))
+            })
+            || additions
+                .iter()
+                .any(|uri| uri.as_str().is_none_or(|uri| !valid_spotify_track_uri(uri)))
+            || desired
+                .iter()
+                .any(|uri| uri.as_str().is_none_or(|uri| !valid_spotify_track_uri(uri)))
+        {
+            return Err("Spotify edits require a valid complete reviewed sync preview".into());
+        }
+    }
+    let required_id = match operation {
+        "getTrack" => Some("trackId"),
+        "getArtist" | "getArtistAlbums" | "getArtistTracks" => Some("artistId"),
+        "getAlbum" | "getAlbumTracks" => Some("albumId"),
+        _ => None,
+    };
+    if required_id.is_some_and(|key| !object.contains_key(key)) {
+        return Err("Spotify catalog ID is required".into());
+    }
+    if matches!(
+        operation,
+        "getTrack"
+            | "getArtist"
+            | "getArtistAlbums"
+            | "getArtistTracks"
+            | "getAlbum"
+            | "getAlbumTracks"
+    ) && provider != "spotify"
+    {
+        return Err("Spotify catalog operation is not supported for this provider".into());
+    }
+    if matches!(operation, "addTracks" | "removeTracks" | "moveTracks") && provider != "spotify" {
+        return Err("Provider does not support playlist mutations".into());
+    }
+    if let Some(query) = object.get("query") {
+        let query = query.as_str().ok_or("Search query must be text")?;
+        if query.trim().is_empty() || query.len() > 256 {
+            return Err("Search query is empty or too long".into());
+        }
+    }
+    if let Some(kind) = object.get("kind") {
+        let Some(kind) = kind.as_str() else {
+            return Err("Unsupported search kind".into());
+        };
+        let supported = match provider {
+            "spotify" => matches!(kind, "track" | "artist" | "album" | "playlist" | "profile"),
+            "youtube" => matches!(kind, "track" | "playlist" | "channel"),
+            _ => false,
+        };
+        if !supported {
+            return Err("Unsupported search kind".into());
+        }
+    }
+    if let Some(limit) = object.get("limit") {
+        if !(1..=100).contains(&limit.as_u64().unwrap_or(0)) {
+            return Err("Page limit must be from 1 to 100".into());
+        }
+    }
+    for key in ["cursor", "ownerId"] {
+        if let Some(value) = object.get(key) {
+            if value
+                .as_str()
+                .is_none_or(|value| value.is_empty() || value.len() > 512)
+            {
+                return Err(format!("Invalid {key}"));
+            }
+        }
+    }
+    for key in ["playlistId"] {
+        if let Some(value) = object.get(key) {
+            let value = value.as_str().ok_or("Playlist ID must be text")?;
+            if (provider == "spotify" && !valid_spotify_id(value))
+                || (provider == "youtube" && !valid_remote_id(value))
+            {
+                return Err("Invalid remote playlist ID".into());
+            }
+        }
+    }
+    for key in ["trackId", "artistId", "albumId"] {
+        if let Some(value) = object.get(key) {
+            let value = value.as_str().ok_or("Catalog ID must be text")?;
+            if provider != "spotify" || !valid_spotify_id(value) {
+                return Err("Invalid Spotify catalog ID".into());
+            }
+        }
+    }
+    if let Some(value) = object.get("trackUris") {
+        let values = value.as_array().ok_or("Track URIs must be a list")?;
+        if values.is_empty() || values.len() > 100 {
+            return Err("Track batch must contain 1 to 100 tracks".into());
+        }
+        for item in values {
+            let uri = item.as_str().ok_or("Invalid Spotify track URI")?;
+            let id = uri
+                .strip_prefix("spotify:track:")
+                .ok_or("Only Spotify track URIs can be added")?;
+            if !valid_spotify_id(id) {
+                return Err("Invalid Spotify track URI".into());
+            }
+        }
+    }
+    if let Some(value) = object.get("entryIds") {
+        let values = value
+            .as_array()
+            .ok_or("Playlist entry IDs must be a list")?;
+        if values.is_empty() || values.len() > 100 {
+            return Err("Entry batch must contain 1 to 100 entries".into());
+        }
+        for item in values {
+            let id = item.as_str().ok_or("Invalid playlist entry ID")?;
+            if id.is_empty()
+                || id.len() > 256
+                || !id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            {
+                return Err("Invalid playlist entry ID".into());
+            }
+        }
+    }
+    if let Some(value) = object.get("beforeEntryId") {
+        if !value.is_null()
+            && value.as_str().is_none_or(|id| {
+                id.is_empty()
+                    || id.len() > 256
+                    || !id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            })
+        {
+            return Err("Invalid destination entry ID".into());
+        }
+    }
+    match operation {
+        "search" if !object.contains_key("query") => return Err("Search query is required".into()),
+        "getPlaylist" if !object.contains_key("playlistId") => {
+            return Err("Playlist ID is required".into())
+        }
+        operation
+            if matches!(operation, "addTracks" | "removeTracks" | "moveTracks")
+                && !object.contains_key("playlistId") =>
+        {
+            return Err("Playlist ID is required".into())
+        }
+        "addTracks" if !object.contains_key("trackUris") => {
+            return Err("Track URIs are required".into())
+        }
+        operation
+            if matches!(operation, "removeTracks" | "moveTracks")
+                && !object.contains_key("entryIds") =>
+        {
+            return Err("Entry IDs are required".into())
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn valid_youtube_video_id(value: &str) -> bool {
+    value.len() == 11
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn valid_provider_occurrence_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+fn valid_spotify_id(value: &str) -> bool {
+    value.len() == 22 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+fn valid_spotify_track_uri(value: &str) -> bool {
+    value
+        .strip_prefix("spotify:track:")
+        .is_some_and(valid_spotify_id)
+}
+fn valid_remote_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 fn read_frame(reader: &mut impl Read) -> Result<Option<Vec<u8>>, String> {
@@ -809,14 +1778,71 @@ fn discovery_url(d: &Discovery) -> Result<url::Url, String> {
     }
     Ok(u)
 }
+fn youtube_pairing_url(code: &str) -> Result<url::Url, String> {
+    let (port, nonce) = code.split_once('-').ok_or("Invalid YouTube pairing code")?;
+    if port.is_empty() || port.len() > 5 || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("Invalid YouTube pairing code".into());
+    }
+    let port = port
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or("Invalid YouTube pairing code")?;
+    if nonce.len() != 32 || !nonce.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Invalid YouTube pairing code".into());
+    }
+    url::Url::parse(&format!(
+        "http://127.0.0.1:{port}/browser/youtube-session-handoff"
+    ))
+    .map_err(|_| "Invalid YouTube pairing target".into())
+}
+
+async fn forward_youtube_handoff(client: &reqwest::Client, request: &NativeRequest) -> Value {
+    let NativeRequest::YoutubeSessionHandoff { pairing_code, .. } = request else {
+        return json!({"ok":false,"error":"Invalid YouTube handoff request"});
+    };
+    let url = match youtube_pairing_url(pairing_code) {
+        Ok(url) => url,
+        Err(_) => return json!({"ok":false,"error":"Invalid YouTube pairing code"}),
+    };
+    let response = match client.post(url).json(request).send().await {
+        Ok(response) => response,
+        Err(_) => return json!({"ok":false,"error":"Paired Burrata app is unavailable"}),
+    };
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_MESSAGE as u64)
+    {
+        return json!({"ok":false,"error":"Bridge reply exceeds size limit"});
+    }
+    let mut response = response;
+    let mut bytes = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) if bytes.len() + chunk.len() <= MAX_MESSAGE => {
+                bytes.extend_from_slice(&chunk)
+            }
+            Ok(Some(_)) => return json!({"ok":false,"error":"Bridge reply exceeds size limit"}),
+            Ok(None) => break,
+            Err(_) => return json!({"ok":false,"error":"Invalid bridge response"}),
+        }
+    }
+    serde_json::from_slice::<Value>(&bytes)
+        .unwrap_or_else(|_| json!({"ok":false,"error":"Invalid bridge response"}))
+}
 async fn forward_native(client: &reqwest::Client, d: &Discovery, r: &NativeRequest) -> Value {
+    if matches!(r, NativeRequest::YoutubeSessionHandoff { .. }) {
+        return forward_youtube_handoff(client, r).await;
+    }
     let route = match r {
         NativeRequest::Import { .. } | NativeRequest::ImportAlbumCollection { .. } => {
             "browser/import"
         }
-        NativeRequest::Heartbeat => "browser/heartbeat",
-        NativeRequest::Poll => "browser/poll",
+        NativeRequest::Heartbeat { .. } => "browser/heartbeat",
+        NativeRequest::Poll { .. } => "browser/poll",
         NativeRequest::Status { .. } => "browser/status",
+        NativeRequest::ProviderResult { .. } => "browser/provider-result",
+        NativeRequest::YoutubeSessionHandoff { .. } => "browser/youtube-session-handoff",
     };
     let u = match discovery_url(d).and_then(|u| u.join(route).map_err(|e| e.to_string())) {
         Ok(u) => u,
@@ -869,6 +1895,9 @@ pub fn native_host_main() -> Result<(), String> {
                 Ok(r) => r,
                 Err(_) => return json!({"ok":false,"error":"Invalid native request"}),
             };
+            if matches!(&r, NativeRequest::YoutubeSessionHandoff { .. }) {
+                return forward_youtube_handoff(&client, &r).await;
+            }
             let discovery = std::fs::read(data_dir.join("browser-bridge.json"))
                 .ok()
                 .and_then(|b| serde_json::from_slice::<Discovery>(&b).ok());
@@ -888,9 +1917,36 @@ mod tests {
         serde_json::from_value(json!({"schemaVersion":1,"provider":"spotify","kind":"playlist","title":"Test","sourceUrl":"https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL?si=test","capturedAt":"2026-10-11T23:00:00Z","complete":true,"expectedTotal":1,"warnings":[],"entries":[{"providerId":"0123456789ABCDEFGHIJKL","sourceUrl":"https://open.spotify.com/track/0123456789ABCDEFGHIJKL","artist":"Artist","title":"Title","position":1,"rank":1}]})).unwrap()
     }
     #[test]
+    fn verification_playlist_transport_accepts_only_account_scope() {
+        assert!(validate_provider_operation(
+            "spotify",
+            "createVerificationPlaylist",
+            &json!({"accountId":"confirmed"})
+        )
+        .is_ok());
+        for args in [
+            json!({}),
+            json!({"accountId":""}),
+            json!({"accountId":"confirmed","name":"arbitrary"}),
+            json!({"accountId":"confirmed","url":"https://example.com"}),
+        ] {
+            assert!(
+                validate_provider_operation("youtube", "createVerificationPlaylist", &args)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn manual_companion_heartbeat_marks_fresh_connection_without_app_polling() {
         let request: NativeRequest = serde_json::from_value(json!({"type":"heartbeat"})).unwrap();
-        assert!(matches!(request, NativeRequest::Heartbeat));
+        assert!(matches!(
+            request,
+            NativeRequest::Heartbeat {
+                provider_protocol_version: None,
+                ..
+            }
+        ));
         let seen = Instant::now();
         assert!(companion_seen_is_fresh(Some(&seen)));
         assert!(!companion_seen_is_fresh(None));
@@ -1031,6 +2087,38 @@ mod tests {
         assert_eq!(spotify_unlocalized_path("/intl-english/album/ID"), None);
     }
     #[test]
+    fn only_complete_known_empty_playlists_are_valid_empty_snapshots() {
+        let mut s = snapshot();
+        s.entries.clear();
+        s.expected_total = Some(0);
+        assert!(validate_snapshot(&s).is_ok());
+        assert!(snapshot_complete(&s));
+
+        s.expected_total = None;
+        assert!(validate_snapshot(&s).is_err());
+        s.expected_total = Some(0);
+        s.complete = false;
+        assert!(validate_snapshot(&s).is_err());
+        s.complete = true;
+        s.kind = "album".into();
+        s.source_url = "https://open.spotify.com/album/0123456789ABCDEFGHIJKL".into();
+        assert!(validate_snapshot(&s).is_err());
+    }
+
+    #[test]
+    fn capture_entry_limit_remains_enforced() {
+        let mut s = snapshot();
+        s.entries.clear();
+        s.expected_total = Some(0);
+        s.entries.resize(10001, snapshot().entries[0].clone());
+        for (index, entry) in s.entries.iter_mut().enumerate() {
+            entry.position = index as u32 + 1;
+        }
+        s.expected_total = Some(10001);
+        assert!(validate_snapshot(&s).is_err());
+    }
+
+    #[test]
     fn duplicates_retain_positions() {
         let mut s = snapshot();
         let mut e = s.entries[0].clone();
@@ -1144,6 +2232,34 @@ mod tests {
             .is_err());
         }
     }
+    #[test]
+    fn youtube_pairing_code_selects_only_a_fixed_loopback_target() {
+        let url = youtube_pairing_url("49152-0123456789abcdef0123456789abcdef").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://127.0.0.1:49152/browser/youtube-session-handoff"
+        );
+        for invalid in [
+            "0-0123456789abcdef0123456789abcdef",
+            "65536-0123456789abcdef0123456789abcdef",
+            "49152-0123456789abcdef",
+            "49152-0123456789abcdef0123456789abcdef/path",
+            "example.com-0123456789abcdef0123456789abcdef",
+        ] {
+            assert!(youtube_pairing_url(invalid).is_err(), "accepted {invalid}");
+        }
+        let request: NativeRequest = serde_json::from_value(json!({
+            "type":"youtubeSessionHandoff",
+            "requestId":"youtube-session-test",
+            "pairingCode":"49152-0123456789abcdef0123456789abcdef",
+            "session":{}
+        }))
+        .unwrap();
+        assert!(matches!(
+            request,
+            NativeRequest::YoutubeSessionHandoff { .. }
+        ));
+    }
     #[tokio::test]
     #[ignore = "Requires permission to bind a local TCP listener; run explicitly outside restricted sandbox"]
     async fn native_forwarding_authenticates_exact_request() {
@@ -1156,7 +2272,7 @@ mod tests {
                     Json(json!({"ok":false,"error":"Unauthorized"})),
                 );
             }
-            assert_eq!(value, json!({"type":"poll"}));
+            assert_eq!(value, json!({"type":"poll","providerProtocolVersion":2}));
             (StatusCode::OK, Json(json!({"ok":true,"requests":[]})))
         }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1171,13 +2287,76 @@ mod tests {
             url,
             token: "0123456789abcdefghijklmnopqrstuv".into(),
         };
-        let value = forward_native(&client, &discovery, &NativeRequest::Poll).await;
+        let value = forward_native(
+            &client,
+            &discovery,
+            &NativeRequest::Poll {
+                provider_protocol_version: Some(2),
+                managed_session_id: None,
+            },
+        )
+        .await;
         assert_eq!(value, json!({"ok":true,"requests":[]}));
         discovery.token = "z".repeat(32);
         assert_eq!(
-            forward_native(&client, &discovery, &NativeRequest::Poll).await["ok"],
+            forward_native(
+                &client,
+                &discovery,
+                &NativeRequest::Poll {
+                    provider_protocol_version: Some(2),
+                    managed_session_id: None,
+                }
+            )
+            .await["ok"],
             false
         );
         task.abort();
+    }
+
+    #[test]
+    fn spotify_get_track_operation_requires_one_exact_track_id() {
+        let id = "1234567890123456789012";
+        assert!(validate_provider_operation("spotify", "getTrack", &json!({"trackId":id})).is_ok());
+        assert!(
+            validate_provider_operation("spotify", "getTrack", &json!({"trackId":"short"}))
+                .is_err()
+        );
+        assert!(validate_provider_operation(
+            "spotify",
+            "getTrack",
+            &json!({"trackId":id,"query":"title"})
+        )
+        .is_err());
+        assert!(
+            validate_provider_operation("youtube", "getTrack", &json!({"trackId":id})).is_err()
+        );
+    }
+
+    #[test]
+    fn provider_requests_and_results_are_bound_to_the_managed_session() {
+        let managed = Some("managed-profile-session-1234");
+        assert!(provider_request_eligible(true, managed, managed, managed));
+        assert!(!provider_request_eligible(true, None, managed, None));
+        assert!(!provider_request_eligible(true, managed, managed, None));
+        assert!(provider_request_eligible(false, None, None, None));
+        assert!(!provider_request_eligible(false, None, managed, managed));
+        assert!(provider_result_matches(
+            "operation-1",
+            managed,
+            "operation-1",
+            managed
+        ));
+        assert!(!provider_result_matches(
+            "operation-1",
+            managed,
+            "operation-1",
+            None
+        ));
+        assert!(!provider_result_matches(
+            "operation-1",
+            managed,
+            "operation-2",
+            managed
+        ));
     }
 }

@@ -1,0 +1,13 @@
+{
+  "binarySha256": "d0182d96930b9f202488a613deeefb14e0c58e8c3a850b523758e5bc884c0164",
+  "engine": "webview",
+  "muted": true,
+  "physicalAudibilityMeasured": false,
+  "beforePositionSeconds": 159.955231,
+  "afterPositionSeconds": 160.957518,
+  "durationSeconds": 250.079,
+  "playheadAdvanced": true,
+  "lateSeekTargetSeconds": 237.5,
+  "lateSeekObservedSeconds": 246.271447,
+  "lateSeekAdvanced": false
+}

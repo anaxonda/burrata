@@ -1,0 +1,876 @@
+[
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b4d3044f-929c-4c00-889a-6db8b4345314",
+    "nativeOperationId": "native-df293007-8ae2-4813-9058-e12774ab5026",
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b4d3044f-929c-4c00-889a-6db8b4345314",
+    "nativeOperationId": "native-df293007-8ae2-4813-9058-e12774ab5026",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b4d3044f-929c-4c00-889a-6db8b4345314",
+    "nativeOperationId": "native-df293007-8ae2-4813-9058-e12774ab5026",
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 1,
+    "resolutionId": "b4d3044f-929c-4c00-889a-6db8b4345314",
+    "nativeOperationId": "native-df293007-8ae2-4813-9058-e12774ab5026",
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "provider_start",
+    "provider": "monochrome",
+    "elapsedMs": 1,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "monochrome",
+    "elapsedMs": 1,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "provider_start",
+    "provider": "youtube",
+    "elapsedMs": 2,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "youtube",
+    "elapsedMs": 4,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "search_end",
+    "provider": "monochrome",
+    "elapsedMs": 1649,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "found": 0,
+      "ok": true
+    }
+  },
+  {
+    "phase": "candidate_gate",
+    "provider": "monochrome",
+    "elapsedMs": 1649,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "phase": "search_end",
+    "provider": "youtube",
+    "elapsedMs": 3981,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "found": 20,
+      "ok": true
+    }
+  },
+  {
+    "phase": "candidate_gate",
+    "provider": "youtube",
+    "elapsedMs": 3982,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "phase": "provider_start",
+    "provider": "soundcloud",
+    "elapsedMs": 3982,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "soundcloud",
+    "elapsedMs": 3983,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "search_end",
+    "provider": "soundcloud",
+    "elapsedMs": 8693,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "found": 10,
+      "ok": true
+    }
+  },
+  {
+    "phase": "candidate_gate",
+    "provider": "soundcloud",
+    "elapsedMs": 8694,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 8694,
+    "resolutionId": "c64f45a7-1d1d-4ce0-8af6-8d467842df02",
+    "nativeOperationId": "native-1cc1ecd1-e5e2-4ee9-8c0b-b21cb8db7e95",
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": false
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "provider_start",
+    "provider": "monochrome",
+    "elapsedMs": 0,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "monochrome",
+    "elapsedMs": 1,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "provider_start",
+    "provider": "youtube",
+    "elapsedMs": 2,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "youtube",
+    "elapsedMs": 2,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "search_end",
+    "provider": "monochrome",
+    "elapsedMs": 776,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "found": 0,
+      "ok": true
+    }
+  },
+  {
+    "phase": "candidate_gate",
+    "provider": "monochrome",
+    "elapsedMs": 776,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "phase": "search_end",
+    "provider": "youtube",
+    "elapsedMs": 3458,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "found": 20,
+      "ok": true
+    }
+  },
+  {
+    "phase": "candidate_gate",
+    "provider": "youtube",
+    "elapsedMs": 3459,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "phase": "provider_start",
+    "provider": "soundcloud",
+    "elapsedMs": 3460,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "soundcloud",
+    "elapsedMs": 3460,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "search_end",
+    "provider": "soundcloud",
+    "elapsedMs": 7504,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "found": 10,
+      "ok": true
+    }
+  },
+  {
+    "phase": "candidate_gate",
+    "provider": "soundcloud",
+    "elapsedMs": 7505,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "eligible": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 7505,
+    "resolutionId": "5c2fe215-589a-4726-83f2-1ed736b3bc10",
+    "nativeOperationId": "native-8bd94bf3-8003-49d7-a01d-c572aebc9967",
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": false
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "provider_start",
+    "provider": "monochrome",
+    "elapsedMs": 1,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "monochrome",
+    "elapsedMs": 1,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "provider_start",
+    "provider": "youtube",
+    "elapsedMs": 2,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "pinned": false
+    }
+  },
+  {
+    "phase": "search_start",
+    "provider": "youtube",
+    "elapsedMs": 2,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "search_end",
+    "provider": "monochrome",
+    "elapsedMs": 758,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "found": 3,
+      "ok": true
+    }
+  },
+  {
+    "phase": "candidate_gate",
+    "provider": "monochrome",
+    "elapsedMs": 758,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "eligible": 1
+    }
+  },
+  {
+    "phase": "extract_and_validate_start",
+    "provider": "monochrome",
+    "elapsedMs": 758,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "attempt": 1
+    }
+  },
+  {
+    "phase": "preview_audio_lookup_start",
+    "provider": "other",
+    "elapsedMs": 758,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "preview_audio_cache_miss",
+    "provider": "other",
+    "elapsedMs": 758,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "preview_audio_lookup_end",
+    "provider": "other",
+    "elapsedMs": 1131,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "ok": true
+    }
+  },
+  {
+    "phase": "extract_and_validate_end",
+    "provider": "monochrome",
+    "elapsedMs": 1132,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "attempt": 1,
+      "ok": true
+    }
+  },
+  {
+    "phase": "full_identity_check",
+    "provider": "monochrome",
+    "elapsedMs": 1133,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "catalogDuration": 245.48,
+      "ok": true,
+      "providerIdMatches": false,
+      "requestedVersion": false,
+      "resolvedDuration": 245.48,
+      "resolvedTitlePresent": false,
+      "topicUploader": false
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 1134,
+    "resolutionId": "e3adacd3-c170-492f-aed7-a42b7a241bf5",
+    "nativeOperationId": "native-253ba65d-2c49-4880-98ac-d5d4167d1486",
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "4bc19e2a-0067-4b29-aa9d-0f55d54f0d32",
+    "nativeOperationId": "native-e1356bd4-c375-4f42-a64b-4c151a862bf2",
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "4bc19e2a-0067-4b29-aa9d-0f55d54f0d32",
+    "nativeOperationId": "native-e1356bd4-c375-4f42-a64b-4c151a862bf2",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "4bc19e2a-0067-4b29-aa9d-0f55d54f0d32",
+    "nativeOperationId": "native-e1356bd4-c375-4f42-a64b-4c151a862bf2",
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 1,
+    "resolutionId": "4bc19e2a-0067-4b29-aa9d-0f55d54f0d32",
+    "nativeOperationId": "native-e1356bd4-c375-4f42-a64b-4c151a862bf2",
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "ec1c3224-fb1a-4f84-a630-f0061a513bf2",
+    "nativeOperationId": "native-ff07be61-e06d-42e8-91c0-00414b2f8f73",
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "ec1c3224-fb1a-4f84-a630-f0061a513bf2",
+    "nativeOperationId": "native-ff07be61-e06d-42e8-91c0-00414b2f8f73",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "ec1c3224-fb1a-4f84-a630-f0061a513bf2",
+    "nativeOperationId": "native-ff07be61-e06d-42e8-91c0-00414b2f8f73",
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 2,
+    "resolutionId": "ec1c3224-fb1a-4f84-a630-f0061a513bf2",
+    "nativeOperationId": "native-ff07be61-e06d-42e8-91c0-00414b2f8f73",
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b6bd1782-551c-474c-b90f-cb002752e61b",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b6bd1782-551c-474c-b90f-cb002752e61b",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b6bd1782-551c-474c-b90f-cb002752e61b",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 2,
+    "resolutionId": "b6bd1782-551c-474c-b90f-cb002752e61b",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "a8cfaad9-5b22-4563-a2e2-14d57909b3b2",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "a8cfaad9-5b22-4563-a2e2-14d57909b3b2",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "a8cfaad9-5b22-4563-a2e2-14d57909b3b2",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 2,
+    "resolutionId": "a8cfaad9-5b22-4563-a2e2-14d57909b3b2",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "3af82279-4931-45a9-b5aa-1e94f76362b4",
+    "nativeOperationId": "native-e69e6cef-05b3-4284-b9be-eacc979766ee",
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "3af82279-4931-45a9-b5aa-1e94f76362b4",
+    "nativeOperationId": "native-e69e6cef-05b3-4284-b9be-eacc979766ee",
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "3af82279-4931-45a9-b5aa-1e94f76362b4",
+    "nativeOperationId": "native-e69e6cef-05b3-4284-b9be-eacc979766ee",
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 1,
+    "resolutionId": "3af82279-4931-45a9-b5aa-1e94f76362b4",
+    "nativeOperationId": "native-e69e6cef-05b3-4284-b9be-eacc979766ee",
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b6db22e3-62c1-4ca9-b53f-ac261476febe",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b6db22e3-62c1-4ca9-b53f-ac261476febe",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "b6db22e3-62c1-4ca9-b53f-ac261476febe",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 1,
+    "resolutionId": "b6db22e3-62c1-4ca9-b53f-ac261476febe",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  },
+  {
+    "phase": "resolution_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "d7fd232f-0b08-4b03-90bc-c516e1d31ac5",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "selected": false
+    }
+  },
+  {
+    "phase": "settings_read_start",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "d7fd232f-0b08-4b03-90bc-c516e1d31ac5",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {}
+  },
+  {
+    "phase": "settings_read_end",
+    "provider": "other",
+    "elapsedMs": 0,
+    "resolutionId": "d7fd232f-0b08-4b03-90bc-c516e1d31ac5",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "durationMs": 0
+    }
+  },
+  {
+    "phase": "resolution_end",
+    "provider": "other",
+    "elapsedMs": 3,
+    "resolutionId": "d7fd232f-0b08-4b03-90bc-c516e1d31ac5",
+    "nativeOperationId": null,
+    "nativeSeekOperationId": null,
+    "details": {
+      "cancelled": false,
+      "deadline": false,
+      "ok": true
+    }
+  }
+]
