@@ -14,13 +14,11 @@ x86_64 (DEB, RPM, and AppImage), browser companions and checksums.
 Required runtime helpers are bundled. Soulseek uses an optional, separately installed
 [slskd service](deploy/slskd/README.md).
 
-The optional browser companion supports Chromium browsers and Firefox. The
-release provides a Chromium ZIP and a Mozilla-signed Firefox add-on. For
-Chromium, extract the ZIP and load the folder from `chrome://extensions` with
-Developer mode enabled (use `edge://extensions` in Edge). Install the signed
-Firefox add-on from its release asset. Then open Burrata's browser integration
-settings and register the native host. See the
-[browser companion guide](extension/README.md) for supported sites and setup.
+Start with the [installation guide](docs/install.md): it covers each operating
+system, first-launch prompts, browser extensions and common connection problems.
+The optional [browser companion](extension/README.md#install) is supplied as
+`firefox-extension-<version>.xpi` (Mozilla-signed) and
+`chrome-extension-<version>.zip` (Chrome/Chromium/Edge, loaded manually).
 
 Optional helper updates, matching dependency sources, licenses, and qualification
 records are separate supporting downloads. They are not needed for normal app

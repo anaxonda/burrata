@@ -6,14 +6,25 @@ mkdir -p release-artifacts
 test -n "$(find release-artifacts -type f -name '*.xpi' -print -quit)" || { echo 'AMO did not produce a signed Firefox XPI' >&2; exit 1; }
 mapfile -t chromium_zips < <(find release-artifacts -maxdepth 1 -type f -name 'burrata-chromium.zip' -print)
 test "${#chromium_zips[@]}" -gt 0 || { echo 'Chromium extension ZIP is missing' >&2; exit 1; }
-python3 - <<'PY'
-import pathlib, zipfile
-for path in pathlib.Path('release-artifacts').glob('*.xpi'):
-    with zipfile.ZipFile(path) as archive:
-        names = {name.lower() for name in archive.namelist()}
-        required = {'meta-inf/mozilla.rsa', 'meta-inf/mozilla.sf', 'meta-inf/manifest.mf'}
-        if not required.issubset(names):
-            raise SystemExit(f'Firefox package lacks AMO signature files: {path.name}')
+python3 - "$(dirname "${BASH_SOURCE[0]}")/../../extension" <<'PY'
+import json, pathlib, re, sys, zipfile
+source = pathlib.Path(sys.argv[1])
+version = json.loads((source / 'manifest.json').read_text())['version']
+assert re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,3}', version), 'Invalid extension version'
+assert json.loads((source / 'manifest.chromium.json').read_text())['version'] == version
+root = pathlib.Path('release-artifacts')
+firefox = list(root.glob('*.xpi'))
+chrome = list(root.glob('burrata-chromium.zip'))
+assert len(firefox) == len(chrome) == 1, 'Expected one package for each browser'
+with zipfile.ZipFile(firefox[0]) as archive:
+    names = {name.lower() for name in archive.namelist()}
+    required = {'meta-inf/mozilla.rsa', 'meta-inf/mozilla.sf', 'meta-inf/manifest.mf'}
+    assert required.issubset(names), 'Firefox package lacks AMO signature files'
+for path, name in [(firefox[0], f'firefox-extension-{version}.xpi'),
+                   (chrome[0], f'chrome-extension-{version}.zip')]:
+    destination = root / name
+    assert not destination.exists(), f'Refusing to overwrite {name}'
+    path.rename(destination)
 PY
 python3 - "$RELEASE_TAG" "$RELEASE_COMMIT" <<'PY'
 import hashlib, json, pathlib, sys

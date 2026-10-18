@@ -337,7 +337,9 @@ jobs:
           cd .cache/browser-companion-chromium
           zip -qr ../../release-artifacts/burrata-chromium.zip .
       - name: Test Firefox signing reuse guards
-        run: python3 scripts/release/test_sign_firefox.py
+        run: |
+          python3 scripts/release/test_sign_firefox.py
+          python3 scripts/release/test_collect_extension.py
       - name: Build and sign Firefox extension (AMO unlisted)
         env:
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
