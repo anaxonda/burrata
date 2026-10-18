@@ -1,0 +1,18 @@
+{
+  "queuePreservation": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "confirmedAccountsPreserved": true,
+  "accountRevisionsPreserved": true,
+  "playerLayoutFindings": [],
+  "pausedPosition": 42.112,
+  "frontendSha256": "411ef7ff22a216c1b791dd1377fc5ccf9072b5c1c4abb2293e9b0a54539409dd"
+}

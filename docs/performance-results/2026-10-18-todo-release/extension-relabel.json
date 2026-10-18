@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "tag": "v0.1.3",
+  "commit": "9a45467bcff02103e2c84e000342660288b7ba3b",
+  "releases": [
+    {
+      "release": "v0.1.3",
+      "draft": false,
+      "assets": 8,
+      "allUploadedDigestsMatchManifest": true
+    },
+    {
+      "release": "support-v0.1.3",
+      "draft": true,
+      "assets": 87,
+      "allUploadedDigestsMatchManifest": true
+    }
+  ],
+  "extensionVersion": "0.2.2",
+  "extensionIconsPackaged": true,
+  "firefoxSignatureFilesPresent": true,
+  "renamedAssets": {
+    "burrata-chromium.zip": "chrome-extension-0.2.2.zip",
+    "d0c2f26e0c2c4c59bd0b-0.2.2.xpi": "firefox-extension-0.2.2.xpi"
+  },
+  "extensionPackageBytesUnchanged": true,
+  "releaseInstallLinksVerified": true
+}

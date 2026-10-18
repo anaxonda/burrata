@@ -2,6 +2,11 @@
 
 Completed work moved from [todo.md](todo.md) on 2026-10-18. Entries retain their original evidence and qualification limits; historical build versions and running-app descriptions describe the verification at that time. Outstanding work remains in [todo.md](todo.md), including the linked pre-release snapshot.
 
+## Post-release fixes and documentation — 2026-10-18
+
+- Renamed public extension assets to `firefox-extension-0.2.2.xpi` and `chrome-extension-0.2.2.zip`; preserved signed bytes, updated checksum manifests/inventory, and verified the eight-download release. Added platform/browser installation links to the release, beginner setup instructions for macOS/Windows/Linux and permanent Firefox/Chrome/Edge installation steps. Future packaging normalizes names and has byte-preservation/inventory fixtures.
+- Corrected same-source rebuffer events resetting established playback progress and suppressing bounded stall recovery. Five new regression variants fail before/pass after; all 994 frontend tests, Svelte and build pass. The local current window runs the fix with queue/account/paused 42.112s preservation. Original transport cause and installer delivery remain explicitly unqualified. [Evidence](docs/performance-results/2026-10-18-lithium-recovery/README.md).
+
 ## Published v0.1.3 — 2026-10-18
 
 - Completed integrated checks, rebuilt installers and companions, and [published v0.1.3](https://github.com/anaxonda/burrata/releases/tag/v0.1.3) at `20:29:42 UTC` from `9a45467bcff02103e2c84e000342660288b7ba3b`. Main and tag CI pass; Linux, macOS and Windows installed-app smokes pass. The main release has exactly eight downloads: five installers, Chromium ZIP, AMO-signed Firefox 0.2.2 and checksums. All main/support uploaded digests and all five installer/two companion inventories match; supporting downloads remain a draft. [Evidence](docs/performance-results/2026-10-18-todo-release/release-publication.json).

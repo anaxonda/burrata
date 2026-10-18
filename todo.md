@@ -14,6 +14,11 @@ All six exact-source cases pass WebView media progression and native mixer progr
 
 Preserve user data, credentials and queue state; keep one Burrata GUI. Mobile UI remains out of scope.
 
+## Changes after v0.1.3
+
+- The Lithium post-start recovery fix is implemented, passes 994 frontend tests and is running in the normal window. It is **not included in the published v0.1.3 installers**; installer delivery remains for a future release. The original transport stall was not captured and is not claimed fixed. [Evidence](docs/performance-results/2026-10-18-lithium-recovery/README.md).
+- The public v0.1.3 extension downloads now use clear browser/version filenames and link to the new installation guide. Signed package bytes are unchanged; checksums and provenance were reconciled.
+
 ## Outstanding verification and known limitations
 
 These are remaining checks or limitations, not a claim that every feature below is broken. Broader statistical qualification remains follow-up rather than an automatic release blocker.

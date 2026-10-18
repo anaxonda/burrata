@@ -5984,6 +5984,8 @@ describe("saved recording navigation", () => {
     await vi.advanceTimersByTimeAsync(36_000);
     audio.dispatchEvent(new Event("timeupdate"));
     await settle();
+    // A rebuffer/playing event on the same source must retain its proven steady baseline.
+    audio.dispatchEvent(new Event("playing"));
     audio.dispatchEvent(new Event("waiting"));
     clock += 500;
     await vi.advanceTimersByTimeAsync(500);
@@ -6018,7 +6020,7 @@ describe("saved recording navigation", () => {
     expect(resolutionCalls[1][1]).toEqual(expect.objectContaining({
       refreshCandidateFresh: true, refreshCandidate: firstCandidate, selectedCandidate: null, budgetMs: expect.any(Number),
     }));
-    expect((resolutionCalls[1][1] as { budgetMs: number }).budgetMs).toBeLessThanOrEqual(20_000);
+    expect((resolutionCalls[1][1] as { budgetMs: number }).budgetMs).toBe(20_000);
     expect((resolutionCalls[1][1] as { budgetMs: number }).budgetMs).toBeGreaterThan(0);
     if (outcome !== "fresh-success") {
       expect(resolutionCalls[2][1]).toEqual(expect.objectContaining({ attemptLimit: 1, budgetMs: expect.any(Number) }));
@@ -6035,6 +6037,31 @@ describe("saved recording navigation", () => {
       expect(recovered.playback.lastMediaFailure).toContain("stalled for 20 seconds");
       expect(document.querySelector(".player-error")?.textContent).toContain("stalled for 20 seconds");
     }
+  });
+
+  it("preserves the stall cause when its existing recovery deadline has expired", async () => {
+    vi.useFakeTimers();
+    let clock = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    previewMode = "fallback";
+    savedChartTracks = [{ ...savedTrack, durationSeconds: 240 }];
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    await automationAction("expired-stall-start", "play", { trackIds: [savedTrack.id] });
+    clock += 20_000;
+    await vi.advanceTimersByTimeAsync(20_000);
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track")).toHaveLength(1);
+    const failure = await automationAction("expired-stall-after", "volume", { volume: 0.8 });
+    expect(failure.playback.playerMessage).toContain("stalled for 20 seconds");
+    expect(failure.playback.playerMessage).toContain("recovery deadline expired");
+    expect(failure.playback.playerMessage).not.toContain("Audio lookup exceeded");
   });
 
   it("does not exceed the two-attempt cap when the fallback source stalls before steady progress", async () => {

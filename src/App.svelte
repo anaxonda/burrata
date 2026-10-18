@@ -2689,7 +2689,7 @@
     };
     const budgetMs = Math.floor(recovery.deadline - performance.now());
     if (budgetMs <= 0) {
-      previewStatus = "Audio lookup exceeded the 20-second playback deadline; try again or choose a source.";
+      previewStatus = recovery.failureReason || recovery.stallCause || "Audio lookup exceeded the 20-second playback deadline; try again or choose a source.";
       return;
     }
     if (recovery.attempts >= 2) {
@@ -2835,9 +2835,11 @@
     webviewMediaEventRecorder.record({sessionId:playbackSession??null,sourceGeneration:preview.sourceGeneration??null,entryId:automationQueueProjection.entryIds[queueIndex]??null,seekSerial},type,element);
   }
   function updateSuccessfulRecoverySeek(node: HTMLAudioElement) {
+    // Repeated playing events after buffering retain the same source's steady progress.
+    // Only an actual seek starts a new baseline; source startup creates its own.
     const attached = successfulRecoveryAttachment, recovery = automaticPreviewRecovery;
     if (node === audio && preview && playingTrack && !nativeActive() && !paused && attached && recovery &&
-        attached.request === recovery.request && recovery.track.id === playingTrack.id && Number.isFinite(node.currentTime)) {
+        attached.request === recovery.request && recovery.track.id === playingTrack.id && attached.seekSerial !== seekSerial && Number.isFinite(node.currentTime)) {
       successfulRecoveryAttachment = { request: attached.request, startedAt: performance.now(), position: node.currentTime, seekSerial };
     }
   }
