@@ -24,6 +24,19 @@ search += [Path(p) for p in os.environ.get('PATH', '').split(';') if p]
 report = {'executable':str(exe), 'path':os.environ.get('PATH'), 'modules':[], 'missing':[]}
 queue = [exe]
 seen = set()
+pe_cache = {}
+
+def load_pe(path):
+    key = str(path).lower()
+    if key not in pe_cache:
+        parsed = pefile.PE(str(path), fast_load=True)
+        parsed.parse_data_directories(directories=[
+            pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT'],
+            pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT'],
+            pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXPORT'],
+        ])
+        pe_cache[key] = parsed
+    return pe_cache[key]
 
 def resolve(name):
     candidates = []
@@ -45,8 +58,9 @@ while queue and len(seen) < 300:
     key = str(module).lower()
     if key in seen: continue
     seen.add(key)
+    print('Inspecting ' + str(module), file=sys.stderr, flush=True)
     try:
-        pe = pefile.PE(str(module), fast_load=False)
+        pe = load_pe(module)
     except Exception as error:
         report['modules'].append({'path':str(module), 'error':str(error)})
         continue
@@ -61,7 +75,7 @@ while queue and len(seen) < 300:
                 imports.append(row)
                 continue
             selected = candidates[0]
-            target = pefile.PE(str(selected), fast_load=False)
+            target = load_pe(selected)
             exports = getattr(target, 'DIRECTORY_ENTRY_EXPORT', None)
             symbols = exports.symbols if exports else []
             names = {symbol.name for symbol in symbols}
