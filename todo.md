@@ -6,7 +6,7 @@ Finish concrete playback fixes, repair outstanding desktop UI issues, complete t
 
 ## Remaining before release
 
-- **Release artifacts.** Desktop0.1.2 fixes shared media-worker ownership. Linux/macOS full check jobs pass. Windows decoder startup now passes after linking Tauri’s existing Common Controls v6 resource into the library test runner. Its first full suite passes 1,002 tests and exposes 16 failures in three groups: canonical drive-prefix handling (a real directory-browser bug, corrected without weakening symlink checks), a too-short connection-refusal fixture timeout, and Unix-only dotfile-scope expectations. Those fixes await fresh CI. Then complete all platform installer/smoke gates and verify draft-release assets. Prior Linux installer/smoke and signed companion0.2.1 jobs pass. Keep the release non-public; do not move the failed v0.1.1 tag.
+- **Release artifacts.** Desktop0.1.2 fixes shared media-worker ownership and canonical Windows drive-prefix browsing. Linux/macOS full check jobs pass. Windows decoder startup passes with the test-only Common Controls v6 resource link; its latest full suite passes 1,017 tests with one fixture expecting a Unix path separator. That fixture now compares native path components and verifies browsing the returned child path; final Windows CI is pending. Then complete all platform installer/smoke gates and verify draft-release assets. Prior Linux installer/smoke and signed companion0.2.1 jobs pass. Keep the release non-public; do not move the failed v0.1.1 tag.
 
 ## Deferred and follow-up
 

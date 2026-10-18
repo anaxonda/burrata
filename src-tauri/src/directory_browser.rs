@@ -1817,7 +1817,16 @@ mod tests {
         );
         let nested = manager.children(&root.id, "a").unwrap();
         assert_eq!(nested.relative_path, "a");
-        assert_eq!(nested.directories[0].relative_path, "a/nested");
+        // Relative paths use the host separator and remain opaque to the UI.
+        assert_eq!(
+            PathBuf::from(&nested.directories[0].relative_path),
+            Path::new("a").join("nested")
+        );
+        assert!(manager
+            .children(&root.id, &nested.directories[0].relative_path)
+            .unwrap()
+            .directories
+            .is_empty());
         for relative in ["..", "a/../z", "/tmp", ".burrata-staging", "invalid.mp3"] {
             assert!(manager.children(&root.id, relative).is_err());
         }
