@@ -5352,15 +5352,23 @@ mod asset_protocol_startup_grant_tests {
             ],
             Some(root.path()),
         );
-        assert_eq!(already_allowed, 1);
-        assert_eq!(pending.len(), 4);
-        assert_eq!(pending[0], external.to_string_lossy().into_owned());
-        assert_eq!(pending[1], external.to_string_lossy().into_owned());
-        assert_eq!(pending[2], hidden.to_string_lossy().into_owned());
-        assert_eq!(pending[3], missing.to_string_lossy().into_owned());
+        // Tauri excludes leading-dot paths by default on Unix, but a leading
+        // dot is an ordinary filename on Windows. Preserve each platform's
+        // actual scope policy rather than imposing the Unix fixture outcome.
+        let hidden_initially_allowed = cfg!(windows);
+        assert_eq!(already_allowed, 1 + usize::from(hidden_initially_allowed));
+        let mut expected_pending = vec![
+            external.to_string_lossy().into_owned(),
+            external.to_string_lossy().into_owned(),
+        ];
+        if !hidden_initially_allowed {
+            expected_pending.push(hidden.to_string_lossy().into_owned());
+        }
+        expected_pending.push(missing.to_string_lossy().into_owned());
+        assert_eq!(pending, expected_pending);
         assert!(scope.is_allowed(&in_root));
         assert!(!scope.is_allowed(&external));
-        assert!(!scope.is_allowed(&hidden));
+        assert_eq!(scope.is_allowed(&hidden), hidden_initially_allowed);
         assert!(!scope.is_allowed(&missing));
 
         // Explicit grants retain the previous behavior for every initially

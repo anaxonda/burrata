@@ -1209,6 +1209,15 @@ fn reject_symlinks(path: &Path) -> Result<()> {
     let mut current = PathBuf::new();
     for component in path.components() {
         match component {
+            // `fs::canonicalize` returns Windows paths with a verbatim prefix
+            // (for example `\\?\C:`). That prefix is not an independently
+            // addressable filesystem component, so retain it but do not pass
+            // it alone to `symlink_metadata`; the following root/component
+            // entries are still checked below.
+            Component::Prefix(_) => {
+                current.push(component.as_os_str());
+                continue;
+            }
             Component::ParentDir => return Err("Parent directory traversal is not allowed".into()),
             Component::CurDir => continue,
             _ => current.push(component.as_os_str()),

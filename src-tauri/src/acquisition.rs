@@ -8136,7 +8136,9 @@ echo "$result"
         drop(closed);
         let connect = reqwest::Client::builder()
             .no_proxy()
-            .timeout(Duration::from_secs(2))
+            // Windows can retry a refused TCP connection beyond two seconds.
+            // Allow the OS error to arrive rather than testing our timeout.
+            .timeout(Duration::from_secs(10))
             .build()
             .unwrap()
             .get(format!("http://{closed_address}/probe"))

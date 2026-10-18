@@ -6,7 +6,7 @@ Finish concrete playback fixes, repair outstanding desktop UI issues, complete t
 
 ## Remaining before release
 
-- **Release artifacts.** Desktop0.1.2 fixes shared system-media worker ownership. Linux and macOS complete check jobs pass on `7336954` and `cf5c6de`, including native decoder and full native tests; previous candidate Linux installers/smoke and signed companion0.2.1 pass. Windows diagnostics identify the direct missing import as `comctl32!TaskDialogIndirect`: Tauri embeds its Common Controls v6 manifest only in binaries, leaving the library test harness unmanifested. A test-only link to the same generated Windows resource is awaiting CI validation; production manifest handling is unchanged. Then complete all platform installer/smoke gates and verify draft-release assets. Local native regression rerun passes all 1,092 tests (21 ignored), using a workspace temporary directory to avoid host `/tmp` quota limits. Keep the release non-public; do not move the failed v0.1.1 tag.
+- **Release artifacts.** Desktop0.1.2 fixes shared media-worker ownership. Linux/macOS full check jobs pass. Windows decoder startup now passes after linking Tauri’s existing Common Controls v6 resource into the library test runner. Its first full suite passes 1,002 tests and exposes 16 failures in three groups: canonical drive-prefix handling (a real directory-browser bug, corrected without weakening symlink checks), a too-short connection-refusal fixture timeout, and Unix-only dotfile-scope expectations. Those fixes await fresh CI. Then complete all platform installer/smoke gates and verify draft-release assets. Prior Linux installer/smoke and signed companion0.2.1 jobs pass. Keep the release non-public; do not move the failed v0.1.1 tag.
 
 ## Deferred and follow-up
 
