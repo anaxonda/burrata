@@ -1,5 +1,12 @@
 #![recursion_limit = "256"]
 
+// Tauri embeds its manifest in binaries, but not the library unit-test runner.
+// Use the same generated resource so Windows selects Common Controls v6 before
+// resolving TaskDialogIndirect. This does not affect production library builds.
+#[cfg(all(test, target_os = "windows", target_env = "msvc"))]
+#[link(name = "resource", kind = "static", modifiers = "-bundle")]
+extern "C" {}
+
 pub mod acquisition;
 pub mod analysis;
 mod artist_credit_aliases;

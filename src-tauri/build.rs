@@ -234,4 +234,18 @@ fn main() {
             .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),
     )
     .expect("Tauri build configuration failed");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        // tauri-winres links this resource only into binaries. The library's
+        // unit-test executable also imports Common Controls v6 dialog APIs.
+        // lib.rs links the same resource under cfg(test), without duplicating
+        // the resource that Tauri already supplies to production executables.
+        let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+        assert!(
+            out.join("resource.lib").is_file(),
+            "Tauri Windows resource missing"
+        );
+        println!("cargo:rustc-link-search=native={}", out.display());
+    }
 }
