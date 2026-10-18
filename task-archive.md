@@ -121,7 +121,7 @@ The source crosswalk implementation, compact desktop controls, search continuati
 
 - Directory sort availability now checks the whole active folder/filter relation before disabling fields; initial filename pages remain page-scoped. Native and17 component regressions plus actual15-file AT-SPI disabled-option/visual checks pass. Broader folders and performance acceptance remain above.
 
-- in album view the UI buttons are still to big (sort, track number) 
+- in album view the UI buttons are still to big (sort, track number)
 
   Isolated ReleaseView/artist component renders at 707px and 1914px show 34px controls without overflow; broader UI remains open.
 
@@ -133,7 +133,7 @@ The source crosswalk implementation, compact desktop controls, search continuati
 
   Save is wired and validated with a 14-track source-ordered callback, three native Store cases, all-source filtered App integration and eight permission checks; remote-writeback and broader import acceptance remain open.
 
-- we have multiple different profiles for 'artist view' now, at least musicbrainz and spotify, any others? youtube music? in any case if we do spotify search for track and click on artist name it opens in musicbrainz view. should open in the same filtered view if possible, ie in spotify and we support spotify artist view. However, we should be able to switch between view, lets say artist opened in musicbrainz but then we can open in spotify view if desired. 
+- we have multiple different profiles for 'artist view' now, at least musicbrainz and spotify, any others? youtube music? in any case if we do spotify search for track and click on artist name it opens in musicbrainz view. should open in the same filtered view if possible, ie in spotify and we support spotify artist view. However, we should be able to switch between view, lets say artist opened in musicbrainz but then we can open in spotify view if desired.
 
   Native catalog artist IDs and explicit provider search/user selection are verified; actual Find on MusicBrainz and Back to Spotify/Library pass. [Safe proof](docs/performance-results/2026-10-16-context-menu/artist-provider-switch-747-live.json). This does not establish audio matching.
 
