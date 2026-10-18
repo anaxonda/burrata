@@ -6,7 +6,7 @@ Finish concrete playback fixes, repair outstanding desktop UI issues, complete t
 
 ## Remaining before release
 
-- **Release artifacts.** Candidate `v0.1.1` exposed one shared macOS/Windows compile error in system-media worker ownership; Linux main CI and signed companion0.2.1 pass. The handle type is corrected and desktop0.1.2 is being prepared without changing the failed tag. Re-run platform builds and installed-package smoke checks, fix failures and verify draft-release assets. Keep the release non-public.
+- **Release artifacts.** Desktop0.1.2 fixes the shared system-media worker compile error. Linux checks and the previous candidate’s Linux installers/smoke pass; signed companion0.2.1 passes. Current macOS failures are test-fixture portability issues (canonical temporary paths, accepted socket blocking mode and Linux-specific ETXTBSY assumptions); corrections are awaiting fresh CI. Windows compiles but its native test executable fails before main with `STATUS_ENTRYPOINT_NOT_FOUND`; collect DLL import/export diagnostics and fix the identified loader issue. Then complete all platform installer/smoke gates and verify draft-release assets. Keep the release non-public; do not move the failed v0.1.1 tag.
 
 ## Deferred and follow-up
 

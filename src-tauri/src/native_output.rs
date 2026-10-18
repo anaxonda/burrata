@@ -2676,7 +2676,13 @@ mod tests {
         let deadline = Instant::now() + timeout;
         loop {
             match listener.accept() {
-                Ok((stream, _)) => return Ok(stream),
+                Ok((stream, _)) => {
+                    // Accepted sockets may inherit O_NONBLOCK on some platforms
+                    // (notably macOS). The fixture callers rely on blocking reads
+                    // plus explicit read/write timeouts, so normalize the socket.
+                    stream.set_nonblocking(false)?;
+                    return Ok(stream);
+                }
                 Err(error)
                     if error.kind() == std::io::ErrorKind::WouldBlock
                         && Instant::now() < deadline =>

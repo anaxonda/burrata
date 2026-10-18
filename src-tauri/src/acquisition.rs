@@ -7668,7 +7668,9 @@ mod tests {
         assert_outer_drop_kills_helper_descendant(false, false).await;
     }
 
-    #[cfg(unix)]
+    // ETXTBSY while an executable is open for writing is Linux-kernel behavior;
+    // other Unix platforms may execute the file and invalidate this fixture.
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn run_tool_retries_one_transient_text_file_busy_spawn() {
         use std::fs::OpenOptions;
@@ -7701,7 +7703,7 @@ mod tests {
         assert!(marker.exists());
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn run_tool_busy_spawn_deadline_is_bounded_and_does_not_launch() {
         use std::fs::OpenOptions;
@@ -7802,7 +7804,7 @@ mod tests {
         assert_eq!(result.unwrap_err(), "Cancelled");
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn run_tool_persistent_busy_spawn_uses_at_most_one_retry() {
         use std::fs::OpenOptions;
@@ -7831,7 +7833,7 @@ mod tests {
         assert!(!marker.exists());
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn run_tool_cancellation_during_busy_spawn_backoff_prevents_launch() {
         use std::fs::OpenOptions;
@@ -8363,6 +8365,8 @@ echo "$result"
                             Err(error) => panic!("failed to accept range probe: {error}"),
                         }
                     };
+                    // Accepted sockets may inherit the listener nonblocking mode.
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(Duration::from_secs(3)))
                         .unwrap();
@@ -8421,6 +8425,7 @@ echo "$result"
                         Err(error) => panic!("failed to accept range probe: {error}"),
                     }
                 };
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
@@ -8508,6 +8513,7 @@ echo "$result"
                         Err(error) => panic!("failed to accept header probe: {error}"),
                     }
                 };
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();

@@ -1328,10 +1328,14 @@ mod tests {
     use super::*;
     fn fixture() -> (tempfile::TempDir, DirectoryBrowser, DirectoryRoot) {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("music");
+        // macOS exposes the temporary directory through `/var`, which is a
+        // symlink to `/private/var`. Roots intentionally reject symlink path
+        // components, so tests must register the canonical physical path.
+        let temp_path = fs::canonicalize(temp.path()).unwrap();
+        let root = temp_path.join("music");
         fs::create_dir(&root).unwrap();
         let manager = DirectoryBrowser::new(Arc::new(
-            Store::open(&temp.path().join("library.sqlite")).unwrap(),
+            Store::open(&temp_path.join("library.sqlite")).unwrap(),
         ));
         let registered = manager.add_root(root.to_str().unwrap()).unwrap();
         (temp, manager, registered)
@@ -1821,7 +1825,7 @@ mod tests {
     fn tree_children_never_follow_symlink_directories() {
         use std::os::unix::fs::symlink;
         let (temp, manager, root) = fixture();
-        let outside = temp.path().join("outside-tree");
+        let outside = fs::canonicalize(temp.path()).unwrap().join("outside-tree");
         fs::create_dir(&outside).unwrap();
         symlink(&outside, Path::new(&root.path).join("linked")).unwrap();
         assert!(manager
@@ -1871,7 +1875,7 @@ mod tests {
     fn symlink_roots_directories_and_files_are_never_followed() {
         use std::os::unix::fs::symlink;
         let (temp, manager, root) = fixture();
-        let outside = temp.path().join("outside");
+        let outside = fs::canonicalize(temp.path()).unwrap().join("outside");
         fs::create_dir(&outside).unwrap();
         fs::write(outside.join("secret.wav"), b"outside").unwrap();
         let base = Path::new(&root.path);

@@ -85,6 +85,24 @@ jobs:
       - name: Decode native playback fixture without audio hardware
         run: python3 scripts/release/test-native-playback-contract.py
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Diagnose Windows native loader failure
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install pefile
+          $testExe = Get-ChildItem src-tauri/target/debug/deps/burrata_lib-*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($testExe) {
+            python scripts/release/diagnose-windows-loader.py $testExe.FullName > windows-loader-imports.json
+            $report = Get-Content windows-loader-imports.json -Raw | ConvertFrom-Json
+            $report.missing | ConvertTo-Json -Depth 8
+          }
+      - uses: actions/upload-artifact@v7
+        if: failure() && runner.os == 'Windows'
+        with:
+          name: windows-loader-diagnostics-${{ github.sha }}
+          path: windows-loader-imports.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   linux-bundles:
     name: Linux configured bundle targets

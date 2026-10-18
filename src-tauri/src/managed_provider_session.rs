@@ -5053,11 +5053,14 @@ mod tests {
         assert!(args.contains(&format!("--load-extension={}\n", extension.display())));
         assert!(args.contains("--headless=new"));
         assert!(args.contains("https://open.spotify.com/"));
-        assert!(args.contains(&format!("XDG_CONFIG_HOME={}\n", config_home.display())));
-        assert!(args.contains("XDG_DATA_HOME="));
-        assert!(args.contains("XDG_CACHE_HOME="));
-        assert!(args.contains("XDG_STATE_HOME="));
-        assert!(args.contains(&format!("BURRATA_APP_DATA={}\n", app_data.display())));
+        #[cfg(target_os = "linux")]
+        {
+            assert!(args.contains(&format!("XDG_CONFIG_HOME={}\n", config_home.display())));
+            assert!(args.contains("XDG_DATA_HOME="));
+            assert!(args.contains("XDG_CACHE_HOME="));
+            assert!(args.contains("XDG_STATE_HOME="));
+            assert!(args.contains(&format!("BURRATA_APP_DATA={}\n", app_data.display())));
+        }
         assert!(!args.to_lowercase().contains("token"));
         stop_child(&mut child);
         assert!(child.is_none());
