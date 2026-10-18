@@ -8,7 +8,7 @@ Final source passes 1,092 native library tests (21 ignored), 978 frontend tests 
 
 Live exact hinted-album verification succeeds; a wrong-edition hint fails closed. Actual narrow Details displays the identity action, Search sort text is readable and playback geometry reports no overlap. See [crosswalk evidence](performance-results/2026-10-17-verified-source-crosswalk/README.md) and [desktop evidence](performance-results/2026-10-17-release-desktop-pass/README.md). Catalog identity does not guarantee playable audio.
 
-Remaining work is final release checks and tagged platform builds/installed-package smoke checks, then the non-public GitHub release. No tag or push has been made yet. Spotify playlist work remains paused, YouTube writes remain off pending review and experiments remain off. [Current todo](../todo.md).
+Remaining work is final release checks and tagged platform builds/installed-package smoke checks, then the non-public GitHub release. The v0.1.1 tag is pushed; cloud macOS/Windows checks found a shared system-media handle-type mismatch while Linux main CI and companion signing passed. The correction is being prepared as desktop0.1.2, preserving the failed tag; no draft release exists yet. Spotify playlist work remains paused, YouTube writes remain off pending review and experiments remain off. [Current todo](../todo.md).
 
 ## Historical checkpoints
 

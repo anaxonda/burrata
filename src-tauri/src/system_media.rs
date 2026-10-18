@@ -18,7 +18,7 @@ use crate::playback::PlaybackService;
 /// Keeps the OS media session alive while the Tauri application is running.
 pub struct SystemMediaService {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    worker: Option<tokio::task::JoinHandle<()>>,
+    worker: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
 impl SystemMediaService {

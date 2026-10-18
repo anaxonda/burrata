@@ -6,7 +6,7 @@ import { isIP } from 'node:net';
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const DEFAULT_SCHEMA = { type: 'object', properties: {}, additionalProperties: false };
 export const REGISTRY_TIMEOUT_MS = 5_000;
 export const CALL_TIMEOUT_MS = 65_000;

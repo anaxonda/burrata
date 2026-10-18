@@ -6,7 +6,7 @@ Finish concrete playback fixes, repair outstanding desktop UI issues, complete t
 
 ## Remaining before release
 
-- **Release artifacts.** Commit the reviewed source and version 0.1.1/companion 0.2.1, run tagged platform builds and installed-package smoke checks, inspect results and create the GitHub release. No release/tag has been created yet. Keep the release non-public as previously requested unless publication is explicitly resumed.
+- **Release artifacts.** Candidate `v0.1.1` exposed one shared macOS/Windows compile error in system-media worker ownership; Linux main CI and signed companion0.2.1 pass. The handle type is corrected and desktop0.1.2 is being prepared without changing the failed tag. Re-run platform builds and installed-package smoke checks, fix failures and verify draft-release assets. Keep the release non-public.
 
 ## Deferred and follow-up
 
