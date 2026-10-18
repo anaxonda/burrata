@@ -1,19 +1,16 @@
 # todo
 
-## Current work for v0.1.3
+## Current work
 
-- Complete integrated checks, package/re-sign the updated companions and installers, then publish v0.1.3. Move these remaining entries to the archive only after their verification and publication.
+No remaining items in the current release scope. Completed work is in the [task archive](task-archive.md#published-v013--2026-10-18). Deferred work and known limitations remain separate below.
 
-Last reconciled: 2026-10-18. Completed implementations and their bounded evidence are archived; incomplete verification remains listed below.
+Last reconciled: 2026-10-18 after publication.
 
 ## Release status
 
-[Burrata v0.1.2](https://github.com/anaxonda/burrata/releases/tag/v0.1.2) was published on 2026-10-18 at 16:16 UTC as a public prerelease, with five installers, both browser extensions and checksums. Release creation is complete. GitHub status was checked directly on 2026-10-18; older draft/hold descriptions in historical reports are superseded.
+[Burrata v0.1.3](https://github.com/anaxonda/burrata/releases/tag/v0.1.3) was published on 2026-10-18 at 20:29:42 UTC as a public prerelease from `9a45467bcff02103e2c84e000342660288b7ba3b`, with five installers, Chromium ZIP, AMO-signed Firefox 0.2.2 and checksums. Main/tag CI, all three platform release jobs and installed-app smokes pass. The eight main downloads and all 87 supporting assets match their checksum manifests; supporting downloads remain a draft. [Publication evidence](docs/performance-results/2026-10-18-todo-release/release-publication.json).
 
-## Changes after v0.1.2
-
-- Completed local changes for v0.1.3 are recorded in the [task archive](task-archive.md#completed-implementation-for-v013--2026-10-18). They are newer than the published v0.1.2 commit `3450772`; delivery remains part of the current release task.
-- All six exact-source cases pass both WebView media progression and native mixer progression, including paused seek/resume and both original Spotify Creep editions. Normal queue/account preservation and desktop layout checks pass; see the archive and retained reports.
+All six exact-source cases pass WebView media progression and native mixer progression, including paused seek/resume and both original Spotify Creep editions. Normal queue/account preservation and desktop layout checks pass. These are bounded live checks, not statistical performance qualification.
 
 Preserve user data, credentials and queue state; keep one Burrata GUI. Mobile UI remains out of scope.
 
@@ -21,10 +18,10 @@ Preserve user data, credentials and queue state; keep one Burrata GUI. Mobile UI
 
 These are remaining checks or limitations, not a claim that every feature below is broken. Broader statistical qualification remains follow-up rather than an automatic release blocker.
 
-- **Earlier playback reports:** recheck the recorded Fruit Bats native interruption and unresolved Ergo/Kaufman/choir source matches on the latest resolver. Do not label ambiguous or inaccessible recordings as fixed. The latest three-track checks do not close these older reports.
+- **Earlier playback reports:** recheck the recorded Fruit Bats native interruption and unresolved Ergo/Kaufman/choir source matches on the latest resolver. Do not label ambiguous or inaccessible recordings as fixed. The latest six-case checks do not close these older reports.
 - **Spotify profile completeness:** browsing works, but inconsistent provider totals mean full playlist exhaustion is not established. This is a known limitation, not an unimplemented browsing feature.
 - **Artwork:** the visible footer fallback is implemented and verified. The underlying asset-protocol failure remains an internal follow-up; it is not a remaining playback-bar layout fix.
-- **Extension distribution:** source/icon staging and 88 extension tests pass; the pending v0.1.3 release must deliver rebuilt/re-signed companions. Chromium popup-to-native import is now verified in an isolated profile. Normal-profile Firefox popup reconnection is not claimed by that check.
+- **Extension distribution:** source/icon staging and 88 extension tests pass; v0.1.3 now delivers the rebuilt Chromium and AMO-signed Firefox 0.2.2 companions. Chromium popup-to-native import is now verified in an isolated profile. Normal-profile Firefox popup reconnection is not claimed by that check.
 - **Optional backends:** Qobuz source research is complete, but no tested public host supplied usable catalog JSON. An account-bound adapter is feasible; working Qobuz playback is not implemented or qualified.
 
 ## Deferred and follow-up

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "queuePreserved": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "confirmedAccountsPreserved": true,
+  "accountRevisionsPreserved": true,
+  "playerLayoutFindings": [],
+  "viewport": {
+    "height": 1036,
+    "width": 954
+  }
+}

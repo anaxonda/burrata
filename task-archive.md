@@ -2,13 +2,18 @@
 
 Completed work moved from [todo.md](todo.md) on 2026-10-18. Entries retain their original evidence and qualification limits; historical build versions and running-app descriptions describe the verification at that time. Outstanding work remains in [todo.md](todo.md), including the linked pre-release snapshot.
 
+## Published v0.1.3 — 2026-10-18
+
+- Completed integrated checks, rebuilt installers and companions, and [published v0.1.3](https://github.com/anaxonda/burrata/releases/tag/v0.1.3) at `20:29:42 UTC` from `9a45467bcff02103e2c84e000342660288b7ba3b`. Main and tag CI pass; Linux, macOS and Windows installed-app smokes pass. The main release has exactly eight downloads: five installers, Chromium ZIP, AMO-signed Firefox 0.2.2 and checksums. All main/support uploaded digests and all five installer/two companion inventories match; supporting downloads remain a draft. [Evidence](docs/performance-results/2026-10-18-todo-release/release-publication.json).
+- The implementation entries below are included in v0.1.3. Prior statements about pending publication describe earlier checkpoints and are superseded by this entry. Deferred and known limitations remain in todo.md.
+
 ## Published release status — checked 2026-10-18
 
 **Burrata v0.1.2 is already released.** GitHub reports `isDraft: false`, `isPrerelease: true`, published `2026-10-18T16:16:27Z`, targeting `34507720aa0d1362af3abee062a5a0cc3d033087`. The [public prerelease](https://github.com/anaxonda/burrata/releases/tag/v0.1.2) has eight assets: five installers, Chromium ZIP, signed Firefox XPI and checksums. Supporting downloads remain a draft. Earlier statements below that the main release is a draft/on hold describe its earlier state and are superseded. Later local playback and extension fixes are not part of that released commit.
 
 ## Completed implementation for v0.1.3 — 2026-10-18
 
-These changes are implemented and checked locally; they await the next published release. Final release delivery remains in the active todo.
+These changes are implemented, verified and included in the published v0.1.3 release above.
 
 - Simplified the extension to **Import current page**, collapsed diagnostics under **More options**, and moved connection controls into **Connections**. Renamed app-driven access to **Browser-assisted access** and identified in-app sign-in as preferred. Popup fixtures at 360 px show no horizontal overflow; extension tests pass 88 cases.
 - Added signed-out public YouTube video and playlist imports. Actual Chromium popup → native-host → isolated database checks imported one video (1/1) and a public playlist (182/182), complete with no warnings. Duplicate/unavailable rows were not present in this live sample; see [bounded evidence](docs/performance-results/2026-10-18-todo-release/youtube-native-import.json).

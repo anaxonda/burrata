@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "tag": "v0.1.3",
+  "commit": "9a45467bcff02103e2c84e000342660288b7ba3b",
+  "releases": [
+    {
+      "release": "v0.1.3",
+      "draft": true,
+      "assets": 8,
+      "allUploadedDigestsMatchManifest": true
+    },
+    {
+      "release": "support-v0.1.3",
+      "draft": true,
+      "assets": 87,
+      "allUploadedDigestsMatchManifest": true
+    }
+  ],
+  "extensionVersion": "0.2.2",
+  "extensionIconsPackaged": true,
+  "firefoxSignatureFilesPresent": true,
+  "publishedAt": "2026-10-18T20:29:42Z",
+  "url": "https://github.com/anaxonda/burrata/releases/tag/v0.1.3",
+  "mainIsDraft": false,
+  "mainAssets": [
+    {
+      "name": "Burrata-0.1.3-1.x86_64.rpm",
+      "size": 250362012,
+      "digest": "sha256:b6f368f6afb4d00f899e3afa33fc84f70f8f43850cdf4a425168b933f62aae1c"
+    },
+    {
+      "name": "burrata-chromium.zip",
+      "size": 94369,
+      "digest": "sha256:63e6eb3dfcd8f188d880d90c74fe0ef33fed99ca3f82ea2088444a255f7e3d50"
+    },
+    {
+      "name": "Burrata_0.1.3_aarch64.dmg",
+      "size": 170753022,
+      "digest": "sha256:ceb68c7f10b3d622e079e7f566d4fc7b112229e912945246e1b7b28923cc099a"
+    },
+    {
+      "name": "Burrata_0.1.3_amd64.AppImage",
+      "size": 380103160,
+      "digest": "sha256:e4e6eb46bdf1a8c79dfee05e37f99d99c737a0a45a5dc225b97041c44e9ccfa7"
+    },
+    {
+      "name": "Burrata_0.1.3_amd64.deb",
+      "size": 250016514,
+      "digest": "sha256:9556103bfcabfc21edc07da6f5f7420159a8806eccb7682e23869577b8b34f2c"
+    },
+    {
+      "name": "Burrata_0.1.3_x64-setup.exe",
+      "size": 339574144,
+      "digest": "sha256:b131494920311418e3c2450741cb976a7615f3daab62a961637ec8b08b7e8681"
+    },
+    {
+      "name": "d0c2f26e0c2c4c59bd0b-0.2.2.xpi",
+      "size": 130325,
+      "digest": "sha256:797bc7e640195b2e9f2fe525606cd41754645b15638442b7c1f96b2f7b2a685d"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 648,
+      "digest": "sha256:fd800247956e43a7970b1007bfc419c597319e79d5efe802558acefa4a07ebca"
+    }
+  ],
+  "ci": [
+    {
+      "databaseId": 39160795378,
+      "headSha": "9a45467bcff02103e2c84e000342660288b7ba3b",
+      "conclusion": "success",
+      "url": "https://github.com/anaxonda/burrata/actions/runs/39160795378"
+    },
+    {
+      "databaseId": 39160807915,
+      "headSha": "9a45467bcff02103e2c84e000342660288b7ba3b",
+      "conclusion": "success",
+      "url": "https://github.com/anaxonda/burrata/actions/runs/39160807915"
+    },
+    {
+      "databaseId": 39160807881,
+      "headSha": "9a45467bcff02103e2c84e000342660288b7ba3b",
+      "conclusion": "success",
+      "url": "https://github.com/anaxonda/burrata/actions/runs/39160807881"
+    }
+  ]
+}

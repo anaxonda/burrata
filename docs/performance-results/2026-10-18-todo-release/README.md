@@ -1,6 +1,6 @@
 # v0.1.3 verification checkpoints
 
-Current status: all six WebView source/startup/paused-seek/resume cases pass on frozen binary `6fdffa3158fd`, including both original Spotify Creep editions. All six native-engine cases also pass; normal-profile preservation and desktop UI checks pass. Release delivery remains pending. The chronological checkpoints below retain earlier failures and their scope.
+Current status: all six WebView source/startup/paused-seek/resume cases pass on frozen binary `6fdffa3158fd`, including both original Spotify Creep editions. All six native-engine cases also pass; normal-profile preservation and desktop UI checks pass. v0.1.3 was published at 20:29:42 UTC after all CI/platform and installed-app smoke checks passed. The chronological checkpoints below retain earlier failures and their scope.
 
 ## Anonymous YouTube import check
 
@@ -61,3 +61,9 @@ The earlier initial-buffer failure remains retained. A read-only harness review 
 The [native run](native-six-pass.json) passes the same six expected sources on `6fdffa3158fd`, including first mixer-consumed audio, strict five-second position progression, paused seek to ten seconds and resumed mixer progression. The isolated profile finishes paused with its original volume restored. This is one exploratory repetition per case, not statistical latency qualification or a physical-audibility test.
 
 The normal window is restored through the Vite/module/MCP-verified launcher. [Nine complete queue/playback checks and confirmed account revisions](normal-preservation.json) are unchanged. The saved Spotify Creep edition receives its verified recording-credit cache proof without editing tags or queue; the other edition is not saved and is correctly rejected without importing anything. The 4,965-track library remains present. Actual 954×1036 desktop capture and geometry inspection show compact controls and no playback-bar overlap.
+
+## Published release
+
+[v0.1.3](https://github.com/anaxonda/burrata/releases/tag/v0.1.3) is public as a prerelease from `9a45467bcff02103e2c84e000342660288b7ba3b`. [Release evidence](release-publication.json) records successful main/tag CI, all platform jobs, exact eight main downloads and manifest-matching uploaded digests for all 87 support assets. Five installer inventories and both companion inventories match the tag and source commit. Companion 0.2.2 packages contain the declared icons; Firefox has AMO signature files. [Linux](installed-linux.json), [macOS](installed-mac.json) and [Windows](installed-windows.json) installed-app smokes pass. Supporting downloads remain a draft. No additional provider writes or experimental feature promotion occurred.
+
+[Post-publication preservation](post-publication-preservation.json) reconfirms the complete original queue, occurrence IDs, current index, paused position, volume/repeat/shuffle and confirmed account revisions. Exactly one normal-profile GUI is running on the frozen verified binary, and player layout findings remain empty.

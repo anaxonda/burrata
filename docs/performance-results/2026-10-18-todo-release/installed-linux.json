@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "platform": "linux",
+  "target": "x86_64-unknown-linux-gnu",
+  "installer": "Burrata_0.1.3_amd64.deb",
+  "status": "passed",
+  "checks": {
+    "installer": "installed",
+    "packagedTools": {
+      "node": {
+        "path": "tools/x86_64-unknown-linux-gnu/node",
+        "version": "v24.21.0"
+      },
+      "yt-dlp": {
+        "path": "tools/x86_64-unknown-linux-gnu/yt-dlp",
+        "version": "2026.10.10.233141"
+      },
+      "ffmpeg": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffmpeg",
+        "version": "ffmpeg version 8.1.3 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      "ffprobe": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffprobe",
+        "version": "ffprobe version 8.1.3 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      "fpcalc": {
+        "path": "tools/x86_64-unknown-linux-gnu/fpcalc",
+        "version": "fpcalc version 1.5.1 (FFmpeg Lavc58.134.100 Lavf58.76.100 SwR3.9.100)"
+      },
+      "recognizer": {
+        "path": "tools/x86_64-unknown-linux-gnu/burrata-recognize",
+        "started": "true"
+      },
+      "browserHost": {
+        "path": "tools/x86_64-unknown-linux-gnu/burrata-browser-host",
+        "protocol": "present"
+      }
+    },
+    "mediaFixtures": {
+      "ffmpeg": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffmpeg",
+        "mp3": "encoded",
+        "opus": "encoded",
+        "analysisDecode": {
+          "mp3": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.118909
+          },
+          "opus": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.126433
+          }
+        }
+      },
+      "ffprobe": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffprobe",
+        "mp3Tags": "read",
+        "opusTags": "read",
+        "pngCover": "attached and decoded"
+      }
+    },
+    "guiStartup": "automation discovery published",
+    "nativeHost": {
+      "path": "tools/x86_64-unknown-linux-gnu/burrata-browser-host",
+      "heartbeat": "accepted"
+    },
+    "mcp": {
+      "initialized": true,
+      "toolCount": 103,
+      "statusRunning": true,
+      "frontendMounted": true
+    }
+  },
+  "osSecurityPrompts": "not tested",
+  "installedLocation": "/usr/bin/burrata"
+}
