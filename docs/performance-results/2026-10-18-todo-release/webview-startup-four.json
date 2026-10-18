@@ -1,0 +1,57 @@
+{
+  "scope": "isolated seeded fixtures; WebView media-time evidence only; one queued request per case",
+  "binarySha256": "af9ae0dec4e130de2a971f1a261b5d9eb4df6364dd681c8876db85a390a83b61",
+  "pass": true,
+  "finalPaused": true,
+  "volumeRestored": true,
+  "cases": [
+    {
+      "case": "five_hundred_miles",
+      "trackId": "fixture:500-miles",
+      "expectedProvider": "monochrome",
+      "status": "webview_media_progress_pass",
+      "sustained": {
+        "elapsedMs": 5126,
+        "advancedSeconds": 5.102,
+        "observations": 15
+      },
+      "finalPaused": true
+    },
+    {
+      "case": "bby_wow",
+      "trackId": "fixture:bby-wow",
+      "expectedProvider": "youtube",
+      "status": "webview_media_progress_pass",
+      "sustained": {
+        "elapsedMs": 5098,
+        "advancedSeconds": 5.074,
+        "observations": 15
+      },
+      "finalPaused": true
+    },
+    {
+      "case": "bad_times",
+      "trackId": "fixture:bad-times",
+      "expectedProvider": "youtube",
+      "status": "webview_media_progress_pass",
+      "sustained": {
+        "elapsedMs": 5072,
+        "advancedSeconds": 5.042,
+        "observations": 15
+      },
+      "finalPaused": true
+    },
+    {
+      "case": "creep_musicbrainz",
+      "trackId": "musicbrainz:5044e415-6375-4281-9cfa-ccdb34041cb0",
+      "expectedProvider": "monochrome",
+      "status": "webview_media_progress_pass",
+      "sustained": {
+        "elapsedMs": 5080,
+        "advancedSeconds": 5.075,
+        "observations": 15
+      },
+      "finalPaused": true
+    }
+  ]
+}

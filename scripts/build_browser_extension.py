@@ -12,6 +12,7 @@ destination = root / '.cache' / 'browser-companion-chromium'
 destination.mkdir(parents=True, exist_ok=True)
 for name in ('background.js', 'content.js', 'parsers.js', 'popup.js', 'popup.html', 'spotify-auth.js', 'provider-operations.js'):
     shutil.copyfile(source / name, destination / name)
+shutil.copytree(source / 'icons', destination / 'icons', dirs_exist_ok=True)
 manifest = json.loads((source / 'manifest.chromium.json').read_text())
 key = manifest.get('key')
 if not isinstance(key, str):

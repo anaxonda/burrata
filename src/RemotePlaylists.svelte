@@ -3,6 +3,7 @@
   import { ProviderReadCancellation } from "./lib/provider-read-cancellation";
   import { providerAccountScope, providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
   import { normalizeSpotifyUserProfileUrl } from "./lib/spotify-profile-url";
+  import { safeArtworkUrl } from "./lib/artwork-url";
   import { appendPageWithinLimit } from "./remote-playlist-paging";
   type Provider = "spotify" | "youtube";
   type RemotePlaylist = {
@@ -13,14 +14,14 @@
   type BrowseResult = { items: RemotePlaylist[]; nextCursor?: string | null; accountId?: string; totalCount?: number | null; truncated?: boolean; complete?: boolean; snapshotConsistency?: "progressive" };
   type BrowseDescriptor = { provider: Provider; mode: "mine" | "profile" | "search" | "url"; profileUrl: string; query: string; searchKind: "playlist" | "channel" };
   type PageDeadline = { at: number; onExpire: () => void };
-  type ProfileChoice = { id: string; kind: string; title: string; subtitle?: string | null; url?: string | null };
+  type ProfileChoice = { id: string; kind: string; title: string; subtitle?: string | null; url?: string | null; artworkUrl?: string | null };
   type ProfileSearchPage = { results?: ProfileChoice[]; nextCursor?: string | null };
   type ImportResult = { bindingId?: string; id?: string; playlistId?: string; title?: string; provider?: string; collectionId?: string; trackCount?: number; complete?: boolean; error?: string };
   type ImportFailure = { playlistId: string; message: string };
   type PlaylistsSnapshot = { provider: Provider; sourceMode: "mine" | "profile" | "search" | "url"; profileUrl: string; directUrl: string; playlistUrls: string[]; query: string; searchKind: "playlist" | "channel"; items: RemotePlaylist[]; cursor: string | null; selected: string[]; seenCursors: string[]; currentBrowseComplete: boolean | null; pageNote: string; snapshotConsistency: "progressive" | null; scroll: number; loadedCount: number; needsRefetch: boolean };
   type ImportJob = { jobId?: string; id?: string; state?: string; completed?: number; total?: number; results?: ImportResult[]; errors?: ImportFailure[]; error?: string | null };
 
-  let { call, onImported = () => {}, onClose = () => {}, onOpenPlaylist = () => {}, onBrowseOwner, initialProvider = "spotify", initialOwner = "", initialPlaylistUrl = "" }: {
+  let { call, onImported = () => {}, onClose = () => {}, onOpenPlaylist = () => {}, onBrowseOwner, initialProvider = "spotify", initialOwner = "", initialPlaylistUrl = "", profileOnly = false }: {
     call: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     onImported?: () => void;
     onClose?: () => void;
@@ -29,6 +30,7 @@
     initialProvider?: Provider;
     initialOwner?: string;
     initialPlaylistUrl?: string;
+    profileOnly?: boolean;
   } = $props();
   const providerReads = new ProviderReadCancellation((command, args) => call(command, args ?? {}));
 
@@ -102,7 +104,7 @@
     if (!isCurrent()) return;
     accountScope = scope;
     const saved = providerNavigationSnapshots.get<PlaylistsSnapshot>("playlists", routeKey, accountScope);
-    if (saved && isCurrent()) {
+    if (saved && isCurrent() && (!profileOnly || saved.sourceMode === "profile")) {
       const restoredDescriptor = { provider: saved.provider, mode: saved.sourceMode, profileUrl: saved.profileUrl.trim(), query: saved.query.trim(), searchKind: saved.searchKind };
       const restoreStillCurrent = () => isCurrent() && sameBrowseDescriptor(restoredDescriptor, getBrowseDescriptor());
       provider = saved.provider; sourceMode = saved.sourceMode; profileUrl = saved.profileUrl; directUrl = saved.directUrl; playlistUrls = saved.playlistUrls; query = saved.query; searchKind = saved.searchKind;
@@ -480,27 +482,31 @@
 </script>
 
 <section class="remote-playlists" aria-label={provider === "spotify" ? "Spotify playlists" : "YouTube playlists"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; }}>
-  <nav class="remote-provider-tabs" aria-label="Playlist provider">
+  {#if profileOnly}
+    <header class="remote-profile-heading"><div><span>Public playlists by</span><strong title={profileUrl}>{profileUrl}</strong></div><button disabled={loading || selectingAll || importing} onclick={() => void browse()}>Refresh</button></header>
+  {:else}<nav class="remote-provider-tabs" aria-label="Playlist provider">
     <button class:active={provider === "spotify"} aria-pressed={provider === "spotify"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "spotify"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>Spotify</button>
     <button class:active={provider === "youtube"} aria-pressed={provider === "youtube"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "youtube"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>YouTube</button>
     <button class="remote-close" aria-label="Close remote playlist picker" onclick={onClose}>×</button>
-  </nav>
+  </nav>{/if}
 
   <div class="remote-picker-grid">
     <section class="remote-picker-main" aria-label="Browse remote playlists">
-      <div class="remote-source-tabs" aria-label="Playlist source">
+      {#if !profileOnly}<div class="remote-source-tabs" aria-label="Playlist source">
         <button class:active={sourceMode === "mine"} aria-pressed={sourceMode === "mine"} disabled={selectingAll || importing} onclick={() => changeSourceMode("mine")}>Mine</button>
         <button class:active={sourceMode === "profile"} aria-pressed={sourceMode === "profile"} disabled={selectingAll || importing} onclick={() => changeSourceMode("profile")}>Public profile / channel</button>
         <button class:active={sourceMode === "search"} aria-pressed={sourceMode === "search"} disabled={selectingAll || importing} onclick={() => changeSourceMode("search")}>Search</button>
         <button class:active={sourceMode === "url"} aria-pressed={sourceMode === "url"} disabled={selectingAll || importing} onclick={() => changeSourceMode("url")}>Playlist URL</button>
-      </div>
-      {#if sourceMode === "profile"}
+      </div>{/if}
+      {#if profileOnly}
+        <p class="remote-profile-scope">{providerName(provider)} profile · playlist pages stay scoped to this profile.</p>
+      {:else if sourceMode === "profile"}
         <form class="remote-search-form" onsubmit={event => { event.preventDefault(); void browse(); }}>
           <input aria-label={provider === "spotify" ? "Spotify profile name, URL, or user ID" : "YouTube channel URL or ID"} bind:value={profileUrl} oninput={invalidateBrowseContext} disabled={selectingAll || importing} placeholder={provider === "spotify" ? "Spotify profile name, URL, or user ID" : "YouTube channel URL or ID"} />
           <button type="submit" disabled={loading || profileSearchBusy || selectingAll || importing}>Browse URL / ID</button>
           {#if provider === "spotify"}<button type="button" disabled={profileSearchBusy || !profileUrl.trim() || selectingAll || importing} onclick={() => void searchSpotifyProfiles()}>{profileSearchBusy ? "Searching…" : "Search profiles"}</button>{/if}
         </form>
-        {#if profileChoices.length}<ul class="remote-profile-choices" aria-label="Spotify profile matches">{#each profileChoices as choice (choice.id)}<li><div><strong>{choice.title}</strong>{#if choice.subtitle}<span>{choice.subtitle}</span>{/if}</div><button disabled={!choice.url || loading} onclick={() => browseProfileChoice(choice)}>Browse playlists</button></li>{/each}</ul>{/if}
+        {#if profileChoices.length}<ul class="remote-profile-choices" aria-label="Spotify profile matches">{#each profileChoices as choice (choice.id)}{@const artwork = safeArtworkUrl(choice.artworkUrl)}<li><span class="profile-art" aria-hidden="true"><span>♫</span>{#if artwork}<img src={artwork} alt="" loading="lazy" onerror={(event) => { (event.currentTarget as HTMLImageElement).hidden = true; }} />{/if}</span><div><strong>{choice.title}</strong>{#if choice.subtitle}<span>{choice.subtitle}</span>{/if}</div><button disabled={!choice.url || loading} onclick={() => browseProfileChoice(choice)}>Browse playlists</button></li>{/each}</ul>{/if}
       {:else if sourceMode === "search"}
         <form class="remote-search-form" onsubmit={event => { event.preventDefault(); void browse(); }}>
           <select aria-label="Search type" bind:value={searchKind} onchange={invalidateBrowseContext}><option value="playlist">Playlists</option><option value="channel">Channels</option></select>
@@ -571,6 +577,12 @@
   .remote-playlists { container-type:inline-size; min-width:0; min-height:0; height:100%; overflow:auto; align-content:start; display:grid; gap:6px; color:var(--text); }
   .remote-provider-tabs .remote-close { flex:none; margin-left:auto; padding:3px 9px; font-size:20px; line-height:1; }
   .remote-provider-tabs { align-items:center; }
+  .remote-profile-heading { min-width:0; display:flex; align-items:center; gap:10px; padding:5px 8px; border-bottom:1px solid var(--line); }
+  .remote-profile-heading>div { min-width:0; display:grid; gap:2px; }
+  .remote-profile-heading span,.remote-profile-scope { color:var(--muted); font-size:11px; }
+  .remote-profile-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+  .remote-profile-heading button { flex:none; margin-left:auto; padding:4px 8px; font-size:11px; }
+  .remote-profile-scope { margin:0; }
   .remote-provider-tabs,.remote-source-tabs { display:flex; flex-wrap:wrap; gap:4px; padding:0; border:0; border-radius:0; }
   .remote-provider-tabs button,.remote-source-tabs button { min-width:0; padding:5px 8px; background:transparent; color:var(--muted); font-size:11px; }
   .remote-provider-tabs button.active,.remote-source-tabs button.active { background:var(--raised); color:var(--text); }
@@ -582,6 +594,8 @@
   .remote-search-form { min-width:0; display:flex; gap:6px; }
   .remote-profile-choices { display:grid; gap:5px; margin:0; padding:0; list-style:none; }
   .remote-profile-choices li { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px; border-radius:6px; background:var(--raised); }
+  .profile-art { position:relative; display:grid; flex:0 0 34px; place-items:center; width:34px; height:34px; overflow:hidden; border-radius:50%; background:var(--surface); color:var(--muted); }
+  .profile-art img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
   .remote-profile-choices li>div { min-width:0; display:grid; gap:3px; }
   .remote-profile-choices strong,.remote-profile-choices span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .remote-profile-choices strong { font-size:11px; }

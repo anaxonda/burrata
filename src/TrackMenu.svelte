@@ -29,10 +29,10 @@
 <svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} />
 <dialog bind:this={dialog} bind:clientHeight={menuHeight} class:context-menu={Boolean(anchor)} style:left={anchor ? `${Math.max(8, Math.min(anchor.x, viewportWidth - 336))}px` : undefined} style:top={anchor ? `${Math.max(8, Math.min(anchor.y, viewportHeight - playerHeight - menuHeight - 8))}px` : undefined} style:--menu-player-height={`${playerHeight}px`} class="track-menu" aria-label={`Actions for ${track.title}`} onclose={onClose} oncancel={onClose} onclick={(e) => { if (e.target === dialog) onClose(); }} onkeydown={handleMenuKeydown}>
   <header><div><strong>{track.title}</strong>{#if track.artist}<small>{track.artist}</small>{/if}{#if track.localAvailability === "available" || (!track.localAvailability && track.localPath)}<span class="downloaded"><span aria-hidden="true">✓</span> Downloaded</span>{/if}</div><button aria-label="Close track actions" onclick={onClose}>×</button></header>
+  <button onclick={() => action(onNext)}><MenuIcon name="play"/><span>Play next</span></button>
+  <button onclick={() => action(onQueue)}><MenuIcon name="queue"/><span>Add to queue</span></button>
   <button class="primary-action" onclick={() => action(onPlaylist)}><MenuIcon name="plus"/><span>Add to playlist…</span></button>
   <button onclick={() => action(onFavorite)}><MenuIcon name="heart"/><span>{track.favorite ? "Remove from Liked Songs" : "Add to Liked Songs"}</span></button>
-  <button onclick={() => action(onQueue)}><MenuIcon name="queue"/><span>Add to queue</span></button>
-  <button onclick={() => action(onNext)}><MenuIcon name="play"/><span>Play next</span></button>
   {#if onRadio}<button class="menu-section" disabled={radioBusy} onclick={() => action(onRadio!)}><MenuIcon name="radio"/><span>{radioBusy ? "Finding radio…" : "Start song radio"}</span></button>{/if}
   {#if hasSource}<div class="source-row menu-section"><SourceLink {track} trailingArrow={false} onOpened={onClose}>{#snippet leadingIcon()}<MenuIcon name="external"/>{/snippet}</SourceLink></div>{/if}
   <button onclick={() => action(onDownload)}><MenuIcon name="download"/><span>Download options…</span></button>

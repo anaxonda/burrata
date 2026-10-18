@@ -50,6 +50,47 @@ describe("SpotifyRecordingIdentityAction", () => {
     });
   });
 
+  it("verifies recording credits from a MusicBrainz URL without sending the album hint", async () => {
+    const recordingId = "5044e415-6375-4281-9cfa-ccdb34041cb0";
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "prepare_spotify_recording_crosswalk") return {
+        status: "recording_credits_verified", spotifyTrackId: args?.trackId,
+        musicbrainzRecordingId: recordingId, sourceIsrc: "GBDMT1500097", artistCreditCount: 2, albumLinkVerified: false,
+      };
+      return true;
+    });
+    const { target, onRetryPreview } = render(call, vi.fn(), "abcdefghijklmnopqrstuv"); await settle();
+    const mode = target.querySelector<HTMLInputElement>('input[value="recording"]')!;
+    mode.checked = true; mode.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    const locator = target.querySelector<HTMLInputElement>("#musicbrainz-recording-locator")!;
+    locator.value = `https://musicbrainz.org/recording/${recordingId}`;
+    locator.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    target.querySelector<HTMLButtonElement>('button:not(.retry)')!.click(); await settle();
+    expect(call).toHaveBeenCalledWith("prepare_spotify_recording_crosswalk", {
+      trackId: "1234567890123456789012", musicBrainzRecordingIdHint: recordingId,
+      requestId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    });
+    expect(target.textContent).toContain("Artist credits verified");
+    expect(target.textContent).toContain("Album link not verified");
+    target.querySelector<HTMLButtonElement>(".retry")!.click();
+    expect(onRetryPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects malformed recording locators before invoking the provider command", async () => {
+    const call = vi.fn(async () => true);
+    const { target } = render(call); await settle();
+    const mode = target.querySelector<HTMLInputElement>('input[value="recording"]')!;
+    mode.checked = true; mode.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    const locator = target.querySelector<HTMLInputElement>("#musicbrainz-recording-locator")!;
+    locator.value = "https://musicbrainz.org/recording/not-a-uuid";
+    locator.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    target.querySelector<HTMLButtonElement>('button:not(.retry)')!.click(); await settle();
+    expect(call).not.toHaveBeenCalledWith("prepare_spotify_recording_crosswalk", expect.anything());
+    expect(target.textContent).toContain("Enter a MusicBrainz recording URL or UUID");
+  });
+
   it("cancels its owned request and ignores a late result after the selected track changes", async () => {
     const pending = deferred<unknown>();
     const call = vi.fn((command: string, _args?: Record<string, unknown>) => command === "cancel_remote_read" ? Promise.resolve(true) : pending.promise);

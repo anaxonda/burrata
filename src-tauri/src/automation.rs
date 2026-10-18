@@ -4112,10 +4112,24 @@ impl AutomationService {
             "prepare_spotify_recording_crosswalk" => {
                 let track_id = spotify_id_arg(&a, "trackId")?;
                 let album_id_hint = optional_str_arg(&a, "albumIdHint", 22)?;
+                let musicbrainz_recording_id_hint =
+                    optional_str_arg(&a, "musicBrainzRecordingIdHint", 36)?;
                 if album_id_hint.as_deref().is_some_and(|id| {
                     !id.bytes().all(|byte| byte.is_ascii_alphanumeric()) || id.len() != 22
                 }) {
                     return Err(ToolError::bad("albumIdHint must be a Spotify album ID"));
+                }
+                if album_id_hint.is_some() && musicbrainz_recording_id_hint.is_some() {
+                    return Err(ToolError::bad(
+                        "Choose either albumIdHint or musicBrainzRecordingIdHint",
+                    ));
+                }
+                if musicbrainz_recording_id_hint.as_deref().is_some_and(|id| {
+                    !crate::artist_credit_aliases::valid_musicbrainz_recording_id(id)
+                }) {
+                    return Err(ToolError::bad(
+                        "musicBrainzRecordingIdHint must be a MusicBrainz recording ID",
+                    ));
                 }
                 let request_id = str_arg(&a, "requestId", 36)?;
                 if Uuid::parse_str(&request_id).is_err() {
@@ -4132,6 +4146,22 @@ impl AutomationService {
                     .begin(request_id)
                     .map_err(ToolError::failed)?;
                 let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+                if let Some(recording_id) = musicbrainz_recording_id_hint.as_deref() {
+                    let status = remote
+                        .prepare_spotify_artist_credit_crosswalk(
+                            &artists,
+                            &track_id,
+                            recording_id,
+                            deadline,
+                            guard.cancellation(),
+                        )
+                        .await
+                        .map_err(ToolError::failed)?;
+                    drop(guard);
+                    return serde_json::to_value(status).map_err(|_| {
+                        ToolError::failed("Recording credit crosswalk serialization failed")
+                    });
+                }
                 let result = remote
                     .prepare_spotify_recording_crosswalk(
                         &artists,
@@ -6675,7 +6705,7 @@ fn tool_definitions() -> Vec<Value> {
  ("inspect_youtube_library_page","Inspect fixed own YouTube library response counts and flags without exposing content or identifiers", "read"),
  ("inspect_youtube_playlist_page","Inspect fixed YouTube playlist response counts and flags without exposing content or identifiers", "read"),
  ("browse_remote_artist_tracks","Read one bounded Spotify artist track page without importing", "read"),
- ("list_remote_playlists","List available Spotify or YouTube playlists", "read"),("get_remote_playlist","Browse remote playlist tracks without importing into the library", "read"),("get_remote_track","Read one exact Spotify track by catalog ID without importing it", "read"),("prepare_spotify_recording_crosswalk","Verify an exact Spotify track occurrence against its linked MusicBrainz release; read-only, cached for playback identity, no tag changes", "read"),("get_remote_artist","Read a Spotify artist and one page of releases", "read"),("get_remote_album_tracks","Read a Spotify album and one page of tracks", "read"),("repair_spotify_durations_public","Fill missing Spotify durations from public metadata for up to 300 local tracks in 60 seconds; no account or playlist writeback", "control"),("cancel_public_spotify_duration_repair","Cancel the active public Spotify duration repair", "control"),("public_spotify_duration_repair_running","Check whether public Spotify duration repair is running", "read"),("import_remote_playlists","Import selected remote playlists into the library", "control"),("get_remote_playlist_import_job","Get status for a remote playlist import", "read"),("cancel_remote_playlist_import","Cancel an active remote playlist import", "control"),("refresh_remote_playlist","Refresh an imported remote playlist", "control"),("search_remote_playlist_writeback_candidates","Search provider candidates for one local playlist track; returns expiring review tokens without writing provider data", "read"),("get_playlist_sync_preview","Preview pending remote playlist changes with optional explicitly reviewed candidate tokens", "read"),("apply_playlist_sync_preview","Apply a reviewed remote playlist sync preview", "manage"),("list_track_files","List local files linked to a track", "read"),("set_preferred_track_file","Choose the preferred local file for a track", "control"),
+ ("list_remote_playlists","List available Spotify or YouTube playlists", "read"),("get_remote_playlist","Browse remote playlist tracks without importing into the library", "read"),("get_remote_track","Read one exact Spotify track by catalog ID without importing it", "read"),("prepare_spotify_recording_crosswalk","Verify an exact Spotify track against a linked MusicBrainz release, or verify complete artist-ID credits against an explicitly selected MusicBrainz recording; read-only, cached for playback identity, no tag changes", "read"),("get_remote_artist","Read a Spotify artist and one page of releases", "read"),("get_remote_album_tracks","Read a Spotify album and one page of tracks", "read"),("repair_spotify_durations_public","Fill missing Spotify durations from public metadata for up to 300 local tracks in 60 seconds; no account or playlist writeback", "control"),("cancel_public_spotify_duration_repair","Cancel the active public Spotify duration repair", "control"),("public_spotify_duration_repair_running","Check whether public Spotify duration repair is running", "read"),("import_remote_playlists","Import selected remote playlists into the library", "control"),("get_remote_playlist_import_job","Get status for a remote playlist import", "read"),("cancel_remote_playlist_import","Cancel an active remote playlist import", "control"),("refresh_remote_playlist","Refresh an imported remote playlist", "control"),("search_remote_playlist_writeback_candidates","Search provider candidates for one local playlist track; returns expiring review tokens without writing provider data", "read"),("get_playlist_sync_preview","Preview pending remote playlist changes with optional explicitly reviewed candidate tokens", "read"),("apply_playlist_sync_preview","Apply a reviewed remote playlist sync preview", "manage"),("list_track_files","List local files linked to a track", "read"),("set_preferred_track_file","Choose the preferred local file for a track", "control"),
  ("list_radio_stations","List built-in and saved radio stations", "read"),("search_radio_stations","Search radio stations by name, country, or tag", "read"),("get_station_details","Get details and available current metadata for a station", "read"),("add_radio_station","Save a selected Radio Browser search result", "control"),("add_custom_radio_station","Save a station from a stream URL", "control"),("remove_radio_station","Remove a saved station or hide a built-in station", "control"),("rename_radio_station","Rename a saved or built-in station", "control"),("play_radio_station","Play a saved or built-in radio station", "control"),
  ("identify_playing_track","Identify current audio on explicit request; returns a separate result without editing tags", "control"),
  ("cancel_playing_track_identification","Cancel one native or WebView audio identification request by its captureId UUID", "control"),
@@ -6702,7 +6732,7 @@ fn tool_definitions() -> Vec<Value> {
  "inspect_youtube_playlist_page"=>(json!({"playlistId":{"type":"string","pattern":"^(?:LM|SE|LL|WL|[A-Za-z0-9_-]{10,80})$","maxLength":80},"cursor":{"type":"string","minLength":1,"maxLength":2048}}),json!(["playlistId"])),
  "get_remote_playlist"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]},"playlistId":{"type":"string","maxLength":2048},"cursor":{"type":"string","maxLength":2048}}),json!(["provider","playlistId"])),
  "get_remote_track"=>(json!({"provider":{"type":"string","enum":["spotify"]},"trackId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"}}),json!(["provider","trackId"])),
- "prepare_spotify_recording_crosswalk"=>(json!({"trackId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"albumIdHint":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","description":"Optional candidate album locator from the exact Spotify track source. The complete album read must independently contain the requested track exactly once."},"requestId":{"type":"string","format":"uuid","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}),json!(["trackId","requestId"])),
+ "prepare_spotify_recording_crosswalk"=>(json!({"trackId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"albumIdHint":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","description":"Optional candidate album locator. The complete album read must independently contain the requested track exactly once."},"musicBrainzRecordingIdHint":{"type":"string","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$","description":"Optional locator for a user-selected MusicBrainz recording. Exact stored Spotify metadata, ordered artist IDs, duration, ISRC and artist URL relations must independently match."},"requestId":{"type":"string","format":"uuid","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}),json!(["trackId","requestId"])),
  "browse_remote_artist_tracks"|"get_remote_artist"=>(json!({"artistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"cursor":{"type":["string","null"],"pattern":"^[0-9]{1,6}$","maxLength":6}}),json!(["artistId"])),
  "get_remote_album_tracks"=>(json!({"albumId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"cursor":{"type":["string","null"],"pattern":"^[0-9]{1,6}$","maxLength":6}}),json!(["albumId"])),
  "list_remote_playlists"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]},"ownerId":{"type":"string","maxLength":256},"cursor":{"type":"string","maxLength":512}}),json!(["provider"])),
@@ -8589,6 +8619,10 @@ mod tests {
         assert_eq!(
             crosswalk["inputSchema"]["properties"]["trackId"]["pattern"],
             "^[A-Za-z0-9]{22}$"
+        );
+        assert_eq!(
+            crosswalk["inputSchema"]["properties"]["musicBrainzRecordingIdHint"]["pattern"],
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         );
         assert_eq!(crosswalk["inputSchema"]["additionalProperties"], false);
         for (name, id_key) in [

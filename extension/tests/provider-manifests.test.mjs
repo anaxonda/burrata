@@ -17,3 +17,18 @@ test('both browser manifests grant optional access and parser injection on suppo
   assert.deepEqual(JSON.parse(readFileSync(new URL('../manifest.json',import.meta.url))).background.scripts,['spotify-auth.js','background.js']);
   assert.equal(JSON.parse(readFileSync(new URL('../manifest.chromium.json',import.meta.url))).background.service_worker,'background.js');
 });
+
+
+test('browser toolbar and extension manager icons resolve to correctly sized PNG assets',()=>{
+  for(const filename of ['manifest.json','manifest.chromium.json']){
+    const manifest=JSON.parse(readFileSync(new URL(`../${filename}`,import.meta.url)));
+    assert.deepEqual(manifest.action.default_icon,manifest.icons);
+    assert.equal(manifest.action.default_title,'Burrata Browser Companion');
+    for(const size of [16,32,48,128]){
+      const png=readFileSync(new URL(`../${manifest.icons[size]}`,import.meta.url));
+      assert.equal(png.subarray(1,4).toString(),'PNG');
+      assert.equal(png.readUInt32BE(16),size);
+      assert.equal(png.readUInt32BE(20),size);
+    }
+  }
+});

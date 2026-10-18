@@ -1,0 +1,23 @@
+{
+  "checkedAtUtc": "2026-10-18T19:09:56.348673+00:00",
+  "scope": "Explicit recording-credit preparation in isolated profile; full ordered artist IDs and MusicBrainz Spotify artist URL relations, exact title/duration and single ISRC; not album-link verification or live playback evidence.",
+  "binarySha256": "17d9e1ae6b95eb1ebab5798943879f76bd55249ac9a48d43788f2100a9a0764d",
+  "results": [
+    {
+      "albumLinkVerified": false,
+      "artistCreditCount": 2,
+      "musicbrainzRecordingId": "5044e415-6375-4281-9cfa-ccdb34041cb0",
+      "sourceIsrc": "GBDMT1500097",
+      "spotifyTrackId": "2Jju8C95blJcGMqtMKETbH",
+      "status": "recording_credits_verified"
+    },
+    {
+      "albumLinkVerified": false,
+      "artistCreditCount": 2,
+      "musicbrainzRecordingId": "5044e415-6375-4281-9cfa-ccdb34041cb0",
+      "sourceIsrc": "GBDMT1500097",
+      "spotifyTrackId": "3AOcpwgy3V2Fwg7B8PZfKl",
+      "status": "recording_credits_verified"
+    }
+  ]
+}

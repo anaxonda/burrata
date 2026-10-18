@@ -7,7 +7,8 @@ const source=readFileSync(new URL('../background.js',import.meta.url),'utf8');
 function worker(session={}, {enabled=false, verification=false, requests=[],pageUrl='https://www.beatport.com/genre/afro-house/89/top-100',albumCollection=false,handoffSession=null,youtubePage=null,accountIdentity=null,providerFailure=null}={}) {
   let listener, removed, reply;
   const messages=[], created=[], updated=[];
-  const snapshot={provider:new URL(pageUrl).hostname.includes('shazam')?'shazam':new URL(pageUrl).hostname.includes('last.fm')?'lastfm':new URL(pageUrl).hostname.includes('bandcamp')?'bandcamp':'beatport',entries:[]};
+  const host=new URL(pageUrl).hostname;
+  const snapshot={provider:host.includes('shazam')?'shazam':host.includes('last.fm')?'lastfm':host.includes('bandcamp')?'bandcamp':host.includes('youtube')?'youtube':'beatport',kind:host.includes('youtube')?'playlist':'chart',sourceUrl:pageUrl,entries:[]};
   const api={
     action:{setBadgeText(){},setBadgeBackgroundColor(){}},
     storage:{local:{get:async()=>({enabled}),set:async()=>{}},session:{get:async()=>session,set:async value=>Object.assign(session,value)}},
@@ -64,6 +65,16 @@ test('current-page capture accepts Shazam, Last.fm and Bandcamp provider hosts',
     assert.equal(result.ok,true,pageUrl);
     assert.equal(w.messages[0].snapshot.provider,new URL(pageUrl).hostname.includes('shazam')?'shazam':new URL(pageUrl).hostname.includes('last.fm')?'lastfm':'bandcamp');
   }
+});
+
+test('current-page YouTube video import uses the rendered public snapshot without account status',async()=>{
+ const pageUrl='https://www.youtube.com/watch?v=abcdefghijk';
+ const w=worker({}, {pageUrl});
+ const result=await w.send({type:'importCurrent'});
+ assert.equal(result.ok,true);assert.equal(w.messages.length,1);
+ assert.equal(w.messages[0].type,'import');assert.equal(w.messages[0].snapshot.provider,'youtube');
+ assert.equal(w.messages[0].snapshot.sourceUrl,pageUrl);
+ assert.equal(w.messages.some(message=>message.type==='status'&&message.state==='verification'),false);
 });
 
 test('Bandcamp Discover forwards album URLs as a native collection import',async()=>{

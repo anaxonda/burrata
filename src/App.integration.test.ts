@@ -2662,6 +2662,35 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.some(([command]) => ["play_tracks", "resolve_preview", "resolve_audio"].includes(String(command)))).toBe(false);
   });
 
+  it("routes provider playlist browsing from the sidebar into the matching main Search scope and kind", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "spotify", name: "Spotify", kinds: ["track", "playlist"], enabled: true },
+        { id: "youtube", name: "YouTube", kinds: ["track", "playlist"], enabled: true },
+      ];
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+
+    for (const [source, label] of [["spotify", "Spotify"], ["youtube", "YouTube"]]) {
+      if (document.querySelector("main h1")?.textContent !== "Library") {
+        document.querySelector<HTMLButtonElement>('[aria-label="Library"]')?.click();
+        await settle();
+      }
+      sourceGroup(source).open = true;
+      await settle();
+      document.querySelector<HTMLButtonElement>(`[aria-label="Search ${label} playlists"]`)!.click();
+      await settle();
+      expect(document.querySelector("main h1")?.textContent).toBe("Search");
+      expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe(source);
+      expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Playlists")?.getAttribute("aria-pressed")).toBe("true");
+    }
+  });
+
   it("restores a Spotify owner playlist browser through detail Back and app Forward without refetching", async () => {
     const { providerNavigationSnapshots } = await import("./lib/provider-navigation-snapshots");
     providerNavigationSnapshots.clear();
@@ -2685,17 +2714,30 @@ describe("saved recording navigation", () => {
       if (command === "list_remote_playlist_bindings") return [];
       if (command === "list_remote_playlists") return args?.ownerId === owner || args?.ownerId === ownerUrl ? ownerRows(args) : { items: [], nextCursor: null, complete: true };
       if (command === "browse_remote_playlist") return trackRows(args);
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "spotify", name: "Spotify", kinds: ["track", "profile", "playlist"], enabled: true },
+      ];
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.[0] === "spotify" && (args?.kinds as string[] | undefined)?.includes("profile")) return {
+        sourceId: "spotify", complete: true,
+        results: [{ id: "spotify:user:fixture-owner", kind: "profile", sourceId: "spotify", title: "DJ Fixture", url: ownerUrl }],
+      };
       return originalCall(command, args);
     });
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
     const spotify = sourceGroup("spotify"); spotify.open = true;
-    spotify.querySelector<HTMLButtonElement>('[aria-label="Browse Spotify playlists"]')!.click(); await settle();
-    document.querySelector<HTMLButtonElement>('.remote-source-tabs button:nth-child(2)')!.click(); await settle();
-    const ownerInput = document.querySelector<HTMLInputElement>('[aria-label="Spotify profile name, URL, or user ID"]')!;
-    ownerInput.value = owner; ownerInput.dispatchEvent(new Event("input", { bubbles: true })); await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".remote-search-form button")].find(button => button.textContent?.includes("Browse URL / ID"))!.click(); await settle();
+    spotify.querySelector<HTMLButtonElement>('[aria-label="Search Spotify playlists"]')!.click(); await settle();
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
+    const profilesKind = [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Profiles")!;
+    profilesKind.click(); await settle();
+    const profileQuery = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    profileQuery.value = "DJ Fixture"; profileQuery.dispatchEvent(new Event("input", { bubbles: true })); await settle(); submitSearch(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Open profile: DJ Fixture"]')!.click(); await settle();
+    expect(document.querySelector(".remote-profile-heading strong")?.textContent).toBe(ownerUrl);
+    expect(document.querySelector(".remote-source-tabs")).toBeNull();
+    expect(document.querySelector(".remote-profile-scope")?.textContent).toContain("playlist pages stay scoped to this profile");
     document.querySelector<HTMLButtonElement>(".remote-more")!.click(); await settle();
     expect(document.body.textContent).toContain("Owner page two");
     const listCallsBeforeDetail = mocks.call.mock.calls.filter(([command, args]) => command === "list_remote_playlists" && (args as Record<string, unknown>)?.ownerId === owner).length;
@@ -2709,7 +2751,8 @@ describe("saved recording navigation", () => {
     const remoteBrowseCalls = () => mocks.call.mock.calls.filter(([command]) => command === "browse_remote_playlist").length;
     const remoteBrowseCallsBeforeBack = remoteBrowseCalls();
     document.querySelector<HTMLButtonElement>(".remote-detail-back")!.click(); await settle();
-    expect(document.querySelector<HTMLInputElement>('[aria-label="Spotify profile name, URL, or user ID"]')?.value).toBe(owner);
+    expect(document.querySelector(".remote-profile-heading strong")?.textContent).toBe(ownerUrl);
+    expect(document.querySelector(".remote-source-tabs")).toBeNull();
     expect(document.body.textContent).toContain("Owner page two");
     expect(mocks.call.mock.calls.filter(([command, args]) => command === "list_remote_playlists" && (args as Record<string, unknown>)?.ownerId === owner)).toHaveLength(listCallsBeforeDetail);
     expect(remoteBrowseCalls()).toBe(remoteBrowseCallsBeforeBack);
@@ -2719,7 +2762,8 @@ describe("saved recording navigation", () => {
     expect(document.querySelectorAll(".shared-track-list li")).toHaveLength(2);
     expect(remoteBrowseCalls()).toBe(remoteBrowseCallsBeforeBack);
     document.querySelector<HTMLButtonElement>(".remote-detail-owner")!.click(); await settle();
-    expect(document.querySelector<HTMLInputElement>('[aria-label="Spotify profile name, URL, or user ID"]')?.value).toBe(ownerUrl);
+    expect(document.querySelector(".remote-profile-heading strong")?.textContent).toBe(ownerUrl);
+    expect(document.querySelector(".remote-source-tabs")).toBeNull();
     expect(document.body.textContent).toContain("Owner page one");
     const callsBeforeOwnerBack = remoteBrowseCalls();
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
@@ -3616,6 +3660,15 @@ describe("saved recording navigation", () => {
   });
 
   it("does not add a duplicate Back destination when automation revisits the current view", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "spotify", name: "Spotify", kinds: ["playlist"], enabled: true },
+        { id: "youtube", name: "YouTube", kinds: ["playlist"], enabled: true },
+      ];
+      return originalCall(command, args);
+    });
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -3635,14 +3688,21 @@ describe("saved recording navigation", () => {
     expect(document.querySelector('section.settings[aria-label="Settings"]')).toBeNull();
     expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete",{requestId:"back",destination:"back",status:"complete"});
 
-    sourceGroup("spotify").querySelector<HTMLButtonElement>('[aria-label="Browse Spotify playlists"]')!.click();
+    sourceGroup("spotify").querySelector<HTMLButtonElement>('[aria-label="Search Spotify playlists"]')!.click();
     await settle(); await settle();
-    expect(document.querySelector("h1")?.textContent).toBe("Spotify");
-    sourceGroup("youtube").querySelector<HTMLButtonElement>('[aria-label="Browse YouTube playlists"]')!.click();
+    expect(document.querySelector("main h1")?.textContent).toBe("Search");
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
+    sourceGroup("youtube").querySelector<HTMLButtonElement>('[aria-label="Search YouTube playlists"]')!.click();
     await settle(); await settle();
-    expect(document.querySelector("h1")?.textContent).toBe("YouTube");
+    expect(document.querySelector("main h1")?.textContent).toBe("Search");
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("youtube");
+    expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Playlists")?.getAttribute("aria-pressed")).toBe("true");
     await go("back-to-spotify", {kind:"history",historyDirection:"back"});
-    expect(document.querySelector("h1")?.textContent).toBe("Spotify");
+    expect(document.querySelector("main h1")?.textContent).toBe("Search");
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
+    await go("back-to-downloads", {kind:"history",historyDirection:"back"});
+    expect(document.querySelector('[aria-label="Sort download jobs"]')).not.toBeNull();
+    expect(document.querySelector("main h1")?.textContent).not.toBe("Search");
   });
 
   it("navigates the rendered app through bounded automation and rejects stale requests", async () => {
@@ -3696,7 +3756,8 @@ describe("saved recording navigation", () => {
     eventHandlers.get("automation-ui-navigation")?.({ event: "automation-ui-navigation", id: 76, payload: { requestId, target: { kind: "spotify_profile", spotifyProfileId: owner } } });
     await settle(); await settle();
     expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete", { requestId, destination: owner, status: "complete" });
-    expect(document.querySelector<HTMLInputElement>('[aria-label="Spotify profile name, URL, or user ID"]')?.value).toBe(ownerUrl);
+    expect(document.querySelector(".remote-profile-heading strong")?.textContent).toBe(ownerUrl);
+    expect(document.querySelector(".remote-source-tabs")).toBeNull();
     expect(document.querySelectorAll(".remote-result-row")).toHaveLength(1);
     document.querySelector<HTMLButtonElement>(".remote-more")!.click(); await settle();
     expect(document.querySelectorAll(".remote-result-row")).toHaveLength(2);
@@ -6664,6 +6725,10 @@ describe("saved recording navigation", () => {
   }
   it("bounds a hung existing WebView resume at twenty seconds and retains paused seek state",async()=>{
     const fixture=await loadedResumeFixture();
+    // A ready decoder alone is not resume proof: without media-time progress,
+    // this held play promise must still hit the finite deadline.
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
     fixture.play.mockImplementation(()=>new Promise<void>(()=>{}));
     const realTimeout=setTimeout;
     const timeout=vi.spyOn(globalThis,"setTimeout").mockImplementation(((callback:any,ms?:number,...args:any[])=>realTimeout(callback,ms===20000?40:ms,...args)) as typeof setTimeout);
@@ -6675,6 +6740,23 @@ describe("saved recording navigation", () => {
     expect(result.playback).toMatchObject({paused:true,status:"paused",position:10,lastMediaFailure:null});
     expect(result.playback.playerMessage).toContain("could not resume");
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(1);
+  });
+  it("accepts owner-bound media progress when WebView play() remains pending", async () => {
+    const fixture = await loadedResumeFixture();
+    let mediaPaused = true, finishPlay!: () => void;
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => mediaPaused);
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    fixture.play.mockImplementationOnce(() => new Promise<void>(resolve => { finishPlay = () => resolve(); }));
+    fixture.begin("progress-resume"); await settle();
+    expect(fixture.completion("progress-resume")).toBeUndefined();
+    mediaPaused = false;
+    fixture.audio.currentTime = 10.3;
+    fixture.audio.dispatchEvent(new Event("timeupdate"));
+    await settle();
+    const result = fixture.completion("progress-resume")!;
+    expect(result.error).toBeNull();
+    expect(result.playback).toMatchObject({ paused: false, status: "playing", seekSerial: 1 });
+    finishPlay(); await settle();
   });
   it.each(["pause","seek","new-source"] as const)("cancels held existing WebView resume on %s without source failure",async mode=>{
     const fixture=await loadedResumeFixture();let finish!:()=>void;
@@ -7086,6 +7168,10 @@ describe("native playback frontend", () => {
     expect(currentRows()[0]?.textContent).toContain(savedTrack.title);
     expect(status()?.textContent).toBe("♫");
     expect(status()?.getAttribute("aria-label")).toBe(`Playing ${savedTrack.title}`);
+    const playControl = () => currentRows()[0]?.querySelector<HTMLButtonElement>(".row-play");
+    expect(playControl()?.getAttribute("aria-label")).toBe(`Play ${savedTrack.title}`);
+    expect(playControl()?.getAttribute("aria-busy")).toBe("false");
+    expect(currentRows()[0]?.classList.contains("buffering")).toBe(false);
 
     const paused = { ...initial, revision: 71, status: "paused" as const, paused: true };
     emitNative(paused); await settle();
@@ -7093,12 +7179,23 @@ describe("native playback frontend", () => {
     expect(currentRows()[0]?.classList.contains("paused")).toBe(true);
     expect(status()?.textContent).toBe("Ⅱ");
     expect(status()?.getAttribute("aria-label")).toBe(`Paused ${savedTrack.title}`);
+    expect(playControl()?.classList.contains("paused")).toBe(true);
+    expect(playControl()?.getAttribute("aria-busy")).toBe("false");
 
     const buffering = { ...initial, revision: 72, status: "buffering" as const, paused: false, playerMessage: "Buffering audio…" };
     emitNative(buffering); await settle();
     expect(currentRows()).toHaveLength(1);
     expect(status()?.textContent).toBe("…");
     expect(status()?.getAttribute("aria-label")).toBe(`Buffering ${savedTrack.title}`);
+    expect(playControl()?.classList.contains("buffering")).toBe(true);
+    expect(playControl()?.getAttribute("aria-busy")).toBe("true");
+    const unrelatedSameTitle = [...document.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.spacer)")].find(row => row.getAttribute("aria-current") !== "true");
+    expect(unrelatedSameTitle?.querySelector<HTMLButtonElement>(".row-play")?.getAttribute("aria-busy")).toBe("false");
+
+    const unknownRange = { parentTrackId: "same-id-parent", chapterId: "part", sourceUrl: "https://example.test/mix", startTime: 30, endTime: 60, parentTitle: "Unknown range" };
+    const unknownPlaybackIdentity = { ...savedTrack, playbackRange: unknownRange };
+    emitNative({ ...initial, revision: 73, status: "playing", paused: false, track: unknownPlaybackIdentity, trackId: unknownPlaybackIdentity.id, queue: [unknownPlaybackIdentity] }); await settle();
+    expect(currentRows()).toHaveLength(0);
   });
 
   it("does not refetch detail files for position-only native snapshots", async () => {
@@ -8219,9 +8316,14 @@ describe("native playback frontend", () => {
     fixture.release()!(new Error('No playable audio match was found'));await settle();await settle();
     expect(fixture.completion()!.error).toContain('cancelled or superseded');expect(fixture.completion()!.playback.currentIndex).toBe(1);expect(fixture.completion()!.playback.paused).toBe(true);expect(fixture.completion()!.playback.diagnostics.recentTrackFailures.map(item=>item.entryId)).toEqual([fixture.completion()!.playback.queueEntryIds[0]]);
   });
-  it("initial single-track failure remains stopped without substituting another recording",async()=>{
-    const fixture=await mountInitialQueueFailureFixture('No playable audio match was found',{single:true});
+  it("keeps the complete normal no-match action for a selected single-track failure",async()=>{
+    const reason = "No playable audio match was found for Spotify — Creep (Acoustic Version, 2018 Remastered Edition). No available source matched the requested recording and version. Open the catalog source or choose another source";
+    expect(reason.length).toBeGreaterThan(180);
+    const fixture=await mountInitialQueueFailureFixture(reason,{single:true});
     expect(fixture.resolved).toEqual([savedTrack.id]);expect(fixture.completion()!.error).not.toBeNull();expect(fixture.completion()!.playback.currentIndex).toBe(0);
+    const completeCopy = "No playable audio match was found for the requested recording and version. Open the catalog source or choose another source.";
+    expect(document.querySelector(".player-error")?.textContent).toContain(completeCopy);
+    expect(fixture.completion()!.playback.trackId).toBe(savedTrack.id);
   });
   it.each(['HTTP 429 temporarily unavailable','Network connection unavailable','Playback request cancelled'])("initial queue global failure stays on the opener: %s",async(reason)=>{
     const fixture=await mountInitialQueueFailureFixture(reason);expect(fixture.resolved).toEqual([savedTrack.id]);expect(fixture.completion()!.error).not.toBeNull();expect(fixture.completion()!.playback.currentIndex).toBe(0);expect(fixture.completion()!.playback.diagnostics.recentTrackFailures).toEqual([]);
@@ -8361,6 +8463,40 @@ describe("native playback frontend", () => {
     expect(notice).toContain("Skipped Sasa: No playable audio match was found for the requested recording and version (Main Version). Choose another source from the track actions.");
     expect(notice.match(/choose another source/gi)).toHaveLength(1);
     expect(notice).not.toContain("choose anot Choose");
+  });
+  it("shows the native missing-duration identity explanation without provider metadata", async () => {
+    const explanation = "Saved recording duration is missing; no source provided enough verified identity evidence for automatic playback.";
+    const title = "Unavailable duration track";
+    const artist = "Fixture Artist";
+    const reason = `No playable audio match was found for ${artist} — ${title}. ${explanation} Open the catalog source or choose another source`;
+    expect(reason.length).toBeGreaterThan(180);
+    await mountQueueFailureFixture(reason, "normal", {
+      id: "fixture:missing-duration",
+      title,
+      artist,
+      sourceUrl: "https://private.invalid/audio?token=fixture-secret",
+    });
+
+    const notice = document.querySelector(".banner.notice")?.textContent ?? "";
+    expect(notice).toContain(`Skipped ${title}: ${explanation} Choose another source from the track actions.`);
+    expect(notice).not.toContain("private.invalid");
+    expect(notice).not.toContain("fixture-secret");
+    expect(notice.match(/choose another source/gi)).toHaveLength(1);
+  });
+  it("does not treat a failure phrase embedded in artist metadata as the missing-duration reason", async () => {
+    const explanation = "Saved recording duration is missing; no source provided enough verified identity evidence for automatic playback.";
+    const artist = `Fixture ${explanation}`;
+    const title = "Metadata phrase track";
+    const reason = `No playable audio match was found for ${artist} — ${title}. No available source matched the requested recording and version. Open the catalog source or choose another source`;
+    await mountQueueFailureFixture(reason, "normal", {
+      id: "fixture:metadata-phrase",
+      title,
+      artist,
+    });
+
+    const notice = document.querySelector(".banner.notice")?.textContent ?? "";
+    expect(notice).toContain(`Skipped ${title}: No playable audio match was found for the requested recording and version`);
+    expect(notice).not.toContain("no source provided enough verified identity evidence");
   });
   it("sanitizes version metadata in the complete unavailable skip explanation", async () => {
     await mountQueueFailureFixture("No playable audio match was found for Timmy Regisford — Sasa (Main Version). https://private.invalid/?token=secret authorization=hidden", "normal", {
@@ -9442,6 +9578,51 @@ describe("search-only upcoming WebView preparation", () => {
     expect((lastCallOf("automation_playback_complete")![1] as {playback:{queueEntryIds:string[]}}).playback.queueEntryIds).toEqual(receipt.receipt.queueEntryIds);
   });
 
+  it("does not let a delayed pause event cancel the newer owner-bound resume", async () => {
+    previewMode = "direct";
+    let mediaPaused = true;
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => mediaPaused);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    let finishResume!: () => void;
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => {
+      if (play.mock.calls.length === 1) {
+        mediaPaused = false;
+        return Promise.resolve();
+      }
+      return new Promise<void>(resolve => { finishResume = () => { mediaPaused = false; resolve(); }; });
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => { mediaPaused = true; });
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command, args) =>
+      command === "automation_queued_playback_accept" || command === "automation_queued_playback_update"
+        ? Promise.resolve({ accepted: true }) : original(command, args));
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    eventHandlers.get("automation-queued-playback")!({ event: "automation-queued-playback", id: 107, payload: {
+      operationId: "delayed-pause-owner", requestId: "delayed-pause-rpc", trackIds: [savedTrack.id],
+    } });
+    await settle(); await settle();
+    await automationAction("pause-before-seek", "pause");
+    await automationAction("seek-before-resume", "seek", { position: 20 });
+    const resumeHandler = eventHandlers.get("automation-playback")!;
+    resumeHandler({ event: "automation-playback", id: 108, payload: { requestId: "resume-after-seek", action: "resume" } });
+    await settle();
+    expect(finishResume).toBeDefined();
+    // A pause event queued by pause-before-seek arrives while the newer
+    // owner-bound play() promise is pending.
+    document.querySelector("audio")!.dispatchEvent(new Event("pause"));
+    await settle();
+    finishResume();
+    await settle(); await settle();
+    const updates = mocks.call.mock.calls.filter(([command]) => command === "automation_queued_playback_update")
+      .map(([, args]) => args as { operationId: string; status: string });
+    expect(updates.every(update => update.operationId === "delayed-pause-owner")).toBe(true);
+    expect(updates.some(update => update.status === "playing")).toBe(true);
+    expect(updates.some(update => ["cancelled", "superseded", "failed"].includes(update.status))).toBe(false);
+    expect(play).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["missing", "failed"])("queued receipt preserves established ownership and cancellation when new track loading is %s", async mode => {
     previewMode="direct";savedChartTracks=[savedTrack];
     vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
@@ -9632,6 +9813,14 @@ describe("remote occurrence save wiring", () => {
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "get_sidebar_layout") return { sections: [], assignments: {}, showAccountPlaylists: {} };
       if (command === "list_remote_playlists" && args?.provider === "youtube") return { items: [{ id: playlistId, title: "Repeated remote playlist", url: playlistUrl }], nextCursor: null };
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "youtube", name: "YouTube", kinds: ["track", "playlist"], enabled: true },
+      ];
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.[0] === "youtube") return {
+        sourceId: "youtube", complete: true,
+        results: [{ id: playlistId, kind: "playlist", sourceId: "youtube", title: "Repeated remote playlist", url: playlistUrl }],
+      };
       if (command === "browse_remote_playlist") return { provider: "youtube", playlistId, title: "Repeated remote playlist", tracks: [first, middle, last], total: 3, complete: true };
       return original(command, args);
     });
@@ -9639,8 +9828,10 @@ describe("remote occurrence save wiring", () => {
     unmountApp = () => { void unmount(instance); };
     await settle();
     sourceGroup("youtube").open = true; await settle();
-    document.querySelector<HTMLButtonElement>('[aria-label="Browse YouTube playlists"]')!.click(); await settle();
-    document.querySelector<HTMLButtonElement>('button[aria-label="Browse Repeated remote playlist"]')!.click(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search YouTube playlists"]')!.click(); await settle();
+    const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    query.value = "Repeated remote playlist"; query.dispatchEvent(new Event("input", { bubbles: true })); await settle(); submitSearch(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Open playlist: Repeated remote playlist"]')!.click(); await settle();
     const detail = document.querySelector(".remote-playlist-detail")!;
     detail.querySelector<HTMLButtonElement>(".start-selection")!.click(); await settle();
     const duplicateChecks = [...detail.querySelectorAll<HTMLInputElement>('[aria-label="Select Repeated for playlist"]')];

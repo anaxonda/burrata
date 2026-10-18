@@ -1,5 +1,7 @@
 # Meld session and provider architecture
 
+Fresh Qobuz recheck (2026-10-18): [current pinned source, new host observations and opt-in architecture recommendation](performance-results/2026-10-18-meld-qobuz-recheck/README.md). Meld HEAD is now `1ded7122ee0bd166bd703bfe3b63d233af8b7dcd`, but the provider file hash is unchanged from the Oct 16 review. Four fresh metadata-only checks supplied no catalog JSON; this is a time/location observation, not proof of permanent host failure. A pinned MIT API implementation is available for a separately authorized self-hosted experiment; no live deployment or playback is qualified.
+
 Follow-up: the newer Meld Qobuz provider is separately pinned to commit `dc7a27224acee33fa475ab70e1935dc03d3ef4ef`, with its source hash and four bounded catalog outcomes in [the Qobuz investigation](performance-results/2026-10-16-meld-qobuz-source/README.md). It relies on community resolver hosts rather than a Qobuz login renderer. None of those four checks returned catalog JSON, so no new playback source is qualified. The session architecture review below retains its original, separate revision pin.
 
 This review is pinned to [Meld commit `e0af26953c315e6d8dfcef25b6436f7747fb34c6`](https://github.com/FrancescoGrazioso/Meld/tree/e0af26953c315e6d8dfcef25b6436f7747fb34c6), confirmed as the repository HEAD during this investigation (2026-10-15). The conclusions below concern the inspected Android Spotify implementation; they do not establish that Meld's private-provider techniques are stable or supported by Spotify.

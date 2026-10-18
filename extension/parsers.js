@@ -1,5 +1,5 @@
 // Only explicitly selected public catalog fields leave the browser.
-export const sites = ['https://www.beatport.com/*', 'https://www.traxsource.com/*', 'https://open.spotify.com/*', 'https://www.shazam.com/*', 'https://www.last.fm/*', 'https://last.fm/*', 'https://bandcamp.com/*', 'https://*.bandcamp.com/*'];
+export const sites = ['https://www.beatport.com/*', 'https://www.traxsource.com/*', 'https://open.spotify.com/*', 'https://www.youtube.com/*', 'https://music.youtube.com/*', 'https://www.shazam.com/*', 'https://www.last.fm/*', 'https://last.fm/*', 'https://bandcamp.com/*', 'https://*.bandcamp.com/*'];
 export function providerFor(url) {
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new Error('Use an HTTPS provider page.');
@@ -7,6 +7,7 @@ export function providerFor(url) {
   if(host==='www.shazam.com'||host==='shazam.com')return 'shazam';
   if(host==='www.last.fm'||host==='last.fm')return 'lastfm';
   if(host==='bandcamp.com'||host.endsWith('.bandcamp.com'))return 'bandcamp';
+  if(host==='www.youtube.com'||host==='music.youtube.com')return 'youtube';
   return ({'www.beatport.com':'beatport','beatport.com':'beatport','www.traxsource.com':'traxsource','traxsource.com':'traxsource','open.spotify.com':'spotify'})[host] || null;
 }
 const text = (root, selector) => root.querySelector(selector)?.textContent.trim() || null;
@@ -234,10 +235,89 @@ export function isVerification(doc) {
     !!challengeNode && challengePattern.test(challengeNode.textContent || '') ||
     !!challengeHeading && challengePattern.test(challengeHeading.textContent || '');
 }
+function youtubeText(node){return String(node?.textContent||node?.getAttribute?.('title')||'').trim().replace(/\s+/g,' ');}
+function youtubeVideoId(value){return typeof value==='string'&&/^[A-Za-z0-9_-]{11}$/.test(value)?value:null;}
+function youtubeDuration(value){
+  if(typeof value!=='string')return null;
+  const iso=value.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
+  if(iso){const seconds=Number(iso[1]||0)*3600+Number(iso[2]||0)*60+Number(iso[3]||0);return Number.isFinite(seconds)&&seconds>0?seconds:null;}
+  const parts=value.trim().split(':');
+  if(parts.length<2||parts.length>3||parts.some(part=>!/^\d+$/.test(part)))return null;
+  const seconds=parts.map(Number).reduce((total,part)=>total*60+part,0);
+  return Number.isSafeInteger(seconds)&&seconds>0?seconds:null;
+}
+function youtubeExpectedTotal(root){
+  const value=(root?.textContent||'').match(/([\d,]+)\s+(?:videos?|songs?|tracks?)\b/i)?.[1];
+  if(!value)return null;
+  const total=Number(value.replaceAll(',',''));
+  return Number.isInteger(total)&&total>=0&&total<=10000?total:null;
+}
+function youtubePlaylistEntry(row,_index,base){
+  const page=new URL(base),playlistId=page.searchParams.get('list');
+  const watchAnchors=[...row.querySelectorAll('a[href*="/watch"],a[href*="youtube.com/watch"]')];
+  // The current YouTube playlist page uses yt-lockup-view-model cards. Their
+  // time badge is the first watch link; the title link carries an accessible
+  // label and every link carries the explicit playlist index.
+  const indexed=watchAnchors.filter(a=>{try{const u=new URL(a.getAttribute('href'),base);return u.searchParams.get('list')===playlistId&&u.searchParams.has('index');}catch{return false;}});
+  const anchor=indexed.find(a=>a.hasAttribute('aria-label')&&!/^\s*\d{1,2}:\d{2}\s*$/.test(youtubeText(a)))||watchAnchors.find(a=>!/^\s*\d{1,2}:\d{2}\s*$/.test(youtubeText(a)))||watchAnchors[0];
+  let videoId=youtubeVideoId(row.getAttribute('data-video-id')||row.dataset?.videoId||null);
+  if(!videoId&&anchor){try{videoId=youtubeVideoId(new URL(anchor.getAttribute('href'),base).searchParams.get('v'));}catch{/* invalid rendered link */}}
+  const titleNode=row.querySelector('#video-title, a#video-title, yt-formatted-string#video-title, [data-testid="video-title"], a.ytLockupMetadataViewModelTitle, [class*="ytLockupMetadataViewModelTitle"]')||anchor;
+  const title=youtubeText(titleNode)||youtubeText(anchor);
+  const artistNode=row.querySelector('#byline-container, #channel-name, ytd-channel-name, .byline, #subtitle, a[href*="/channel/"], a[href*="/@"]');
+  const artist=youtubeText(artistNode);
+  const ordinalNode=row.querySelector('#index, [id="index"], [data-index], [aria-label*="position" i]');
+  const ordinalValue=ordinalNode?.getAttribute('data-index')||ordinalNode?.getAttribute('aria-label')||youtubeText(ordinalNode);
+  const ordinalMatch=String(ordinalValue||'').match(/\d+/);
+  let linkIndex=null;
+  if(anchor){try{const u=new URL(anchor.getAttribute('href'),base);if(u.searchParams.get('list')===playlistId)linkIndex=Number(u.searchParams.get('index'));}catch{/* noncanonical link */}}
+  const position=ordinalMatch?Number(ordinalMatch[0]):Number.isInteger(linkIndex)&&linkIndex>0?linkIndex:null;
+  if(!Number.isInteger(position)||position<1||position>10000||!title||!artist)return null;
+  const durationNode=row.querySelector('#text.ytd-thumbnail-overlay-time-status-renderer, .duration, .ytBadgeShapeText, yt-thumbnail-bottom-overlay-view-model, [aria-label*="duration" i]');
+  const durationSeconds=youtubeDuration(durationNode?.getAttribute('aria-label')||youtubeText(durationNode));
+  const image=row.querySelector('img');
+  const artworkUrl=link(image?.getAttribute('src')||image?.getAttribute('srcset')?.split(',').at(-1)?.trim().split(/\s+/)[0],base);
+  const url=videoId?`https://www.youtube.com/watch?v=${videoId}`:null;
+  return entry(videoId,url,artist,title,position,{durationSeconds,artworkUrl});
+}
+function extractYouTube(doc,url){
+  const page=new URL(url),videoId=youtubeVideoId(page.searchParams.get('v'));
+  if(page.pathname==='/watch'&&videoId){
+    // YouTube can render empty placeholder headings ahead of its populated
+    // watch-metadata heading. A comma-selector querySelector returns the first
+    // DOM match even when it has no text, so scan the bounded heading set.
+    const title=[...doc.querySelectorAll('ytd-watch-metadata h1, #above-the-fold h1, h1.title, h1')].map(youtubeText).find(Boolean)||'';
+    const owner=doc.querySelector('#owner #channel-name a, #upload-info #channel-name a, ytd-video-owner-renderer #channel-name a, ytd-channel-name a');
+    const artist=youtubeText(owner)||youtubeText(doc.querySelector('#owner #channel-name, #upload-info #channel-name, ytd-video-owner-renderer #channel-name'));
+    if(!title||!artist)throw new Error('YouTube video title or channel credit is not rendered. Wait for the public video metadata to load and retry.');
+    const durationNode=doc.querySelector('meta[itemprop="duration"], .ytp-time-duration');
+    const durationRaw=durationNode?.getAttribute('content')||youtubeText(durationNode);
+    const image=doc.querySelector('meta[property="og:image"]')?.getAttribute('content')||doc.querySelector('#thumbnail img, ytd-video-primary-info-renderer img')?.getAttribute('src');
+    return {schemaVersion:1,provider:'youtube',kind:'playlist',title:`${artist} — ${title}`,sourceUrl:`https://www.youtube.com/watch?v=${videoId}`,capturedAt:new Date().toISOString(),complete:true,expectedTotal:1,warnings:[],entries:[entry(videoId,`https://www.youtube.com/watch?v=${videoId}`,artist,title,1,{durationSeconds:youtubeDuration(durationRaw),artworkUrl:link(image,url)})]};
+  }
+  const playlistId=page.searchParams.get('list');
+  if(page.pathname==='/playlist'&&typeof playlistId==='string'&&/^[A-Za-z0-9_-]{10,80}$/.test(playlistId)){
+    const root=doc.querySelector('ytd-playlist-video-list-renderer')||doc.querySelector('ytmusic-playlist-shelf-renderer')||doc.querySelector('main')||doc.body;
+    const rows=[...root.querySelectorAll('ytd-playlist-video-renderer, ytmusic-responsive-list-item-renderer, yt-lockup-view-model')]
+      .filter(row=>row.tagName.toLowerCase()!=='yt-lockup-view-model'||[...row.querySelectorAll('a[href*="/watch"]')].some(anchor=>{
+        try{const linked=new URL(anchor.getAttribute('href'),url);return linked.searchParams.get('list')===playlistId&&linked.searchParams.has('index');}catch{return false;}
+      })).slice(0,10000);
+    const entries=[],warnings=[];
+    rows.forEach((row,index)=>{const parsed=youtubePlaylistEntry(row,index,url);if(parsed)entries.push(parsed);});
+    if(entries.length<rows.length)warnings.push('Some rendered playlist rows lacked a stable order, title, or channel credit and were omitted.');
+    const header=doc.querySelector('ytd-playlist-header-renderer')||doc.querySelector('ytmusic-playlist-header-renderer')||doc.querySelector('main')||doc.body;
+    const expectedTotal=youtubeExpectedTotal(header)??youtubeExpectedTotal(doc.body);
+    if(!entries.length&&expectedTotal!==0)throw new Error('YouTube playlist videos were not available. Wait for the public playlist rows to load and retry.');
+    const title=youtubeText(doc.querySelector('ytd-playlist-header-renderer h1, ytmusic-playlist-header-renderer h1, main h1, h1'))||doc.title||'YouTube playlist';
+    return {schemaVersion:1,provider:'youtube',kind:'playlist',title,sourceUrl:`https://www.youtube.com/playlist?list=${playlistId}`,capturedAt:new Date().toISOString(),complete:expectedTotal===0&&entries.length===0,expectedTotal,warnings,entries};
+  }
+  throw new Error('Open a public YouTube video or playlist page.');
+}
 export function extract(doc, url) {
   const provider = providerFor(url);
-  if (!provider) throw new Error('Open a supported Beatport, Traxsource, Spotify, Shazam, Last.fm or Bandcamp page.');
+  if (!provider) throw new Error('Open a supported Beatport, Traxsource, Spotify, YouTube, Shazam, Last.fm or Bandcamp page.');
   if (isVerification(doc)) throw new Error('Complete provider verification in this browser tab, then import again.');
+  if(provider==='youtube')return extractYouTube(doc,url);
   if(provider==='shazam')return extractShazam(doc,url);
   if(provider==='lastfm')return extractLastfm(doc,url);
   if(provider==='bandcamp'){
@@ -393,13 +473,15 @@ export function extract(doc, url) {
   return {schemaVersion:1,provider,kind:provider==='spotify'?spotifyKind:'chart',title,sourceUrl,capturedAt:new Date().toISOString(),complete:false,expectedTotal,warnings:[],entries};
 }
 export function mergeSnapshots(snapshots) {
-  const snapshot={...snapshots[0], entries:[]};const positions=new Map();
+  const snapshot={...snapshots[0], entries:[],warnings:[...new Set(snapshots.flatMap(s=>s.warnings||[]))]};const positions=new Map();
   // Keep repeated occurrences. Native app deduplicates IDs preserving occurrence provenance.
   for(const s of snapshots)for(const e of s.entries)positions.set(`${e.position}:${e.providerId}`,e);
   snapshot.entries=[...positions.values()].sort((a,b)=>a.position-b.position);
   const uniquePositions=new Set(snapshot.entries.map(e=>e.position));
-  snapshot.complete=(snapshot.kind!=='chart'||snapshot.entries.every(e=>e.rank===e.position)) && !!snapshot.expectedTotal && snapshot.entries.length===snapshot.expectedTotal && uniquePositions.size===snapshot.expectedTotal && Math.min(...uniquePositions)===1 && Math.max(...uniquePositions)===snapshot.expectedTotal;
+  const emptyPlaylist=snapshot.kind==='playlist'&&snapshot.expectedTotal===0&&snapshot.entries.length===0;
+  snapshot.complete=snapshot.warnings.length===0&&(emptyPlaylist||((snapshot.kind!=='chart'||snapshot.entries.every(e=>e.rank===e.position)) && Number.isInteger(snapshot.expectedTotal) && snapshot.expectedTotal>0 && snapshot.entries.length===snapshot.expectedTotal && uniquePositions.size===snapshot.expectedTotal && Math.min(...uniquePositions)===1 && Math.max(...uniquePositions)===snapshot.expectedTotal));
   if(!snapshot.complete)snapshot.warnings.push(snapshot.expectedTotal ? `Captured ${snapshot.entries.length} of ${snapshot.expectedTotal} entries; import may be incomplete.`:'Provider total unavailable; completeness is unknown.');
+  snapshot.warnings=[...new Set(snapshot.warnings)];
   return snapshot;
 }
 

@@ -1,7 +1,7 @@
 if(!globalThis.BurrataSpotifyAuth&&typeof importScripts==='function')importScripts('spotify-auth.js');
 if(!globalThis.BurrataSpotifyProvider&&typeof importScripts==='function')importScripts('provider-operations.js');
 const api=globalThis.browser||chrome;
-const sites=['https://www.beatport.com/*','https://www.traxsource.com/*','https://open.spotify.com/*','https://www.shazam.com/*','https://shazam.com/*','https://www.last.fm/*','https://last.fm/*','https://bandcamp.com/*','https://*.bandcamp.com/*'];
+const sites=['https://www.beatport.com/*','https://www.traxsource.com/*','https://open.spotify.com/*','https://www.youtube.com/*','https://music.youtube.com/*','https://www.shazam.com/*','https://shazam.com/*','https://www.last.fm/*','https://last.fm/*','https://bandcamp.com/*','https://*.bandcamp.com/*'];
 let port=null,waiters=[],nativeBusy=Promise.resolve(),pollBusy=false;
 let lastError='',requestTabs=new Map(),enabled=false;
 const providerOperations=new Map();
@@ -383,7 +383,7 @@ async function waitLoaded(tabId){
   for(let i=0;i<40;i++){const t=await api.tabs.get(tabId);if(t.status==='complete'){await new Promise(r=>setTimeout(r,1200));return;}await new Promise(r=>setTimeout(r,500));}
   throw new Error('Provider page took too long to load.');
 }
-function supported(url){try{const u=new URL(url),host=u.hostname.toLowerCase();return u.protocol==='https:'&&(['www.beatport.com','beatport.com','www.traxsource.com','traxsource.com','open.spotify.com','www.shazam.com','shazam.com','www.last.fm','last.fm','bandcamp.com'].includes(host)||host.endsWith('.bandcamp.com'));}catch{return false;}}
+function supported(url){try{const u=new URL(url),host=u.hostname.toLowerCase();return u.protocol==='https:'&&(['www.beatport.com','beatport.com','www.traxsource.com','traxsource.com','open.spotify.com','www.youtube.com','music.youtube.com','www.shazam.com','shazam.com','www.last.fm','last.fm','bandcamp.com'].includes(host)||host.endsWith('.bandcamp.com'));}catch{return false;}}
 async function poll(){
   await Promise.all([ready,managedSessionReady]);
   if(pollBusy)return;pollBusy=true;

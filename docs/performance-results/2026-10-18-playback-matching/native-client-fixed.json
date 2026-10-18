@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "scope": "isolated seeded fixtures; native mixer-consumed frames; not an acoustic measurement",
+  "binarySha256": "c1674016f61baf502bdfb0528bd0328aeafc3e14c29b372c8200867697e95bc8",
+  "pass": true,
+  "cases": [
+    {
+      "case": "five_hundred_miles",
+      "trackId": "fixture:500-miles",
+      "expectedProvider": "monochrome",
+      "selectedCandidate": {
+        "provider": "monochrome",
+        "id": "monochrome:168503514673217536",
+        "durationSeconds": 162.933
+      },
+      "status": "sustained_playback_pass",
+      "queueRequestCount": 1,
+      "firstAudioMs": 2792,
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5206.417166000001,
+        "advancedMs": 5216.768707482993,
+        "observations": 25
+      },
+      "pausedSeek": {
+        "pass": true,
+        "status": "paused",
+        "paused": true,
+        "position": 10
+      },
+      "postSeekSustained": {
+        "status": "ready",
+        "wallMs": 5013.427128000001,
+        "advancedMs": 5011.473922902494,
+        "observations": 24
+      }
+    },
+    {
+      "case": "bby_wow",
+      "trackId": "fixture:bby-wow",
+      "expectedProvider": "youtube",
+      "selectedCandidate": {
+        "provider": "youtube",
+        "id": "youtube:fRIhCiUVaKs",
+        "durationSeconds": 226
+      },
+      "status": "sustained_playback_pass",
+      "queueRequestCount": 1,
+      "firstAudioMs": 11712,
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5003.117765999996,
+        "advancedMs": 5015.510204081633,
+        "observations": 24
+      },
+      "pausedSeek": {
+        "pass": true,
+        "status": "paused",
+        "paused": true,
+        "position": 10
+      },
+      "postSeekSustained": {
+        "status": "ready",
+        "wallMs": 5056.921729999995,
+        "advancedMs": 5059.3424036281185,
+        "observations": 24
+      }
+    },
+    {
+      "case": "bad_times",
+      "trackId": "fixture:bad-times",
+      "expectedProvider": "youtube",
+      "selectedCandidate": {
+        "provider": "youtube",
+        "id": "youtube:Hqp8vxkPrI8",
+        "durationSeconds": 168
+      },
+      "status": "sustained_playback_pass",
+      "queueRequestCount": 1,
+      "firstAudioMs": 12407,
+      "sustained": {
+        "status": "ready",
+        "wallMs": 5215.3726099999985,
+        "advancedMs": 5294.149659863946,
+        "observations": 25
+      },
+      "pausedSeek": {
+        "pass": true,
+        "status": "paused",
+        "paused": true,
+        "position": 10
+      },
+      "postSeekSustained": {
+        "status": "ready",
+        "wallMs": 5206.535601999996,
+        "advancedMs": 5059.3424036281185,
+        "observations": 25
+      }
+    }
+  ],
+  "finalPaused": true,
+  "volumeRestored": true
+}

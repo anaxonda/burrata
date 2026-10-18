@@ -6,6 +6,7 @@
   import { onDestroy, onMount, tick, untrack } from "svelte";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
   import { providerAccountScope, providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
+  import { safeArtworkUrls } from "./lib/artwork-url";
 
   type Album = { id: string; title: string; url: string; artworkUrl?: string | null; releaseDate?: string | null; albumType?: string | null; totalTracks?: number | null; artists: string[] };
   type Artist = { id: string; name: string; url: string; artworkUrl?: string | null; genres: string[]; popularity?: number | null; followers?: number | null };
@@ -14,13 +15,19 @@
   type ArtistTracksPage = { provider: string; accountId?: string | null; artistId: string; tracks: Track[]; nextCursor?: string | null; total?: number | null };
   type ReleaseSortField = Extract<TrackSortField, "sourceOrder" | "title" | "releaseDate">;
   type ArtistSnapshot = { page: ArtistPage | null; albums: Album[]; albumPage: AlbumPage | null; albumId: string | null; tracks: Track[]; albumCursor: string | null; trackCursor: string | null; seenAlbumCursors: string[]; seenTrackCursors: string[]; topTracks?: Track[]; topTracksCursor?: string | null; topTracksTotal?: number | null; seenTopTrackCursors?: string[]; topTracksLoaded?: boolean; topTrackSort?: TrackSortField; topTrackSortDirection?: SortDirection; topTrackQuery?: string; topTrackMinDuration?: string; topTrackMaxDuration?: string; loadedTopTrackCount?: number; sort: TrackSortField; sortDirection: SortDirection; releaseSort?: ReleaseSortField; releaseSortDirection?: SortDirection; minDuration: string; maxDuration: string; scroll: number; loadedAlbumCount: number; loadedTrackCount: number; needsRefetch: boolean };
-  let { artistId, navigationSnapshotKey = null, call, onPlay = () => {}, onBack = () => {}, onPlaylist = () => {}, onAddSelectedToPlaylist, onSaveToLibrary, onBrowseArtistProvider, playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false, initialScroll = 0, onScroll = () => {}, searchArtistFallback = null }: {
+  let { artistId, navigationSnapshotKey = null, call, onPlay = () => {}, onBack = () => {}, onPlaylist = () => {}, onNext, onQueue, onFavorite, onDownload, onArtist, onContext, onAddSelectedToPlaylist, onSaveToLibrary, onBrowseArtistProvider, playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false, initialScroll = 0, onScroll = () => {}, searchArtistFallback = null }: {
     artistId: string;
     navigationSnapshotKey?: string | null;
     call: (command: string, args: Record<string, unknown>) => Promise<unknown>;
     onPlay?: (track: Track, list: Track[], index: number) => void;
     onBack?: () => void;
     onPlaylist?: (track: Track) => void;
+    onNext?: (track: Track) => void;
+    onQueue?: (track: Track) => void;
+    onFavorite?: (track: Track) => void;
+    onDownload?: (track: Track) => void;
+    onArtist?: (track: Track) => void;
+    onContext?: (track: Track, event: MouseEvent) => void;
     onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>; onSaveToLibrary?: (tracks: Track[]) => void | Promise<void>;
     onBrowseArtistProvider?: (name: string, provider: "spotify" | "musicbrainz") => void | Promise<void>;
     playingTrack?: Track | null; bufferingTrack?: Track | null; playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
@@ -50,6 +57,7 @@
   let topTrackMaxDuration = $state("");
   let busy = $state(false);
   let error = $state("");
+  let failedArtistArtwork = $state<string[]>([]);
   let librarySaveStatus = $state<{ albumId: string; kind: "saving" | "success" | "error"; text: string } | null>(null);
   let librarySaveGeneration = 0;
   let albumCursor = $state<string | null>(null);
@@ -108,7 +116,15 @@
       .filter(Boolean);
   });
   const artistArtworkFallback = $derived(searchArtistFallback?.id === artistId ? searchArtistFallback.artworkUrl : null);
-  const artistArtworkUrl = $derived(page?.artist.artworkUrl || artistArtworkFallback);
+  const artistArtworkCandidates = $derived(safeArtworkUrls([
+    page?.artist.artworkUrl,
+    artistArtworkFallback,
+    ...albums.slice(0, 6).map(album => album.artworkUrl),
+  ]));
+  const artistArtworkUrl = $derived(artistArtworkCandidates.find(url => !failedArtistArtwork.includes(url)) ?? null);
+  function rejectArtistArtwork(url: string) {
+    if (!failedArtistArtwork.includes(url)) failedArtistArtwork = [...failedArtistArtwork, url].slice(-8);
+  }
   function formatReleaseDate(value?: string | null, fallback?: string | null) {
     if (!value) return fallback || "Release";
     const parts = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?/.exec(value.trim());
@@ -127,7 +143,7 @@
   async function loadArtist(id: string, cursor: string | null = null, restoreToken?: number) {
     if (restoreToken === undefined) restoreGeneration += 1;
     else if (restoreToken !== restoreGeneration || artistId !== id) return;
-    if (!cursor) seenAlbumCursors = new Set();
+    if (!cursor) { seenAlbumCursors = new Set(); failedArtistArtwork = []; }
     providerReads.cancelAll(); const current = ++generation; busy = true; error = "";
     try {
       const result = await providerReads.read("browse_remote_artist", { artistId: id, cursor });
@@ -389,11 +405,11 @@
     <div class="track-heading"><h2>Tracks <span>{visibleTracks.length}</span></h2><div class="track-controls"><select aria-label="Sort tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Track number</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", ["spotify"])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", ["spotify"])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", ["spotify"])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", ["spotify"])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", ["spotify"])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", ["spotify"])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", ["spotify"])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", ["spotify"])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", ["spotify"])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", ["spotify"])}</option></select><select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select><label>From <input aria-label="Minimum track duration" placeholder="mm:ss" bind:value={minDuration} oninput={cancelRestore} /></label><label>To <input aria-label="Maximum track duration" placeholder="mm:ss" bind:value={maxDuration} oninput={cancelRestore} /></label>{#if onSaveToLibrary && tracks.length}<button class="save-album-to-library" type="button" aria-label={albumTracksComplete ? "Save album to library" : "Save loaded tracks to library"} disabled={librarySaveStatus?.kind === "saving"} onclick={() => void saveLoadedAlbumTracks()}>{librarySaveStatus?.kind === "saving" ? "Saving…" : albumTracksComplete ? "Save album" : "Save loaded tracks"}</button>{/if}</div></div>
     <p class="notice">Sorting and duration filters apply to collected tracks ({tracks.length}{albumPage.total != null ? ` of ${albumPage.total}` : ""}).{#if trackCursor} Load more to include additional tracks.{/if}</p>
     {#if librarySaveStatus?.albumId === albumPage.album.id}<p class={librarySaveStatus.kind === "error" ? "error" : "notice"} role={librarySaveStatus.kind === "error" ? "alert" : "status"}>{librarySaveStatus.text}</p>{/if}
-    <TrackList tracks={visibleTracks} selectionContext={`album:${artistId}:${albumPage.album.id}`} selectionKeys={visibleTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks} selectionTrackKeys={tracks.map((_, index) => String(index))} listLabel={`${albumPage.album.title} tracks`} onPlay={(track, list, index) => onPlay(track, list, index)} onPlaylist={onPlaylist} {onAddSelectedToPlaylist} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
+    <TrackList tracks={visibleTracks} selectionContext={`album:${artistId}:${albumPage.album.id}`} selectionKeys={visibleTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks} selectionTrackKeys={tracks.map((_, index) => String(index))} listLabel={`${albumPage.album.title} tracks`} onPlay={(track, list, index) => onPlay(track, list, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onPlaylist={onPlaylist} onArtist={onArtist} onContext={onContext} {onAddSelectedToPlaylist} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
     {#if trackCursor}<button disabled={busy} onclick={() => { cancelRestore(); void moreTracks(); }}>Load more tracks</button>{/if}
     <button onclick={() => { cancelRestore(); invalidateLibrarySave(); albumPage = null; tracks = []; if (!topTracksLoaded && !topTracksBusy) void loadTopTracks(artistId); }}>Back to releases</button>
   {:else if page}
-    <header class="hero">{#if artistArtworkUrl}<img src={artistArtworkUrl} alt="" />{:else}<div class="placeholder">♫</div>{/if}<div><p class="eyebrow">Spotify artist</p><h1>{page.artist.name}</h1>{#if page.artist.genres.length}<p>{page.artist.genres.join(" · ")}</p>{/if}<a href={page.artist.url} target="_blank" rel="noreferrer">Open in Spotify</a>{#if onBrowseArtistProvider}<button class="browse-provider" type="button" aria-label={`Find ${page.artist.name} on MusicBrainz`} onclick={browseCurrentArtistOnMusicBrainz}>Find on MusicBrainz</button>{/if}</div></header>
+    <header class="hero">{#if artistArtworkUrl}<img src={artistArtworkUrl} alt="" onerror={() => rejectArtistArtwork(artistArtworkUrl!)} />{:else}<div class="placeholder">♫</div>{/if}<div><p class="eyebrow">Spotify artist</p><h1>{page.artist.name}</h1>{#if page.artist.genres.length}<p>{page.artist.genres.join(" · ")}</p>{/if}<a href={page.artist.url} target="_blank" rel="noreferrer">Open in Spotify</a>{#if onBrowseArtistProvider}<button class="browse-provider" type="button" aria-label={`Find ${page.artist.name} on MusicBrainz`} onclick={browseCurrentArtistOnMusicBrainz}>Find on MusicBrainz</button>{/if}</div></header>
     <section class="top-tracks" aria-labelledby="spotify-top-tracks-title">
       <h2 id="spotify-top-tracks-title">Top tracks {#if topTracksTotal != null}<span>{topTracksTotal}</span>{/if}</h2>
       {#if topTracks.length}
@@ -405,7 +421,7 @@
           <label>To <input aria-label="Maximum top track duration" placeholder="mm:ss" bind:value={topTrackMaxDuration} /></label>
           <span>{visibleTopTracks.length} matching · {topTracks.length} loaded{topTracksTotal != null ? ` of ${topTracksTotal}` : ""}</span>
         </div>
-        <TrackList tracks={visibleTopTracks} selectionContext={`artist-top:${artistId}`} selectionKeys={visibleTopTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={topTracks} selectionTrackKeys={topTracks.map((_, index) => String(index))} listLabel={`${page.artist.name} top tracks`} onPlay={onPlay} onPlaylist={onPlaylist} {onAddSelectedToPlaylist} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
+        <TrackList tracks={visibleTopTracks} selectionContext={`artist-top:${artistId}`} selectionKeys={visibleTopTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={topTracks} selectionTrackKeys={topTracks.map((_, index) => String(index))} listLabel={`${page.artist.name} top tracks`} onPlay={onPlay} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onPlaylist={onPlaylist} onArtist={onArtist} onContext={onContext} {onAddSelectedToPlaylist} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
       {:else if topTracksBusy}<p class="notice" role="status">Loading Spotify top tracks…</p>
       {:else if topTracksError}<p class="notice error" role="alert">{topTracksError}</p>
       {:else}<p class="notice" role="status">{page.topTracksUnavailable || "No top tracks are available for this artist."}</p>{/if}

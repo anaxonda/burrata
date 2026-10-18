@@ -8,22 +8,26 @@
     :root { color-scheme: dark; font: 13px/1.45 system-ui, sans-serif; background: #151a18; color: #e7eee8; }
     * { box-sizing: border-box; }
     body { width: 360px; margin: 0; padding: 16px; }
-    .popup { display: grid; gap: 13px; }
+    .popup { display: grid; gap: 12px; }
     .brand { display: flex; align-items: center; gap: 10px; }
     .brand img { width: 36px; height: 36px; image-rendering: auto; }
+    .brand-copy { flex: 1; }
     .brand h1 { margin: 0; font-size: 17px; line-height: 1.2; }
     .brand p { margin: 2px 0 0; color: #aab5ad; font-size: 12px; }
-    section { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid #343d37; }
+    section { display: grid; gap: 10px; }
     h2 { margin: 0; font-size: 13px; }
     p { margin: 0; color: #bac4bd; }
     .page-scope { font-size: 12px; }
-    #actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #actions { display: grid; gap: 8px; }
     button { min-height: 36px; padding: 7px 10px; border: 1px solid #46534a; border-radius: 7px; background: #232b26; color: #edf4ee; font: inherit; font-weight: 600; cursor: pointer; }
     button:hover:not(:disabled) { border-color: #b8ec8c; }
     button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid #b8ec8c; outline-offset: 2px; }
     button:disabled { opacity: .52; cursor: default; }
-    #import { border-color: #8cae70; background: #34452f; }
+    #import { min-height: 44px; border-color: #8cae70; background: #34452f; font-size: 14px; }
     #enable { width: 100%; }
+    .quiet-button { min-height: 32px; padding: 5px 8px; color: #c4cec6; font-size: 11px; }
+    #settings-view { padding-top: 12px; border-top: 1px solid #343d37; }
+    .view-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     #status { min-height: 1.45em; color: #dbe8dc; overflow-wrap: anywhere; white-space: pre-wrap; }
     details { color: #bac4bd; }
     summary { width: fit-content; color: #dce8df; font-weight: 600; cursor: pointer; }
@@ -41,49 +45,62 @@
 <body>
   <main class="popup">
     <header class="brand">
-      <img alt="" width="36" height="36" src="data:image/png;base64,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">
-      <div><h1>Burrata</h1><p>Browser companion</p></div>
+      <img alt="" width="36" height="36" src="icons/burrata-48.png">
+      <div class="brand-copy"><h1>Burrata</h1><p>Browser companion</p></div>
+      <button id="show-settings" class="quiet-button" type="button" aria-controls="settings-view">Connections</button>
     </header>
+    <p id="status" role="status" aria-live="polite"></p>
 
-    <section aria-labelledby="import-heading">
-      <h2 id="import-heading">Import the current page</h2>
-      <p class="page-scope">Public chart, playlist, and album metadata from supported pages.</p>
+    <section id="import-view" aria-labelledby="import-heading">
+      <h2 id="import-heading" tabindex="-1">Import this page</h2>
+      <p class="page-scope">Save public track, playlist, album, or chart metadata from the active tab.</p>
       <div id="actions">
         <button id="import" type="button">Import current page</button>
-        <button id="diagnostic" type="button">Save diagnostic</button>
       </div>
-      <p class="fine-print">Diagnostics save one sanitized public track row locally. Cookies, JSON scripts and forms are excluded. Nothing is uploaded.</p>
-      <button id="enable" type="button">Enable app-driven imports</button>
-      <p id="status" role="status" aria-live="polite"></p>
       <details>
-        <summary>Supported pages and import notes</summary>
+        <summary>More options and supported pages</summary>
         <div class="help-copy">
-          <p>Beatport, Traxsource, Shazam, Last.fm, Spotify playlists or albums, Bandcamp albums, and Bandcamp Discover pages.</p>
+          <button id="diagnostic" class="quiet-button" type="button">Save parser diagnostic</button>
+          <p class="fine-print">Saves one sanitized public track row locally. Cookies, JSON scripts, and forms are excluded. Nothing is uploaded.</p>
+          <p>Beatport, Traxsource, Shazam, Last.fm, Spotify playlists or albums, public YouTube videos or playlists, Bandcamp albums, and Bandcamp Discover pages.</p>
           <p>Keep Burrata running. Spotify capture may scroll for up to 25 seconds and restores your position. Shazam and Last.fm preserve explicit ranks; Bandcamp Discover reads up to 20 rendered album cards. Verification requires your interaction.</p>
-          <p>App-driven imports request supported-site access only when enabled. Current-page import remains available if permission is declined.</p>
+          <p>Public YouTube page imports do not require sign-in. Importing this page works separately from browser-assisted access.</p>
         </div>
       </details>
     </section>
 
-    <section aria-labelledby="youtube-heading">
-      <h2 id="youtube-heading">Connect a YouTube session</h2>
-      <p>In Burrata, open Connections and copy this instance’s short-lived pairing code.</p>
-      <div>
-        <label for="youtube-pairing-code">Burrata pairing code</label>
-        <input id="youtube-pairing-code" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="38" placeholder="port-32-character-code">
+    <section id="settings-view" aria-labelledby="settings-heading" hidden>
+      <div class="view-heading">
+        <h2 id="settings-heading" tabindex="-1">Connections</h2>
+        <button id="show-import" class="quiet-button" type="button" aria-controls="import-view">Back to import</button>
       </div>
-      <label class="consent"><input id="youtube-consent" type="checkbox"><span>I consent to checking the displayed account name in my active YouTube tab. No session cookie is read during this check.</span></label>
-      <button id="youtube-check-account" type="button" disabled>Check active YouTube account</button>
-      <p id="youtube-account" role="status" aria-live="polite" hidden></p>
-      <label id="youtube-account-consent-label" class="consent" hidden><input id="youtube-account-consent" type="checkbox"><span>I confirm this is the account I want to connect to the Burrata instance that showed this code.</span></label>
-      <button id="youtube-handoff" type="button" disabled>Send this YouTube session to Burrata</button>
-      <details>
-        <summary>How the session handoff works</summary>
-        <div class="help-copy">
-          <p>The code expires after two minutes and works once. The SAPISID signing cookie is read only after both confirmations and sent directly to the app instance named by the code. Google mailbox data and other Google cookies are excluded.</p>
-          <p>Remove the connection in Burrata’s Connections settings.</p>
+      <section aria-labelledby="browser-access-heading">
+        <h3 id="browser-access-heading">Browser-assisted access</h3>
+        <p>In-app sign-in in Burrata Settings → Connections is preferred. This optional mode lets Burrata use your signed-in browser session for provider requests and app-driven imports.</p>
+        <button id="enable" type="button">Enable browser-assisted access</button>
+        <p class="fine-print">Grant site access when asked. You can still import the active page without enabling this mode.</p>
+        <p>To connect Spotify with this browser, enable access here, then choose Spotify → Connect in Burrata Settings → Connections. Burrata opens your Spotify tab to verify the signed-in account.</p>
+      </section>
+      <section aria-labelledby="youtube-heading">
+        <h3 id="youtube-heading">Pair a YouTube session with Burrata</h3>
+        <p>This is a separate option for sending the selected YouTube session to the app. In Burrata Connections, create a pairing code for this instance.</p>
+        <div>
+          <label for="youtube-pairing-code">Burrata pairing code</label>
+          <input id="youtube-pairing-code" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="38" placeholder="port-32-character-code">
         </div>
-      </details>
+        <label class="consent"><input id="youtube-consent" type="checkbox"><span>I consent to checking the displayed account name in my active YouTube tab. No session cookie is read during this check.</span></label>
+        <button id="youtube-check-account" type="button" disabled>Check active YouTube account</button>
+        <p id="youtube-account" role="status" aria-live="polite" hidden></p>
+        <label id="youtube-account-consent-label" class="consent" hidden><input id="youtube-account-consent" type="checkbox"><span>I confirm this is the account I want to connect to the Burrata instance that showed this code.</span></label>
+        <button id="youtube-handoff" type="button" disabled>Send this YouTube session to Burrata</button>
+        <details>
+          <summary>How the session handoff works</summary>
+          <div class="help-copy">
+            <p>The code expires after two minutes and works once. The SAPISID signing cookie is read only after both confirmations and sent directly to the app instance named by the code. Google mailbox data and other Google cookies are excluded.</p>
+            <p>Remove the connection in Burrata’s Connections settings.</p>
+          </div>
+        </details>
+      </section>
     </section>
   </main>
   <script src="popup.js"></script>

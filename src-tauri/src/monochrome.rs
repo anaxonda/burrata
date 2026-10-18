@@ -364,8 +364,10 @@ fn score(track: &Track, candidate: &mut Candidate) {
         .and_then(|m| m.get("catalogTitle"))
         .and_then(Value::as_str)
         .map(recording_title);
-    let exact_artist = crate::matching::normalize(&track.artist)
-        == crate::matching::normalize(candidate.uploader.as_deref().unwrap_or(""))
+    let exact_artist = crate::matching::normalize_single_artist_name(&track.artist)
+        == crate::matching::normalize_single_artist_name(
+            candidate.uploader.as_deref().unwrap_or(""),
+        )
         && !track.artist.trim().is_empty();
     let version = crate::matching::normalize_version(track.version.as_deref().unwrap_or(""));
     let version_supported = version.is_empty()
@@ -521,6 +523,75 @@ mod tests {
         };
         score(&versioned, &mut remix);
         assert_eq!(remix.confidence, "low");
+    }
+
+    #[test]
+    fn peter_paul_mary_catalog_and_credit_variant_matches_playback_strictly() {
+        let raw = json!({
+            "trackId":"168503514673217536",
+            "title":"500 Miles",
+            "artistNames":["Peter, Paul and Mary"],
+            "duration":162933,
+            "isrc":"USWB16500047"
+        });
+        let (_, mut candidate) = catalog_entry(&raw, BASE).unwrap();
+        let track = Track {
+            artist: "Peter, Paul & Mary".into(),
+            title: "500 Miles".into(),
+            duration_seconds: Some(162.0),
+            ..Track::default()
+        };
+
+        // The review-confidence catalog path should already be playable from
+        // exact title/artist and full-duration agreement; scoring may promote
+        // this same identity to high confidence afterward.
+        assert_eq!(candidate.confidence, "review");
+        assert!(crate::source_fallback::playback_recording_matches(
+            &track, &candidate
+        ));
+        score(&track, &mut candidate);
+        assert_eq!(candidate.confidence, "high");
+        assert!(candidate
+            .reasons
+            .iter()
+            .any(|reason| reason == "Exact catalog artist/title and matching recording duration"));
+        assert!(crate::source_fallback::playback_recording_matches(
+            &track, &candidate
+        ));
+
+        let wrong_artist = Candidate {
+            source_metadata: Some(json!({
+                "catalogTitle":"500 Miles",
+                "artistNames":["Peter Paul Mary"],
+                "isrc":"USWB16500047"
+            })),
+            uploader: Some("Peter Paul Mary".into()),
+            confidence: "review".into(),
+            ..candidate.clone()
+        };
+        assert!(!crate::source_fallback::playback_recording_matches(
+            &track,
+            &wrong_artist
+        ));
+
+        let wrong_duration = Candidate {
+            duration_seconds: Some(182.293),
+            confidence: "review".into(),
+            ..candidate.clone()
+        };
+        assert!(!crate::source_fallback::playback_recording_matches(
+            &track,
+            &wrong_duration
+        ));
+
+        let versioned_track = Track {
+            version: Some("Extended Mix".into()),
+            ..track.clone()
+        };
+        assert!(!crate::source_fallback::playback_recording_matches(
+            &versioned_track,
+            &candidate
+        ));
     }
     #[test]
     fn imported_official_audio_matches_catalog_but_not_covers_or_live_versions() {

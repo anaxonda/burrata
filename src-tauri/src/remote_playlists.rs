@@ -2801,6 +2801,44 @@ impl RemotePlaylistService {
         Ok(occurrence)
     }
 
+    /// Alternative cache prewarm for a user-selected MusicBrainz recording when
+    /// Spotify's album relation is absent. The MBID is only a locator; source
+    /// track data comes from the exact stored Spotify listing and the artist
+    /// service validates complete ordered IDs, duration, title, ISRC and URLs.
+    pub async fn prepare_spotify_artist_credit_crosswalk(
+        &self,
+        artists: &crate::artists::ArtistService,
+        track_id: &str,
+        recording_id_hint: &str,
+        deadline: tokio::time::Instant,
+        cancel: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<crate::artist_credit_aliases::SpotifyArtistCreditCrosswalkStatus> {
+        if !valid_spotify_id(track_id) {
+            return Err("A Spotify track ID must contain exactly 22 letters or digits".into());
+        }
+        let listing_id = format!("spotify:{track_id}");
+        let track = self
+            .store
+            .get_library_track(&listing_id)?
+            .ok_or("The exact Spotify track is not saved in the library")?;
+        if track.id != listing_id || track.provider_id != track_id {
+            return Err("The saved Spotify track identity changed".into());
+        }
+        let fingerprint =
+            crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track)
+                .ok_or("The exact saved Spotify track has no complete verified artist identity")?;
+        let status = await_crosswalk_step(
+            deadline,
+            cancel,
+            artists.prepare_spotify_recording_credit_crosswalk(&track, recording_id_hint),
+        )
+        .await?;
+        if status.spotify_track_id != fingerprint.track_id {
+            return Err("The saved Spotify track changed during recording verification".into());
+        }
+        Ok(status)
+    }
+
     /// Read one exact Spotify catalog track without persisting it to the local library.
     pub async fn get_remote_track(&self, provider: &str, track_id: &str) -> Result<Track> {
         self.get_remote_track_with_account(provider, track_id)

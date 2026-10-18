@@ -16,7 +16,7 @@
 <section class="account-playlist-settings" aria-labelledby="account-playlist-settings-title">
   <header>
     <h3 id="account-playlist-settings-title">Playlists in the sidebar</h3>
-    <p>Browse playlists from connected services. Turning this on lets the app check that service for playlists.</p>
+    <p>Show playlists from connected accounts in the sidebar. Search remains available separately.</p>
   </header>
   <label>
     <input type="checkbox" checked={Boolean(value.spotify)} onchange={event => update("spotify", event.currentTarget.checked)} />

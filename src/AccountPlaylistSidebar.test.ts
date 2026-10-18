@@ -22,7 +22,8 @@ describe("AccountPlaylistSidebar", () => {
   it("makes no account request while its privacy setting is off", async () => {
     const call = vi.fn(async () => ({ items: [], nextCursor: null }));
     const target = render({ enabled: false, call }); await settle();
-    expect(target.textContent).toContain("Turn on playlists in Settings");
+    expect(target.textContent).toContain("Enable account playlist listing in Settings");
+    expect(target.textContent).toContain("Use Search to find other public playlists");
     expect(call).not.toHaveBeenCalled();
   });
 

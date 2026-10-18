@@ -1,0 +1,54 @@
+[
+  {
+    "repo": "audio-music-streamer/Qobuz-DL-API",
+    "commit": "1134bc6662572afec514c7b3a88f50af94e0fd6c",
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/audio-music-streamer/Qobuz-DL-API/1134bc6662572afec514c7b3a88f50af94e0fd6c/LICENSE",
+        "bytes": 1070,
+        "sha256": "acd96cbb19f84b1b62b7fe8d817976204ef97cfe62954ab1effedf4b8911fbe7"
+      },
+      {
+        "path": "lib/qobuz-dl.tsx",
+        "url": "https://raw.githubusercontent.com/audio-music-streamer/Qobuz-DL-API/1134bc6662572afec514c7b3a88f50af94e0fd6c/lib/qobuz-dl.tsx",
+        "bytes": 6375,
+        "sha256": "9e9eb79fe6b52c5f022858025717902d92c8d2e6e35f319a2f50eab2b8a48031"
+      },
+      {
+        "path": "readme.md",
+        "url": "https://raw.githubusercontent.com/audio-music-streamer/Qobuz-DL-API/1134bc6662572afec514c7b3a88f50af94e0fd6c/readme.md",
+        "bytes": 2676,
+        "sha256": "cd8f4c544054482f5d2e4c3ad29c6ee7f6da60da213e768d04cdb34b17ce8a01"
+      }
+    ]
+  },
+  {
+    "repo": "QobuzDL/Qobuz-DL",
+    "commit": "ada30543c28286a3ec3d55e6ccc444166f5420b4",
+    "files": [
+      {
+        "path": "LICENSE",
+        "url": "https://raw.githubusercontent.com/QobuzDL/Qobuz-DL/ada30543c28286a3ec3d55e6ccc444166f5420b4/LICENSE",
+        "bytes": 1064,
+        "sha256": "fe6e00160dc0cc2c96902a624f175c523bebd2500af8fcf1b5905e4a2b6f5614"
+      },
+      {
+        "path": "README.md",
+        "url": "https://raw.githubusercontent.com/QobuzDL/Qobuz-DL/ada30543c28286a3ec3d55e6ccc444166f5420b4/README.md",
+        "bytes": 2782,
+        "sha256": "d268cb49c2f01aa460464a083f9e731410f696a9a1702270a8a5a83bb7584c47"
+      },
+      {
+        "path": "lib/qobuz-dl.tsx",
+        "url": "https://raw.githubusercontent.com/QobuzDL/Qobuz-DL/ada30543c28286a3ec3d55e6ccc444166f5420b4/lib/qobuz-dl.tsx",
+        "bytes": 7989,
+        "sha256": "06a6dc4f4e2b15ccabe7b1e8f69312add4db634d8ac968678c3642a9a777e4c5"
+      }
+    ]
+  },
+  {
+    "repo": "squid-wtf/squid-qobuz-dl",
+    "error": "HTTP Error 404: Not Found"
+  }
+]

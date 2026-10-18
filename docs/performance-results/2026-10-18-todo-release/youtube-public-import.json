@@ -1,0 +1,48 @@
+{
+  "scope": {
+    "mode": "anonymous headless Chromium, fresh isolated profile, read-only public pages",
+    "userProfileUsed": false,
+    "extensionCaptureFlowUsed": false,
+    "fullDomRetained": false,
+    "sanitizedParserOutputRetained": true
+  },
+  "video": {
+    "videoId": "Hqp8vxkPrI8",
+    "status": "parsed",
+    "title": "BAD TIMES",
+    "channelCredit": "Imael Angel",
+    "durationSeconds": 168,
+    "complete": true,
+    "warnings": []
+  },
+  "playlist": {
+    "playlistId": "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI",
+    "title": "Popular Music Videos",
+    "providerReportedTotal": 182,
+    "parsedEntries": 182,
+    "firstPosition": 1,
+    "firstVideoId": "fOT0BUpITw8",
+    "lastPosition": 182,
+    "lastVideoId": "acCEjUo-I74",
+    "distinctVideoIds": 182,
+    "duplicateOccurrencesById": 0,
+    "duplicatePositionAndIdPairs": 0,
+    "complete": true,
+    "warnings": [],
+    "unavailablePlaceholdersExercised": false,
+    "unavailablePlaceholdersObservedInParsedRows": false
+  },
+  "observedPlaylistDom": {
+    "cardElement": "yt-lockup-view-model",
+    "positionEvidence": "watch links carried the current playlist list parameter and explicit index values 1 through 182",
+    "titleEvidence": "title watch link text and accessible label",
+    "channelEvidence": "channel link under /channel/",
+    "durationEvidence": ".ytBadgeShapeText visible time value",
+    "scrollBehavior": "anonymous page showed 100 playlist cards initially; bounded document scrolling loaded cards through position 182"
+  },
+  "captureRetention": {
+    "method": "one-off exec CDP/Node calls; no browser DOM or page payload saved",
+    "temporaryInspectionScripts": "created under /tmp/burrata-youtube-* for parsing and DOM summaries, then removed",
+    "reason": "retain only normalized public metadata and counts"
+  }
+}

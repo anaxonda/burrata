@@ -1,0 +1,40 @@
+[
+  {
+    "host": "squid",
+    "url": "https://qobuz.squid.wtf/api/get-music?q=Sasa+Timmy+Regisford&offset=0",
+    "checkedAt": "2026-10-18T16:43:49.042531+00:00",
+    "error": "<urlopen error [Errno -2] Name or service not known>",
+    "elapsedSeconds": 0.643
+  },
+  {
+    "host": "trypt",
+    "url": "https://trypt-hifi-dl-456461932686.us-west1.run.app/api/get-music?q=Sasa+Timmy+Regisford&offset=0",
+    "checkedAt": "2026-10-18T16:43:49.044709+00:00",
+    "status": 503,
+    "contentType": "text/html; charset=UTF-8",
+    "bytes": 302,
+    "sha256": "52f9a90fe354981733b013cb3b4ac3bcd889649282de79c0a33063ec8c74b3a9",
+    "capped": false,
+    "jsonType": null,
+    "elapsedSeconds": 0.254
+  },
+  {
+    "host": "kenny",
+    "url": "https://qobuz.kennyy.com.br/api/get-music?q=Sasa+Timmy+Regisford&offset=0",
+    "checkedAt": "2026-10-18T16:43:49.046113+00:00",
+    "error": "The read operation timed out",
+    "elapsedSeconds": 10.292
+  },
+  {
+    "host": "jumo",
+    "url": "https://jumo-dl.pages.dev/search?query=Sasa+Timmy+Regisford&offset=0&limit=30&region=FR",
+    "checkedAt": "2026-10-18T16:43:49.047917+00:00",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "bytes": 53791,
+    "sha256": "f62c81b4f808c96f299b003a0b4c2b9a15ea191b4bdaf36145a112a304919090",
+    "capped": false,
+    "jsonType": null,
+    "elapsedSeconds": 0.338
+  }
+]

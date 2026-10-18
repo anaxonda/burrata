@@ -99,6 +99,227 @@ fn normalize_artist_credit(raw: &str) -> String {
         .join(" ")
 }
 
+/// Exact artist/title matching for the deliberately narrow no-catalog-duration
+/// YouTube path. Only presentation suffixes are removed from the title; artist
+/// joiners are normalized in the artist segment alone.
+fn exact_flat_youtube_identity_title(track: &Track, raw_title: &str) -> bool {
+    let expected_title = crate::matching::normalize(&track.title);
+    if expected_title.is_empty() {
+        return false;
+    }
+    let expected_artist = normalize_artist_credit(&track.artist);
+    if expected_artist.is_empty() {
+        return false;
+    }
+    [" - ", " – ", " — ", " | "]
+        .iter()
+        .filter_map(|separator| raw_title.split_once(separator))
+        .any(|(artist, title)| {
+            let mut actual_title = crate::matching::normalize(title);
+            for suffix in [" official visualizer", " visualizer"] {
+                if let Some(cleaned) = actual_title.strip_suffix(suffix) {
+                    actual_title = cleaned.trim().to_owned();
+                    break;
+                }
+            }
+            normalize_artist_credit(artist) == expected_artist && actual_title == expected_title
+        })
+}
+
+fn flat_chapterless_track(track: &Track, candidate: &Candidate) -> bool {
+    track.playback_range.is_none()
+        && !track.provenance["chapters"]
+            .as_array()
+            .is_some_and(|chapters| !chapters.is_empty())
+        && !candidate
+            .chapters
+            .as_ref()
+            .is_some_and(|chapters| !chapters.is_empty())
+}
+
+fn original_or_unversioned(track: &Track) -> bool {
+    track.version.as_deref().is_none_or(|version| {
+        matches!(
+            crate::matching::normalize_version(version).as_str(),
+            "" | "original" | "original mix"
+        )
+    })
+}
+
+fn explicit_candidate_version_conflict(candidate: &Candidate) -> bool {
+    candidate.reasons.iter().any(|reason| {
+        let reason = crate::matching::normalize(reason);
+        [
+            "version mismatch",
+            "wrong version",
+            "different version",
+            "version differs",
+        ]
+        .iter()
+        .any(|marker| reason.contains(marker))
+    })
+}
+
+fn verified_channel_matches_saved_artist(track: &Track, candidate: &Candidate) -> bool {
+    let Some(metadata) = candidate.source_metadata.as_ref() else {
+        return false;
+    };
+    if metadata["provider"].as_str() != Some("youtube")
+        || metadata["channelIsVerified"].as_bool() != Some(true)
+    {
+        return false;
+    }
+    let channel_id = metadata["channelId"].as_str().unwrap_or_default();
+    if channel_id.len() != 24
+        || !channel_id.starts_with("UC")
+        || !channel_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return false;
+    }
+    let channel = metadata["channel"]
+        .as_str()
+        .or_else(|| metadata["uploader"].as_str())
+        .unwrap_or_default()
+        .trim();
+    if channel.is_empty() || channel.len() > 200 {
+        return false;
+    }
+    let normalized_channel = normalize_artist_credit(channel);
+    let full_artist = normalize_artist_credit(&track.artist);
+    let first_artist = track
+        .artist
+        .split([',', '&'])
+        .next()
+        .map(normalize_artist_credit)
+        .unwrap_or_default();
+    !normalized_channel.is_empty()
+        && (normalized_channel == full_artist || normalized_channel == first_artist)
+}
+
+fn verified_missing_duration_youtube_identity(track: &Track, candidate: &Candidate) -> bool {
+    candidate.provider == "youtube"
+        && candidate.permission != "restricted"
+        && candidate.confidence != "low"
+        && !explicit_candidate_version_conflict(candidate)
+        && !candidate
+            .reasons
+            .iter()
+            .any(|reason| reason.to_ascii_lowercase().contains("version conflicts"))
+        && original_or_unversioned(track)
+        && flat_chapterless_track(track, candidate)
+        && exact_flat_youtube_identity_title(track, &candidate.title)
+        && candidate
+            .duration_seconds
+            .is_some_and(|duration| duration.is_finite() && duration > 30.0 && duration <= 86_400.0)
+        && verified_channel_matches_saved_artist(track, candidate)
+}
+
+fn explicit_credit_parts(raw: &str) -> Vec<String> {
+    raw.split([',', '&'])
+        .map(crate::matching::normalize_single_artist_name)
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+/// This provider-tagged payload permits one extractor request only. The marker
+/// itself is not identity proof; final acceptance uses fresh extractor fields.
+pub(crate) fn is_provisional_youtube_music_catalog_candidate(
+    track: &Track,
+    candidate: &Candidate,
+) -> bool {
+    let normalized_title = crate::matching::normalize(&track.title);
+    if candidate.provider != "youtube"
+        || candidate.permission == "restricted"
+        || candidate.confidence == "low"
+        || explicit_candidate_version_conflict(candidate)
+        || !original_or_unversioned(track)
+        || !flat_chapterless_track(track, candidate)
+        || !candidate
+            .duration_seconds
+            .is_some_and(|duration| duration.is_finite() && duration > 30.0 && duration <= 86_400.0)
+        || !candidate.id.strip_prefix("youtube:").is_some_and(|id| {
+            id.len() == 11
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        })
+        || normalized_title.is_empty()
+    {
+        return false;
+    }
+    let Some(metadata) = candidate.source_metadata.as_ref() else {
+        return false;
+    };
+    metadata["provider"].as_str() == Some("youtube")
+        && metadata["playbackMusicCatalogCandidate"].as_bool() == Some(true)
+        && crate::matching::normalize(metadata["catalogTitle"].as_str().unwrap_or_default())
+            == normalized_title
+        && crate::matching::normalize(&candidate.title) == normalized_title
+        && explicit_credit_parts(metadata["catalogArtist"].as_str().unwrap_or_default())
+            == explicit_credit_parts(&track.artist)
+        && !explicit_credit_parts(&track.artist).is_empty()
+}
+
+/// Fresh yt-dlp structured fields can verify a title-only YouTube Music
+/// candidate, but only when all ordered artist credits exactly match the saved
+/// explicit comma/ampersand credit. Identical repeated artist entries are
+/// deduplicated; distinct extra or missing artists fail closed.
+pub(crate) fn playback_music_catalog_recording_matches_verified_extractor(
+    track: &Track,
+    candidate: &Candidate,
+) -> bool {
+    let normalized_title = crate::matching::normalize(&track.title);
+    if track.duration_seconds.is_some()
+        || candidate.provider != "youtube"
+        || candidate.permission == "restricted"
+        || candidate.confidence == "low"
+        || explicit_candidate_version_conflict(candidate)
+        || !original_or_unversioned(track)
+        || !flat_chapterless_track(track, candidate)
+        || !candidate
+            .duration_seconds
+            .is_some_and(|duration| duration.is_finite() && duration > 30.0 && duration <= 86_400.0)
+        || normalized_title.is_empty()
+        || crate::matching::normalize(&candidate.title) != normalized_title
+        || !verified_channel_matches_saved_artist(track, candidate)
+    {
+        return false;
+    }
+    let Some(metadata) = candidate.source_metadata.as_ref() else {
+        return false;
+    };
+    if metadata["provider"].as_str() != Some("youtube")
+        || crate::matching::normalize(metadata["track"].as_str().unwrap_or_default())
+            != normalized_title
+    {
+        return false;
+    }
+    let Some(artists) = metadata["artists"]
+        .as_array()
+        .filter(|artists| !artists.is_empty() && artists.len() <= 8)
+    else {
+        return false;
+    };
+    let mut observed = Vec::new();
+    for artist in artists {
+        let Some(artist) = artist
+            .as_str()
+            .map(str::trim)
+            .filter(|artist| !artist.is_empty() && artist.len() <= 120)
+        else {
+            return false;
+        };
+        let normalized = crate::matching::normalize_single_artist_name(artist);
+        if !normalized.is_empty() && !observed.contains(&normalized) {
+            observed.push(normalized);
+        }
+    }
+    let expected = explicit_credit_parts(&track.artist);
+    !expected.is_empty() && observed == expected
+}
+
 fn monochrome_catalog_artist_credit_matches(track_artist: &str, candidate: &Candidate) -> bool {
     if track_artist.trim().is_empty() || crate::matching::normalize(track_artist).is_empty() {
         return false;
@@ -129,7 +350,8 @@ fn monochrome_catalog_artist_credit_matches(track_artist: &str, candidate: &Cand
     if names.len() == 1 {
         // Preserve a single credited artist's own punctuation. Never split one
         // artist name into an apparent multi-artist credit.
-        return crate::matching::normalize(track_artist) == crate::matching::normalize(names[0]);
+        return crate::matching::normalize_single_artist_name(track_artist)
+            == crate::matching::normalize_single_artist_name(names[0]);
     }
     let catalog_credit = names
         .iter()
@@ -329,6 +551,11 @@ pub(crate) fn playback_recording_matches_verified_extractor(
     track: &Track,
     candidate: &Candidate,
 ) -> bool {
+    let identity = crate::matching::ephemeral_playback_identity(track);
+    let track = identity.as_ref();
+    if track.duration_seconds.is_none() {
+        return verified_missing_duration_youtube_identity(track, candidate);
+    }
     playback_recording_matches_with_rounding(track, candidate, true)
 }
 
@@ -406,6 +633,19 @@ pub fn is_provisional_playback_candidate(track: &Track, candidate: &Candidate) -
         || !requested_version_matches(track, candidate)
     {
         return false;
+    }
+
+    if track.duration_seconds.is_none() {
+        let duration_ok = candidate.duration_seconds.is_some_and(|duration| {
+            duration.is_finite() && duration > 30.0 && duration <= 86_400.0
+        });
+        return duration_ok
+            && (is_provisional_youtube_music_catalog_candidate(track, candidate)
+                || (candidate.provider == "youtube"
+                    && original_or_unversioned(track)
+                    && !explicit_candidate_version_conflict(candidate)
+                    && flat_chapterless_track(track, candidate)
+                    && exact_flat_youtube_identity_title(track, &candidate.title)));
     }
 
     let artist = crate::matching::normalize(&track.artist);
@@ -1140,6 +1380,231 @@ mod tests {
     }
 
     #[test]
+    fn missing_duration_requires_exact_flat_youtube_artist_title() {
+        let track = Track {
+            artist: "KAROL G, Judeline & rusowsky".into(),
+            title: "BbY WOW".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let exact = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:fRIhCiUVaKs".into(),
+            title: "KAROL G, Judeline, rusowsky - BbY WOW (Visualizer)".into(),
+            duration_seconds: Some(226.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        assert!(is_provisional_playback_candidate(&track, &exact));
+        assert!(exact_flat_youtube_identity_title(&track, &exact.title));
+        let version_conflict = Track {
+            version: Some("Live".into()),
+            ..track.clone()
+        };
+        assert!(!is_provisional_playback_candidate(
+            &version_conflict,
+            &exact
+        ));
+        let mut version_candidate = exact.clone();
+        version_candidate.source_metadata = Some(serde_json::json!({
+            "provider":"youtube",
+            "channelId":"UC1234567890123456789012",
+            "channel":"KAROL G",
+            "channelIsVerified":true
+        }));
+        assert!(!verified_missing_duration_youtube_identity(
+            &version_conflict,
+            &version_candidate
+        ));
+
+        let bad_times = Track {
+            artist: "Imael Angel".into(),
+            title: "BAD TIMES".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let descriptive = Candidate {
+            title: "Imael Angel - BAD TIMES (Deep Emotional Song)".into(),
+            ..exact.clone()
+        };
+        assert!(!is_provisional_playback_candidate(&bad_times, &descriptive));
+
+        for rejected in [
+            Candidate {
+                title: "KAROL G, Judeline, rusowsky - BbY WOW (Remix Visualizer)".into(),
+                ..exact.clone()
+            },
+            Candidate {
+                title: "KAROL G, Judeline, rusowsky - BbY WOW (Live Visualizer)".into(),
+                ..exact.clone()
+            },
+            Candidate {
+                title: "KAROL G, Judeline, rusowsky - BbY WOW (Preview)".into(),
+                ..exact.clone()
+            },
+            Candidate {
+                provider: "soundcloud".into(),
+                ..exact.clone()
+            },
+            Candidate {
+                duration_seconds: Some(29.0),
+                ..exact.clone()
+            },
+            Candidate {
+                chapters: Some(vec![crate::models::Chapter {
+                    id: "chapter-1".into(),
+                    title: "BbY WOW".into(),
+                    start_seconds: 0.0,
+                    end_seconds: 20.0,
+                    confidence: "source_metadata_unverified".into(),
+                    suggested_track: None,
+                    suggestion_confidence: None,
+                }]),
+                ..exact.clone()
+            },
+        ] {
+            assert!(!is_provisional_playback_candidate(&track, &rejected));
+        }
+    }
+
+    #[test]
+    fn no_duration_verified_youtube_path_requires_verified_exact_channel() {
+        let track = Track {
+            artist: "KAROL G, Judeline & rusowsky".into(),
+            title: "BbY WOW".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:fRIhCiUVaKs".into(),
+            title: "KAROL G, Judeline, rusowsky - BbY WOW (Visualizer)".into(),
+            duration_seconds: Some(226.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "channelId":"UC1234567890123456789012",
+                "channel":"KAROL G",
+                "channelIsVerified":true
+            })),
+            ..Candidate::default()
+        };
+        assert!(verified_missing_duration_youtube_identity(
+            &track, &candidate
+        ));
+        candidate
+            .reasons
+            .push("Recording version conflicts with catalog".into());
+        assert!(!verified_missing_duration_youtube_identity(
+            &track, &candidate
+        ));
+        candidate.reasons.clear();
+
+        candidate.source_metadata.as_mut().unwrap()["channel"] =
+            serde_json::json!("Other Official");
+        assert!(!verified_missing_duration_youtube_identity(
+            &track, &candidate
+        ));
+        candidate.source_metadata.as_mut().unwrap()["channel"] = serde_json::json!("KAROL G");
+        candidate.source_metadata.as_mut().unwrap()["channelIsVerified"] = serde_json::json!(false);
+        assert!(!verified_missing_duration_youtube_identity(
+            &track, &candidate
+        ));
+        candidate.source_metadata.as_mut().unwrap()["channelIsVerified"] = serde_json::json!(true);
+        candidate.source_metadata.as_mut().unwrap()["channelId"] =
+            serde_json::json!("not-a-channel-id");
+        assert!(!verified_missing_duration_youtube_identity(
+            &track, &candidate
+        ));
+    }
+
+    #[test]
+    fn youtube_music_catalog_tag_only_opens_one_exact_extractor_check() {
+        let track = Track {
+            artist: "Imael Angel".into(),
+            title: "BAD TIMES".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:Hqp8vxkPrI8".into(),
+            title: "BAD TIMES".into(),
+            duration_seconds: Some(168.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogTitle":"BAD TIMES",
+                "catalogArtist":"Imael Angel"
+            })),
+            ..Candidate::default()
+        };
+        assert!(is_provisional_youtube_music_catalog_candidate(
+            &track, &candidate
+        ));
+        assert!(is_provisional_playback_candidate(&track, &candidate));
+        let mut version_reason = candidate.clone();
+        version_reason
+            .reasons
+            .push("Version mismatch: long version".into());
+        assert!(!is_provisional_youtube_music_catalog_candidate(
+            &track,
+            &version_reason
+        ));
+        assert!(!is_provisional_playback_candidate(&track, &version_reason));
+
+        let mut fresh = Candidate {
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "channelId":"UC1234567890123456789012",
+                "channel":"Imael Angel",
+                "channelIsVerified":true,
+                "track":"BAD TIMES",
+                "artists":["Imael Angel","Imael Angel"]
+            })),
+            ..candidate.clone()
+        };
+        assert!(playback_music_catalog_recording_matches_verified_extractor(
+            &track, &fresh
+        ));
+        fresh.reasons.push("Version mismatch: long version".into());
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &fresh));
+        fresh.reasons.clear();
+        fresh.source_metadata.as_mut().unwrap()["artists"] =
+            serde_json::json!(["Imael Angel", "Different Artist"]);
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &fresh));
+        fresh.source_metadata.as_mut().unwrap()["artists"] =
+            serde_json::json!(["Imael Angel", "Imael Angel"]);
+        fresh.source_metadata.as_mut().unwrap()["channelIsVerified"] = serde_json::json!(false);
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &fresh));
+
+        let wrong_version = Track {
+            title: "401".into(),
+            version: Some("Long Version".into()),
+            ..track.clone()
+        };
+        let long_version_tag = Candidate {
+            title: "401".into(),
+            duration_seconds: Some(241.0),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogTitle":"401",
+                "catalogArtist":"Imael Angel"
+            })),
+            ..candidate
+        };
+        assert!(!is_provisional_playback_candidate(
+            &wrong_version,
+            &long_version_tag
+        ));
+    }
+
+    #[test]
     fn integer_quantized_duration_slack_requires_verified_full_metadata() {
         let track = Track {
             artist: "Stamatis Kraounakis".into(),
@@ -1410,5 +1875,53 @@ mod delay_settings_tests {
 
         // Download matching keeps its original exact flattened-title rule.
         assert!(!recording_matches(&track, &candidate));
+    }
+
+    #[test]
+    fn monochrome_single_artist_ampersand_and_spelling_matches_exact_catalog_identity() {
+        let track = Track {
+            artist: "Peter, Paul & Mary".into(),
+            title: "500 Miles".into(),
+            duration_seconds: Some(162.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "monochrome:168503514673217536".into(),
+            provider: "monochrome".into(),
+            title: "Peter, Paul and Mary - 500 Miles".into(),
+            uploader: Some("Peter, Paul and Mary".into()),
+            duration_seconds: Some(162.933),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(serde_json::json!({
+                "catalogTitle":"500 Miles",
+                "artistNames":["Peter, Paul and Mary"],
+                "isrc":"USWB16500047"
+            })),
+            ..Candidate::default()
+        };
+        assert!(monochrome_catalog_recording_matches(&track, &candidate));
+        assert!(playback_recording_matches(&track, &candidate));
+
+        let comma_name_is_not_split_into_a_feat_credit = Candidate {
+            provider: "monochrome".into(),
+            duration_seconds: Some(200.0),
+            confidence: "review".into(),
+            source_metadata: Some(serde_json::json!({
+                "catalogTitle":"Song",
+                "artistNames":["Artist, Guest"]
+            })),
+            ..Candidate::default()
+        };
+        let feat_track = Track {
+            artist: "Artist feat. Guest".into(),
+            title: "Song".into(),
+            duration_seconds: Some(200.0),
+            ..Track::default()
+        };
+        assert!(!monochrome_catalog_recording_matches(
+            &feat_track,
+            &comma_name_is_not_split_into_a_feat_credit
+        ));
     }
 }

@@ -1,6 +1,8 @@
-# Burrata 0.1.2 draft acceptance — 2026-10-18
+# Burrata 0.1.2 release acceptance — 2026-10-18
 
-The requested practical playback/UI/final-bug-check effort is complete as a non-public draft prerelease. [Draft](https://github.com/anaxonda/burrata/releases/tag/untagged-357d834fedd09303f11d); [platform CI](https://github.com/anaxonda/burrata/actions/runs/39106398365); [tagged release workflow](https://github.com/anaxonda/burrata/actions/runs/39106996579). Source tag `v0.1.2` resolves to `34507720aa0d1362af3abee062a5a0cc3d033087`. The earlier failed v0.1.1 tag is unchanged.
+> Publication update (verified directly on GitHub 2026-10-18): [v0.1.2](https://github.com/anaxonda/burrata/releases/tag/v0.1.2) was published at 16:16:27 UTC as a public prerelease (`isDraft: false`). Supporting downloads remain a draft. The draft descriptions below record the earlier qualification stage; main-release publication is complete. Later local playback/extension fixes are outside the released commit.
+
+The practical playback/UI/final-bug-check effort was qualified as a draft, then published as the [v0.1.2 prerelease](https://github.com/anaxonda/burrata/releases/tag/v0.1.2); [platform CI](https://github.com/anaxonda/burrata/actions/runs/39106398365); [tagged release workflow](https://github.com/anaxonda/burrata/actions/runs/39106996579). Source tag `v0.1.2` resolves to `34507720aa0d1362af3abee062a5a0cc3d033087`. The earlier failed v0.1.1 tag is unchanged.
 
 ## Platform and artifact evidence
 
@@ -12,7 +14,7 @@ The requested practical playback/UI/final-bug-check effort is complete as a non-
 
 ## Download-list cleanup
 
-The [main draft](https://github.com/anaxonda/burrata/releases/tag/untagged-357d834fedd09303f11d) now contains five installers with clean filenames, the Chromium extension, signed Firefox extension and `SHA256SUMS.txt` (eight assets total). [Supporting downloads](https://github.com/anaxonda/burrata/releases/tag/untagged-26f63c0ec9ce9d663846) contain optional helper updates, matching sources, licenses and acceptance records (87 assets including their own checksum manifest). Ordinary installation does not require these supporting packages.
+The [main release](https://github.com/anaxonda/burrata/releases/tag/v0.1.2) now contains five installers with clean filenames, the Chromium extension, signed Firefox extension and `SHA256SUMS.txt` (eight assets total). [Supporting downloads](https://github.com/anaxonda/burrata/releases/tag/untagged-26f63c0ec9ce9d663846) contain optional helper updates, matching sources, licenses and acceptance records (87 assets including their own checksum manifest). Ordinary installation does not require these supporting packages.
 
 All 93 original non-checksum payloads retain their SHA-256 and size. Main checksums cover seven downloads; supporting checksums cover 86 files. The helper feed and its referenced binaries stay together in the supporting release. Both drafts remain non-public and target the same qualified commit. Future release assembly uses verified installer/companion inventories rather than publishing every build artifact in the main list. The packaging fixture checks this split, both manifests, helper-feed consistency and fail-closed rejection of a damaged installer.
 

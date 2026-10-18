@@ -4450,6 +4450,7 @@ async fn prepare_spotify_recording_crosswalk(
     state: State<'_, AppState>,
     track_id: String,
     album_id_hint: Option<String>,
+    music_brainz_recording_id_hint: Option<String>,
     request_id: String,
 ) -> Result<serde_json::Value> {
     if track_id.len() != 22 || !track_id.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
@@ -4464,9 +4465,37 @@ async fn prepare_spotify_recording_crosswalk(
     {
         return Err("A Spotify album hint must contain exactly 22 letters or digits".into());
     }
+    if album_id_hint.is_some() && music_brainz_recording_id_hint.is_some() {
+        return Err("Choose either an album hint or a MusicBrainz recording hint".into());
+    }
+    if music_brainz_recording_id_hint
+        .as_deref()
+        .is_some_and(|id| !artist_credit_aliases::valid_musicbrainz_recording_id(id))
+    {
+        return Err("A MusicBrainz recording hint must be a valid recording ID".into());
+    }
 
     let guard = state.provider_reads.begin(request_id)?;
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    if let Some(recording_id) = music_brainz_recording_id_hint.as_deref() {
+        let status = tokio::time::timeout_at(
+            deadline,
+            state
+                .remote_playlists
+                .prepare_spotify_artist_credit_crosswalk(
+                    &state.artists,
+                    &track_id,
+                    recording_id,
+                    deadline,
+                    guard.cancellation(),
+                ),
+        )
+        .await
+        .map_err(|_| "Spotify recording verification exceeded its 30-second limit".to_owned())??;
+        drop(guard);
+        return serde_json::to_value(status)
+            .map_err(|_| "Recording credit crosswalk serialization failed".to_owned());
+    }
     let occurrence = tokio::time::timeout_at(
         deadline,
         state.remote_playlists.prepare_spotify_recording_crosswalk(

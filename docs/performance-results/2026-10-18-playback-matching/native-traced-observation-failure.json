@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "scope": "isolated seeded fixtures; one queued request per case",
+  "binarySha256": "04a5dcc7b43e22a7e14ebfe7c9c7e96aed312d4974f67530e68e5ed7ca5564c5",
+  "pass": false,
+  "initialVolume": 0.8,
+  "cases": [
+    {
+      "case": "five_hundred_miles",
+      "trackId": "fixture:500-miles",
+      "expectedProvider": "monochrome",
+      "status": "pending",
+      "queueRequestCount": 1,
+      "timeline": [],
+      "operationId": "f24c81b6-878b-44bf-9fb8-f7ec3df7d6e7",
+      "queueRevision": 1,
+      "entryId": "0265a2f3-a908-4824-97af-b9b4cfba3866",
+      "started": {
+        "engine": "native",
+        "status": "playing",
+        "trackId": "fixture:500-miles",
+        "entryId": "0265a2f3-a908-4824-97af-b9b4cfba3866",
+        "currentIndex": 0,
+        "queueTotal": 1,
+        "queueRevision": 1,
+        "queueEntryIds": [
+          "0265a2f3-a908-4824-97af-b9b4cfba3866"
+        ],
+        "generation": 2,
+        "seekSerial": 0,
+        "paused": false,
+        "position": 0.6501587301587302,
+        "duration": 162.933333333,
+        "volume": 0,
+        "candidate": {
+          "provider": "monochrome",
+          "id": "monochrome:168503514673217536",
+          "durationSeconds": 162.933
+        },
+        "diagnostics": {
+          "operationId": "f24c81b6-878b-44bf-9fb8-f7ec3df7d6e7",
+          "firstAudioMs": 3835,
+          "seekFirstAudioMs": null,
+          "bufferingCount": 3,
+          "recoveryCount": 0
+        }
+      },
+      "startupTimeline": [
+        {
+          "atMs": 1985,
+          "state": {
+            "engine": "native",
+            "status": "resolving",
+            "trackId": "fixture:500-miles",
+            "entryId": "0265a2f3-a908-4824-97af-b9b4cfba3866",
+            "currentIndex": 0,
+            "queueTotal": 1,
+            "queueRevision": 1,
+            "queueEntryIds": [
+              "0265a2f3-a908-4824-97af-b9b4cfba3866"
+            ],
+            "generation": 2,
+            "seekSerial": 0,
+            "paused": true,
+            "position": 0,
+            "duration": 162,
+            "volume": 0,
+            "candidate": null,
+            "diagnostics": {
+              "operationId": "f24c81b6-878b-44bf-9fb8-f7ec3df7d6e7",
+              "firstAudioMs": null,
+              "seekFirstAudioMs": null,
+              "bufferingCount": 0,
+              "recoveryCount": 0
+            }
+          }
+        },
+        {
+          "atMs": 4558,
+          "state": {
+            "engine": "native",
+            "status": "playing",
+            "trackId": "fixture:500-miles",
+            "entryId": "0265a2f3-a908-4824-97af-b9b4cfba3866",
+            "currentIndex": 0,
+            "queueTotal": 1,
+            "queueRevision": 1,
+            "queueEntryIds": [
+              "0265a2f3-a908-4824-97af-b9b4cfba3866"
+            ],
+            "generation": 2,
+            "seekSerial": 0,
+            "paused": false,
+            "position": 0.6501587301587302,
+            "duration": 162.933333333,
+            "volume": 0,
+            "candidate": {
+              "provider": "monochrome",
+              "id": "monochrome:168503514673217536",
+              "durationSeconds": 162.933
+            },
+            "diagnostics": {
+              "operationId": "f24c81b6-878b-44bf-9fb8-f7ec3df7d6e7",
+              "firstAudioMs": 3835,
+              "seekFirstAudioMs": null,
+              "bufferingCount": 3,
+              "recoveryCount": 0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "finalPaused": true,
+  "volumeRestored": true,
+  "failureCategory": "continued_playback_observation_gap"
+}

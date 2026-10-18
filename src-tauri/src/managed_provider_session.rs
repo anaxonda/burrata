@@ -70,6 +70,24 @@ const NATIVE_WORKER_FILES: &[(&str, &str)] = &[
         include_str!("../../extension/youtube-session-provider.js"),
     ),
 ];
+const EXTENSION_ICONS: &[(&str, &[u8])] = &[
+    (
+        "icons/burrata-16.png",
+        include_bytes!("../../extension/icons/burrata-16.png"),
+    ),
+    (
+        "icons/burrata-32.png",
+        include_bytes!("../../extension/icons/burrata-32.png"),
+    ),
+    (
+        "icons/burrata-48.png",
+        include_bytes!("../../extension/icons/burrata-48.png"),
+    ),
+    (
+        "icons/burrata-128.png",
+        include_bytes!("../../extension/icons/burrata-128.png"),
+    ),
+];
 const EXTENSION_FILES: &[(&str, &str)] = &[
     (
         "background.js",
@@ -1786,6 +1804,7 @@ impl ManagedProviderSession {
             let bytes = fs::read(&source).unwrap_or_else(|_| embedded.as_bytes().to_vec());
             fs::write(extension.join(name), bytes).map_err(|e| e.to_string())?;
         }
+        stage_extension_icons(&source_extension, &extension)?;
         fs::write(
             extension.join("managed-session.json"),
             serde_json::to_vec(&serde_json::json!({"sessionId":session.session_id}))
@@ -4161,6 +4180,22 @@ fn persist_session(data_dir: &Path, session: &PersistedSession) -> Result<(), St
     fs::rename(pending, target).map_err(|e| e.to_string())
 }
 
+fn stage_extension_icons(source_extension: &Path, extension: &Path) -> Result<(), String> {
+    for (relative_path, embedded) in EXTENSION_ICONS {
+        let target = extension.join(relative_path);
+        let parent = target
+            .parent()
+            .ok_or_else(|| "Managed extension icon path is invalid".to_owned())?;
+        secure_create_dir(parent)?;
+        let source = source_extension.join(relative_path);
+        let bytes = fs::read(source).unwrap_or_else(|_| embedded.to_vec());
+        fs::write(&target, bytes).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        secure_file(&target)?;
+    }
+    Ok(())
+}
+
 fn secure_create_dir(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|e| e.to_string())?;
     #[cfg(unix)]
@@ -4268,6 +4303,80 @@ impl Drop for ManagedProviderSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_extension_staging_materializes_every_manifest_icon() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source-extension");
+        let staged = temp.path().join("managed-extension");
+        secure_create_dir(&source).unwrap();
+        secure_create_dir(&source.join("icons")).unwrap();
+        secure_create_dir(&staged).unwrap();
+
+        // Packaged files win when present; the other three exercise embedded fallback.
+        fs::write(source.join("icons/burrata-16.png"), b"packaged-icon").unwrap();
+        stage_extension_icons(&source, &staged).unwrap();
+
+        let manifest: Value =
+            serde_json::from_str(include_str!("../../extension/manifest.chromium.json")).unwrap();
+        let mut icon_paths = std::collections::BTreeSet::new();
+        for value in manifest["icons"].as_object().unwrap().values() {
+            icon_paths.insert(value.as_str().unwrap().to_owned());
+        }
+        for value in manifest["action"]["default_icon"]
+            .as_object()
+            .unwrap()
+            .values()
+        {
+            icon_paths.insert(value.as_str().unwrap().to_owned());
+        }
+        assert_eq!(icon_paths.len(), EXTENSION_ICONS.len());
+        for icon in icon_paths {
+            let path = staged.join(&icon);
+            assert!(path.is_file(), "manifest icon missing: {icon}");
+            assert!(
+                !fs::read(&path).unwrap().is_empty(),
+                "manifest icon empty: {icon}"
+            );
+        }
+        assert_eq!(
+            fs::read(staged.join("icons/burrata-16.png")).unwrap(),
+            b"packaged-icon"
+        );
+        for (relative, embedded) in EXTENSION_ICONS
+            .iter()
+            .filter(|(path, _)| *path != "icons/burrata-16.png")
+        {
+            assert_eq!(fs::read(staged.join(relative)).unwrap(), embedded.to_vec());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(staged.join("icons"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            for icon in icon_paths_for_test() {
+                assert_eq!(
+                    fs::metadata(staged.join(icon))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o600
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn icon_paths_for_test() -> impl Iterator<Item = &'static str> {
+        EXTENSION_ICONS.iter().map(|(path, _)| *path)
+    }
 
     #[test]
     fn native_restart_mode_recognizes_either_confirmed_provider() {

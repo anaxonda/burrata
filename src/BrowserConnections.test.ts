@@ -35,7 +35,7 @@ describe("BrowserConnections", () => {
     expect(target.querySelectorAll('.remote-account-state.connected')).toHaveLength(0);
     for(const card of target.querySelectorAll('.remote-account-card')){
       expect(card.querySelector('.remote-account-state')?.textContent).toContain("Access paused");
-      const browse=[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==="Browse playlists")!;expect(browse.disabled).toBe(true);browse.click();
+      const browse=[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==="Search playlists")!;expect(browse.disabled).toBe(true);browse.click();
       expect([...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==="Forget connection")?.disabled).toBe(false);
     }
     expect(onBrowse).not.toHaveBeenCalled();
@@ -398,7 +398,7 @@ describe("BrowserConnections", () => {
     const youtube = target.querySelector<HTMLElement>('[aria-label="YouTube account"]')!;
     expect(youtube.textContent).toContain("The saved YouTube account is retained");
     expect(youtube.textContent).toContain("Reconnect needed");
-    expect(youtube.textContent).not.toContain("Browse playlists");
+    expect(youtube.textContent).not.toContain("Search playlists");
     expect([...youtube.querySelectorAll<HTMLButtonElement>("button")].some(button => button.textContent === "Reconnect YouTube")).toBe(true);
     youtube.querySelector<HTMLButtonElement>("button.primary")!.click(); await settle();
     expect(call).toHaveBeenCalledWith("start_managed_provider_login", { provider:"youtube" });

@@ -23,6 +23,9 @@
     }
     return null;
   }
+  function findYouTubePlaylistRow(){
+    return document.querySelector('ytd-playlist-video-renderer, ytmusic-responsive-list-item-renderer, yt-lockup-view-model');
+  }
   const scrollAncestors=row=>{
     const nodes=[];
     for(let node=row;node && node!==document.documentElement;node=node.parentElement)nodes.push(node);
@@ -63,9 +66,9 @@
   function noRowsError(provider){
     // Diagnostic counts identify parser/loading failures without exposing page content.
     const trackLinks=document.querySelectorAll('a[href*="/track/"]').length;
-    const selectors={beatport:'[data-testid*="track"],[data-track-id],tr,[role="row"]',traxsource:'.trk-row',spotify:'[data-testid="tracklist-row"],[role="row"][aria-rowindex]',shazam:'a[href*="/song/"]',lastfm:'.chartlist-row,[data-testid="chartlist-row"],tr,[role="row"]',bandcamp:'.track_row_view,[data-testid="track-row"]'};
+    const selectors={beatport:'[data-testid*="track"],[data-track-id],tr,[role="row"]',traxsource:'.trk-row',spotify:'[data-testid="tracklist-row"],[role="row"][aria-rowindex]',youtube:'ytd-playlist-video-renderer,ytmusic-responsive-list-item-renderer,yt-lockup-view-model',shazam:'a[href*="/song/"]',lastfm:'.chartlist-row,[data-testid="chartlist-row"],tr,[role="row"]',bandcamp:'.track_row_view,[data-testid="track-row"]'};
     const rows=document.querySelectorAll(selectors[provider]||'a[href]').length;
-    const name={beatport:'Beatport',traxsource:'Traxsource',spotify:'Spotify',shazam:'Shazam',lastfm:'Last.fm',bandcamp:'Bandcamp'}[provider]||'Provider';
+    const name={beatport:'Beatport',traxsource:'Traxsource',spotify:'Spotify',youtube:'YouTube',shazam:'Shazam',lastfm:'Last.fm',bandcamp:'Bandcamp'}[provider]||'Provider';
     const jsonScripts=provider==='beatport'?document.querySelectorAll('script#__NEXT_DATA__,script[type="application/json"]').length:null;
     const counts=`${trackLinks} track links, ${rows} row candidates${jsonScripts===null?'':`, ${jsonScripts} metadata scripts`}`;
     return new Error(`${name}: no supported tracks after waiting 8 seconds (${counts}; capture ${revision}). Open the actual ${provider==='spotify'?'playlist or album':'chart'} page and let tracks load. If tracks are visible, reload the extension and provider tab, then retry; the provider page structure may have changed.`);
@@ -92,18 +95,18 @@
         while(true){
           checkCurrent();if(gated())return {verification:true};
           try{first=extract(document,location.href);lastParseError=null;}catch(error){
-            const retryable=/Shazam chart rows were not available|Last\.fm track rows were not available|Bandcamp did not expose an explicit album tracklist|Bandcamp album metadata did not contain importable songs|Bandcamp Discover did not show rendered album cards/i.test(error.message);
+            const retryable=/Shazam chart rows were not available|Last\.fm track rows were not available|Bandcamp did not expose an explicit album tracklist|Bandcamp album metadata did not contain importable songs|Bandcamp Discover did not show rendered album cards|YouTube video title or channel credit is not rendered|YouTube playlist videos were not available|Wait for the public playlist rows to load/i.test(error.message);
             if(!retryable||Date.now()>=loadingDeadline)throw error;
             lastParseError=error;await delay(250);continue;
           }
           if(first.albumCollection)return {albumCollection:first.albumCollection};
-          if(first.entries.length)break;
+          if(first.entries.length||(first.provider==='youtube'&&first.kind==='playlist'&&first.expectedTotal===0&&first.complete))break;
           if(Date.now()>=loadingDeadline)throw lastParseError||noRowsError(first.provider);
           await delay(250);
         }
         saved.push(first);
-        if(first.provider==='spotify') {
-          const row=findSpotifyTrackRow();
+        if(first.provider==='spotify'||(first.provider==='youtube'&&first.kind==='playlist'&&first.expectedTotal!==0)) {
+          const row=first.provider==='spotify'?findSpotifyTrackRow():findYouTubePlaylistRow();
           scroller=row?findSpotifyScroller(row):(document.scrollingElement||document.documentElement);
           original=scroller.scrollTop||0;scroller.scrollTop=0;
           const deadline=Date.now()+25000,seen=new Set();let bottomQuiet=0;

@@ -1212,4 +1212,65 @@ describe("SearchPanel", () => {
     expect(target.textContent).not.toContain("Chapters available · 0");
     expect(target.textContent).toContain("No chapters");
   });
+
+  it("collapses provider groups accessibly while retaining pagination and excluding hidden results from continuation", async () => {
+    const mb = { id: "mb-track", provider: "musicbrainz", providerId: "mb-track", sourceUrl: "https://musicbrainz.test/recording/mb-track", title: "MB Song", artist: "Artist", favorite: false, provenance: {} };
+    const discogs = { id: "discogs-track", provider: "discogs", providerId: "discogs-track", sourceUrl: "https://discogs.test/release/discogs-track", title: "Discogs Song", artist: "Artist", favorite: false, provenance: {} };
+    const searchSource = vi.fn(async ({ sourceIds, cursor }: { sourceIds: string[]; cursor?: string | null }) => {
+      if (sourceIds[0] === "musicbrainz") return cursor
+        ? { sourceId: "musicbrainz", complete: true, results: [{ id: "mb-later", kind: "track", sourceId: "musicbrainz", title: "MB Later", track: { ...mb, id: "mb-later", title: "MB Later" } }] }
+        : { sourceId: "musicbrainz", complete: false, nextCursor: "page-2", results: [{ id: "mb-row", kind: "track", sourceId: "musicbrainz", title: mb.title, track: mb }] };
+      return { sourceId: "discogs", complete: true, results: [{ id: "discogs-row", kind: "track", sourceId: "discogs", title: discogs.title, track: discogs }] };
+    });
+    const onPlay = vi.fn();
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(SearchPanel, { target, props: {
+      initialSources: [],
+      availableSources: [
+        { id: "musicbrainz", name: "MusicBrainz", enabled: true, kinds: ["track"] },
+        { id: "discogs", name: "Discogs", enabled: true, kinds: ["track"] },
+      ], searchSource, onPlay,
+    } as never });
+    destroy = () => unmount(instance);
+    const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    input.value = "song"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    target.querySelector<HTMLInputElement>(".continue-setting input")!.click(); await settle();
+    const initialAutomation = instance.inspectAutomationSearchUi(0, 10) as { revision: string; total: number; rows: { occurrenceToken: string; sourceId: string }[] };
+    expect(initialAutomation.total).toBe(2);
+
+    const mbGroup = [...target.querySelectorAll<HTMLElement>(".source-group")].find(group => group.getAttribute("aria-label") === "MusicBrainz results")!;
+    const toggle = mbGroup.querySelector<HTMLButtonElement>(".source-toggle")!;
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle.getAttribute("aria-controls")).toBeTruthy();
+    toggle.focus();
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    toggle.click(); await settle();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(instance.playAutomationSearchResult(initialAutomation.revision, initialAutomation.rows.find(row => row.sourceId === "musicbrainz")!.occurrenceToken, Number.MAX_SAFE_INTEGER)).toMatchObject({ status: "stale" });
+    const collapsedAutomation = instance.inspectAutomationSearchUi(0, 10) as { revision: string; total: number; rows: { sourceId: string }[] };
+    expect(collapsedAutomation.total).toBe(1);
+    expect(collapsedAutomation.rows.map(row => row.sourceId)).toEqual(["discogs"]);
+    expect(collapsedAutomation.revision).not.toBe(initialAutomation.revision);
+    expect(mbGroup.querySelector<HTMLDivElement>("[id^='search-results-']")?.hidden).toBe(true);
+    expect(mbGroup.querySelector(".result-row")?.textContent).toContain("MB Song");
+    expect(mbGroup.querySelector<HTMLButtonElement>(".load-more")).not.toBeNull();
+
+    const discogsGroup = [...target.querySelectorAll<HTMLElement>(".source-group")].find(group => group.getAttribute("aria-label") === "Discogs results")!;
+    discogsGroup.querySelector<HTMLButtonElement>(".icon-action.play")!.click(); await settle();
+    expect(onPlay).toHaveBeenCalledWith(discogs, [discogs], 0);
+
+    mbGroup.querySelector<HTMLButtonElement>(".load-more")!.click(); await settle();
+    expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ sourceIds: ["musicbrainz"], cursor: "page-2" }));
+    expect(mbGroup.querySelector<HTMLDivElement>("[id^='search-results-']")?.hidden).toBe(true);
+    toggle.click(); await settle();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(mbGroup.textContent).toContain("MB Song");
+    expect(mbGroup.textContent).toContain("MB Later");
+    const restoredAutomation = instance.inspectAutomationSearchUi(0, 10) as { total: number; rows: { sourceId: string }[] };
+    expect(restoredAutomation.total).toBe(3);
+    expect(restoredAutomation.rows.map(row => row.sourceId)).toEqual(["musicbrainz", "musicbrainz", "discogs"]);
+  });
 });

@@ -21,6 +21,20 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("LibrarySidebar provider presets", () => {
+  it("labels Spotify and YouTube navigation as Search playlists and keeps provider identity", async () => {
+    const onSource = vi.fn();
+    const target = render({ onSource }); await settle();
+    for (const [id, name] of [["spotify", "Spotify"], ["youtube", "YouTube"]]) {
+      const group = target.querySelector<HTMLDetailsElement>(`.source-heading.${id}`)!.parentElement as HTMLDetailsElement;
+      const action = group.querySelector<HTMLButtonElement>(".browse-source")!;
+      expect(action.getAttribute("aria-label")).toBe(`Search ${name} playlists`);
+      expect(action.textContent).toContain("Search playlists");
+      expect(action.textContent).not.toContain("Browse playlists");
+      action.click();
+      expect(onSource).toHaveBeenLastCalledWith(id);
+    }
+  });
+
   it("uses one folder header to open the browser and exposes the registered folder tree", async () => {
     const call = vi.fn(async (command: string) => command === "list_directory_browser_roots"
       ? [{ id: "folder-root", name: "Sample Music", path: "/sample" }]

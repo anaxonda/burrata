@@ -1915,12 +1915,20 @@
   async function browseProviderCharts(source: string) {
     if (source === "spotify" || source === "youtube") {
       void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {});
+      await searchProviderPlaylists(source);
+      return;
     }
     remoteOwner="";remotePlaylistUrl="";
     if(["shazam","lastfm","bandcamp","spotify","youtube"].includes(source)) {
       await navigate("source-browser");provider=source;activeBrowserImport=null;chart=null;tracks=[];collectionId="";return;
     }
     await navigate("charts"); provider = source; activeBrowserImport = null; chart = null; tracks = []; genreUrl = ""; genres = []; await loadGenres();
+  }
+  async function searchProviderPlaylists(source: "spotify" | "youtube") {
+    catalogSearchSource = source;
+    catalogSearchKind = "playlists";
+    catalogSearchRequest++;
+    await navigate("search");
   }
   async function openRemotePlaylist(source: "spotify" | "youtube", url: string) {
     // The sidebar can open a provider playlist from any view. Record the user's
@@ -1974,9 +1982,15 @@
     }
     if(row.kind==="artist") { await discoverArtist({id:`${row.sourceId}:artist-search`,provider:row.sourceId,providerId:"artist-search",sourceUrl:row.url??"",artist:row.title,title:"",favorite:false,provenance:{}});return; }
     if(row.kind==="album") { if(row.url)await importPreset(row.url);return; }
+    if ((row.sourceId === "spotify" || row.sourceId === "youtube") && row.kind === "playlist") {
+      rememberRoute(); provider = row.sourceId; remoteOwner = ""; remotePlaylistUrl = row.url ?? ""; activeBrowserImport = null; chart = null; tracks = []; collectionId = "";
+      await navigate("source-browser", false); return;
+    }
+    if ((row.sourceId === "spotify" && row.kind === "profile") || (row.sourceId === "youtube" && row.kind === "channel")) {
+      rememberRoute(); provider = row.sourceId; remoteOwner = row.url ?? row.title; remotePlaylistUrl = ""; activeBrowserImport = null; chart = null; tracks = []; collectionId = "";
+      await navigate("source-browser", false); return;
+    }
     await browseProviderCharts(row.sourceId);
-    if(row.kind==="playlist") { rememberRoute(); remotePlaylistUrl=row.url??""; }
-    else remoteOwner=row.url??row.title;
   }
   async function chooseLibrarySource(source: string) {
     rememberRoute(); librarySource = source;
@@ -2525,16 +2539,21 @@
   onMount(()=>()=>{webviewSeekCompletionWatchdog.cancel();activeWebviewSeek=null;cancelRadioIdentification();audioStreamHandle?.destroy();audioStreamHandle=null;});
   function safePreviewError(reason: unknown): string {
     const message = reason instanceof Error ? reason.message : String(reason ?? "");
+    const missingDurationExplanation = "Saved recording duration is missing; no source provided enough verified identity evidence for automatic playback.";
+    const nativeMissingDurationSuffix = `. ${missingDurationExplanation} Open the catalog source or choose another source`;
+    const normalNoMatchSuffix = ". No available source matched the requested recording and version. Open the catalog source or choose another source";
+    if (message.startsWith("No playable audio match was found for ") && message.endsWith(normalNoMatchSuffix)) {
+      return "No playable audio match was found for the requested recording and version. Open the catalog source or choose another source.";
+    }
+    // Preserve the fixed missing-duration explanation before the normal length
+    // cap can clip it. Do not surface interpolated metadata or raw error text.
+    if (message.startsWith("No playable audio match was found for ") && message.endsWith(nativeMissingDurationSuffix)) {
+      return `No playable audio match was found. ${missingDurationExplanation}`;
+    }
     return safeNativeFailurePart(message, "No playable audio stream was returned.");
   }
   function skippedPreviewFailureNotice(track: Track, reason: string): string {
     const safeReason = safePreviewError(reason);
-    if (!/^No playable audio match was found(?: for\b|[.:]|$)/i.test(safeReason)) {
-      return `Skipped ${safeNativeFailurePart(track.title, "Unavailable recording")}: ${safeReason} Choose another source from the track actions.`;
-    }
-    // This known resolver category already contains its own action. The shared
-    // 180-character sanitizer may cut that action mid-word; compose one complete
-    // bounded explanation instead of appending another instruction to its tail.
     const label = (value: unknown, fallback: string, maximum: number) => {
       const text = safeNativeFailurePart(value, fallback).replace(/\s+/g, " ");
       if (text.length <= maximum) return text;
@@ -2543,6 +2562,16 @@
     };
     const title = label(track.title, "Unavailable recording", 120);
     const version = label(track.version, "", 80);
+    const missingDurationExplanation = "Saved recording duration is missing; no source provided enough verified identity evidence for automatic playback.";
+    if (track.durationSeconds == null && safeReason === `No playable audio match was found. ${missingDurationExplanation}`) {
+      return `Skipped ${title}${version ? ` (${version})` : ""}: ${missingDurationExplanation} Choose another source from the track actions.`;
+    }
+    if (!/^No playable audio match was found(?: for\b|[.:]|$)/i.test(safeReason)) {
+      return `Skipped ${title}: ${safeReason} Choose another source from the track actions.`;
+    }
+    // This known resolver category already contains its own action. The shared
+    // 180-character sanitizer may cut that action mid-word; compose one complete
+    // bounded explanation instead of appending another instruction to its tail.
     return `Skipped ${title}: No playable audio match was found for the requested recording and version${version ? ` (${version})` : ""}. Choose another source from the track actions.`;
   }
   function mediaAudioFailureReason(): string {
@@ -3191,7 +3220,8 @@
     });
   }
   let webviewResumeSequence = 0;
-  let pendingWebviewResume: {token:number;cancelledGeneration:number|null;node:HTMLAudioElement;source:Preview} | null = null;
+  let pendingWebviewResume: {token:number;cancelledGeneration:number|null;node:HTMLAudioElement;source:Preview;
+    startPosition:number;playRequestedAtMs:number|null;started:Promise<void>;resolveStarted:()=>void} | null = null;
   function cancelPendingWebviewResume() {
     const attempt = pendingWebviewResume;
     if (!attempt) return;
@@ -3201,13 +3231,26 @@
       bufferingAudio = false; paused = true; attempt.node.pause(); previewStatus = "Paused";
     }
   }
+  function signalWebviewResumeProgress(node: HTMLAudioElement) {
+    const attempt = pendingWebviewResume;
+    if (!attempt || attempt.node !== node || node !== audio || attempt.source !== preview ||
+        attempt.playRequestedAtMs === null || node.paused || node.readyState < 2 ||
+        !Number.isFinite(node.currentTime) || node.currentTime - attempt.startPosition < 0.25) return;
+    // Some WebViews leave play() pending after media has actually resumed. Only
+    // accept a resume after this exact node/source has advanced media time while
+    // unpaused; a bare play/playing event or readyState alone is not enough.
+    attempt.resolveStarted();
+  }
   async function resumeCurrentWebviewAudio(automationRequestId?: string): Promise<"played"|"cancelled"|"failed"> {
     const node = audio, source = preview, trackId = playingTrack?.id;
     if (!node || !source || !trackId) return "cancelled";
     cancelPendingWebviewResume();
     const session = playbackSession, serial = seekSerial, startupGeneration = audioStartupGeneration;
     const entryId = automationQueueProjection.entryIds[queueIndex] ?? null, index = queueIndex;
-    const attempt = {token:++webviewResumeSequence,cancelledGeneration:null as number|null,node,source};
+    let resolveStarted!: () => void;
+    const started = new Promise<void>(resolve => { resolveStarted = resolve; });
+    const attempt = {token:++webviewResumeSequence,cancelledGeneration:null as number|null,node,source,
+      startPosition:node.currentTime,playRequestedAtMs:null as number|null,started,resolveStarted};
     pendingWebviewResume = attempt;
     const startedAt = performance.now(), deadline = startedAt + 20_000;
     const sameSource = () => audio === node && preview === source && playingTrack?.id === trackId && playbackSession === session && source.sourceGeneration === preview?.sourceGeneration;
@@ -3215,12 +3258,13 @@
     bufferingAudio = true; previewStatus = "Resuming audio…";
     try {
       await withinPreviewStartupBudget(() => {
+        attempt.playRequestedAtMs = performance.now();
         const promise = node.play();
         // A cancelled play can settle late; never pause a newer resume/source.
         void promise.then(() => {
           if (attempt.cancelledGeneration !== null && webviewResumeSequence === attempt.cancelledGeneration && !pendingWebviewResume && sameSource()) node.pause();
         }, () => {});
-        return promise;
+        return Promise.race([promise, attempt.started]);
       }, deadline, stillCurrent);
       if (!stillCurrent()) return "cancelled";
       paused = false; bufferingAudio = false;
@@ -5356,7 +5400,7 @@
     onDirectoryBrowser={() => { directoryBrowserVisited = true; if (view !== "directory-browser") void navigate("directory-browser"); }}
     selectedFolder={view === "directory-browser" ? directoryLocation : null} rootsRevision={directoryRootsRevision} onSelectFolder={browseFolder} onRootsChanged={() => directoryRootsRevision++}
     onNavigate={(next) => { if (next === "library") { if (view !== "library" || librarySource !== "all") void chooseLibrarySource("all"); } else if (view !== next) void navigate(next as View); }}
-    onPlaylist={(id) => void openPlaylist(id)} onPlaylistContext={(id, event) => { const collection = namedCollections.find(item => item.id === id)??(["favorites","history"].includes(id)?{id,name:sidebarLayout.names?.[id]??(id==="favorites"?"Liked Songs":"History"),trackCount:0}:null); if (collection) playlistActions = { collection, anchor: { x: event.clientX, y: event.clientY } }; }} onSource={(source) => void browseProviderCharts(source)}
+    onPlaylist={(id) => void openPlaylist(id)} onPlaylistContext={(id, event) => { const collection = namedCollections.find(item => item.id === id)??(["favorites","history"].includes(id)?{id,name:sidebarLayout.names?.[id]??(id==="favorites"?"Liked Songs":"History"),trackCount:0}:null); if (collection) playlistActions = { collection, anchor: { x: event.clientX, y: event.clientY } }; }} onSource={(source) => source === "spotify" || source === "youtube" ? void searchProviderPlaylists(source) : void browseProviderCharts(source)}
     sections={sidebarLayout.sections} assignments={sidebarLayout.assignments} onCreateSection={createSection} onRenameSection={renameSection} onDeleteSection={deleteSection} onMovePlaylist={movePlaylistToSection} onCreatePlaylist={(sectionId)=>void createNewPlaylist(sectionId)}
     onImport={() => void createNewPlaylist()} onSettings={() => void navigate("settings")} onDownloads={() => { openPlayerPanel("downloads"); void refreshJobs(); }}
     activeJobs={jobs.filter((job) => !["completed", "failed", "cancelled"].includes(job.state)).length} />
@@ -5477,7 +5521,7 @@
     {#if autotagReviewId && currentTagJob && currentTagAsset}<section class="autotag-page"><button onclick={()=>{autotagReviewId=null;autotagReviewAsset=null;}}>← Back</button><AutotagReview job={currentTagJob} asset={currentTagAsset} onReview={(assetId,providerId)=>call<AutotagJob>("review_autotag_candidate",{assetId,providerId})} onApply={async(assetId,fieldKeys)=>{await call("apply_autotag_review",{assetId,fieldKeys});autotagReviewAsset=await call<LocalAsset|null>("get_asset_by_id",{assetId});await loadAutotagState();}} onRetry={async(assetId)=>{await call("retry_autotag",{assetId});await loadAutotagState();}} /></section>
     {:else if view === "artist"}
       <section class="artist-page-host">
-        {#if spotifyArtistId}<SpotifyArtist bind:this={spotifyArtistComponent} navigationSnapshotKey={spotifyNavigationSnapshotKey} artistId={spotifyArtistId} searchArtistFallback={spotifyArtistSearchFallback} call={spotifyArtistCall} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} onPlay={playArtistTrack} onPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist} onSaveToLibrary={saveAlbumTracksToLibrary} onBrowseArtistProvider={browseArtistProvider} onBack={()=>void travelRoute("back")} initialScroll={artistScroll} onScroll={(value)=>artistScroll=value}/>{:else}
+        {#if spotifyArtistId}<SpotifyArtist bind:this={spotifyArtistComponent} navigationSnapshotKey={spotifyNavigationSnapshotKey} artistId={spotifyArtistId} searchArtistFallback={spotifyArtistSearchFallback} call={spotifyArtistCall} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} onPlay={playArtistTrack} onPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist} onSaveToLibrary={saveAlbumTracksToLibrary} onBrowseArtistProvider={browseArtistProvider} onFavorite={(track)=>void favorite(track)} onDownload={(track)=>void openDownloadChooser(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onArtist={(track)=>void discoverArtist(track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} onBack={()=>void travelRoute("back")} initialScroll={artistScroll} onScroll={(value)=>artistScroll=value}/>{:else}
         <ArtistPage bind:this={nativeArtistComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused}
           activeTrack={activeArtistTrack}
           artistName={activeArtistName}
@@ -5556,7 +5600,7 @@
         </section>
         {/if}
         {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
-        {/if}{#if settingsCategory === "connections"}<AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} /><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void browseProviderCharts(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
+        {/if}{#if settingsCategory === "connections"}<AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} /><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void searchProviderPlaylists(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
         {/if}{#if settingsCategory === "advanced"}<details class="settings-advanced" open><summary><strong>Tools & diagnostics</strong><span>Executable paths and dependency checks</span></summary>
           <ToolSetup {settings} {dependencies} onChange={(value)=>(settings=value)} onCheck={()=>void run(async()=>(dependencies=await call<Dependency[]>("check_dependencies")))} onSave={()=>void saveSettingsFields(["ytDlpPath","ffmpegPath","ffprobePath","jsRuntimePath"],"Tool paths saved.")} checking={busy>0} />
         </details>
@@ -5575,7 +5619,8 @@
           playingTrackId={playingTrack?.id ?? ""} bufferingTrackId={playbackLoading ? playingTrack?.id ?? "" : ""} {paused}
           onPlay={async (track,list,index) => { await startPreview(track,false,false,list,index); }} onQueue={(track) => queueArtistTracks([track],"append")} onNext={(track) => queueArtistTracks([track],"next")} onQueueTracks={queueArtistTracks}
           onDownload={openDownloadChooser} onFavorite={favorite} onPlaylist={addArtistTrack} onArtist={discoverArtist} onInfo={(track) => openPlayerPanel("info",track)} onContext={(track,event) => {actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} />
-        {:else}<RemotePlaylists {call} initialProvider={provider} initialOwner={remoteOwner} onOpenPlaylist={(source,url) => void openRemotePlaylist(source,url)} onBrowseOwner={openRemoteOwnerProfile} onImported={remotePlaylistsImported} />{/if}
+        {:else if remoteOwner}<RemotePlaylists {call} initialProvider={provider} initialOwner={remoteOwner} profileOnly onOpenPlaylist={(source,url) => void openRemotePlaylist(source,url)} onBrowseOwner={openRemoteOwnerProfile} onImported={remotePlaylistsImported} />
+        {:else}<section class="provider-search-fallback"><h2>Search {provider === "spotify" ? "Spotify" : "YouTube"} playlists</h2><p>Use main Search to find public playlists. Saved account playlists stay in the sidebar.</p><button class="primary" onclick={() => void searchProviderPlaylists(provider as "spotify" | "youtube")}>Search playlists</button></section>{/if}
       {/key}{:else}<SourcePresets {provider} onImport={importPreset} onOpen={(url)=>void run(()=>call("open_external_url",{url}))} />{/if}
     {:else if view === "directory-browser"}
       <div aria-hidden="true"></div>
@@ -5855,7 +5900,7 @@
                     <td class="track-number">
                       {#if view === "collections" && localPlaylistSelectionMode}<input type="checkbox" style="width:14px;height:14px;flex:none;margin:0 4px 0 0" aria-label={`Select occurrence ${startRow + rowIndex + 1}: ${t.title} for playlist`} checked={selectedLocalOccurrenceSet.has(localOccurrenceRows[startRow + rowIndex]?.key ?? "")} onclick={event => event.stopPropagation()} onchange={event => toggleLocalOccurrence(startRow + rowIndex, event.currentTarget.checked)} />{/if}
                       <span class="row-number">{playingTrack&&sameTrackIdentity(t,playingTrack)&&!paused ? "♫" : startRow + rowIndex + 1}</span>
-                      <button class="row-play" class:buffering={Boolean(playbackLoading&&playingTrack&&sameTrackIdentity(t,playingTrack))} aria-busy={Boolean(playbackLoading&&playingTrack&&sameTrackIdentity(t,playingTrack))} aria-label={`Play ${t.title}`} title="Play audio" onclick={(e) => { e.stopPropagation(); select(t); }}>▶</button>
+                      <button class="row-play" class:buffering={Boolean(playbackLoading&&playingTrack&&sameTrackIdentity(t,playingTrack))} class:paused={Boolean(playingTrack&&sameTrackIdentity(t,playingTrack)&&paused)} aria-busy={Boolean(playbackLoading&&playingTrack&&sameTrackIdentity(t,playingTrack))} aria-label={`Play ${t.title}`} title="Play audio" onclick={(e) => { e.stopPropagation(); select(t); }}>▶</button>
                     </td>
                     <td class="track-name">
                       <div class="track-title" title={[t.title,bpmAnnotation(t)].filter(Boolean).join("\n")}>
@@ -6305,17 +6350,24 @@
     </div>
     {#if preview && ["audio", "local", "direct"].includes(preview.kind)}<audio
         bind:this={audio}
-        ontimeupdate={updateWebviewTime}
+        ontimeupdate={(event) => { signalWebviewResumeProgress(event.currentTarget); updateWebviewTime(event); }}
         onseeked={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeked",event.currentTarget); position = audio?.currentTime ?? 0; const landed=completeWebviewSeekIfLanded(event.currentTarget); if(landed || (!activeWebviewSeek && !pendingWebviewResume))refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); void publishAutomationPlayback(); }}
         onloadedmetadata={() => (duration = audio?.duration ?? 0)}
         onplay={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("play",event.currentTarget); paused = false; }}
-        onpause={(event) => { if(event.currentTarget!==audio || (audio && !audio.paused))return; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); webviewSeekCompletionWatchdog.pause(); nextCandidatePrefetch.cancel(); cancelPendingWebviewResume(); paused = true; bufferingAudio = false; if(radioRecognizing&&!nativeActive())cancelRadioIdentification(); persistPlaybackPosition(); }}
+        onpause={(event) => { if(event.currentTarget!==audio || (audio && !audio.paused))return; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); webviewSeekCompletionWatchdog.pause(); nextCandidatePrefetch.cancel();
+          // HTMLMediaElement events can be delivered after the state transition
+          // that queued them. A pause caused by the previous transport pause may
+          // arrive while the subsequent play() promise is pending; explicit pause
+          // commands cancel that attempt before calling pause(), so this event
+          // must not cancel a newer, owner-checked resume.
+          if (!pendingWebviewResume || pendingWebviewResume.node !== event.currentTarget || pendingWebviewResume.source !== preview) cancelPendingWebviewResume();
+          paused = true; bufferingAudio = false; if(radioRecognizing&&!nativeActive())cancelRadioIdentification(); persistPlaybackPosition(); }}
         onwaiting={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("waiting",event.currentTarget); bufferingAudio = Boolean(audio && !audio.paused); armWebviewStallWatchdog(event.currentTarget); }}
         onstalled={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("stalled",event.currentTarget); bufferingAudio = Boolean(audio && !audio.paused && audio.readyState < 3); armWebviewStallWatchdog(event.currentTarget); }}
         oncanplay={(event) => recordWebviewMediaEvent("canplay",event.currentTarget)}
         oncanplaythrough={(event) => recordWebviewMediaEvent("canplaythrough",event.currentTarget)}
         onseeking={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeking",event.currentTarget); }}
-        onplaying={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("playing",event.currentTarget); paused = false; armPendingWebviewSeekAfterResume(event.currentTarget); if(!pendingWebviewResume && !activeWebviewSeek)refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); const source=preview; if(source){const owner=webviewStallOwner(event.currentTarget,source,seekSerial);if(owner)webviewStallWatchdog.observeProgress(owner,event.currentTarget.currentTime);} bufferingAudio = false; void recordSuccessfulPlayback(); prepareUpcomingWebviewCandidate(event.currentTarget); }}
+        onplaying={(event) => { if(event.currentTarget!==audio)return; signalWebviewResumeProgress(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("playing",event.currentTarget); paused = false; armPendingWebviewSeekAfterResume(event.currentTarget); if(!pendingWebviewResume && !activeWebviewSeek)refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); const source=preview; if(source){const owner=webviewStallOwner(event.currentTarget,source,seekSerial);if(owner)webviewStallWatchdog.observeProgress(owner,event.currentTarget.currentTime);} bufferingAudio = false; void recordSuccessfulPlayback(); prepareUpcomingWebviewCandidate(event.currentTarget); }}
         onended={(event) => { if(event.currentTarget!==audio)return; webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("ended",event.currentTarget); completeWebviewQueueOccurrence(false, event.currentTarget); }}
         onerror={(event) => { if(event.currentTarget!==audio)return; webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("error",event.currentTarget); recoverAudioFailure(event); }}
       >

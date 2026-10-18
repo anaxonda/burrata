@@ -1883,6 +1883,76 @@ impl ArtistService {
         }
     }
 
+    /// Warm an explicit, exact Spotify-track to MusicBrainz-recording artist-ID
+    /// crosswalk. The Spotify row is already stored and provider-normalized; the
+    /// supplied recording MBID is only a locator. Playback consumes the cache
+    /// written here and never performs these requests.
+    pub(crate) async fn prepare_spotify_recording_credit_crosswalk(
+        &self,
+        track: &Track,
+        recording_id: &str,
+    ) -> Result<crate::artist_credit_aliases::SpotifyArtistCreditCrosswalkStatus, String> {
+        if !valid_crosswalk_mbid(recording_id) {
+            return Err("A MusicBrainz recording hint must be a valid recording ID".into());
+        }
+        let fingerprint = crate::artist_credit_aliases::spotify_artist_credit_fingerprint(track)
+            .ok_or("The exact saved Spotify track does not have complete verified artist identities and duration")?;
+        let recording = self
+            .musicbrainz_json(
+                &format!("recording/{recording_id}"),
+                &[("inc", "artist-credits+isrcs".into())],
+                crate::artist_credit_aliases::spotify_recording_credit_raw_cache_namespace(),
+                recording_id,
+                LIST_TTL,
+            )
+            .await?;
+        if recording.get("id").and_then(Value::as_str) != Some(recording_id) {
+            return Err("MusicBrainz returned a different recording than requested".into());
+        }
+        let credits = recording
+            .get("artist-credit")
+            .and_then(Value::as_array)
+            .filter(|credits| !credits.is_empty() && credits.len() <= 16)
+            .ok_or("MusicBrainz returned an incomplete recording artist credit")?;
+        let mut seen = std::collections::HashSet::new();
+        for credit in credits {
+            let mbid = credit
+                .get("artist")
+                .and_then(|artist| artist.get("id"))
+                .and_then(Value::as_str)
+                .filter(|id| valid_crosswalk_mbid(id))
+                .ok_or("MusicBrainz returned an artist credit without a valid artist ID")?;
+            if !seen.insert(mbid.to_owned()) {
+                continue;
+            }
+            self.musicbrainz_json(
+                &format!("artist/{mbid}"),
+                &[("inc", "aliases+genres+tags+artist-rels+url-rels".into())],
+                crate::artist_credit_aliases::spotify_recording_credit_profile_cache_namespace(),
+                mbid,
+                PROFILE_TTL,
+            )
+            .await?;
+        }
+        let latest_track = self
+            .store
+            .get_library_track(&track.id)?
+            .ok_or("The Spotify track was removed from the library during verification")?;
+        if crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&latest_track).as_ref()
+            != Some(&fingerprint)
+        {
+            return Err("The saved Spotify track changed during recording verification".into());
+        }
+        // Verify only after every exact raw response is in the provider cache.
+        // The helper rechecks all IDs, order, title, duration, ISRC and canonical
+        // Spotify URLs before writing the playback sidecar.
+        crate::artist_credit_aliases::write_verified_spotify_artist_credit_recording(
+            &self.store,
+            track,
+            recording_id,
+        )
+    }
+
     /// Invalidate only after the caller has validated repeated complete album reads.
     /// A missing or repeated target must supersede an older unique index entry.
     pub(crate) fn invalidate_verified_spotify_recording(

@@ -199,7 +199,7 @@ test('Spotify profile search uses display names, usernames, and ID fallback with
   let body=request.operationName==='profileAttributes'
    ?{data:{me:{profile:{uri:'spotify:user:account-123',name:'Fixture account'}}}}
    :{data:{searchV2:{users:{totalCount:5,pagingInfo:{nextOffset:4},items:[
-    {item:{_uri:'spotify:user:display-user',data:{profile:{displayName:'  Display Name  '}}}},
+    {item:{_uri:'spotify:user:display-user',data:{profile:{displayName:'  Display Name  ',avatar:{sources:[{url:'https://i.scdn.co/image/profile-avatar'}]}}}}},
     {item:{data:{username:'üser+name',profile:{username:'üser+name'}}}},
    {item:{_uri:'spotify:user:id-fallback',data:{profile:{name:'   '}}}},
    {item:{data:{profile:{displayName:'Missing stable ID'}}}},
@@ -218,6 +218,7 @@ test('Spotify profile search uses display names, usernames, and ID fallback with
   {id:'üser+name',title:'üser+name',url:'https://open.spotify.com/user/%C3%BCser%2Bname'},
   {id:'id-fallback',title:'id-fallback',url:'https://open.spotify.com/user/id-fallback'},
  ]);
+ assert.equal(result.items[0].artworkUrl,'https://i.scdn.co/image/profile-avatar');
  assert.ok(result.items.every(item=>item.title.trim().length>0));
  assert.equal(result.nextCursor,'4');
  mode='missing';const missing=await context.BurrataSpotifyProvider.run('spotify','search',{query:'Andrew',kind:'profile'},hashes);assert.equal(missing.__burrataProviderError.code,'PROVIDER_CHANGED');

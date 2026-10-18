@@ -139,7 +139,7 @@
 <section class="remote-account-panel" aria-labelledby="remote-account-title">
   <header>
     <h2 id="remote-account-title">Streaming playlist accounts</h2>
-    <p>{nativeSession ? "Sign in through Burrata. Saved connections are reused after restarting, and provider requests run only when needed." : "Connect in your browser to browse playlists."} Burrata never asks for or stores your streaming password.</p>
+    <p>{nativeSession ? "Sign in through Burrata. Saved connections are reused after restarting, and provider requests run only when needed." : "Connect in your browser to search playlists and open saved account playlists."} Burrata never asks for or stores your streaming password.</p>
   </header>
   {#if nativeAccessPaused}<div class="native-access-paused" role="status">
     <p>Provider access is paused. Your saved accounts are kept.</p>
@@ -184,7 +184,7 @@
           {:else if nativeSession && provider === "youtube" && managed?.youtubeReconnectRequired}
             <button class="primary" disabled={busy !== null || managedBusy || (activeNativeProvider !== null && activeNativeProvider !== provider)} onclick={() => void connectAccount("youtube")}>Reconnect YouTube</button>
           {:else if account?.connected || pausedAccount}
-            <button disabled={busy !== null || pausedAccount} onclick={() => onBrowse(provider as Provider)}>Browse playlists</button>
+            <button disabled={busy !== null || pausedAccount} onclick={() => onBrowse(provider as Provider)}>Search playlists</button>
             <button class="quiet" disabled={busy !== null} onclick={() => void disconnect(provider as Provider)}>Forget connection</button>
           {:else}
             <button class="primary" disabled={busy !== null || managedBusy || (nativeSession && activeNativeProvider !== null && activeNativeProvider !== provider)} onclick={() => void connectAccount(provider as Provider)}>

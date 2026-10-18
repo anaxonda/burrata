@@ -206,9 +206,9 @@ async fn add_youtube_support_args(
     args: &mut Vec<String>,
     provider: &str,
     settings: &Settings,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     if provider != "youtube" || !uses_managed_ytdlp(&settings.yt_dlp_path) {
-        return Ok(());
+        return Ok(false);
     }
     if let Some(manager) = crate::youtube_support::global() {
         match managed_provider_action(
@@ -218,7 +218,7 @@ async fn add_youtube_support_args(
             ManagedProviderAction::SystemFallback => {
                 // A partial optional bundle must not block the public system
                 // yt-dlp fallback. Do not start the bundled helper at all.
-                return Ok(());
+                return Ok(false);
             }
             ManagedProviderAction::Unavailable => return Err(
                 "The managed YouTube provider bundle is incomplete and no system yt-dlp is available. Repair the provider bundle or install yt-dlp.".into(),
@@ -226,9 +226,19 @@ async fn add_youtube_support_args(
             ManagedProviderAction::Managed => {}
         }
         let provider_args = crate::youtube_support::yt_dlp_provider_args().await?;
+        let provider_args_installed = !provider_args.is_empty();
         append_managed_youtube_provider_args(args, provider_args);
+        return Ok(provider_args_installed);
     }
-    Ok(())
+    Ok(false)
+}
+
+fn should_force_managed_mweb(
+    provider: &str,
+    configured_ytdlp: &str,
+    managed_provider_args_installed: bool,
+) -> bool {
+    provider == "youtube" && uses_managed_ytdlp(configured_ytdlp) && managed_provider_args_installed
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2632,13 +2642,14 @@ async fn resolve_preview_audio_with_trace(
     if let Some(trace) = &trace {
         trace.event("provider_prepare_end", &candidate.provider, serde_json::json!({"durationMs":helper_started.elapsed().as_millis(), "ok":helper_result.is_ok()}));
     }
-    helper_result?;
+    let managed_provider_args_installed = helper_result?;
     // The bundled provider supports token-bearing mobile web playback. Avoid
     // selecting a TV URL that does not use the available GVS token provider.
-    if candidate.provider == "youtube"
-        && crate::youtube_support::global().is_some()
-        && uses_managed_ytdlp(&settings.yt_dlp_path)
-    {
+    if should_force_managed_mweb(
+        &candidate.provider,
+        &settings.yt_dlp_path,
+        managed_provider_args_installed,
+    ) {
         args.extend([
             "--extractor-args".into(),
             "youtube:player_client=mweb".into(),
@@ -3428,7 +3439,16 @@ fn preview_audio_from_metadata(
         duration_seconds,
         selected_format_id: safe_extractor_format_id(info["format_id"].as_str()),
         selected_format_has_video: info["vcodec"].as_str().is_some_and(|codec| codec != "none"),
-        source_metadata: topic_identity_metadata(candidate, info),
+        source_metadata: if candidate.provider == "youtube"
+            && candidate
+                .uploader
+                .as_deref()
+                .is_some_and(|name| name.trim_end().ends_with("- Topic"))
+        {
+            topic_identity_metadata(candidate, info)
+        } else {
+            verified_youtube_channel_metadata(candidate, info)
+        },
         resolved_title: info["title"].as_str().map(str::to_owned),
         resolved_provider_id: info["id"].as_str().map(str::to_owned),
         chapters: Some(parse_source_chapters(info).unwrap_or_default()),
@@ -3449,6 +3469,120 @@ fn safe_extractor_format_id(value: Option<&str>) -> Option<String> {
                     .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-'))
         })
         .map(str::to_owned)
+}
+
+fn playback_music_catalog_candidates(
+    track: &Track,
+    items: Vec<crate::youtube_music::YouTubeMusicItem>,
+) -> Vec<Candidate> {
+    let mut music = std::collections::BTreeMap::new();
+    for item in items {
+        if let Some(candidate) = playback_music_catalog_candidate(track, item) {
+            music.entry(candidate.id.clone()).or_insert(candidate);
+        }
+    }
+    // Multiple exact catalog locators remain ambiguous. Do not choose an
+    // edition merely because a provider happened to rank it first.
+    if music.len() == 1 {
+        music.into_values().collect()
+    } else {
+        Vec::new()
+    }
+}
+
+fn playback_music_catalog_candidate(
+    track: &Track,
+    item: crate::youtube_music::YouTubeMusicItem,
+) -> Option<Candidate> {
+    if item.id.len() != 11
+        || !item
+            .id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return None;
+    }
+    let artist = item.artist?;
+    let candidate = Candidate {
+        id: format!("youtube:{}", item.id),
+        provider: "youtube".into(),
+        title: item.title.clone(),
+        url: format!("https://www.youtube.com/watch?v={}", item.id),
+        duration_seconds: item.duration_seconds,
+        confidence: "review".into(),
+        permission: "unknown".into(),
+        score: 0.7,
+        source_metadata: Some(serde_json::json!({
+            "provider":"youtube", "playbackMusicCatalogCandidate":true,
+            "catalogTitle":item.title, "catalogArtist":artist,
+        })),
+        reasons: vec![
+            "Music catalog locator; fresh recording identity verification required".into(),
+        ],
+        ..Candidate::default()
+    };
+    crate::source_fallback::is_provisional_playback_candidate(track, &candidate)
+        .then_some(candidate)
+}
+
+/// Retain the narrowly useful, fresh YouTube channel identity exposed by the
+/// extractor. This is separate from Topic's structured artist/credit metadata
+/// and is usable only when yt-dlp itself marks the current channel verified.
+fn verified_youtube_channel_metadata(candidate: &Candidate, info: &Value) -> Option<Value> {
+    if candidate.provider != "youtube"
+        || candidate
+            .uploader
+            .as_deref()
+            .is_some_and(|name| name.trim_end().ends_with("- Topic"))
+        || info["channel_is_verified"].as_bool() != Some(true)
+    {
+        return None;
+    }
+    let channel_id = info["channel_id"].as_str().filter(|id| {
+        id.len() == 24
+            && id.starts_with("UC")
+            && id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    })?;
+    let channel = info["channel"]
+        .as_str()
+        .or_else(|| info["uploader"].as_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && name.len() <= 200)?;
+    let uploader = info["uploader"]
+        .as_str()
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && name.len() <= 200);
+    let track = info["track"]
+        .as_str()
+        .map(str::trim)
+        .filter(|title| !title.is_empty() && title.len() <= 300);
+    let artists = info["artists"].as_array().and_then(|values| {
+        if values.is_empty() || values.len() > 8 {
+            return None;
+        }
+        let names = values
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty() && name.len() <= 120)
+                    .map(str::to_owned)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(names)
+    });
+    Some(serde_json::json!({
+        "provider": "youtube",
+        "channelId": channel_id,
+        "channel": channel,
+        "uploader": uploader,
+        "channelIsVerified": true,
+        "track": track,
+        "artists": artists,
+    }))
 }
 
 fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value> {
@@ -4226,17 +4360,63 @@ impl AcquisitionManager {
         let alternate_artist = alternate_artists.first().cloned();
         self.inner
             .search_cache
-            .get_or_search_cancelled_traced(key, cancel.clone(), trace, || {
-                find_candidates_with_cancel_until_alias(
+            .get_or_search_cancelled_traced(key, cancel.clone(), trace, || async {
+                let mut found = find_candidates_with_cancel_until_alias(
                     &search_track,
                     provider_ids,
                     settings,
-                    cancel,
+                    cancel.clone(),
                     PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
                     PREVIEW_SEARCH_TIMEOUT,
                     Some(deadline),
                     alternate_artist,
                 )
+                .await?;
+                // General video search can bury the artist's auto-generated
+                // recording beneath descriptive reuploads. One native music
+                // catalog query may supply a locator, never match proof.
+                if provider_ids.len() == 1
+                    && provider_ids[0] == "youtube"
+                    && search_track.duration_seconds.is_none()
+                    && search_track.playback_range.is_none()
+                    && !search_track.provenance["chapters"]
+                        .as_array()
+                        .is_some_and(|chapters| !chapters.is_empty())
+                    && search_track.version.as_deref().is_none_or(|version| {
+                        matches!(
+                            crate::matching::normalize_version(version).as_str(),
+                            "" | "original" | "original mix"
+                        )
+                    })
+                    && !found.iter().any(|candidate| {
+                        crate::source_fallback::is_provisional_playback_candidate(
+                            &search_track,
+                            candidate,
+                        ) || crate::source_fallback::playback_recording_matches(
+                            &search_track,
+                            candidate,
+                        )
+                    })
+                {
+                    let query = format!("{} {}", search_track.artist, search_track.title);
+                    match crate::youtube_music::search_playback_candidates(
+                        &query,
+                        10,
+                        cancel.clone(),
+                        deadline,
+                    )
+                    .await
+                    {
+                        Ok(items) => {
+                            found.extend(playback_music_catalog_candidates(&search_track, items));
+                        }
+                        Err(error) if *cancel.borrow() || error == "Cancelled" => {
+                            return Err("Cancelled".into())
+                        }
+                        Err(_) => {} // Retain ordinary candidates and caller deadline.
+                    }
+                }
+                Ok(found)
             })
             .await
     }
@@ -5658,6 +5838,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn music_catalog_locator_requires_one_distinct_exact_recording() {
+        let track = Track {
+            artist: "Imael Angel".into(),
+            title: "BAD TIMES".into(),
+            ..Track::default()
+        };
+        let item = || crate::youtube_music::YouTubeMusicItem {
+            id: "Hqp8vxkPrI8".into(),
+            title: "BAD TIMES".into(),
+            artist: Some("Imael Angel".into()),
+            album: Some("BAD TIMES".into()),
+            duration_seconds: Some(168.0),
+            url: "https://music.youtube.com/watch?v=Hqp8vxkPrI8".into(),
+            artwork_url: None,
+            isrc: None,
+        };
+        let selected = playback_music_catalog_candidates(&track, vec![item(), item()]);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, "youtube:Hqp8vxkPrI8");
+        assert_eq!(selected[0].confidence, "review");
+        assert!(selected[0].uploader.is_none());
+        assert!(selected[0]
+            .source_metadata
+            .as_ref()
+            .unwrap()
+            .get("channelIsVerified")
+            .is_none());
+        let mut alternative = item();
+        alternative.id = "abcdefghijk".into();
+        assert!(playback_music_catalog_candidates(&track, vec![item(), alternative]).is_empty());
+        let mut long = item();
+        long.title = "BAD TIMES (Long Version)".into();
+        long.duration_seconds = Some(401.0);
+        assert_eq!(
+            playback_music_catalog_candidates(&track, vec![item(), long]).len(),
+            1
+        );
+        let mut wrong = item();
+        wrong.artist = Some("Other Artist".into());
+        assert!(playback_music_catalog_candidates(&track, vec![wrong]).is_empty());
+        let mut short = item();
+        short.duration_seconds = Some(30.0);
+        assert!(playback_music_catalog_candidates(&track, vec![short]).is_empty());
+        assert!(track.duration_seconds.is_none());
+    }
+
+    #[test]
     fn monochrome_search_is_canonical_plus_at_most_one_distinct_alias() {
         let track = Track {
             artist: "Ансамбъл Пирин".into(),
@@ -5846,6 +6073,32 @@ mod tests {
             managed_provider_action(false, false),
             ManagedProviderAction::Managed
         );
+    }
+
+    #[test]
+    fn mweb_requires_installed_managed_youtube_provider_args() {
+        assert!(!should_force_managed_mweb("youtube", "", false));
+        assert!(!should_force_managed_mweb("youtube", "yt-dlp", false));
+        assert!(!should_force_managed_mweb(
+            "youtube",
+            "bundled:yt-dlp",
+            false
+        ));
+        assert!(!should_force_managed_mweb("soundcloud", "", true));
+        assert!(!should_force_managed_mweb(
+            "youtube",
+            "/usr/bin/yt-dlp",
+            true
+        ));
+        assert!(should_force_managed_mweb("youtube", "", true));
+
+        // Incomplete managed assets with an available system executable take
+        // this path and must not force a client that needs the managed token plugin.
+        assert_eq!(
+            managed_provider_action(true, true),
+            ManagedProviderAction::SystemFallback
+        );
+        assert!(!should_force_managed_mweb("youtube", "", false));
     }
 
     #[test]
@@ -6196,6 +6449,53 @@ mod tests {
             "Make Me Sway · Massivedrum · Bruno Rosado"
         );
         assert!(!metadata.to_string().contains("example.invalid"));
+    }
+
+    #[test]
+    fn ordinary_youtube_identity_requires_fresh_verified_channel_fields() {
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            uploader: Some("KAROL G".into()),
+            ..Candidate::default()
+        };
+        let info = serde_json::json!({
+            "channel_id":"UC1234567890123456789012",
+            "channel":"KAROL G",
+            "uploader":"KAROL G",
+            "channel_is_verified":true,
+            "track":"BbY WOW",
+            "artists":["KAROL G","Judeline","rusowsky"],
+            "description":"untrusted arbitrary description",
+        });
+        let metadata = verified_youtube_channel_metadata(&candidate, &info).unwrap();
+        assert_eq!(metadata["provider"], "youtube");
+        assert_eq!(metadata["channelId"], "UC1234567890123456789012");
+        assert_eq!(metadata["channelIsVerified"], true);
+        assert_eq!(metadata["channel"], "KAROL G");
+        assert_eq!(metadata["track"], "BbY WOW");
+        assert_eq!(
+            metadata["artists"],
+            serde_json::json!(["KAROL G", "Judeline", "rusowsky"])
+        );
+        assert!(metadata.get("description").is_none());
+
+        let unverified = serde_json::json!({
+            "channel_id":"UC1234567890123456789012",
+            "channel":"KAROL G",
+            "channel_is_verified":false,
+        });
+        assert!(verified_youtube_channel_metadata(&candidate, &unverified).is_none());
+        let missing_id = serde_json::json!({
+            "channel":"KAROL G",
+            "channel_is_verified":true,
+        });
+        assert!(verified_youtube_channel_metadata(&candidate, &missing_id).is_none());
+
+        let topic = Candidate {
+            uploader: Some("KAROL G - Topic".into()),
+            ..candidate
+        };
+        assert!(verified_youtube_channel_metadata(&topic, &info).is_none());
     }
 
     #[test]

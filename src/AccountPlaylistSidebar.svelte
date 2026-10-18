@@ -113,7 +113,7 @@
     {#if enabled}<button class="quiet" disabled={busy} onclick={refresh}>Refresh</button>{/if}
   </header>
   {#if !enabled}
-    <p class="hint">Turn on playlists in Settings to browse here.</p>
+    <p class="hint">Enable account playlist listing in Settings to show saved playlists here. Use Search to find other public playlists.</p>
   {:else}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if visibleItems.length}

@@ -1,0 +1,11 @@
+{
+  "queue": true,
+  "queueEntryIds": true,
+  "currentIndex": true,
+  "trackId": true,
+  "paused": true,
+  "position": true,
+  "volume": true,
+  "repeat": true,
+  "shuffle": true
+}

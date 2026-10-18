@@ -8,7 +8,7 @@ files stay on your computer; online searches and imports use third-party service
 ## Get Burrata
 
 The [GitHub Releases page](https://github.com/anaxonda/burrata/releases) is the
-download location. Version 0.1.2 is currently a non-public draft prerelease.
+download location. Burrata is currently distributed as a prerelease.
 Main releases contain installers for Apple silicon macOS, Windows x64, and Linux
 x86_64 (DEB, RPM, and AppImage), browser companions and checksums.
 Required runtime helpers are bundled. Soulseek uses an optional, separately installed

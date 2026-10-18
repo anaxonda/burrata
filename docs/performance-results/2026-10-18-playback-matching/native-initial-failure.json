@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "scope": "isolated seeded fixtures; one queued request per case",
+  "binarySha256": "04a5dcc7b43e22a7e14ebfe7c9c7e96aed312d4974f67530e68e5ed7ca5564c5",
+  "pass": false,
+  "initialVolume": 0.8,
+  "cases": [
+    {
+      "case": "five_hundred_miles",
+      "trackId": "fixture:500-miles",
+      "expectedProvider": "monochrome",
+      "status": "pending",
+      "queueRequestCount": 1,
+      "timeline": [],
+      "operationId": "9406852d-009c-42c0-a2c4-2b4e771cff52",
+      "queueRevision": 1,
+      "entryId": "6ff193b9-d33e-4b3b-8376-177f491649a5"
+    }
+  ],
+  "finalPaused": true,
+  "volumeRestored": true,
+  "failureCategory": "selected_recording_mismatch"
+}

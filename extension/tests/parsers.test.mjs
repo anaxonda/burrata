@@ -97,6 +97,71 @@ test('Spotify does not invent track position for aria row 1 when a header exists
  assert.equal(extract(page,'https://open.spotify.com/playlist/PL').entries.length,0);
 });
 
+test('YouTube public video import creates one complete occurrence without a signed-in account',()=>{
+ const page=doc('<main><ytd-watch-metadata><h1><yt-formatted-string>Song Title</yt-formatted-string></h1></ytd-watch-metadata><div id="owner"><ytd-channel-name><a href="/@Artist">Artist Channel</a></ytd-channel-name></div><meta itemprop="duration" content="PT3M12S"><meta property="og:image" content="https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg">','https://www.youtube.com/watch?v=abcdefghijk');
+ const result=mergeSnapshots([extract(page,'https://www.youtube.com/watch?v=abcdefghijk')]);
+ assert.equal(providerFor('https://www.youtube.com/watch?v=abcdefghijk'),'youtube');
+ assert.equal(result.provider,'youtube');assert.equal(result.kind,'playlist');assert.equal(result.complete,true);
+ assert.equal(result.expectedTotal,1);assert.equal(result.entries[0].providerId,'abcdefghijk');
+ assert.equal(result.entries[0].artist,'Artist Channel');assert.equal(result.entries[0].title,'Song Title');
+ assert.equal(result.entries[0].durationSeconds,192);assert.equal(result.entries[0].artworkUrl,'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg');
+});
+
+test('YouTube watch extraction skips empty placeholder headings before the rendered title',()=>{
+ const url='https://www.youtube.com/watch?v=Hqp8vxkPrI8';
+ const page=doc('<ytd-watch-metadata><h1></h1><h1><yt-formatted-string></yt-formatted-string></h1><div id="title"><h1 class="title">BAD TIMES</h1></div><div id="owner"><ytd-channel-name><a href="/@ImaelAngel">Imael Angel</a></ytd-channel-name></div><meta itemprop="duration" content="PT2M48S"><meta property="og:image" content="https://i.ytimg.com/vi/Hqp8vxkPrI8/maxresdefault.jpg">',url);
+ const result=mergeSnapshots([extract(page,url)]);
+ assert.equal(result.entries[0].providerId,'Hqp8vxkPrI8');assert.equal(result.entries[0].title,'BAD TIMES');
+ assert.equal(result.entries[0].artist,'Imael Angel');assert.equal(result.entries[0].durationSeconds,168);
+});
+
+test('YouTube public playlist preserves ordered duplicate occurrences and honest partial capture',()=>{
+ const page=doc(`<main><ytd-playlist-header-renderer><h1>Public Mix</h1><span>3 videos</span></ytd-playlist-header-renderer><ytd-playlist-video-list-renderer>
+  <ytd-playlist-video-renderer><span id="index">1</span><a id="video-title" href="/watch?v=abcdefghijk">First Song</a><div id="byline-container">First Artist</div><span class="duration">3:12</span></ytd-playlist-video-renderer>
+  <ytd-playlist-video-renderer><span id="index">2</span><a id="video-title" href="/watch?v=BCDEFGHIJKL">Second Song</a><div id="byline-container">Second Artist</div></ytd-playlist-video-renderer>
+  <ytd-playlist-video-renderer><span id="index">3</span><a id="video-title" href="/watch?v=abcdefghijk">First Song</a><div id="byline-container">First Artist</div></ytd-playlist-video-renderer>
+ </ytd-playlist-video-list-renderer></main>`,'https://www.youtube.com/playlist?list=PLabcdefghijk');
+ const result=mergeSnapshots([extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk')]);
+ assert.equal(result.complete,true);assert.equal(result.expectedTotal,3);
+ assert.deepEqual(result.entries.map(e=>[e.position,e.providerId]),[[1,'abcdefghijk'],[2,'BCDEFGHIJKL'],[3,'abcdefghijk']]);
+ assert.deepEqual(result.entries.map(e=>e.artist),['First Artist','Second Artist','First Artist']);
+ assert.equal(result.entries[0].durationSeconds,192);
+ const partial=mergeSnapshots([extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk')]).entries.slice(0,2);
+ assert.equal(mergeSnapshots([{...extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk'),entries:partial}]).complete,false);
+});
+
+test('YouTube current lockup playlist cards use explicit list indexes and ignore unrelated cards',()=>{
+ const url='https://www.youtube.com/playlist?list=PLabcdefghijk';
+ const card=(id,index,title,artist)=>`<yt-lockup-view-model><a href="/watch?v=${id}&list=PLabcdefghijk&index=${index}">3:55</a><a class="ytLockupMetadataViewModelTitle" aria-label="${title} 3 minutes, 55 seconds" href="/watch?v=${id}&list=PLabcdefghijk&index=${index}">${title}</a><a href="/channel/UC${artist}">${artist}</a><div class="ytBadgeShapeText">3:55</div></yt-lockup-view-model>`;
+ const page=doc(`<main><ytd-playlist-header-renderer><h1>Public Mix</h1></ytd-playlist-header-renderer><yt-page-header-view-model><div>2 videos </div></yt-page-header-view-model>${card('abcdefghijk',1,'First Song','ArtistA')}${card('abcdefghijk',2,'First Song','ArtistA')}<yt-lockup-view-model><a class="ytLockupMetadataViewModelTitle" href="/watch?v=LMNOPQRSTUV&list=OTHERLIST123&index=1">Unrelated</a></yt-lockup-view-model></main>`,url);
+ const result=mergeSnapshots([extract(page,url)]);
+ assert.equal(result.expectedTotal,2);assert.equal(result.complete,true);
+ assert.deepEqual(result.entries.map(e=>[e.position,e.providerId,e.title,e.artist,e.durationSeconds]),[[1,'abcdefghijk','First Song','ArtistA',235],[2,'abcdefghijk','First Song','ArtistA',235]]);
+});
+
+test('YouTube rejects unsupported pages and does not infer missing public channel credit',()=>{
+ assert.throws(()=>extract(doc('<h1>Channel</h1>'),'https://www.youtube.com/@Artist'),/public YouTube video or playlist/);
+ assert.throws(()=>extract(doc('<h1>Song</h1>'),'https://www.youtube.com/watch?v=bad'),/public YouTube video or playlist/);
+ assert.throws(()=>extract(doc('<h1>Song</h1>'),'https://www.youtube.com/watch?v=abcdefghijk'),/channel credit/);
+});
+
+test('A visibly empty YouTube playlist with explicit zero count is complete',()=>{
+ const page=doc('<main><ytd-playlist-header-renderer><h1>Empty mix</h1><span>0 videos</span></ytd-playlist-header-renderer><p>This playlist is empty.</p></main>','https://www.youtube.com/playlist?list=PLabcdefghijk');
+ const result=mergeSnapshots([extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk')]);
+ assert.equal(result.complete,true);assert.equal(result.entries.length,0);assert.equal(result.expectedTotal,0);
+});
+
+test('YouTube playlist row omissions prevent completeness even when declared count matches captured rows',()=>{
+ const page=doc(`<main><ytd-playlist-header-renderer><h1>Changed playlist</h1><span>2 videos</span></ytd-playlist-header-renderer><ytd-playlist-video-list-renderer>
+  <ytd-playlist-video-renderer><span id="index">1</span><a id="video-title" href="/watch?v=abcdefghijk">First</a><div id="byline-container">Artist</div></ytd-playlist-video-renderer>
+  <ytd-playlist-video-renderer><span id="index">2</span><a id="video-title" href="/watch?v=BCDEFGHIJKL">Missing credit</a></ytd-playlist-video-renderer>
+  <ytd-playlist-video-renderer><span id="index">2</span><a id="video-title" href="/watch?v=LMNOPQRSTUV">Second</a><div id="byline-container">Artist</div></ytd-playlist-video-renderer>
+ </ytd-playlist-video-list-renderer></main>`,'https://www.youtube.com/playlist?list=PLabcdefghijk');
+ const result=mergeSnapshots([extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk')]);
+ assert.equal(result.entries.length,2);assert.equal(result.expectedTotal,2);assert.equal(result.complete,false);
+ assert.ok(result.warnings.some(warning=>/rows lacked/.test(warning)));
+});
+
 const beatportUrl='https://www.beatport.com/genre/afro-house/89/top-100';
 test('Beatport compact live layout reads explicit rank controls and nested mix names',()=>{
  const html=readFileSync(new URL('./fixtures/beatport-afro-house-list.html',import.meta.url),'utf8');

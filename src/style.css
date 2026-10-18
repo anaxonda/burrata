@@ -2223,6 +2223,17 @@ select optgroup {
 /* Current recording remains visible while paused; selection is independent. */
 .track-table tr.current,table tbody tr.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 
+/* Keep the personal playlist table's compact play/status cues in step with TrackList. */
+@keyframes table-track-buffer-pulse { to { opacity: .45; transform: scale(.88); } }
+.desktop-track-list tbody tr.current .row-play.buffering,
+.desktop-track-list tbody tr.current .table-playback-state { animation: table-track-buffer-pulse 1s ease-in-out infinite alternate; }
+.desktop-track-list tbody tr.current.paused .row-play,
+.desktop-track-list tbody tr.current.paused .table-playback-state { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .desktop-track-list tbody tr.current .row-play.buffering,
+  .desktop-track-list tbody tr.current .table-playback-state { animation: none; }
+}
+
 /* Keep the shared track overflow menu aligned with the compact action menus. */
 body .shared-track-list .more-menu button,
 body .shared-track-list .more-menu a {

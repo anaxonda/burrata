@@ -1,0 +1,41 @@
+{
+  "revision": "1ded7122ee0bd166bd703bfe3b63d233af8b7dcd",
+  "sources": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/FrancescoGrazioso/Meld/1ded7122ee0bd166bd703bfe3b63d233af8b7dcd/LICENSE",
+      "sha256": "fce02ebb691c768cde194afbe91b8025fd7b1f49031f33996deb246a5926f0e2",
+      "bytes": 35150
+    },
+    {
+      "path": "app/src/main/kotlin/com/metrolist/music/db/entities/QobuzMatchEntity.kt",
+      "url": "https://raw.githubusercontent.com/FrancescoGrazioso/Meld/1ded7122ee0bd166bd703bfe3b63d233af8b7dcd/app/src/main/kotlin/com/metrolist/music/db/entities/QobuzMatchEntity.kt",
+      "sha256": "f0e6c09d321e64ee042270d6724ddfff89093c407c6ebcf9557b959eb38c0022",
+      "bytes": 686
+    },
+    {
+      "path": "app/src/main/kotlin/com/metrolist/music/qobuz/QobuzAudioProvider.kt",
+      "url": "https://raw.githubusercontent.com/FrancescoGrazioso/Meld/1ded7122ee0bd166bd703bfe3b63d233af8b7dcd/app/src/main/kotlin/com/metrolist/music/qobuz/QobuzAudioProvider.kt",
+      "sha256": "c61d8657fa23f218005389b9c02f87f8b885d8c5547b4247d3fc5fb50f9e4e21",
+      "bytes": 67823
+    },
+    {
+      "path": "app/src/main/kotlin/com/metrolist/music/qobuz/QobuzBackendHealthChecker.kt",
+      "url": "https://raw.githubusercontent.com/FrancescoGrazioso/Meld/1ded7122ee0bd166bd703bfe3b63d233af8b7dcd/app/src/main/kotlin/com/metrolist/music/qobuz/QobuzBackendHealthChecker.kt",
+      "sha256": "a25591c31759e86c20a8ee0718e68750c1c19ea5d2bcb1101c064fd18fdee6c5",
+      "bytes": 4384
+    },
+    {
+      "path": "app/src/main/kotlin/com/metrolist/music/qobuz/QobuzMatchOverride.kt",
+      "url": "https://raw.githubusercontent.com/FrancescoGrazioso/Meld/1ded7122ee0bd166bd703bfe3b63d233af8b7dcd/app/src/main/kotlin/com/metrolist/music/qobuz/QobuzMatchOverride.kt",
+      "sha256": "39fa2f2a8da1c5af80d0e899fc68489670fd810844dc80864a766fb205e11338",
+      "bytes": 3659
+    },
+    {
+      "path": "app/src/main/kotlin/com/metrolist/music/ui/dialog/QobuzMatchOverrideDialog.kt",
+      "url": "https://raw.githubusercontent.com/FrancescoGrazioso/Meld/1ded7122ee0bd166bd703bfe3b63d233af8b7dcd/app/src/main/kotlin/com/metrolist/music/ui/dialog/QobuzMatchOverrideDialog.kt",
+      "sha256": "6fc0cf439db118623cd973ace01009f6a1adbab892d23f8c2c5e3154246c73b4",
+      "bytes": 9011
+    }
+  ]
+}

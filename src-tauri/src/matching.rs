@@ -13,6 +13,14 @@ pub fn normalize(value: &str) -> String {
         .join(" ")
 }
 
+/// Normalize punctuation variants of one artist name without changing generic
+/// matching. Monochrome may spell an artist's conjunction as either `&` or
+/// `and`; commas remain ordinary punctuation and are never treated as credit
+/// separators here.
+pub fn normalize_single_artist_name(value: &str) -> String {
+    normalize(&value.replace('&', " and "))
+}
+
 /// Split one balanced parenthetical group at the end of a display string.
 /// Returns the trimmed prefix and the full parenthetical contents without delimiters.
 pub fn split_balanced_trailing_parenthetical(value: &str) -> Option<(&str, &str)> {
@@ -292,6 +300,21 @@ pub fn score_candidate(track: &Track, candidate: &mut Candidate) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_artist_name_normalization_only_equates_ampersand_and_and() {
+        assert_eq!(
+            normalize_single_artist_name("Peter, Paul & Mary"),
+            normalize_single_artist_name("Peter, Paul and Mary")
+        );
+        assert_ne!(
+            normalize_single_artist_name("Artist, Guest"),
+            normalize_single_artist_name("Artist feat. Guest")
+        );
+        assert_eq!(normalize("Peter, Paul & Mary"), "peter paul mary");
+        assert_eq!(normalize("Peter, Paul and Mary"), "peter paul and mary");
+    }
+
     fn track() -> Track {
         Track {
             artist: "Artist One".into(),

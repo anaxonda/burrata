@@ -1,0 +1,65 @@
+{
+  "capturedAtUtc": "2026-10-18T18:59:26Z",
+  "scope": "anonymous public YouTube page import through Chromium extension popup and isolated Burrata native messaging host",
+  "browser": {
+    "brand": "Chromium",
+    "version": "154.0.8037.97",
+    "os": "Arch Linux"
+  },
+  "nativeHostLookup": {
+    "observedPath": "<isolated-user-data-dir>/NativeMessagingHosts/org.burrata.browser.json",
+    "traceResult": "openat succeeded",
+    "normalHostRegistrationChanged": false,
+    "observedProbeSummary": [
+      "<user-data-dir>/NativeMessagingHosts/org.burrata.browser.json: present and opened",
+      "/etc/chromium/native-messaging-hosts/org.burrata.browser.json: absent"
+    ],
+    "traceRetained": "Only the bounded paths/results above; full syscall trace was not retained."
+  },
+  "isolatedAppGuard": {
+    "result": "sole_exact_burrata",
+    "count": 1,
+    "isolated": true
+  },
+  "imports": [
+    {
+      "source": "https://www.youtube.com/watch?v=Hqp8vxkPrI8",
+      "pageTitle": "BAD TIMES - YouTube",
+      "capturedCount": 1,
+      "importedCount": 1,
+      "expectedTotal": 1,
+      "complete": true,
+      "warnings": 0,
+      "storedMembershipRows": 1,
+      "distinctRecordings": 1
+    },
+    {
+      "source": "https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI",
+      "pageTitle": "Popular Music Videos - YouTube",
+      "capturedCount": 182,
+      "importedCount": 182,
+      "expectedTotal": 182,
+      "complete": true,
+      "warnings": 0,
+      "storedMembershipRows": 182,
+      "distinctRecordings": 182
+    }
+  ],
+  "limits": [
+    "Public page metadata only; no account credentials or cookies captured.",
+    "The playlist contained no duplicate recording IDs in this import, so duplicate-occurrence preservation was not exercised.",
+    "Unavailable-placeholder row behavior was not exercised by this playlist.",
+    "The headless staged extension was granted the YouTube host permission in its isolated manifest to substitute for a real toolbar click granting activeTab. This verifies the popup/parser/native import pipeline with tab access granted, not the normal toolbar permission gesture."
+  ],
+  "sourceHashes": {
+    "extension/manifest.chromium.json": "6de6bb989611bc99e4542d117edc52eb78d62c83691c8b536eca08ed5b075751",
+    "extension/background.js": "383ba47261f76537a07824fcffa6b4bce7e763e687ac4e9c6f8607c2b989d641",
+    "extension/content.js": "d7977da254661dee30b44e49d9ae83b04e61e55404c27317ad677b54e39217d0",
+    "extension/parsers.js": "3e283929b52844f2772e0e14f2a72dc5944719801e5adf04f3d24ec7deeddabe",
+    "extension/popup.js": "643247b871fba6965f42e7d3f773f83d78d83e60b7c1f8eddca4b3fc27fcda18",
+    "extension/popup.html": "61db49be0f1de261bf9b611cf0b1853908e0a3ab2b4f2985f88dab9c6164c584",
+    "extension/provider-operations.js": "6e94fa227a5376a4b9df1fad90478358eb96bc541e072ce248c19717d03507fb",
+    "src-tauri/resources/tools/x86_64-unknown-linux-gnu/burrata-browser-host": "33b54a8262564b2c03d7661e494c0bff157018d564c54c9b43c72726aa59e368",
+    "isolated Chromium manifest (YouTube permission made required for this test; extension key/origin retained)": "ecce9abc71fa43c420043cbc0134953b781cf04f61191b085c8674014ccbeecc"
+  }
+}

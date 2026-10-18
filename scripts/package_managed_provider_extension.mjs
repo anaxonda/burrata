@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,6 +18,7 @@ await writeFile(path.join(target, 'manifest.json'), `${JSON.stringify(manifest, 
 for (const name of ['background.js', 'content.js', 'parsers.js', 'popup.html', 'popup.js', 'spotify-auth.js', 'provider-operations.js']) {
   await copyFile(path.join(source, name), path.join(target, name));
 }
+await cp(path.join(source, 'icons'), path.join(target, 'icons'), { recursive: true });
 const nativeTarget = path.join(root, 'src-tauri', 'resources', 'native-provider-session');
 await mkdir(path.join(nativeTarget, 'scripts'), { recursive: true });
 await mkdir(path.join(nativeTarget, 'extension'), { recursive: true });

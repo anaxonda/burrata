@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "queuePreservation": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "confirmedAccountsPreserved": true,
+  "accountRevisionsPreserved": true,
+  "libraryTrackCount": 4965,
+  "viewport": {
+    "height": 1036,
+    "width": 954
+  },
+  "playerLayoutFindings": [],
+  "normalSpotifyProof": {
+    "albumLinkVerified": false,
+    "artistCreditCount": 2,
+    "musicbrainzRecordingId": "5044e415-6375-4281-9cfa-ccdb34041cb0",
+    "sourceIsrc": "GBDMT1500097",
+    "spotifyTrackId": "2Jju8C95blJcGMqtMKETbH",
+    "status": "recording_credits_verified"
+  },
+  "secondEdition": "Not saved in the normal library; cache preparation correctly rejected it. Both editions passed isolated playback. No import was made."
+}

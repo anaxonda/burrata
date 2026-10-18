@@ -1,25 +1,585 @@
 //! Exact-ID-scoped MusicBrainz artist alias context for playback search/matching.
 //!
 //! This module deliberately fails closed: caller-supplied Track provenance is
-//! accepted only after its exact occurrence and full artist credits match the
-//! raw cached MusicBrainz release response.
+//! accepted only after its exact occurrence and full artist credits match raw
+//! cached MusicBrainz recording/release data and exact provider-ID relations.
 use crate::{models::Track, Store};
 use serde_json::Value;
 
 const RELEASE_CACHE: &str = "artists.release-tracks.musicbrainz";
 const ARTIST_PROFILE_CACHE: &str = "artists.profile.musicbrainz";
+const SPOTIFY_RECORDING_CREDIT_CACHE: &str = "artists.spotify-recording-credit-crosswalk.v1";
+const SPOTIFY_RECORDING_CREDIT_RAW_CACHE: &str =
+    "artists.spotify-recording-credit-crosswalk.musicbrainz-recording";
+const SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE: &str =
+    "artists.spotify-recording-credit-crosswalk.musicbrainz-artist";
+const MAX_CREDIT_ARTISTS: usize = 16;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpotifyArtistCreditRef {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpotifyArtistCreditFingerprint {
+    pub track_id: String,
+    pub title: String,
+    pub artist: String,
+    pub duration_ms: u64,
+    pub isrc: Option<String>,
+    pub artists: Vec<SpotifyArtistCreditRef>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpotifyArtistCreditCrosswalkStatus {
+    pub status: String,
+    pub spotify_track_id: String,
+    pub musicbrainz_recording_id: String,
+    pub source_isrc: String,
+    pub artist_credit_count: usize,
+    pub album_link_verified: bool,
+}
+
+pub(crate) fn spotify_recording_credit_raw_cache_namespace() -> &'static str {
+    SPOTIFY_RECORDING_CREDIT_RAW_CACHE
+}
+
+pub(crate) fn spotify_recording_credit_profile_cache_namespace() -> &'static str {
+    SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE
+}
+
+pub(crate) fn valid_musicbrainz_recording_id(value: &str) -> bool {
+    valid_mbid(value)
+}
 
 /// Shared cache-only alias context for ordinary resolution and same-source recovery.
 pub(crate) fn cached_verified_playback_artist_alias_tracks(
     store: &Store,
     track: &Track,
 ) -> Vec<Track> {
+    cached_verified_playback_artist_aliases(store, track).tracks
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct VerifiedPlaybackArtistAliases {
+    tracks: Vec<Track>,
+    /// Exact aliases whose only identity-field addition is an independently
+    /// verified recording ISRC. This subset is generated from the private
+    /// crosswalk cache and is never populated from caller-supplied tracks.
+    isrc_enriched: Vec<Track>,
+    verified_recording_isrc: Option<String>,
+}
+
+impl VerifiedPlaybackArtistAliases {
+    pub(crate) fn tracks(&self) -> &[Track] {
+        &self.tracks
+    }
+
+    pub(crate) fn isrc_enriched(&self) -> &[Track] {
+        &self.isrc_enriched
+    }
+
+    pub(crate) fn verified_recording_isrc(&self) -> Option<&str> {
+        self.verified_recording_isrc.as_deref()
+    }
+}
+
+pub(crate) fn cached_verified_playback_artist_aliases(
+    store: &Store,
+    track: &Track,
+) -> VerifiedPlaybackArtistAliases {
     let mut aliases = cached_verified_artist_alias_tracks(store, track);
+    let mut isrc_enriched = Vec::new();
+    let mut verified_recording_isrc = None;
     if track.provider == "spotify" {
         aliases.extend(cached_verified_spotify_recording_alias_tracks(store, track));
+        let recording_aliases =
+            cached_verified_spotify_recording_artist_id_alias_tracks(store, track);
+        verified_recording_isrc = recording_aliases
+            .iter()
+            .find_map(|alias| alias.isrc.clone());
+        isrc_enriched.extend(
+            recording_aliases
+                .iter()
+                .filter(|alias| alias.isrc != track.isrc)
+                .cloned(),
+        );
+        aliases.extend(recording_aliases);
     }
-    aliases.sort_by(|left, right| left.artist.cmp(&right.artist));
-    aliases.dedup_by(|left, right| left.artist == right.artist);
+    aliases.sort_by(|left, right| {
+        left.artist
+            .cmp(&right.artist)
+            .then_with(|| left.isrc.cmp(&right.isrc))
+    });
+    aliases.dedup_by(|left, right| left.artist == right.artist && left.isrc == right.isrc);
+    isrc_enriched.retain(|variant| aliases.contains(variant));
+    VerifiedPlaybackArtistAliases {
+        tracks: aliases,
+        isrc_enriched,
+        verified_recording_isrc,
+    }
+}
+
+/// Read the exact saved Spotify row and its normalized provider catalog fields.
+/// Caller-supplied provenance alone is never enough to create an artist alias.
+pub(crate) fn spotify_artist_credit_fingerprint(
+    track: &Track,
+) -> Option<SpotifyArtistCreditFingerprint> {
+    if track.provider != "spotify"
+        || !valid_spotify_id(&track.provider_id)
+        || track.id != format!("spotify:{}", track.provider_id)
+        || track.source_url != format!("https://open.spotify.com/track/{}", track.provider_id)
+        || track.version.is_some()
+        || track.playback_range.is_some()
+        || track.title.trim().is_empty()
+        || track.artist.trim().is_empty()
+    {
+        return None;
+    }
+    let duration = track.duration_seconds?;
+    if !duration.is_finite() || duration <= 0.0 || duration > 86_400.0 {
+        return None;
+    }
+    let catalog = track.provenance.get("catalog")?;
+    if catalog["verified"] != true
+        || catalog["provider"].as_str() != Some("spotify")
+        || catalog["providerId"].as_str() != Some(track.provider_id.as_str())
+    {
+        return None;
+    }
+    let remote = track.provenance.get("remoteCatalog")?;
+    let remote_id = remote
+        .get("trackId")
+        .or_else(|| remote.get("id"))
+        .and_then(Value::as_str)?;
+    let remote_title = remote.get("title").and_then(Value::as_str)?;
+    let remote_artist = remote.get("artist").and_then(Value::as_str)?;
+    let remote_duration = remote.get("durationSeconds").and_then(Value::as_f64)?;
+    if remote_id != track.provider_id
+        || remote_title != track.title
+        || remote_artist != track.artist
+        || !remote_duration.is_finite()
+        || (remote_duration - duration).abs() > 0.001
+    {
+        return None;
+    }
+    let raw_refs = catalog.get("artists").and_then(Value::as_array)?;
+    let provider_refs = remote.get("artistRefs").and_then(Value::as_array)?;
+    let artist_count = catalog.get("artistCount").and_then(Value::as_u64)? as usize;
+    if raw_refs.is_empty()
+        || raw_refs.len() > MAX_CREDIT_ARTISTS
+        || raw_refs.len() != provider_refs.len()
+        || raw_refs.len() != artist_count
+        || remote.get("artistCount").and_then(Value::as_u64) != Some(artist_count as u64)
+    {
+        return None;
+    }
+    let mut artists = Vec::with_capacity(raw_refs.len());
+    for (stored, provider) in raw_refs.iter().zip(provider_refs) {
+        let id = stored.get("id").and_then(Value::as_str)?;
+        let name = stored.get("name").and_then(Value::as_str)?.trim();
+        if stored.get("provider").and_then(Value::as_str) != Some("spotify")
+            || provider.get("provider").and_then(Value::as_str) != Some("spotify")
+            || provider.get("id").and_then(Value::as_str) != Some(id)
+            || provider.get("name").and_then(Value::as_str).map(str::trim) != Some(name)
+            || !valid_spotify_id(id)
+            || name.is_empty()
+            || name.len() > 256
+        {
+            return None;
+        }
+        artists.push(SpotifyArtistCreditRef {
+            id: id.to_owned(),
+            name: name.to_owned(),
+        });
+    }
+    if artists
+        .iter()
+        .map(|artist| artist.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+        != track.artist
+    {
+        return None;
+    }
+    let normalized_isrc = |value: Option<&str>| -> Option<Option<String>> {
+        match value {
+            None => Some(None),
+            Some(value)
+                if value.len() == 12 && value.bytes().all(|byte| byte.is_ascii_alphanumeric()) =>
+            {
+                Some(Some(value.to_ascii_uppercase()))
+            }
+            Some(_) => None,
+        }
+    };
+    let track_isrc = normalized_isrc(track.isrc.as_deref())?;
+    let direct_remote_isrc = normalized_isrc(remote.get("isrc").and_then(Value::as_str))?;
+    let context_remote_isrc = normalized_isrc(
+        remote
+            .get("recordingContext")
+            .and_then(|context| context.get("isrc"))
+            .and_then(Value::as_str),
+    )?;
+    if direct_remote_isrc.is_some()
+        && context_remote_isrc.is_some()
+        && direct_remote_isrc != context_remote_isrc
+    {
+        return None;
+    }
+    let remote_isrc = direct_remote_isrc.or(context_remote_isrc);
+    if track_isrc.is_some() && remote_isrc.is_some() && track_isrc != remote_isrc {
+        return None;
+    }
+    Some(SpotifyArtistCreditFingerprint {
+        track_id: track.provider_id.clone(),
+        title: track.title.clone(),
+        artist: track.artist.clone(),
+        duration_ms: (duration * 1000.0).round() as u64,
+        isrc: track_isrc.or(remote_isrc),
+        artists,
+    })
+}
+
+/// Validate that a raw MusicBrainz recording and every artist profile link the
+/// exact saved Spotify credits in order. This is used by both prewarming and
+/// playback-time cache reads so a stale/forged sidecar cannot authorize aliases.
+pub(crate) fn verify_spotify_artist_credit_recording(
+    store: &Store,
+    track: &Track,
+    recording_id: &str,
+) -> Option<(SpotifyArtistCreditFingerprint, String, usize)> {
+    if !valid_mbid(recording_id) {
+        return None;
+    }
+    let fingerprint = spotify_artist_credit_fingerprint(track)?;
+    let recording = store
+        .get_provider_cache(SPOTIFY_RECORDING_CREDIT_RAW_CACHE, recording_id)
+        .ok()??;
+    if recording.get("id").and_then(Value::as_str) != Some(recording_id)
+        || crate::matching::normalize(recording.get("title").and_then(Value::as_str)?)
+            != crate::matching::normalize(&fingerprint.title)
+    {
+        return None;
+    }
+    let duration_ms = recording.get("length").and_then(Value::as_u64)?;
+    if duration_ms == 0 || duration_ms.abs_diff(fingerprint.duration_ms) > 5_000 {
+        return None;
+    }
+    let credits = recording.get("artist-credit").and_then(Value::as_array)?;
+    if credits.len() != fingerprint.artists.len() || credits.len() > MAX_CREDIT_ARTISTS {
+        return None;
+    }
+    let isrcs = recording.get("isrcs").and_then(Value::as_array)?;
+    let mut normalized_isrcs = isrcs
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .map(|isrc| {
+            (isrc.len() == 12 && isrc.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+                .then(|| isrc.to_ascii_uppercase())
+        })
+        .collect::<Option<Vec<_>>>()?;
+    normalized_isrcs.sort();
+    normalized_isrcs.dedup();
+    if normalized_isrcs.len() != 1
+        || normalized_isrcs[0].len() != 12
+        || !normalized_isrcs[0]
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric())
+        || fingerprint
+            .isrc
+            .as_deref()
+            .is_some_and(|isrc| isrc != normalized_isrcs[0])
+    {
+        return None;
+    }
+    for (credit, spotify_artist) in credits.iter().zip(&fingerprint.artists) {
+        let artist = credit.get("artist")?;
+        let mbid = artist.get("id").and_then(Value::as_str)?;
+        let credit_name = credit.get("name").and_then(Value::as_str)?.trim();
+        let canonical_name = artist.get("name").and_then(Value::as_str)?.trim();
+        let join_phrase = credit.get("joinphrase").and_then(Value::as_str)?;
+        if !valid_mbid(mbid)
+            || credit_name.is_empty()
+            || canonical_name.is_empty()
+            || credit_name.len() > 256
+            || join_phrase.len() > 32
+        {
+            return None;
+        }
+        let profile = store
+            .get_provider_cache(SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, mbid)
+            .ok()??;
+        if profile.get("id").and_then(Value::as_str) != Some(mbid)
+            || profile.get("name").and_then(Value::as_str) != Some(canonical_name)
+            || !profile_has_exact_spotify_artist_url(&profile, &spotify_artist.id)
+        {
+            return None;
+        }
+    }
+    Some((fingerprint, normalized_isrcs.remove(0), credits.len()))
+}
+
+pub(crate) fn write_verified_spotify_artist_credit_recording(
+    store: &Store,
+    track: &Track,
+    recording_id: &str,
+) -> Result<SpotifyArtistCreditCrosswalkStatus, String> {
+    let (fingerprint, source_isrc, artist_credit_count) =
+        verify_spotify_artist_credit_recording(store, track, recording_id).ok_or(
+            "Spotify and MusicBrainz artist credits do not have a complete verified ID match",
+        )?;
+    let payload = serde_json::json!({
+        "version": 1,
+        "spotifyTrackId": fingerprint.track_id,
+        "musicbrainzRecordingId": recording_id,
+        "fingerprint": fingerprint,
+    });
+    store.set_provider_cache(
+        SPOTIFY_RECORDING_CREDIT_CACHE,
+        &track.provider_id,
+        &payload,
+        6 * 60 * 60,
+    )?;
+    Ok(SpotifyArtistCreditCrosswalkStatus {
+        status: "recording_credits_verified".into(),
+        spotify_track_id: track.provider_id.clone(),
+        musicbrainz_recording_id: recording_id.to_owned(),
+        source_isrc,
+        artist_credit_count,
+        album_link_verified: false,
+    })
+}
+
+fn profile_has_exact_spotify_artist_url(profile: &Value, spotify_artist_id: &str) -> bool {
+    let Some(relations) = profile.get("relations").and_then(Value::as_array) else {
+        return false;
+    };
+    let mut linked_ids = Vec::new();
+    for relation in relations {
+        let Some(resource) = relation
+            .get("url")
+            .and_then(|url| url.get("resource"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        if let Some(id) = spotify_artist_id_from_url(resource) {
+            linked_ids.push(id);
+        }
+    }
+    linked_ids.sort_unstable();
+    linked_ids.dedup();
+    linked_ids.len() == 1 && linked_ids[0] == spotify_artist_id
+}
+
+fn spotify_artist_id_from_url(value: &str) -> Option<String> {
+    let url = url::Url::parse(value).ok()?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("open.spotify.com")
+        || url.username() != ""
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let segments = url.path_segments()?.collect::<Vec<_>>();
+    if segments.len() == 2 && segments[0] == "artist" && valid_spotify_id(segments[1]) {
+        Some(segments[1].to_owned())
+    } else {
+        None
+    }
+}
+
+fn cached_verified_spotify_recording_artist_id_alias_tracks(
+    store: &Store,
+    track: &Track,
+) -> Vec<Track> {
+    let Some(fingerprint) = spotify_artist_credit_fingerprint(track) else {
+        return Vec::new();
+    };
+    let Ok(Some(saved)) = store.get_library_track(&track.id) else {
+        return Vec::new();
+    };
+    if spotify_artist_credit_fingerprint(&saved).as_ref() != Some(&fingerprint) {
+        return Vec::new();
+    }
+    let Ok(Some(sidecar)) =
+        store.get_provider_cache(SPOTIFY_RECORDING_CREDIT_CACHE, &track.provider_id)
+    else {
+        return Vec::new();
+    };
+    let Some(recording_id) = sidecar
+        .get("musicbrainzRecordingId")
+        .and_then(Value::as_str)
+    else {
+        return Vec::new();
+    };
+    if sidecar.get("version").and_then(Value::as_u64) != Some(1)
+        || sidecar.get("spotifyTrackId").and_then(Value::as_str) != Some(track.provider_id.as_str())
+        || sidecar
+            .get("fingerprint")
+            .and_then(|value| {
+                serde_json::from_value::<SpotifyArtistCreditFingerprint>(value.clone()).ok()
+            })
+            .as_ref()
+            != Some(&fingerprint)
+    {
+        return Vec::new();
+    }
+    let Some((_, source_isrc, _)) =
+        verify_spotify_artist_credit_recording(store, track, recording_id)
+    else {
+        return Vec::new();
+    };
+    let Ok(Some(recording)) =
+        store.get_provider_cache(SPOTIFY_RECORDING_CREDIT_RAW_CACHE, recording_id)
+    else {
+        return Vec::new();
+    };
+    let Some(credits) = recording.get("artist-credit").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut choices: Vec<Vec<String>> = Vec::with_capacity(credits.len());
+    let mut credited_names = Vec::with_capacity(credits.len());
+    let mut canonical_names = Vec::with_capacity(credits.len());
+    for credit in credits {
+        let Some(mbid) = credit
+            .get("artist")
+            .and_then(|artist| artist.get("id"))
+            .and_then(Value::as_str)
+        else {
+            return Vec::new();
+        };
+        let Some(credit_name) = credit
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
+            return Vec::new();
+        };
+        credited_names.push(credit_name.to_owned());
+        let Ok(Some(profile)) =
+            store.get_provider_cache(SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, mbid)
+        else {
+            return Vec::new();
+        };
+        let mut names = vec![credit_name.to_owned()];
+        let Some(canonical) = profile
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.trim().is_empty())
+        else {
+            return Vec::new();
+        };
+        canonical_names.push(canonical.to_owned());
+        names.push(canonical.to_owned());
+        names.extend(
+            profile
+                .get("aliases")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .take(64)
+                .filter_map(|alias| alias.get("name").and_then(Value::as_str))
+                .filter(|name| !name.trim().is_empty() && name.len() <= 256)
+                .map(str::to_owned),
+        );
+        let mut seen = std::collections::HashSet::new();
+        names.retain(|name| name.len() <= 256 && seen.insert(crate::matching::normalize(name)));
+        if names.is_empty() || names.len() > 66 {
+            return Vec::new();
+        }
+        choices.push(names);
+    }
+    // Keep both complete source credit renderings ahead of bounded alias
+    // expansion. A large alias list on an early/later artist must never evict
+    // the exact MusicBrainz credited names or canonical profile names.
+    let mut combinations = Vec::<Vec<String>>::with_capacity(32);
+    let comma_separated_credited = credited_names.join(", ");
+    let comma_separated_canonical = canonical_names.join(", ");
+    combinations.push(credited_names);
+    if canonical_names != combinations[0] {
+        combinations.push(canonical_names);
+    }
+    let mut expanded = vec![Vec::<String>::new()];
+    for names in choices {
+        let mut next = Vec::new();
+        for prefix in expanded {
+            for name in &names {
+                let mut combination = prefix.clone();
+                combination.push(name.clone());
+                next.push(combination);
+                if next.len() >= 32 {
+                    break;
+                }
+            }
+            if next.len() >= 32 {
+                break;
+            }
+        }
+        expanded = next;
+    }
+    let needs_isrc_enrichment = track.isrc.as_deref() != Some(source_isrc.as_str());
+    // Reserve up to two slots for comma-separated renderings and one for the
+    // unchanged saved-credit ISRC enrichment.
+    let max_combinations = if needs_isrc_enrichment { 29 } else { 30 };
+    for combination in expanded {
+        if combinations.len() >= max_combinations {
+            break;
+        }
+        if !combinations.contains(&combination) {
+            combinations.push(combination);
+        }
+    }
+    let mut aliases: Vec<Track> = combinations
+        .into_iter()
+        .filter_map(|names| {
+            let artist = credits
+                .iter()
+                .zip(names)
+                .map(|(credit, name)| {
+                    format!(
+                        "{}{}",
+                        name,
+                        credit
+                            .get("joinphrase")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                    )
+                })
+                .collect::<String>();
+            let mut alias = track.clone();
+            alias.artist = artist;
+            alias.isrc = Some(source_isrc.clone());
+            Some(alias)
+        })
+        .collect();
+    for artist in [comma_separated_credited, comma_separated_canonical] {
+        if !artist.trim().is_empty() && !aliases.iter().any(|alias| alias.artist == artist) {
+            let mut alias = track.clone();
+            alias.artist = artist;
+            alias.isrc = Some(source_isrc.clone());
+            aliases.push(alias);
+        }
+    }
+    if needs_isrc_enrichment
+        && !aliases.iter().any(|alias| {
+            alias.artist == track.artist && alias.isrc.as_deref() == Some(source_isrc.as_str())
+        })
+    {
+        let mut enriched = track.clone();
+        enriched.isrc = Some(source_isrc);
+        aliases.push(enriched);
+    }
     aliases
 }
 
@@ -638,6 +1198,232 @@ mod tests {
             provenance: json!({"recordingContext":{"albumId":"aaaaaaaaaaaaaaaaaaaaaa","albumUri":"spotify:album:aaaaaaaaaaaaaaaaaaaaaa"}}),
             ..Track::default()
         }
+    }
+
+    fn spotify_artist_credit_track() -> Track {
+        let track_id = "bbbbbbbbbbbbbbbbbbbbbb";
+        let artist_a = "aaaaaaaaaaaaaaaaaaaaaa";
+        let artist_b = "cccccccccccccccccccccc";
+        let artists = json!([
+            {"provider":"spotify","id":artist_a,"name":"Spotify Act"},
+            {"provider":"spotify","id":artist_b,"name":"Guest"}
+        ]);
+        Track {
+            id: format!("spotify:{track_id}"),
+            provider: "spotify".into(),
+            provider_id: track_id.into(),
+            source_url: format!("https://open.spotify.com/track/{track_id}"),
+            title: "Song".into(),
+            artist: "Spotify Act, Guest".into(),
+            duration_seconds: Some(180.0),
+            isrc: Some("USABC2600001".into()),
+            provenance: json!({
+                "catalog":{"verified":true,"provider":"spotify","providerId":track_id,"artistCount":2,"artists":artists},
+                "remoteCatalog":{"trackId":track_id,"title":"Song","artist":"Spotify Act, Guest","durationSeconds":180.0,"isrc":"USABC2600001","artistCount":2,"artistRefs":artists}
+            }),
+            ..Track::default()
+        }
+    }
+
+    fn recording_credit_fixture() -> (Value, Value, Value) {
+        let recording_id = "00000000-0000-4000-8000-000000000001";
+        let mb_a = "00000000-0000-4000-8000-000000000002";
+        let mb_b = "00000000-0000-4000-8000-000000000003";
+        let spotify_a = "aaaaaaaaaaaaaaaaaaaaaa";
+        let spotify_b = "cccccccccccccccccccccc";
+        let recording = json!({
+            "id":recording_id,"title":"Song","length":180000,"isrcs":["USABC2600001"],"artist-credit":[
+                {"name":"Provider Act","joinphrase":" feat. ","artist":{"id":mb_a,"name":"Canonical Act"}},
+                {"name":"Guest","joinphrase":"","artist":{"id":mb_b,"name":"Guest"}}
+            ]
+        });
+        let profile_a = json!({"id":mb_a,"name":"Canonical Act","aliases":[{"name":"Provider Act"}],"relations":[{"url":{"resource":format!("https://open.spotify.com/artist/{spotify_a}")}}]});
+        let profile_b = json!({"id":mb_b,"name":"Guest","aliases":[],"relations":[{"url":{"resource":format!("https://open.spotify.com/artist/{spotify_b}")}}]});
+        (recording, profile_a, profile_b)
+    }
+
+    #[test]
+    fn exact_recording_and_ordered_artist_url_relations_enable_scoped_alias() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("cache.sqlite")).unwrap();
+        let mut track = spotify_artist_credit_track();
+        // The recording's trusted ISRC may enrich a row that did not contain
+        // one, without mutating the saved row itself.
+        track.isrc = None;
+        store.save_track(&track).unwrap();
+        let (recording, profile_a, mut profile_b) = recording_credit_fixture();
+        profile_b["aliases"] = Value::Array(
+            (0..40)
+                .map(|index| json!({"name":format!("Guest alternate {index}")}))
+                .collect(),
+        );
+        let recording_id = recording["id"].as_str().unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_RAW_CACHE,
+                recording_id,
+                &recording,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile_a["id"].as_str().unwrap(),
+                &profile_a,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile_b["id"].as_str().unwrap(),
+                &profile_b,
+                3600,
+            )
+            .unwrap();
+
+        let status =
+            write_verified_spotify_artist_credit_recording(&store, &track, recording_id).unwrap();
+        assert_eq!(status.status, "recording_credits_verified");
+        assert!(!status.album_link_verified);
+        let aliases = cached_verified_spotify_recording_artist_id_alias_tracks(&store, &track);
+        assert!(aliases
+            .iter()
+            .any(|alias| alias.artist == "Provider Act feat. Guest"));
+        assert!(aliases
+            .iter()
+            .any(|alias| alias.artist == "Canonical Act feat. Guest"));
+        assert!(aliases
+            .iter()
+            .any(|alias| alias.artist == track.artist
+                && alias.isrc.as_deref() == Some("USABC2600001")));
+        assert_eq!(
+            store.get_library_track(&track.id).unwrap().unwrap().isrc,
+            None
+        );
+        assert!(aliases
+            .iter()
+            .all(|alias| alias.isrc.as_deref() == Some("USABC2600001")));
+    }
+
+    #[test]
+    fn recording_credit_crosswalk_rejects_incomplete_or_conflicting_source_identity() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("cache.sqlite")).unwrap();
+        let track = spotify_artist_credit_track();
+        store.save_track(&track).unwrap();
+        let (recording, profile_a, profile_b) = recording_credit_fixture();
+        let recording_id = recording["id"].as_str().unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_RAW_CACHE,
+                recording_id,
+                &recording,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile_a["id"].as_str().unwrap(),
+                &profile_a,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile_b["id"].as_str().unwrap(),
+                &profile_b,
+                3600,
+            )
+            .unwrap();
+        assert!(verify_spotify_artist_credit_recording(&store, &track, recording_id).is_some());
+
+        let mut wrong_order = track.clone();
+        wrong_order.provenance["catalog"]["artists"]
+            .as_array_mut()
+            .unwrap()
+            .swap(0, 1);
+        assert!(spotify_artist_credit_fingerprint(&wrong_order).is_none());
+        let mut wrong_title = track.clone();
+        wrong_title.title = "Different Song".into();
+        assert!(spotify_artist_credit_fingerprint(&wrong_title).is_none());
+        let mut wrong_duration = track.clone();
+        wrong_duration.duration_seconds = Some(190.0);
+        wrong_duration.provenance["remoteCatalog"]["durationSeconds"] = json!(190.0);
+        assert!(
+            verify_spotify_artist_credit_recording(&store, &wrong_duration, recording_id).is_none()
+        );
+        let mut versioned = track.clone();
+        versioned.version = Some("Live".into());
+        assert!(spotify_artist_credit_fingerprint(&versioned).is_none());
+        let mut wrong_isrc = track.clone();
+        wrong_isrc.isrc = Some("USZZZ2600001".into());
+        wrong_isrc.provenance["remoteCatalog"]["isrc"] = json!("USZZZ2600001");
+        assert!(
+            verify_spotify_artist_credit_recording(&store, &wrong_isrc, recording_id).is_none()
+        );
+
+        let mut wrong_profile = profile_a.clone();
+        wrong_profile["relations"][0]["url"]["resource"] =
+            json!("https://open.spotify.com/artist/dddddddddddddddddddddd");
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile_a["id"].as_str().unwrap(),
+                &wrong_profile,
+                3600,
+            )
+            .unwrap();
+        assert!(verify_spotify_artist_credit_recording(&store, &track, recording_id).is_none());
+    }
+
+    #[test]
+    fn recording_credit_crosswalk_rejects_forged_or_stale_cache_context() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("cache.sqlite")).unwrap();
+        let track = spotify_artist_credit_track();
+        store.save_track(&track).unwrap();
+        let (recording, profile_a, profile_b) = recording_credit_fixture();
+        let recording_id = recording["id"].as_str().unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_RAW_CACHE,
+                recording_id,
+                &recording,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile_a["id"].as_str().unwrap(),
+                &profile_a,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile_b["id"].as_str().unwrap(),
+                &profile_b,
+                3600,
+            )
+            .unwrap();
+        let _ =
+            write_verified_spotify_artist_credit_recording(&store, &track, recording_id).unwrap();
+        let mut edited_track = track.clone();
+        edited_track.artist = "Manually Edited Credit".into();
+        assert!(
+            cached_verified_spotify_recording_artist_id_alias_tracks(&store, &edited_track)
+                .is_empty()
+        );
+        store.set_provider_cache(SPOTIFY_RECORDING_CREDIT_CACHE, &track.provider_id, &json!({"version":1,"spotifyTrackId":track.provider_id,"musicbrainzRecordingId":recording_id,"fingerprint":{"trackId":track.provider_id,"title":"Wrong","artist":track.artist,"durationMs":180000,"isrc":"USABC2600001","artists":[]}}), 3600).unwrap();
+        assert!(
+            cached_verified_spotify_recording_artist_id_alias_tracks(&store, &track).is_empty()
+        );
     }
 
     fn spotify_occurrence_fixture() -> crate::artists::ReleaseOccurrence {

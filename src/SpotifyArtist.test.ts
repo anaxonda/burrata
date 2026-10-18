@@ -483,6 +483,50 @@ describe("SpotifyArtist pagination", () => {
 
 });
 
+describe("SpotifyArtist playback row actions", () => {
+  it("uses the shared TrackList play, queue, favorite, download, artist, and context actions for album tracks", async () => {
+    const id = "playback-action-artist";
+    const release = album("playback-actions-album", "Playback actions");
+    const song = track("playback-actions-track", "Playback action song");
+    const call = vi.fn(async (command: string) => {
+      if (command === "browse_remote_artist") return { artist: { id, name: "Playback Artist", url: `https://open.spotify.com/artist/${id}`, genres: [] }, albums: [release], topTracksUnavailable: "Unavailable" };
+      if (command === "browse_remote_artist_tracks") return { tracks: [], total: 0 };
+      if (command === "browse_remote_album_tracks") return { album: release, tracks: [song], total: 1, complete: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const onPlay = vi.fn(), onPlaylist = vi.fn(), onNext = vi.fn(), onQueue = vi.fn();
+    const onFavorite = vi.fn(), onDownload = vi.fn(), onArtist = vi.fn(), onContext = vi.fn();
+    const target = render(call, onPlay, id, { onPlaylist, onNext, onQueue, onFavorite, onDownload, onArtist, onContext });
+    await settle();
+    target.querySelector<HTMLButtonElement>("button.album")!.click();
+    await settle();
+
+    const row = target.querySelector<HTMLLIElement>(".shared-track-list li")!;
+    row.querySelector<HTMLButtonElement>('.track-title[aria-label="Play Playback action song"]')!.click();
+    row.querySelector<HTMLButtonElement>('.icon-action.favorite[aria-label="Add Playback action song to favorites"]')!.click();
+    row.querySelector<HTMLButtonElement>('.icon-action[aria-label="Download Playback action song"]')!.click();
+    row.querySelector<HTMLButtonElement>('.more summary')!.click();
+    const actions = [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")];
+    actions.find(button => button.textContent?.includes("Play next"))!.click();
+    row.querySelector<HTMLButtonElement>('.more summary')!.click();
+    [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent?.includes("Add to queue"))!.click();
+    row.querySelector<HTMLButtonElement>('.more summary')!.click();
+    [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent?.includes("Add to playlist"))!.click();
+    row.querySelector<HTMLButtonElement>('.more summary')!.click();
+    [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent?.includes("Open artist"))!.click();
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+
+    expect(onPlay).toHaveBeenCalledWith(song, [song], 0);
+    expect(onFavorite).toHaveBeenCalledWith(song);
+    expect(onDownload).toHaveBeenCalledWith(song);
+    expect(onNext).toHaveBeenCalledWith(song);
+    expect(onQueue).toHaveBeenCalledWith(song);
+    expect(onPlaylist).toHaveBeenCalledWith(song);
+    expect(onArtist).toHaveBeenCalledWith(song);
+    expect(onContext).toHaveBeenCalledWith(song, expect.any(MouseEvent));
+  });
+});
+
 describe("per-entry artist navigation snapshots",()=>{
   it("restores distinct controls for two history entries of the same artist",async()=>{
     // @ts-expect-error Exercise the same browser runtime as the component.

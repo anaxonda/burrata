@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{process::Stdio, time::Duration};
 use tokio::process::Command;
+use tokio::sync::watch;
+
+const PLAYBACK_SEARCH_ENDPOINT: &str = "https://music.youtube.com/youtubei/v1/search";
+const PLAYBACK_SEARCH_TIMEOUT: Duration = Duration::from_secs(8);
+const PLAYBACK_SEARCH_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_PLAYBACK_SEARCH_BYTES: usize = 1024 * 1024;
+const MAX_PLAYBACK_SEARCH_QUERY_BYTES: usize = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -260,6 +267,142 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
     out.retain(|x| seen.insert(x.id.clone()));
     out
 }
+
+/// Find candidates for foreground playback through the native YouTube Music
+/// endpoint only. This deliberately has no yt-dlp or subprocess fallback.
+pub(crate) async fn search_playback_candidates(
+    query: &str,
+    limit: usize,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<Vec<YouTubeMusicItem>, String> {
+    search_playback_candidates_at(PLAYBACK_SEARCH_ENDPOINT, query, limit, cancel, deadline).await
+}
+
+async fn search_playback_candidates_at(
+    endpoint: &str,
+    query: &str,
+    limit: usize,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<Vec<YouTubeMusicItem>, String> {
+    let query = query.trim();
+    if query.is_empty()
+        || query.len() > MAX_PLAYBACK_SEARCH_QUERY_BYTES
+        || query.chars().any(char::is_control)
+    {
+        return Err("YouTube Music playback search query is invalid".into());
+    }
+    if !(1..=30).contains(&limit) {
+        return Err("YouTube Music playback search limit must be between 1 and 30".into());
+    }
+    if *cancel.borrow() {
+        return Err("YouTube Music playback search cancelled".into());
+    }
+
+    let operation_deadline = deadline.cap(PLAYBACK_SEARCH_TIMEOUT);
+    let budget = operation_deadline.saturating_duration_since(tokio::time::Instant::now());
+    if budget.is_zero() {
+        return Err("YouTube Music playback search deadline expired".into());
+    }
+    let client = Client::builder()
+        .connect_timeout(PLAYBACK_SEARCH_CONNECT_TIMEOUT.min(budget))
+        .timeout(budget)
+        .user_agent("Mozilla/5.0 Burrata/0.1")
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "Could not initialize YouTube Music playback search".to_owned())?;
+    let payload = json!({
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20250101.01.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "query": query,
+        "params": "EgWKAQIIAWoKEAkQChADEAQQBQ%3D%3D"
+    });
+    let cancel_wait = wait_for_cancel(cancel.clone());
+    let response = tokio::select! {
+        biased;
+        _ = cancel_wait => return Err("YouTube Music playback search cancelled".into()),
+        _ = tokio::time::sleep_until(operation_deadline) => {
+            return Err("YouTube Music playback search deadline expired".into());
+        }
+        result = client.post(endpoint).json(&payload).send() => {
+            result.map_err(|_| "YouTube Music playback search request failed".to_owned())?
+        }
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!(
+            "YouTube Music playback search returned HTTP {status}"
+        ));
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+        });
+    if !content_type
+        .as_deref()
+        .is_some_and(|value| value == "application/json" || value.ends_with("+json"))
+    {
+        return Err("YouTube Music playback search returned a non-JSON response".into());
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_PLAYBACK_SEARCH_BYTES as u64)
+    {
+        return Err("YouTube Music playback search response exceeded its size limit".into());
+    }
+
+    let mut response = response;
+    let mut body = Vec::new();
+    loop {
+        let cancel_wait = wait_for_cancel(cancel.clone());
+        let chunk = tokio::select! {
+            biased;
+            _ = cancel_wait => return Err("YouTube Music playback search cancelled".into()),
+            _ = tokio::time::sleep_until(operation_deadline) => {
+                return Err("YouTube Music playback search deadline expired".into());
+            }
+            result = response.chunk() => {
+                result.map_err(|_| "YouTube Music playback search response read failed".to_owned())?
+            }
+        };
+        let Some(chunk) = chunk else { break };
+        if body.len().saturating_add(chunk.len()) > MAX_PLAYBACK_SEARCH_BYTES {
+            return Err("YouTube Music playback search response exceeded its size limit".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let body: Value = serde_json::from_slice(&body)
+        .map_err(|_| "YouTube Music playback search returned invalid JSON".to_owned())?;
+    Ok(parse_search_response(&body, limit))
+}
+
+async fn wait_for_cancel(mut cancel: watch::Receiver<bool>) {
+    loop {
+        if *cancel.borrow() {
+            return;
+        }
+        if cancel.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
 fn parse_duration(s: &str) -> Option<f64> {
     if !s.contains(':') {
         return None;
@@ -493,6 +636,201 @@ pub async fn inspect_url_with_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::oneshot,
+        task::JoinHandle,
+    };
+
+    async fn fixture_server(
+        response: Option<Vec<u8>>,
+    ) -> (String, oneshot::Receiver<()>, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                match stream.read(&mut chunk).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => request.extend_from_slice(&chunk[..read]),
+                }
+            }
+            let _ = entered_tx.send(());
+            if let Some(response) = response {
+                let _ = stream.write_all(&response).await;
+                let _ = stream.shutdown().await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        });
+        (format!("http://{address}/search"), entered_rx, task)
+    }
+
+    fn fixture_http_response(status: u16, content_type: &str, body: &[u8]) -> Vec<u8> {
+        let reason = match status {
+            200 => "OK",
+            503 => "Service Unavailable",
+            _ => "Fixture",
+        };
+        let head = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        [head.as_bytes(), body].concat()
+    }
+
+    fn chunked_fixture_http_response(content_type: &str, body: &[u8]) -> Vec<u8> {
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:X}\r\n",
+            body.len()
+        );
+        [head.as_bytes(), body, b"\r\n0\r\n\r\n"].concat()
+    }
+
+    fn fixture_deadline() -> crate::playback_sources::PlaybackDeadline {
+        crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(3))
+    }
+
+    fn valid_search_body() -> Value {
+        json!({
+            "contents": {
+                "musicResponsiveListItemRenderer": {
+                    "videoId":"fixturevid1",
+                    "title":{"simpleText":"Fixture Song"}
+                }
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn foreground_search_returns_parsed_items_from_valid_json() {
+        let payload = serde_json::to_vec(&valid_search_body()).unwrap();
+        let (endpoint, _entered, server) = fixture_server(Some(fixture_http_response(
+            200,
+            "application/json; charset=UTF-8",
+            &payload,
+        )))
+        .await;
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let items = search_playback_candidates_at(
+            &endpoint,
+            "Fixture Song",
+            30,
+            cancel,
+            fixture_deadline(),
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "fixturevid1");
+        assert_eq!(items[0].title, "Fixture Song");
+        assert_eq!(
+            items[0].url,
+            "https://music.youtube.com/watch?v=fixturevid1"
+        );
+    }
+
+    #[tokio::test]
+    async fn foreground_search_rejects_http_errors_html_and_oversize_bodies() {
+        let cases = [
+            fixture_http_response(503, "application/json", b"{}"),
+            fixture_http_response(200, "text/html", b"<html>no</html>"),
+            chunked_fixture_http_response(
+                "application/json",
+                &vec![b'x'; MAX_PLAYBACK_SEARCH_BYTES + 1],
+            ),
+        ];
+        let expected = ["HTTP 503", "non-JSON", "size limit"];
+        for (raw_response, expected) in cases.into_iter().zip(expected) {
+            let (endpoint, _entered, server) = fixture_server(Some(raw_response)).await;
+            let (_cancel_tx, cancel) = watch::channel(false);
+            let error = search_playback_candidates_at(
+                &endpoint,
+                "Fixture Song",
+                30,
+                cancel,
+                fixture_deadline(),
+            )
+            .await
+            .unwrap_err();
+            server.await.unwrap();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    #[tokio::test]
+    async fn foreground_search_cancels_an_inflight_request_promptly() {
+        let (endpoint, entered, server) = fixture_server(None).await;
+        let (cancel_tx, cancel) = watch::channel(false);
+        let search = tokio::spawn(async move {
+            search_playback_candidates_at(&endpoint, "Fixture Song", 30, cancel, fixture_deadline())
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), entered)
+            .await
+            .expect("request reached fixture")
+            .unwrap();
+        cancel_tx.send(true).unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(1), search)
+            .await
+            .expect("cancel should drop the request promptly")
+            .unwrap()
+            .unwrap_err();
+        assert!(error.contains("cancelled"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn foreground_search_respects_absolute_deadline_during_request() {
+        let (endpoint, entered, server) = fixture_server(None).await;
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let search = tokio::spawn(async move {
+            search_playback_candidates_at(
+                &endpoint,
+                "Fixture Song",
+                30,
+                cancel,
+                crate::playback_sources::PlaybackDeadline::after(Duration::from_millis(75)),
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), entered)
+            .await
+            .expect("request reached fixture")
+            .unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(1), search)
+            .await
+            .expect("absolute deadline should bound the request")
+            .unwrap()
+            .unwrap_err();
+        assert!(error.contains("deadline expired"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn foreground_search_validates_query_and_limit_without_network() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        for (query, limit) in [(" ", 10), ("valid query", 0), ("valid query", 31)] {
+            let error = search_playback_candidates_at(
+                "http://127.0.0.1:1/search",
+                query,
+                limit,
+                cancel.clone(),
+                fixture_deadline(),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.contains("invalid") || error.contains("limit"));
+        }
+    }
+
     #[test]
     fn extracts_provider_continuation_tokens_from_known_renderer_shapes() {
         assert_eq!(

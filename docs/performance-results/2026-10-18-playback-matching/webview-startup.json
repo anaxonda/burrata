@@ -1,0 +1,57 @@
+{
+  "scope": "isolated seeded fixtures; WebView media-time evidence only; one queued request per case",
+  "binarySha256": "c1674016f61baf502bdfb0528bd0328aeafc3e14c29b372c8200867697e95bc8",
+  "pass": true,
+  "cases": [
+    {
+      "case": "five_hundred_miles",
+      "temperature": "reused_isolated_profile",
+      "expectedProvider": "monochrome",
+      "status": "webview_media_progress_pass",
+      "sustained": {
+        "elapsedMs": 5242,
+        "advancedSeconds": 5.237,
+        "observations": 15
+      },
+      "pausedSeek": {
+        "pass": null,
+        "status": "seek_not_qualified_in_this_startup_only_run"
+      },
+      "finalPaused": true
+    },
+    {
+      "case": "bby_wow",
+      "temperature": "reused_isolated_profile",
+      "expectedProvider": "youtube",
+      "status": "webview_media_progress_pass",
+      "sustained": {
+        "elapsedMs": 5247,
+        "advancedSeconds": 5.301,
+        "observations": 15
+      },
+      "pausedSeek": {
+        "pass": null,
+        "status": "seek_not_qualified_in_this_startup_only_run"
+      },
+      "finalPaused": true
+    },
+    {
+      "case": "bad_times",
+      "temperature": "reused_isolated_profile",
+      "expectedProvider": "youtube",
+      "status": "webview_media_progress_pass",
+      "sustained": {
+        "elapsedMs": 5204,
+        "advancedSeconds": 5.2,
+        "observations": 15
+      },
+      "pausedSeek": {
+        "pass": null,
+        "status": "seek_not_qualified_in_this_startup_only_run"
+      },
+      "finalPaused": true
+    }
+  ],
+  "finalPaused": true,
+  "volumeRestored": true
+}

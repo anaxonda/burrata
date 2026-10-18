@@ -6,6 +6,7 @@
   import { call, desktop } from "./lib/api";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
+  import { safeArtworkUrl } from "./lib/artwork-url";
   import TrackList from "./TrackList.svelte";
   import VirtualResults from "./VirtualResults.svelte";
   import { ProviderReadCancellation } from "./lib/provider-read-cancellation";
@@ -16,7 +17,7 @@
   import type { AutomationSearchErrorCode, AutomationSearchKind, AutomationSearchReport, AutomationSearchRequest, AutomationSearchSourceId } from "./lib/search-ui-automation";
 
   export type SearchKind = "all" | "tracks" | "artists" | "albums" | "videos" | "playlists" | "profiles" | "channels";
-  export type SearchRow = { id: string; kind: string; sourceId: string; title: string; subtitle?: string | null; url?: string | null; track?: Track | null; data?: unknown };
+  export type SearchRow = { id: string; kind: string; sourceId: string; title: string; subtitle?: string | null; url?: string | null; artworkUrl?: string | null; track?: Track | null; data?: unknown };
   export type SearchPage = { sourceId?: string; results?: SearchRow[]; nextCursor?: string | null; complete?: boolean; progress?: string | null; warnings?: string[] };
   export type Source = { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string };
 
@@ -88,6 +89,7 @@
   let overflowRows = $state<Record<string, SearchRow[]>>({});
   let warnings = $state<Record<string, string[]>>({});
   let expanded = $state<Record<string, boolean>>({});
+  let collapsedSources = $state<Record<string, boolean>>({});
   let chapterExpanded = $state<Record<string, boolean>>({});
   let chaptersByRow = $state<Record<string, Candidate | "loading" | "none" | "unavailable" | "unknown">>({});
   let generation = 0;
@@ -198,14 +200,14 @@
       rowsBySource:{...rowsBySource},overflowRows:{...overflowRows},cursors:{...cursors},
       consumed:Object.fromEntries(Object.entries(consumedPageCursors).map(([id,values])=>[id,[...values]])),
       statuses:{...statuses},errors:{...errors},warnings:{...warnings},incompleteSources:{...incompleteSources},
-      expanded:{...expanded},chapterExpanded:{...chapterExpanded},chaptersByRow:Object.fromEntries(Object.entries(chaptersByRow).filter(([,value])=>value!=="loading")),
+      expanded:{...expanded},collapsedSources:{...collapsedSources},chapterExpanded:{...chapterExpanded},chaptersByRow:Object.fromEntries(Object.entries(chaptersByRow).filter(([,value])=>value!=="loading")),
       selectedTrackRows:[...selectedTrackRows],searchSelectionMode,collectionProgress,navigationNotice,
       accountScopes:{...navigationAccountScopes},loadedCount:Object.values(rowsBySource).reduce((n,rows)=>n+rows.length,0),
       scroll:searchElement?.scrollTop??0,chapterMetadataEvicted:false,needsRefetch:false };
   }
   type SearchNavigationSnapshot = ReturnType<typeof searchNavigationSnapshot>;
   function stripSearchNavigationRows(saved: SearchNavigationSnapshot): SearchNavigationSnapshot {
-    return {...saved,rowsBySource:{},overflowRows:{},cursors:{},consumed:{},statuses:{},errors:{},warnings:{},incompleteSources:{},expanded:{},chapterExpanded:{},chaptersByRow:{},selectedTrackRows:[],searchSelectionMode:false,collectionProgress:"",needsRefetch:true};
+    return {...saved,rowsBySource:{},overflowRows:{},cursors:{},consumed:{},statuses:{},errors:{},warnings:{},incompleteSources:{},expanded:{},collapsedSources:{},chapterExpanded:{},chaptersByRow:{},selectedTrackRows:[],searchSelectionMode:false,collectionProgress:"",needsRefetch:true};
   }
   function retainedSearchNavigationRows(saved: SearchNavigationSnapshot): number {
     return Object.values(saved.rowsBySource).reduce((n,rows)=>n+rows.length,0)
@@ -259,6 +261,7 @@
       //Per-row metadata/selection may reference account-owned results. Clear it
       //as a unit on account uncertainty rather than guessing row ownership.
       expanded=invalid.size?{}:saved.expanded;chapterExpanded=invalid.size?{}:saved.chapterExpanded;chaptersByRow=invalid.size?{}:saved.chaptersByRow;
+      collapsedSources=invalid.size?{}:(saved.collapsedSources??{});
       selectedTrackRows=invalid.size?[]:saved.selectedTrackRows;searchSelectionMode=!invalid.size&&saved.searchSelectionMode;
       collectionProgress=invalid.size?"":saved.collectionProgress;navigationAccountScopes=scopes;
       navigationNotice=saved.needsRefetch?"Previous search rows were evicted from memory. Search again to reload them.":invalid.size?"Some search results were cleared because their account changed, could not be verified, or their session ended. Search again to reload them.":saved.chapterMetadataEvicted?"Some cached chapter details were dropped to bound memory. Expand chapters to inspect them again.":saved.navigationNotice;
@@ -467,7 +470,7 @@
       void cancelSoulseek(); collectionSoulseekSource = null;
       generation++;
       submitted = term;
-      rowsBySource = {}; statuses = {}; errors = {}; cursors = {}; incompleteSources = {}; warnings = {}; overflowRows = {}; expanded = {}; chaptersByRow = {};
+      rowsBySource = {}; statuses = {}; errors = {}; cursors = {}; incompleteSources = {}; warnings = {}; overflowRows = {}; expanded = {}; collapsedSources = {}; chaptersByRow = {};
       loadingSourceRequests = {}; consumedPageCursors = {};
       enrichmentQueue = []; enrichmentStarted = new Set();
     }
@@ -596,6 +599,9 @@
     const ordered = sortTracks(filtered.map(item => item.track), collectedSort, collectedDirection);
     return ordered.map(track => ({ sourceId: source.id, row: rowBySortTrack.get(track)!, track: rowBySortTrack.get(track)!.track! }));
   }));
+  // Playback continuation follows the visible provider groups while the loaded
+  // dataset remains intact for collection, sorting, selection, and snapshots.
+  const playableOccurrences = $derived(loadedOccurrences.filter(item => !collapsedSources[item.sourceId]));
   // Finite automation handles are tied to the exact loaded, filtered and sorted
   // playable snapshot. They are invalidated synchronously before every action.
   let searchControlRevision = crypto.randomUUID();
@@ -606,7 +612,7 @@
       text, submitted, mode: searchMode, source: sourceChoice, kind, sort: collectedSort,
       direction: collectedDirection, minimumDuration, maximumDuration, generation,
       collectionRequest, continueSearch,
-      occurrences: loadedOccurrences.map(item => ({ sourceId: item.sourceId, rowId: item.row.id, rowKind: item.row.kind, track: item.track })),
+      occurrences: playableOccurrences.map(item => ({ sourceId: item.sourceId, rowId: item.row.id, rowKind: item.row.kind, track: item.track })),
     });
     if (fingerprint !== searchControlFingerprint) {
       searchControlFingerprint = fingerprint;
@@ -634,8 +640,8 @@
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
     const start = Math.max(0, Math.min(1_000_000, Math.floor(offset)));
     const count = Math.max(1, Math.min(200, Math.floor(limit)));
-    const end = Math.min(loadedOccurrences.length, start + count);
-    const rows = loadedOccurrences.slice(start, end).map(item => {
+    const end = Math.min(playableOccurrences.length, start + count);
+    const rows = playableOccurrences.slice(start, end).map(item => {
       const token = crypto.randomUUID();
       searchControlRows.set(token, { revision, sourceId: item.sourceId, row: item.row });
       return {
@@ -654,7 +660,7 @@
       status: "ready", revision, observedAtMs, query: boundedAutomationText(submitted, 500),
       mode: searchMode, sourceId: searchMode === "library" ? "library" : sourceChoice,
       queryInputPending: text.trim() !== submitted.trim(),
-      kind, continueSearch, total: loadedOccurrences.length, offset: start,
+      kind, continueSearch, total: playableOccurrences.length, offset: start,
       hasMore: displayedSources.some(source => Boolean(cursors[source.id] || overflowRows[source.id]?.length)),
       collecting: collectingSearch, rows,
     };
@@ -678,9 +684,9 @@
     if (revision !== expectedRevision) return { status: "stale", revision };
     const target = searchControlRows.get(occurrenceToken);
     if (!target || target.revision !== revision) return { status: "stale", revision };
-    const index = loadedOccurrences.findIndex(item => item.sourceId === target.sourceId && item.row === target.row);
+    const index = playableOccurrences.findIndex(item => item.sourceId === target.sourceId && item.row === target.row);
     if (index < 0) return { status: "stale", revision };
-    const item = loadedOccurrences[index];
+    const item = playableOccurrences[index];
     const dispatchedAtMs = Date.now();
     if (searchUiControlExpired(expiresAtMs, dispatchedAtMs)) return { status: "expired" };
     // Reuse the exact UI handler so the existing continuation/snapshot rules
@@ -705,8 +711,8 @@
   const loadedSearchTrackRows = $derived(Object.values(displayedRowsBySource).flat().filter(row => row.track));
   async function playSearchResult(track: Track, sourceId?: string, row?: SearchRow) {
     if (!continueSearch) { onPlay?.(track); return; }
-    let queue = loadedTracks;
-    let index = sourceId && row ? loadedOccurrences.findIndex(item => item.sourceId === sourceId && item.row === row) : -1;
+    let queue = playableOccurrences.map(item => item.track);
+    let index = sourceId && row ? playableOccurrences.findIndex(item => item.sourceId === sourceId && item.row === row) : -1;
     if (index < 0) index = queue.indexOf(track);
     if (index < 0) { queue = [track, ...queue]; index = 0; }
     onPlay?.(track, queue.length ? queue : [track], index);
@@ -935,17 +941,20 @@
   <div class="source-results" aria-live="polite">
     {#each displayedSources as source (source.id)}
       {@const rows = displayedRowsBySource[source.id] ?? []}
+      {@const groupId = `search-results-${source.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`}
       <section class="source-group" aria-label={`${source.name} results`}>
-        <header><h3>{source.name}</h3><span>{statuses[source.id] ?? "Ready"}</span></header>
+        <header><h3><button type="button" class="source-toggle" aria-expanded={!collapsedSources[source.id]} aria-controls={groupId} aria-label={`${collapsedSources[source.id] ? "Expand" : "Collapse"} ${source.name} results`} onclick={() => collapsedSources = { ...collapsedSources, [source.id]: !collapsedSources[source.id] }}>{collapsedSources[source.id] ? "▸" : "▾"} {source.name}</button></h3><span>{statuses[source.id] ?? "Ready"}</span></header>
+        <div id={groupId} hidden={Boolean(collapsedSources[source.id])}>
         {#if errors[source.id]}<p class="notice error">{errors[source.id]} <button onclick={() => void runSearch(source.id)}>Retry</button></p>{/if}
         {#each warnings[source.id] ?? [] as warning}<p class="notice">{warning}</p>{/each}
         {#if rows.length}
           <VirtualResults items={rows} itemKey={identity} estimateHeight={(row) => row.track ? 56 : 76} scrollKey={`${searchMode}:${sourceChoice}:${kind}:${submitted}:${collectedSort}:${collectedDirection}:${minimumDuration}:${maximumDuration}`} regionKey={source.id}>
           {#snippet children(row, _index)}
             {@const track = row.track}
+            {@const artwork = row.sourceId === "spotify" && ["artist", "profile"].includes(row.kind) ? safeArtworkUrl(row.artworkUrl) : null}
             <article class="result-row" class:expanded={expanded[identity(row)]} oncontextmenu={track && onContext ? (event) => { event.preventDefault(); onContext?.(track, event); } : undefined}>
               <div class="result-main">
-                {#if !track}<div class="result-title"><span class="kind-badge">{row.kind === "video" || row.kind === "set" ? "Video / set" : row.kind}</span>{#if nonTrackAction(row)}<button class="open-result" aria-label={`${nonTrackAction(row)}: ${row.title}`} title={row.title} onclick={() => openNonTrackResult(row)}><strong>{row.title}</strong><span>{nonTrackAction(row)} →</span></button>{:else}<strong class="result-row-title" title={row.title}>{row.title}</strong>{/if}</div>{/if}
+                {#if !track}<div class="result-title">{#if artwork}<span class="spotify-identity-art" aria-hidden="true"><span>♫</span><img src={artwork} alt="" loading="lazy" onerror={(event) => { (event.currentTarget as HTMLImageElement).hidden = true; }} /></span>{/if}<span class="kind-badge">{row.kind === "video" || row.kind === "set" ? "Video / set" : row.kind}</span>{#if nonTrackAction(row)}<button class="open-result" aria-label={`${nonTrackAction(row)}: ${row.title}`} title={row.title} onclick={() => openNonTrackResult(row)}><strong>{row.title}</strong><span>{nonTrackAction(row)} →</span></button>{:else}<strong class="result-row-title" title={row.title}>{row.title}</strong>{/if}</div>{/if}
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
@@ -983,6 +992,7 @@
           </VirtualResults>
         {:else if statuses[source.id] === "Complete"}<p class="search-empty">No results from {source.name}.</p>
         {:else if statuses[source.id] === "Not available for this result type"}<p class="search-empty">{source.name} does not support this result type. Choose another source or result type.</p>{/if}
+        </div>
         {#if cursors[source.id] || overflowRows[source.id]?.length}<button class="load-more" disabled={statuses[source.id] === "Loading more…"} onclick={() => void runSearch(source.id)}>Load more</button>{/if}
       </section>
     {/each}
@@ -990,12 +1000,13 @@
 </section>
 
 <style>
-  .search-panel{display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
+  .source-toggle{border:0;padding:.15rem .25rem;background:transparent;color:inherit;font:inherit;font-weight:650;text-align:left;cursor:pointer}.source-toggle:focus-visible{outline:2px solid var(--accent,#9dbfff);outline-offset:2px}
+  .search-panel{--panel:var(--surface,#17191c);--border:var(--line,#454a50);display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
   .search-form,.source-group>header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0}.source-group>header h3,.source-group>header span{min-width:0;overflow-wrap:anywhere}.source-group>header span,.subtitle,.search-empty,.result-details{color:var(--muted,#a3a8ae);font-size:.82rem}.track-controls{display:contents;border:0;margin:0;padding:0;min-width:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.continue-setting{display:flex;align-items:center;gap:.45rem;font-size:.8rem;color:var(--muted,#a3a8ae)}.continue-setting input{accent-color:var(--accent,#4c78c8)}.collection-controls{display:flex;align-items:end;gap:.5rem;flex-wrap:wrap}.collection-controls label{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.collection-controls select{max-width:100%;font-size:.78rem}.collection-status{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted,#a3a8ae)}
   .continue-setting{flex-direction:row;margin:0}.continue-setting input{width:auto;flex:none;margin:0;padding:0}.collection-controls label{margin:0}.search-in-label{margin:0}
   button,input,select{font:inherit;color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}button{cursor:pointer}button:disabled,select:disabled{opacity:.55;cursor:default}.primary{background:var(--accent,#4c78c8);border-color:var(--accent,#4c78c8);color:var(--base,#fff)}.search-form input{flex:1;min-width:0;height:36px;padding:.35rem .6rem}.search-form button{min-height:36px;padding:.35rem .6rem}.filters{display:flex;gap:.4rem;flex-wrap:wrap}.filters button{font-size:.84rem}.filters button.active{border-color:var(--accent,#9dbfff);color:var(--accent,#9dbfff)}
   .scope-controls{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:.55rem;min-width:0}.search-mode{display:flex;min-width:0;padding:3px;gap:2px;border:1px solid var(--border,#454a50);border-radius:9px;background:var(--surface,#202328)}.search-mode button{min-width:0;padding:.4rem .65rem;border:0;background:transparent;font-size:.82rem;white-space:nowrap}.search-mode button.active{background:var(--accent,#4c78c8);color:var(--base,#fff)}.search-in-label{font-size:.8rem;color:var(--muted,#a3a8ae);white-space:nowrap}.scope-controls select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:34px;padding:0 .55rem;line-height:normal;overflow:visible;font-size:.82rem}.scope-controls select option{background:var(--panel,#17191c);color:var(--text,#eee)}.library-helper{grid-column:2/-1;min-width:0;margin:0;color:var(--muted,#a3a8ae);font-size:.76rem;line-height:1.35}.scope-hint{margin:0;color:var(--muted,#a3a8ae);font-size:.8rem;line-height:1.4}
-  .source-results{display:flex;flex-direction:column;gap:.65rem;min-width:0}.source-group{min-width:0;max-width:100%;border:1px solid var(--border,#383d43);border-radius:10px;padding:.55rem}.source-group>header{padding:0 .15rem .35rem}.source-group h3{margin:0;font-size:.93rem}.result-row{min-width:0;border-top:1px solid var(--border,#30343a);padding:.5rem .15rem}.result-main{min-width:0;overflow-wrap:anywhere}.result-title{display:flex;align-items:center;gap:.5rem;min-width:0}.result-title strong{font-size:.92rem;min-width:0;overflow-wrap:anywhere}.result-row-title{flex:1 1 auto}.kind-badge{display:inline-flex;flex:none;border-radius:999px;background:var(--surface,#202328);padding:.18rem .48rem;color:var(--muted,#a3a8ae);font-size:.69rem}.subtitle{margin:.2rem 0 0 .1rem;overflow-wrap:anywhere}.open-result{display:inline-flex;align-items:baseline;flex:1 1 auto;gap:.45rem;max-width:100%;min-width:0;border:0;padding:.2rem 0;background:none;text-align:left;color:inherit;font-weight:600;white-space:normal;overflow-wrap:anywhere}.open-result strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-result span{flex:none;color:var(--accent,#9dbfff);font-size:.76rem}.result-main>a{display:inline-block;margin-top:.35rem;color:var(--accent,#9dbfff);font-size:.78rem;overflow-wrap:anywhere}.details-toggle{margin-top:.4rem;padding:.3rem .45rem;font-size:.75rem}.result-details{margin:.35rem 0;overflow-wrap:anywhere}.chapter-details{margin-top:.4rem;max-width:100%}.chapter-badge{display:inline-flex;margin-top:.4rem;border-radius:999px;background:var(--surface,#202328);padding:.2rem .55rem;color:var(--muted,#a3a8ae);font-size:.72rem;white-space:normal;overflow-wrap:anywhere}.chapter-badge.available{color:var(--accent,#9dbfff);cursor:pointer}.chapter-badge.unknown,.chapter-badge.unavailable{border:0;cursor:pointer}.chapter-badge.loading{color:var(--muted,#a3a8ae)}.chapter-list{margin-top:.55rem;padding:.45rem;border-left:2px solid var(--accent,#9dbfff);min-width:0}.chapter-row{display:flex;align-items:center;gap:.3rem;margin-top:.35rem;min-width:0;flex-wrap:wrap}.chapter-row span{flex:1 1 10rem;min-width:0;font-size:.78rem;overflow-wrap:anywhere}.chapter-row button{font-size:.76rem;padding:.35rem .5rem}.notice{margin:.35rem 0;font-size:.8rem;color:var(--muted,#a3a8ae);overflow-wrap:anywhere}.error{color:#ff9b9b}.load-more{margin:.4rem}.search-empty{padding:.25rem;overflow-wrap:anywhere}.source-group a{color:var(--accent,#9dbfff)}
+  .source-results{display:flex;flex-direction:column;gap:.65rem;min-width:0}.source-group{min-width:0;max-width:100%;border:1px solid var(--border,#383d43);border-radius:10px;padding:.55rem}.source-group>header{padding:0 .15rem .35rem}.source-group h3{margin:0;font-size:.93rem}.result-row{min-width:0;border-top:1px solid var(--border,#30343a);padding:.5rem .15rem}.result-main{min-width:0;overflow-wrap:anywhere}.result-title{display:flex;align-items:center;gap:.5rem;min-width:0}.result-title strong{font-size:.92rem;min-width:0;overflow-wrap:anywhere}.result-row-title{flex:1 1 auto}.spotify-identity-art{position:relative;display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;overflow:hidden;border-radius:50%;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}.spotify-identity-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kind-badge{display:inline-flex;flex:none;border-radius:999px;background:var(--surface,#202328);padding:.18rem .48rem;color:var(--muted,#a3a8ae);font-size:.69rem}.subtitle{margin:.2rem 0 0 .1rem;overflow-wrap:anywhere}.open-result{display:inline-flex;align-items:baseline;flex:1 1 auto;gap:.45rem;max-width:100%;min-width:0;border:0;padding:.2rem 0;background:none;text-align:left;color:inherit;font-weight:600;white-space:normal;overflow-wrap:anywhere}.open-result strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-result span{flex:none;color:var(--accent,#9dbfff);font-size:.76rem}.result-main>a{display:inline-block;margin-top:.35rem;color:var(--accent,#9dbfff);font-size:.78rem;overflow-wrap:anywhere}.details-toggle{margin-top:.4rem;padding:.3rem .45rem;font-size:.75rem}.result-details{margin:.35rem 0;overflow-wrap:anywhere}.chapter-details{margin-top:.4rem;max-width:100%}.chapter-badge{display:inline-flex;margin-top:.4rem;border-radius:999px;background:var(--surface,#202328);padding:.2rem .55rem;color:var(--muted,#a3a8ae);font-size:.72rem;white-space:normal;overflow-wrap:anywhere}.chapter-badge.available{color:var(--accent,#9dbfff);cursor:pointer}.chapter-badge.unknown,.chapter-badge.unavailable{border:0;cursor:pointer}.chapter-badge.loading{color:var(--muted,#a3a8ae)}.chapter-list{margin-top:.55rem;padding:.45rem;border-left:2px solid var(--accent,#9dbfff);min-width:0}.chapter-row{display:flex;align-items:center;gap:.3rem;margin-top:.35rem;min-width:0;flex-wrap:wrap}.chapter-row span{flex:1 1 10rem;min-width:0;font-size:.78rem;overflow-wrap:anywhere}.chapter-row button{font-size:.76rem;padding:.35rem .5rem}.notice{margin:.35rem 0;font-size:.8rem;color:var(--muted,#a3a8ae);overflow-wrap:anywhere}.error{color:#ff9b9b}.load-more{margin:.4rem}.search-empty{padding:.25rem;overflow-wrap:anywhere}.source-group a{color:var(--accent,#9dbfff)}
   .search-playlist-selection{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border:1px solid var(--border,#454a50);border-radius:8px;margin:.4rem 0}.search-playlist-selection span{margin-right:auto}.search-track-select{display:inline-flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--muted,#a3a8ae)}.add-playlist-result{margin:.4rem .45rem 0 0}
   .result-row:has(.compact-track){padding:.15rem}.compact-track :global(.shared-track-list li){box-sizing:border-box;min-height:48px;padding:4px 3px;gap:8px}.compact-track :global(.artwork){width:36px;height:36px;flex-basis:36px}.compact-track :global(.track-copy){gap:1px}.compact-track :global(.track-title strong){font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.compact-track :global(.track-subtitle){font-size:10px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.compact-track :global(.icon-action),.compact-track :global(.more summary){width:36px;height:36px}.compact-track :global(.shared-track-list li.current){box-shadow:inset 3px 0 var(--accent,#9dbfff)}
   @media(max-width:640px){.search-panel{padding:.7rem}.search-form{flex-wrap:wrap}.search-form input{flex-basis:100%}.scope-controls{grid-template-columns:auto minmax(0,1fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.search-mode button{padding:.4rem .5rem}.chapter-row{flex-wrap:wrap}.chapter-row span{flex-basis:100%}}

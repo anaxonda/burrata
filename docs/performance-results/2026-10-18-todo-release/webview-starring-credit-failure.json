@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "scope": "isolated seeded fixtures; WebView media-time evidence only; one queued request per case",
+  "binarySha256": "8cbdb6ded853b1c9aac93087a77b5e4c3778d214ec418304bc23900f5f776f1c",
+  "pass": false,
+  "initialVolume": 0.8,
+  "cases": [
+    {
+      "case": "creep_spotify_essentials",
+      "temperature": "reused_isolated_profile",
+      "trackId": "spotify:2Jju8C95blJcGMqtMKETbH",
+      "expectedProvider": "monochrome",
+      "status": "pending",
+      "queueRequestCount": 1,
+      "timeline": [],
+      "stage": "startup_wait",
+      "operationId": "924feb05-3c77-4147-b333-d7b2a2423a5d",
+      "queueRevision": "1:1438002910:808843178:675933414:287851442",
+      "entryId": "d1c150de-2d4b-4381-8dd7-ca61b3ea91b4",
+      "failureReadback": {
+        "readbackAtMs": 10850,
+        "playback": {
+          "engine": "webview",
+          "status": "idle",
+          "trackId": "spotify:2Jju8C95blJcGMqtMKETbH",
+          "entryId": "d1c150de-2d4b-4381-8dd7-ca61b3ea91b4",
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "queueRevision": null,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "paused": true,
+          "canSeek": false,
+          "position": null,
+          "duration": null,
+          "media": {
+            "present": false,
+            "sourcePresent": false,
+            "sourceStable": false,
+            "readyState": null,
+            "errorCode": null,
+            "paused": null
+          },
+          "lastResolvedSource": null
+        },
+        "sameOwner": true,
+        "playerMessage": "No playable audio match was found for the requested recording and version. Open the catalog source or choose another source.",
+        "media": {
+          "applicable": true,
+          "trackMatch": true,
+          "entryMatch": true,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "sessionPresent": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "present": false,
+          "sourcePresent": false,
+          "sourceStable": false,
+          "paused": null,
+          "readyState": null,
+          "currentTime": null
+        }
+      },
+      "failureStage": "startup_wait",
+      "failureStageElapsedMs": 7981
+    }
+  ],
+  "finalPaused": true,
+  "volumeRestored": true,
+  "reusedFixtureBaseline": true,
+  "failureCategory": "webview_playback_failed",
+  "failureStage": "startup_wait",
+  "failureStageElapsedMs": 7981,
+  "controlOutcomeUnresolved": false
+}

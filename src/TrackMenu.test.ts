@@ -13,6 +13,19 @@ let destroy: (() => void) | undefined;
 afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 
 describe("TrackMenu", () => {
+  it("keeps playback actions before library actions to match TrackList overflow", async () => {
+    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    const noop = vi.fn();
+    const instance = mount(TrackMenu, { target: document.body, props: {
+      track, onClose: noop, onNext: noop, onQueue: noop, onPlaylist: noop, onFavorite: noop,
+      onDownload: noop, onDetails: noop, onSelect: noop,
+    } as never });
+    destroy = () => unmount(instance); await tick();
+    const labels = [...document.querySelectorAll<HTMLButtonElement>(".track-menu > button")].map(button => button.textContent?.trim());
+    expect(labels.slice(0, 4)).toEqual(["Play next", "Add to queue", "Add to playlist…", "Add to Liked Songs"]);
+  });
+
   it("shows downloaded availability without duplicating the download action", async () => {
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });

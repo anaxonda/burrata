@@ -1,10 +1,11 @@
 # Burrata Browser Companion
 
-Firefox first, with a Chromium Manifest V3 variant. The extension imports public
-chart, playlist, and album metadata from your normal browser session. Supported sites are Beatport,
-Traxsource, Spotify, Shazam, Last.fm, and Bandcamp. It never exports cookies,
-tokens, audio, or the complete page. Catalog previews and Spotify playback are not
-part of this extension. Provider access restrictions require your interaction.
+Firefox first, with a Chromium Manifest V3 variant. Page imports extract selected
+public chart, playlist, and album metadata from supported sites: Beatport,
+Traxsource, Spotify, public YouTube videos and playlists, Shazam, Last.fm, and
+Bandcamp. Page imports do not send cookies, tokens, audio, or the complete page.
+Provider operations and the separate, explicitly consented YouTube session handoff
+have their own access flows. Provider access restrictions require your interaction.
 
 For the implementation history, latest Beatport fix, and validation status, see the
 [chart and playlist import summary](../docs/chart-playlist-imports.md).
@@ -49,6 +50,11 @@ manifest key and remains stable across builds.
   and restoring your scroll position. Repeated track occurrences retain their original
   positions for app-side deduplication. Large, slow, or changed playlists and albums may need a
   repeat import and are reported incomplete.
+- YouTube imports one public watch page as a single-track playlist, or captures the
+  rendered rows of a public playlist while scrolling for at most 25 seconds. It uses
+  visible title/channel/duration/artwork fields only; signing in is not required for
+  current-page capture. Playlist occurrence order and repeated videos are retained.
+  A missing count, unrendered row, or stopped scroll leaves the snapshot incomplete.
 - Shazam chart capture reads ranked song records from page data or rendered chart rows.
   Last.fm supports its Top Tracks chart and a user's track library; chart ranks come from
   explicit row positions, while a paginated library remains incomplete unless all tracks

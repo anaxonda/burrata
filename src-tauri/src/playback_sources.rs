@@ -597,10 +597,21 @@ pub(crate) async fn resolve_candidate_fresh_until(
                 return Err("The stalled playback candidate identity is invalid".into());
             }
             let pinned = source_resolution_is_pinned(track, explicitly_pinned, &settings, true);
-            let aliases = if pinned { Vec::new() } else {
-                crate::artist_credit_aliases::cached_verified_playback_artist_alias_tracks(store, track)
+            let aliases = if pinned {
+                crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
+            } else {
+                crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
             };
-            if !pinned && !evaluate_candidate_gate(track, &aliases, &candidate).accepted() {
+            if !pinned
+                && !evaluate_candidate_gate_with_proofs(
+                    track,
+                    aliases.tracks(),
+                    aliases.isrc_enriched(),
+                    aliases.verified_recording_isrc(),
+                    &candidate,
+                )
+                .accepted()
+            {
                 return Err("The stalled playback candidate no longer passes recording identity checks".into());
             }
             let audio = acquisition.resolve_preview_audio_fresh_traced_cancelled(
@@ -611,7 +622,15 @@ pub(crate) async fn resolve_candidate_fresh_until(
                 return Err("The refreshed audio source did not resolve to the same provider recording".into());
             }
             let requires_identity_check = candidate.provider == "bandcamp" || !pinned;
-            if !accept_resolved_identity_with_aliases(track, &aliases, &mut candidate, &audio, requires_identity_check) {
+            if !accept_resolved_identity_with_aliases_and_proofs(
+                track,
+                aliases.tracks(),
+                aliases.isrc_enriched(),
+                aliases.verified_recording_isrc(),
+                &mut candidate,
+                &audio,
+                requires_identity_check,
+            ) {
                 return Err("The refreshed audio source identity does not match this recording".into());
             }
             let duration = audio.duration_seconds.or(candidate.duration_seconds)
@@ -993,12 +1012,13 @@ async fn resolve_serial(
         || (track.provenance["sourceKind"].as_str() == Some("audioSearch")
             && !overrides_import_url(track, &settings))
         || linked.is_some();
-    let verified_artist_alias_tracks = if pinned {
-        Vec::new()
+    let verified_artist_aliases = if pinned {
+        crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
     } else {
-        crate::artist_credit_aliases::cached_verified_playback_artist_alias_tracks(store, track)
+        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
     };
-    let alternate_search_artists = verified_artist_alias_tracks
+    let alternate_search_artists = verified_artist_aliases
+        .tracks()
         .iter()
         .map(|variant| variant.artist.clone())
         .collect::<Vec<_>>();
@@ -1029,11 +1049,17 @@ async fn resolve_serial(
         ));
     }
 
+    let match_explanation = if track.duration_seconds.is_none() {
+        "Saved recording duration is missing; no source provided enough verified identity evidence for automatic playback."
+    } else {
+        "No available source matched the requested recording and version."
+    };
     let mut last_error = format!(
-        "No playable audio match was found for {} — {}{}. No available source matched the requested recording and version. Open the catalog source or choose another source",
+        "No playable audio match was found for {} — {}{}. {} Open the catalog source or choose another source",
         track.artist.trim(),
         track.title.trim(),
-        track.version.as_deref().filter(|version|!version.trim().is_empty()).map(|version|format!(" ({})",version.trim())).unwrap_or_default()
+        track.version.as_deref().filter(|version|!version.trim().is_empty()).map(|version|format!(" ({})",version.trim())).unwrap_or_default(),
+        match_explanation
     );
     let mut tried_linked = false;
     let mut transient_retry_attempted = false;
@@ -1071,7 +1097,9 @@ async fn resolve_serial(
                             store,
                             acquisition,
                             track,
-                            &verified_artist_alias_tracks,
+                            verified_artist_aliases.tracks(),
+                            verified_artist_aliases.isrc_enriched(),
+                            verified_artist_aliases.verified_recording_isrc(),
                             candidate.clone(),
                             &settings,
                             cancel.clone(),
@@ -1158,9 +1186,21 @@ async fn resolve_serial(
             );
             let mut gate_evidence = CandidateGateEvidence::new_if_trace_enabled(&trace);
             let gate_filtered = found.into_iter().filter(|candidate| {
-                let path = evaluate_candidate_gate(track, &verified_artist_alias_tracks, candidate);
+                let path = evaluate_candidate_gate_with_proofs(
+                    track,
+                    verified_artist_aliases.tracks(),
+                    verified_artist_aliases.isrc_enriched(),
+                    verified_artist_aliases.verified_recording_isrc(),
+                    candidate,
+                );
                 if let Some(evidence) = gate_evidence.as_mut() {
-                    evidence.observe(track, &verified_artist_alias_tracks, candidate, path);
+                    evidence.observe_with_proofs(
+                        track,
+                        verified_artist_aliases.tracks(),
+                        verified_artist_aliases.isrc_enriched(),
+                        candidate,
+                        path,
+                    );
                 }
                 path.accepted()
             });
@@ -1231,9 +1271,11 @@ async fn resolve_serial(
             let requires_identity_check = candidate.provider == "bandcamp"
                 || (!pinned
                     && (matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
-                        || !playback_recording_matches_with_aliases(
+                        || !playback_recording_matches_with_proofs(
                             track,
-                            &verified_artist_alias_tracks,
+                            verified_artist_aliases.tracks(),
+                            verified_artist_aliases.isrc_enriched(),
+                            verified_artist_aliases.verified_recording_isrc(),
                             &candidate,
                         )));
             trace.event(
@@ -1257,9 +1299,11 @@ async fn resolve_serial(
                         &provider,
                         json!({"attempt":attempt+1,"ok":true}),
                     );
-                    let identity_ok = accept_resolved_identity_with_aliases(
+                    let identity_ok = accept_resolved_identity_with_aliases_and_proofs(
                         track,
-                        &verified_artist_alias_tracks,
+                        verified_artist_aliases.tracks(),
+                        verified_artist_aliases.isrc_enriched(),
+                        verified_artist_aliases.verified_recording_isrc(),
                         &mut candidate,
                         &audio,
                         requires_identity_check,
@@ -1282,9 +1326,11 @@ async fn resolve_serial(
                         &candidate,
                         &audio,
                         !pinned
-                            && playback_recording_matches_with_aliases(
+                            && playback_recording_matches_with_proofs(
                                 track,
-                                &verified_artist_alias_tracks,
+                                verified_artist_aliases.tracks(),
+                                verified_artist_aliases.isrc_enriched(),
+                                verified_artist_aliases.verified_recording_isrc(),
                                 &candidate,
                             ),
                         mapping_fingerprint.as_deref(),
@@ -1335,9 +1381,11 @@ async fn resolve_serial(
                         .await
                     {
                         Ok(audio) => {
-                            if !accept_resolved_identity_with_aliases(
+                            if !accept_resolved_identity_with_aliases_and_proofs(
                                 track,
-                                &verified_artist_alias_tracks,
+                                verified_artist_aliases.tracks(),
+                                verified_artist_aliases.isrc_enriched(),
+                                verified_artist_aliases.verified_recording_isrc(),
                                 &mut candidate,
                                 &audio,
                                 requires_identity_check,
@@ -1351,9 +1399,11 @@ async fn resolve_serial(
                                 &candidate,
                                 &audio,
                                 !pinned
-                                    && playback_recording_matches_with_aliases(
+                                    && playback_recording_matches_with_proofs(
                                         track,
-                                        &verified_artist_alias_tracks,
+                                        verified_artist_aliases.tracks(),
+                                        verified_artist_aliases.isrc_enriched(),
+                                        verified_artist_aliases.verified_recording_isrc(),
                                         &candidate,
                                     ),
                                 mapping_fingerprint.as_deref(),
@@ -1414,6 +1464,48 @@ fn valid_artist_alias_variant(track: &Track, variant: &Track) -> bool {
     &restored == track
 }
 
+fn valid_artist_alias_variant_with_proof(
+    track: &Track,
+    variant: &Track,
+    isrc_enriched_aliases: &[Track],
+) -> bool {
+    if valid_artist_alias_variant(track, variant) {
+        return true;
+    }
+    if !isrc_enriched_aliases.contains(variant) {
+        return false;
+    }
+    let mut restored = variant.clone();
+    restored.artist = track.artist.clone();
+    restored.isrc = track.isrc.clone();
+    &restored == track
+}
+
+fn conflicts_with_verified_recording_isrc(
+    candidate: &Candidate,
+    verified_recording_isrc: Option<&str>,
+) -> bool {
+    conflicts_with_verified_recording_isrc_metadata(
+        candidate.source_metadata.as_ref(),
+        verified_recording_isrc,
+    )
+}
+
+fn conflicts_with_verified_recording_isrc_metadata(
+    metadata: Option<&Value>,
+    verified_recording_isrc: Option<&str>,
+) -> bool {
+    let Some(expected) = verified_recording_isrc else {
+        return false;
+    };
+    metadata
+        .and_then(|metadata| metadata.get("isrc"))
+        .and_then(Value::as_str)
+        .is_some_and(|actual| {
+            !actual.trim().is_empty() && !expected.eq_ignore_ascii_case(actual.trim())
+        })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CandidateGatePath {
     RecordingCanonical,
@@ -1466,12 +1558,27 @@ fn evaluate_candidate_gate(
     aliases: &[Track],
     candidate: &Candidate,
 ) -> CandidateGatePath {
+    evaluate_candidate_gate_with_proofs(track, aliases, &[], None, candidate)
+}
+
+fn evaluate_candidate_gate_with_proofs(
+    track: &Track,
+    aliases: &[Track],
+    isrc_enriched_aliases: &[Track],
+    verified_recording_isrc: Option<&str>,
+    candidate: &Candidate,
+) -> CandidateGatePath {
+    if conflicts_with_verified_recording_isrc(candidate, verified_recording_isrc) {
+        return CandidateGatePath::Rejected;
+    }
     if crate::source_fallback::playback_recording_matches(track, candidate) {
         return CandidateGatePath::RecordingCanonical;
     }
     if aliases
         .iter()
-        .filter(|variant| valid_artist_alias_variant(track, variant))
+        .filter(|variant| {
+            valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+        })
         .any(|variant| crate::source_fallback::playback_recording_matches(variant, candidate))
     {
         return CandidateGatePath::RecordingVerifiedAlias;
@@ -1481,7 +1588,9 @@ fn evaluate_candidate_gate(
     }
     if aliases
         .iter()
-        .filter(|variant| valid_artist_alias_variant(track, variant))
+        .filter(|variant| {
+            valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+        })
         .any(|variant| crate::source_fallback::is_topic_playback_candidate(variant, candidate))
     {
         return CandidateGatePath::TopicVerifiedAlias;
@@ -1491,7 +1600,9 @@ fn evaluate_candidate_gate(
     }
     if aliases
         .iter()
-        .filter(|variant| valid_artist_alias_variant(track, variant))
+        .filter(|variant| {
+            valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+        })
         .any(|variant| {
             crate::source_fallback::is_provisional_playback_candidate(variant, candidate)
         })
@@ -1527,6 +1638,17 @@ impl CandidateGateEvidence {
         &mut self,
         track: &Track,
         aliases: &[Track],
+        candidate: &Candidate,
+        path: CandidateGatePath,
+    ) {
+        self.observe_with_proofs(track, aliases, &[], candidate, path);
+    }
+
+    fn observe_with_proofs(
+        &mut self,
+        track: &Track,
+        aliases: &[Track],
+        isrc_enriched_aliases: &[Track],
         candidate: &Candidate,
         path: CandidateGatePath,
     ) {
@@ -1569,7 +1691,9 @@ impl CandidateGateEvidence {
                 && format!(" {candidate_title} ").contains(&format!(" {canonical_artist} "));
             let verified_alias_artist_phrase_present = aliases
                 .iter()
-                .filter(|variant| valid_artist_alias_variant(track, variant))
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
                 .any(|variant| {
                     let artist = crate::matching::normalize(&variant.artist);
                     !artist.is_empty()
@@ -1596,7 +1720,9 @@ impl CandidateGateEvidence {
                 crate::source_fallback::playback_recording_matches(track, candidate);
             let recording_verified_alias_match = aliases
                 .iter()
-                .filter(|variant| valid_artist_alias_variant(track, variant))
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
                 .any(|variant| {
                     crate::source_fallback::playback_recording_matches(variant, candidate)
                 });
@@ -1604,7 +1730,9 @@ impl CandidateGateEvidence {
                 crate::source_fallback::is_topic_playback_candidate(track, candidate);
             let topic_verified_alias_match = aliases
                 .iter()
-                .filter(|variant| valid_artist_alias_variant(track, variant))
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
                 .any(|variant| {
                     crate::source_fallback::is_topic_playback_candidate(variant, candidate)
                 });
@@ -1612,7 +1740,9 @@ impl CandidateGateEvidence {
                 crate::source_fallback::is_provisional_playback_candidate(track, candidate);
             let provisional_verified_alias_match = aliases
                 .iter()
-                .filter(|variant| valid_artist_alias_variant(track, variant))
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
                 .any(|variant| {
                     crate::source_fallback::is_provisional_playback_candidate(variant, candidate)
                 });
@@ -1695,10 +1825,9 @@ impl CandidateGateEvidence {
         {
             self.increment("canonicalArtistPhrasePresentInCandidateTitle");
         }
-        for alias in aliases
-            .iter()
-            .filter(|variant| valid_artist_alias_variant(track, variant))
-        {
+        for alias in aliases.iter().filter(|variant| {
+            valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+        }) {
             let alias_artist = crate::matching::normalize(&alias.artist);
             if !alias_artist.is_empty()
                 && format!(" {candidate_title} ").contains(&format!(" {alias_artist} "))
@@ -1739,7 +1868,9 @@ impl CandidateGateEvidence {
         if !uploader.is_empty()
             && aliases
                 .iter()
-                .filter(|variant| valid_artist_alias_variant(track, variant))
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
                 .any(|variant| uploader == normalize_credit(&variant.artist))
         {
             self.increment("uploaderMatchesVerifiedAliasCredit");
@@ -1752,11 +1883,26 @@ fn playback_recording_matches_with_aliases(
     aliases: &[Track],
     candidate: &Candidate,
 ) -> bool {
-    crate::source_fallback::playback_recording_matches(track, candidate)
-        || aliases
-            .iter()
-            .filter(|variant| valid_artist_alias_variant(track, variant))
-            .any(|variant| crate::source_fallback::playback_recording_matches(variant, candidate))
+    playback_recording_matches_with_proofs(track, aliases, &[], None, candidate)
+}
+
+fn playback_recording_matches_with_proofs(
+    track: &Track,
+    aliases: &[Track],
+    isrc_enriched_aliases: &[Track],
+    verified_recording_isrc: Option<&str>,
+    candidate: &Candidate,
+) -> bool {
+    !conflicts_with_verified_recording_isrc(candidate, verified_recording_isrc)
+        && (crate::source_fallback::playback_recording_matches(track, candidate)
+            || aliases
+                .iter()
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
+                .any(|variant| {
+                    crate::source_fallback::playback_recording_matches(variant, candidate)
+                }))
 }
 
 fn topic_playback_matches_with_aliases(
@@ -1764,11 +1910,26 @@ fn topic_playback_matches_with_aliases(
     aliases: &[Track],
     candidate: &Candidate,
 ) -> bool {
-    crate::source_fallback::is_topic_playback_candidate(track, candidate)
-        || aliases
-            .iter()
-            .filter(|variant| valid_artist_alias_variant(track, variant))
-            .any(|variant| crate::source_fallback::is_topic_playback_candidate(variant, candidate))
+    topic_playback_matches_with_proofs(track, aliases, &[], None, candidate)
+}
+
+fn topic_playback_matches_with_proofs(
+    track: &Track,
+    aliases: &[Track],
+    isrc_enriched_aliases: &[Track],
+    verified_recording_isrc: Option<&str>,
+    candidate: &Candidate,
+) -> bool {
+    !conflicts_with_verified_recording_isrc(candidate, verified_recording_isrc)
+        && (crate::source_fallback::is_topic_playback_candidate(track, candidate)
+            || aliases
+                .iter()
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
+                .any(|variant| {
+                    crate::source_fallback::is_topic_playback_candidate(variant, candidate)
+                }))
 }
 
 fn provisional_playback_matches_with_aliases(
@@ -1776,13 +1937,26 @@ fn provisional_playback_matches_with_aliases(
     aliases: &[Track],
     candidate: &Candidate,
 ) -> bool {
-    crate::source_fallback::is_provisional_playback_candidate(track, candidate)
-        || aliases
-            .iter()
-            .filter(|variant| valid_artist_alias_variant(track, variant))
-            .any(|variant| {
-                crate::source_fallback::is_provisional_playback_candidate(variant, candidate)
-            })
+    provisional_playback_matches_with_proofs(track, aliases, &[], None, candidate)
+}
+
+fn provisional_playback_matches_with_proofs(
+    track: &Track,
+    aliases: &[Track],
+    isrc_enriched_aliases: &[Track],
+    verified_recording_isrc: Option<&str>,
+    candidate: &Candidate,
+) -> bool {
+    !conflicts_with_verified_recording_isrc(candidate, verified_recording_isrc)
+        && (crate::source_fallback::is_provisional_playback_candidate(track, candidate)
+            || aliases
+                .iter()
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+                })
+                .any(|variant| {
+                    crate::source_fallback::is_provisional_playback_candidate(variant, candidate)
+                }))
 }
 
 fn accept_resolved_identity_with_aliases(
@@ -1792,16 +1966,43 @@ fn accept_resolved_identity_with_aliases(
     audio: &acquisition::PreviewAudio,
     required: bool,
 ) -> bool {
+    accept_resolved_identity_with_aliases_and_proofs(
+        track,
+        aliases,
+        &[],
+        None,
+        candidate,
+        audio,
+        required,
+    )
+}
+
+fn accept_resolved_identity_with_aliases_and_proofs(
+    track: &Track,
+    aliases: &[Track],
+    isrc_enriched_aliases: &[Track],
+    verified_recording_isrc: Option<&str>,
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+    required: bool,
+) -> bool {
+    if conflicts_with_verified_recording_isrc(candidate, verified_recording_isrc)
+        || conflicts_with_verified_recording_isrc_metadata(
+            audio.source_metadata.as_ref(),
+            verified_recording_isrc,
+        )
+    {
+        return false;
+    }
     let original = candidate.clone();
     let mut checked = original.clone();
     if accept_resolved_identity(track, &mut checked, audio, required) {
         *candidate = checked;
         return true;
     }
-    for variant in aliases
-        .iter()
-        .filter(|variant| valid_artist_alias_variant(track, variant))
-    {
+    for variant in aliases.iter().filter(|variant| {
+        valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
+    }) {
         let mut checked = original.clone();
         if accept_resolved_identity(variant, &mut checked, audio, required) {
             *candidate = checked;
@@ -1817,6 +2018,11 @@ fn accept_resolved_identity(
     audio: &acquisition::PreviewAudio,
     required: bool,
 ) -> bool {
+    let no_catalog_duration_youtube = required
+        && candidate.provider == "youtube"
+        && crate::matching::ephemeral_playback_identity(track)
+            .duration_seconds
+            .is_none();
     let extractor_provider = matches!(
         candidate.provider.as_str(),
         "youtube" | "soundcloud" | "bandcamp"
@@ -1845,7 +2051,11 @@ fn accept_resolved_identity(
         }
     }
     if let Some(metadata) = audio.source_metadata.as_ref() {
-        candidate.source_metadata = Some(metadata.clone());
+        // Preserve the preexisting known-duration path: generic verified
+        // channel metadata is retained only for this missing-duration proof.
+        if metadata["channelIsVerified"].as_bool() != Some(true) || no_catalog_duration_youtube {
+            candidate.source_metadata = Some(metadata.clone());
+        }
     }
     if let Some(chapters) = audio.chapters.as_ref() {
         candidate.chapters = Some(chapters.clone());
@@ -1862,11 +2072,28 @@ fn accept_resolved_identity(
     {
         return false;
     }
+    if no_catalog_duration_youtube {
+        let Some(metadata) = audio.source_metadata.as_ref() else {
+            // Never let uploader/channel evidence inherited from search or a
+            // remembered source stand in for this extractor response.
+            candidate.source_metadata = None;
+            return false;
+        };
+        if metadata["provider"].as_str() != Some("youtube")
+            || metadata["channelIsVerified"].as_bool() != Some(true)
+        {
+            return false;
+        }
+    }
     if extractor_provider && resolved_id_matches {
         // Remembered mappings retain recording identity, not a stale search
         // channel label. Restore the freshly extracted channel so Topic-source
         // verification behaves identically on a cache miss and a cache hit.
         if let Some(uploader) = audio.source_metadata.as_ref().and_then(|metadata| {
+            if metadata["channelIsVerified"].as_bool() == Some(true) && !no_catalog_duration_youtube
+            {
+                return None;
+            }
             metadata["channel"]
                 .as_str()
                 .filter(|value| !value.is_empty())
@@ -1900,7 +2127,17 @@ fn accept_resolved_identity(
         && audio.duration_seconds.is_some_and(|duration| {
             duration.is_finite() && duration > 0.0 && duration.fract().abs() < f64::EPSILON
         });
-    if verified_integer_duration {
+    let verified_missing_duration_youtube = no_catalog_duration_youtube
+        && audio.duration_seconds.is_some_and(|duration| {
+            duration.is_finite() && duration > 30.0 && duration <= 86_400.0
+        });
+    if verified_missing_duration_youtube
+        && crate::source_fallback::playback_music_catalog_recording_matches_verified_extractor(
+            track, candidate,
+        )
+    {
+        true
+    } else if verified_integer_duration || verified_missing_duration_youtube {
         crate::source_fallback::playback_recording_matches_verified_extractor(track, candidate)
     } else {
         crate::source_fallback::playback_recording_matches(track, candidate)
@@ -2079,7 +2316,9 @@ async fn try_verified_candidate(
     store: &Store,
     acquisition: &AcquisitionManager,
     track: &Track,
-    alias_tracks: &[Track],
+    aliases: &[Track],
+    isrc_enriched_aliases: &[Track],
+    verified_recording_isrc: Option<&str>,
     mut candidate: Candidate,
     settings: &Settings,
     cancel: watch::Receiver<bool>,
@@ -2095,8 +2334,15 @@ async fn try_verified_candidate(
     {
         return Err("Resolved source identity could not be verified".into());
     }
-    let identity_ok =
-        accept_resolved_identity_with_aliases(track, alias_tracks, &mut candidate, &audio, true);
+    let identity_ok = accept_resolved_identity_with_aliases_and_proofs(
+        track,
+        aliases,
+        isrc_enriched_aliases,
+        verified_recording_isrc,
+        &mut candidate,
+        &audio,
+        true,
+    );
     trace.event("mapping_identity_check", &candidate.provider, json!({"ok":identity_ok,
         "providerIdMatches":audio.resolved_provider_id.as_deref().is_some_and(|id|candidate.id.split_once(':').map(|(_,value)|value)==Some(id)),
         "resolvedTitlePresent":audio.resolved_title.as_ref().is_some_and(|title|!title.is_empty()),
@@ -2110,7 +2356,13 @@ async fn try_verified_candidate(
         track,
         &candidate,
         &audio,
-        playback_recording_matches_with_aliases(track, alias_tracks, &candidate),
+        playback_recording_matches_with_proofs(
+            track,
+            aliases,
+            isrc_enriched_aliases,
+            verified_recording_isrc,
+            &candidate,
+        ),
         Some(fingerprint),
     );
     let duration = audio
@@ -2829,6 +3081,212 @@ mod tests {
             std::slice::from_ref(&alias),
             &candidate
         ));
+    }
+
+    #[test]
+    fn cached_crosswalk_proof_allows_only_its_artist_and_isrc_alias_in_the_resolver_gate() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("cached-crosswalk-gate.sqlite")).unwrap();
+        let track_id = "bbbbbbbbbbbbbbbbbbbbbb";
+        let spotify_a = "aaaaaaaaaaaaaaaaaaaaaa";
+        let spotify_b = "cccccccccccccccccccccc";
+        let recording_id = "00000000-0000-4000-8000-000000000001";
+        let mb_a = "00000000-0000-4000-8000-000000000002";
+        let mb_b = "00000000-0000-4000-8000-000000000003";
+        let artists = json!([
+            {"provider":"spotify","id":spotify_a,"name":"Postmodern Jukebox"},
+            {"provider":"spotify","id":spotify_b,"name":"Haley Reinhart"}
+        ]);
+        let track = Track {
+            id: format!("spotify:{track_id}"),
+            provider: "spotify".into(),
+            provider_id: track_id.into(),
+            source_url: format!("https://open.spotify.com/track/{track_id}"),
+            title: "Song".into(),
+            artist: "Postmodern Jukebox, Haley Reinhart".into(),
+            duration_seconds: Some(180.0),
+            provenance: json!({
+                "catalog":{"verified":true,"provider":"spotify","providerId":track_id,"artistCount":2,"artists":artists},
+                "remoteCatalog":{"trackId":track_id,"title":"Song","artist":"Postmodern Jukebox, Haley Reinhart","durationSeconds":180.0,"artistCount":2,"artistRefs":artists}
+            }),
+            ..Track::default()
+        };
+        store.save_track(&track).unwrap();
+        let recording = json!({"id":recording_id,"title":"Song","length":180000,"isrcs":["USABC2600001"],"artist-credit":[
+            {"name":"Scott Bradlee’s Postmodern Jukebox","joinphrase":" starring ","artist":{"id":mb_a,"name":"Postmodern Jukebox"}},
+            {"name":"Haley Reinhart","joinphrase":"","artist":{"id":mb_b,"name":"Haley Reinhart"}}
+        ]});
+        let profile_a = json!({"id":mb_a,"name":"Postmodern Jukebox","aliases":[{"name":"Scott Bradlee’s Postmodern Jukebox"}],"relations":[{"url":{"resource":format!("https://open.spotify.com/artist/{spotify_a}")}}]});
+        let profile_b = json!({"id":mb_b,"name":"Haley Reinhart","aliases":[],"relations":[{"url":{"resource":format!("https://open.spotify.com/artist/{spotify_b}")}}]});
+        store
+            .set_provider_cache(
+                crate::artist_credit_aliases::spotify_recording_credit_raw_cache_namespace(),
+                recording_id,
+                &recording,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                crate::artist_credit_aliases::spotify_recording_credit_profile_cache_namespace(),
+                mb_a,
+                &profile_a,
+                3600,
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                crate::artist_credit_aliases::spotify_recording_credit_profile_cache_namespace(),
+                mb_b,
+                &profile_b,
+                3600,
+            )
+            .unwrap();
+        crate::artist_credit_aliases::write_verified_spotify_artist_credit_recording(
+            &store,
+            &track,
+            recording_id,
+        )
+        .unwrap();
+        let aliases =
+            crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, &track);
+        assert!(aliases.tracks().iter().any(|alias| {
+            alias.artist == "Scott Bradlee’s Postmodern Jukebox, Haley Reinhart"
+        }));
+        let candidate = Candidate {
+            id: "monochrome:recording-1".into(),
+            provider: "monochrome".into(),
+            title: "Scott Bradlee’s Postmodern Jukebox, Haley Reinhart - Song".into(),
+            duration_seconds: Some(180.0),
+            permission: "unknown".into(),
+            confidence: "review".into(),
+            source_metadata: Some(
+                json!({"catalogTitle":"Song","artistNames":["Scott Bradlee’s Postmodern Jukebox","Haley Reinhart"],"isrc":"USABC2600001"}),
+            ),
+            ..Candidate::default()
+        };
+        assert!(!crate::source_fallback::playback_recording_matches(
+            &track, &candidate
+        ));
+        assert_eq!(
+            evaluate_candidate_gate_with_proofs(&track, aliases.tracks(), &[], None, &candidate),
+            CandidateGatePath::Rejected
+        );
+        assert_eq!(
+            evaluate_candidate_gate_with_proofs(
+                &track,
+                aliases.tracks(),
+                aliases.isrc_enriched(),
+                aliases.verified_recording_isrc(),
+                &candidate
+            ),
+            CandidateGatePath::RecordingVerifiedAlias
+        );
+        let mut bad_isrc = candidate;
+        bad_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("USZZZ2600001");
+        assert_eq!(
+            evaluate_candidate_gate_with_proofs(
+                &track,
+                aliases.tracks(),
+                aliases.isrc_enriched(),
+                aliases.verified_recording_isrc(),
+                &bad_isrc
+            ),
+            CandidateGatePath::Rejected
+        );
+        bad_isrc.source_metadata.as_mut().unwrap()["artistNames"] =
+            json!(["Postmodern Jukebox", "Haley Reinhart"]);
+        assert_eq!(
+            evaluate_candidate_gate_with_proofs(
+                &track,
+                aliases.tracks(),
+                aliases.isrc_enriched(),
+                aliases.verified_recording_isrc(),
+                &bad_isrc
+            ),
+            CandidateGatePath::Rejected
+        );
+        assert!(!playback_recording_matches_with_proofs(
+            &track,
+            &[],
+            aliases.isrc_enriched(),
+            aliases.verified_recording_isrc(),
+            &bad_isrc
+        ));
+        let bad_audio = acquisition::PreviewAudio {
+            url: "https://media.example/audio".into(),
+            mime_type: "audio/mpeg".into(),
+            codec: None,
+            bitrate_kbps: None,
+            duration_seconds: Some(180.0),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: Some(json!({"isrc":"USZZZ2600001"})),
+            resolved_title: Some("Song".into()),
+            resolved_provider_id: Some("recording-1".into()),
+            chapters: None,
+            expected_content_length: None,
+            headers: Vec::new(),
+        };
+        let mut good_catalog_candidate = Candidate {
+            source_metadata: Some(
+                json!({"catalogTitle":"Song","artistNames":["Scott Bradlee’s Postmodern Jukebox","Haley Reinhart"],"isrc":"USABC2600001"}),
+            ),
+            ..bad_isrc
+        };
+        assert!(!accept_resolved_identity_with_aliases_and_proofs(
+            &track,
+            aliases.tracks(),
+            aliases.isrc_enriched(),
+            aliases.verified_recording_isrc(),
+            &mut good_catalog_candidate,
+            &bad_audio,
+            true,
+        ));
+
+        // If the saved row already has the verified ISRC, the cache still
+        // carries the recording-level contradiction guard even though no
+        // ISRC-enriched alias variant is necessary.
+        let mut existing_isrc_track = track.clone();
+        existing_isrc_track.isrc = Some("USABC2600001".into());
+        existing_isrc_track.provenance["remoteCatalog"]["isrc"] = json!("USABC2600001");
+        store.save_track(&existing_isrc_track).unwrap();
+        crate::artist_credit_aliases::write_verified_spotify_artist_credit_recording(
+            &store,
+            &existing_isrc_track,
+            recording_id,
+        )
+        .unwrap();
+        let existing_isrc_aliases =
+            crate::artist_credit_aliases::cached_verified_playback_artist_aliases(
+                &store,
+                &existing_isrc_track,
+            );
+        let canonical_bad_isrc = Candidate {
+            provider: "monochrome".into(),
+            title: "Postmodern Jukebox, Haley Reinhart - Song".into(),
+            duration_seconds: Some(180.0),
+            permission: "unknown".into(),
+            confidence: "review".into(),
+            source_metadata: Some(
+                json!({"catalogTitle":"Song","artistNames":["Postmodern Jukebox","Haley Reinhart"],"isrc":"USZZZ2600001"}),
+            ),
+            ..Candidate::default()
+        };
+        assert_eq!(
+            existing_isrc_aliases.verified_recording_isrc(),
+            Some("USABC2600001")
+        );
+        assert_eq!(
+            evaluate_candidate_gate_with_proofs(
+                &existing_isrc_track,
+                existing_isrc_aliases.tracks(),
+                existing_isrc_aliases.isrc_enriched(),
+                existing_isrc_aliases.verified_recording_isrc(),
+                &canonical_bad_isrc,
+            ),
+            CandidateGatePath::Rejected
+        );
     }
 
     #[test]
@@ -4136,6 +4594,282 @@ mod tests {
             },
             true
         ));
+    }
+
+    #[test]
+    fn missing_catalog_duration_accepts_only_fresh_verified_exact_visualizer_identity() {
+        let track = Track {
+            title: "BbY WOW".into(),
+            artist: "KAROL G, Judeline & rusowsky".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let candidate = || Candidate {
+            provider: "youtube".into(),
+            id: "youtube:fRIhCiUVaKs".into(),
+            title: "KAROL G, Judeline, rusowsky - BbY WOW (Visualizer)".into(),
+            duration_seconds: Some(226.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let audio = || acquisition::PreviewAudio {
+            url: String::new(),
+            mime_type: "audio/webm".into(),
+            codec: Some("opus".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(226.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "channelId":"UC1234567890123456789012",
+                "channel":"KAROL G",
+                "uploader":"KAROL G",
+                "channelIsVerified":true
+            })),
+            resolved_title: Some("KAROL G, Judeline, rusowsky - BbY WOW (Visualizer)".into()),
+            resolved_provider_id: Some("fRIhCiUVaKs".into()),
+            chapters: Some(vec![]),
+            selected_format_id: Some("140".into()),
+            selected_format_has_video: false,
+            expected_content_length: None,
+            headers: vec![],
+        };
+
+        let mut accepted = candidate();
+        assert!(crate::source_fallback::is_provisional_playback_candidate(
+            &track, &accepted
+        ));
+        assert!(accept_resolved_identity(
+            &track,
+            &mut accepted,
+            &audio(),
+            true
+        ));
+        assert_eq!(accepted.duration_seconds, Some(226.0));
+        assert_eq!(
+            accepted.source_metadata.as_ref().unwrap()["channelIsVerified"],
+            true
+        );
+
+        let rejects = [
+            acquisition::PreviewAudio {
+                source_metadata: Some(json!({
+                    "provider":"youtube","channelId":"UC1234567890123456789012",
+                    "channel":"Other Official","channelIsVerified":true
+                })),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                source_metadata: Some(json!({
+                    "provider":"youtube","channelId":"UC1234567890123456789012",
+                    "channel":"KAROL G","channelIsVerified":false
+                })),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                resolved_title: Some("KAROL G - BbY WOW (Remix)".into()),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                resolved_title: Some("KAROL G - BbY WOW (Live)".into()),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                resolved_title: Some("KAROL G - BbY WOW (Preview)".into()),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                duration_seconds: Some(30.0),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                duration_seconds: None,
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                resolved_provider_id: Some("otherVideo123".into()),
+                ..audio()
+            },
+        ];
+        for audio in rejects {
+            assert!(!accept_resolved_identity(
+                &track,
+                &mut candidate(),
+                &audio,
+                true
+            ));
+        }
+
+        let mut stale_search_identity = candidate();
+        stale_search_identity.source_metadata = Some(json!({
+            "provider":"youtube","channelId":"UC1234567890123456789012",
+            "channel":"KAROL G","channelIsVerified":true
+        }));
+        let no_fresh_metadata = acquisition::PreviewAudio {
+            source_metadata: None,
+            ..audio()
+        };
+        assert!(!accept_resolved_identity(
+            &track,
+            &mut stale_search_identity,
+            &no_fresh_metadata,
+            true
+        ));
+        assert!(stale_search_identity.source_metadata.is_none());
+
+        let bad_times_track = Track {
+            artist: "Imael Angel".into(),
+            title: "BAD TIMES".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let mut descriptive = Candidate {
+            id: "youtube:fRIhCiUVaKs".into(),
+            title: "Imael Angel - BAD TIMES (Deep Emotional Song)".into(),
+            ..candidate()
+        };
+        let mut descriptive_audio = acquisition::PreviewAudio {
+            resolved_title: Some("Imael Angel - BAD TIMES (Deep Emotional Song)".into()),
+            ..audio()
+        };
+        descriptive_audio.source_metadata.as_mut().unwrap()["channel"] = json!("Imael Angel");
+        descriptive_audio.source_metadata.as_mut().unwrap()["uploader"] = json!("Imael Angel");
+        assert!(!accept_resolved_identity(
+            &bad_times_track,
+            &mut descriptive,
+            &descriptive_audio,
+            true
+        ));
+    }
+
+    #[test]
+    fn youtube_music_title_only_candidate_needs_fresh_full_structured_credit() {
+        let track = Track {
+            title: "BAD TIMES".into(),
+            artist: "Imael Angel".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let candidate = || Candidate {
+            provider: "youtube".into(),
+            id: "youtube:Hqp8vxkPrI8".into(),
+            title: "BAD TIMES".into(),
+            duration_seconds: Some(168.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogTitle":"BAD TIMES",
+                "catalogArtist":"Imael Angel"
+            })),
+            ..Candidate::default()
+        };
+        let audio = || acquisition::PreviewAudio {
+            url: String::new(),
+            mime_type: "audio/webm".into(),
+            codec: Some("opus".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(168.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "channelId":"UC1234567890123456789012",
+                "channel":"Imael Angel",
+                "uploader":"Imael Angel",
+                "channelIsVerified":true,
+                "track":"BAD TIMES",
+                "artists":["Imael Angel","Imael Angel"]
+            })),
+            resolved_title: Some("BAD TIMES".into()),
+            resolved_provider_id: Some("Hqp8vxkPrI8".into()),
+            chapters: Some(vec![]),
+            selected_format_id: Some("140".into()),
+            selected_format_has_video: false,
+            expected_content_length: None,
+            headers: vec![],
+        };
+
+        let mut accepted = candidate();
+        assert!(crate::source_fallback::is_provisional_playback_candidate(
+            &track, &accepted
+        ));
+        assert!(accept_resolved_identity(
+            &track,
+            &mut accepted,
+            &audio(),
+            true
+        ));
+        assert_eq!(accepted.title, "BAD TIMES");
+        assert_eq!(
+            accepted.source_metadata.as_ref().unwrap()["track"],
+            "BAD TIMES"
+        );
+
+        // A remembered source lacks the provisional catalog marker. Fresh,
+        // fully structured extractor metadata still undergoes the same proof.
+        let mut remembered = candidate();
+        remembered.source_metadata = Some(json!({
+            "provider":"youtube","channelId":"UC1234567890123456789012",
+            "channel":"Imael Angel","channelIsVerified":true,
+            "track":"BAD TIMES","artists":["Imael Angel","Imael Angel"]
+        }));
+        assert!(accept_resolved_identity(
+            &track,
+            &mut remembered,
+            &audio(),
+            true
+        ));
+
+        let rejects = [
+            acquisition::PreviewAudio {
+                source_metadata: Some(json!({
+                    "provider":"youtube","channelId":"UC1234567890123456789012",
+                    "channel":"Imael Angel","channelIsVerified":true,"track":"BAD TIMES",
+                    "artists":["Imael Angel","Different Artist"]
+                })),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                source_metadata: Some(json!({
+                    "provider":"youtube","channelId":"UC1234567890123456789012",
+                    "channel":"Other Official","channelIsVerified":true,"track":"BAD TIMES",
+                    "artists":["Imael Angel"]
+                })),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                source_metadata: Some(json!({
+                    "provider":"youtube","channelId":"UC1234567890123456789012",
+                    "channel":"Imael Angel","channelIsVerified":false,"track":"BAD TIMES",
+                    "artists":["Imael Angel"]
+                })),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                source_metadata: Some(json!({
+                    "provider":"youtube","channelId":"UC1234567890123456789012",
+                    "channel":"Imael Angel","channelIsVerified":true,"track":"401",
+                    "artists":["Imael Angel"]
+                })),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                resolved_provider_id: Some("wrongVideo123".into()),
+                ..audio()
+            },
+            acquisition::PreviewAudio {
+                source_metadata: None,
+                ..audio()
+            },
+        ];
+        for audio in rejects {
+            assert!(!accept_resolved_identity(
+                &track,
+                &mut candidate(),
+                &audio,
+                true
+            ));
+        }
     }
 
     #[test]

@@ -1140,6 +1140,21 @@ impl Store {
         }
     }
 
+    /// Read an exact provider listing only when it is currently saved in the
+    /// user's Library. This avoids treating an ephemeral cached search result
+    /// as a source identity for persistent playback crosswalks.
+    pub fn get_library_track(&self, id: &str) -> Result<Option<Track>> {
+        let conn = self.lock_connection()?;
+        let mut stmt = conn
+            .prepare("SELECT metadata FROM catalog_listings WHERE id=?1 AND in_library=1")
+            .map_err(err)?;
+        let mut rows = stmt.query([id]).map_err(err)?;
+        match rows.next().map_err(err)? {
+            Some(row) => Ok(Some(hydrate(&conn, decode(row.get(0).map_err(err)?)?)?)),
+            None => Ok(None),
+        }
+    }
+
     pub fn save_verified_playback_source(
         &self,
         track_id: &str,
