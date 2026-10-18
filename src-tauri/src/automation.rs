@@ -1277,6 +1277,39 @@ fn sanitize_webview_media_inspection(raw: Value) -> Result<Value, ToolError> {
         }
     };
     let mut output = json!({"engine":"webview","applicable":true,"trackId":nullable_string("trackId")?,"sessionId":nullable_string("sessionId")?,"sourceGeneration":nullable_u64("sourceGeneration")?,"seekSerial":nullable_u64("seekSerial")?,"currentIndex":current_index,"queueTotal":queue_total,"entryId":entry_id,"queueTrackId":queue_track_id,"previewKind":match raw.get("previewKind"){Some(Value::String(v)) if v.len()<=32=>json!(v),Some(Value::Null)=>Value::Null,_=>return Err(ToolError::bad("Invalid media sample previewKind"))},"media":{"present":media_present,"currentTime":current_time,"duration":duration,"paused":nullable_boolean("paused")?,"readyState":ready_state,"networkState":network_state,"errorCode":error_code,"sourcePresent":boolean("sourcePresent")?,"sourceStable":source_stable}});
+    // Optional fields preserve compatibility with older frontends while exposing
+    // only bounded numeric playback ranges, never source URLs or headers.
+    if let Some(value) = media.get("seeking") {
+        if !value.is_boolean() && !value.is_null() {
+            return Err(ToolError::bad("Invalid media element seeking"));
+        }
+        output["media"]["seeking"] = value.clone();
+    }
+    for key in ["buffered", "seekable"] {
+        if let Some(value) = media.get(key) {
+            let rows = value
+                .as_array()
+                .filter(|rows| rows.len() <= 8)
+                .ok_or_else(|| ToolError::bad("Invalid media element ranges"))?;
+            let mut safe = Vec::new();
+            for row in rows {
+                let pair = row
+                    .as_array()
+                    .filter(|pair| pair.len() == 2)
+                    .ok_or_else(|| ToolError::bad("Invalid media element range"))?;
+                let start = pair[0]
+                    .as_f64()
+                    .filter(|n| n.is_finite() && *n >= 0.)
+                    .ok_or_else(|| ToolError::bad("Invalid media range start"))?;
+                let end = pair[1]
+                    .as_f64()
+                    .filter(|n| n.is_finite() && *n >= start && *n <= 1.0e9)
+                    .ok_or_else(|| ToolError::bad("Invalid media range end"))?;
+                safe.push(json!([start, end]));
+            }
+            output["media"][key] = json!(safe);
+        }
+    }
     if let Some(diagnostics) = diagnostics {
         output["diagnostics"] = diagnostics;
     }
@@ -7877,6 +7910,17 @@ mod tests {
                 "media":{"present":true,"currentTime":10.25,"duration":131.0,"paused":false,"readyState":4,"networkState":2,"errorCode":null,"sourcePresent":true,"sourceStable":true}
         })).unwrap();
         assert_eq!(sample["media"]["currentTime"], 10.25);
+        let mut with_ranges = sample.clone();
+        with_ranges["media"]["seeking"] = json!(true);
+        with_ranges["media"]["buffered"] = json!([[0., 42.112]]);
+        with_ranges["media"]["seekable"] = json!([[0., 257.]]);
+        let safe = sanitize_webview_media_inspection(with_ranges.clone()).unwrap();
+        assert_eq!(safe["media"]["seeking"], true);
+        assert_eq!(safe["media"]["buffered"], json!([[0., 42.112]]));
+        with_ranges["media"]["buffered"] = json!([[2., 1.]]);
+        assert!(sanitize_webview_media_inspection(with_ranges.clone()).is_err());
+        with_ranges["media"]["buffered"] = json!(vec![vec![0., 1.]; 9]);
+        assert!(sanitize_webview_media_inspection(with_ranges).is_err());
         assert!(sample.get("currentSrc").is_none());
         assert!(!sample.to_string().contains("private.invalid"));
         assert!(!sample.to_string().contains("secret"));

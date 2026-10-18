@@ -3,7 +3,8 @@
 use crate::models::{AudioFormat, Candidate, Track};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const BASE: &str = "https://tracks.monochrome.st";
 const CANDIDATE_SEARCH_LIMIT: usize = 12;
@@ -28,9 +29,13 @@ fn build_http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+static DEFAULT_COOLDOWN: std::sync::OnceLock<Arc<Mutex<Option<Instant>>>> =
+    std::sync::OnceLock::new();
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     base: String,
+    cooldown: Arc<Mutex<Option<Instant>>>,
 }
 fn dedupe_candidates(candidates: Vec<Candidate>) -> Vec<Candidate> {
     let mut positions = std::collections::HashMap::<String, usize>::new();
@@ -53,6 +58,7 @@ impl Client {
         Ok(Self {
             http: default_http_client()?,
             base: BASE.into(),
+            cooldown: DEFAULT_COOLDOWN.get_or_init(Default::default).clone(),
         })
     }
     #[cfg(test)]
@@ -60,7 +66,34 @@ impl Client {
         Ok(Self {
             base: base.trim_end_matches('/').into(),
             http: build_http_client()?,
+            cooldown: Arc::new(Mutex::new(None)),
         })
+    }
+    pub(crate) fn check_cooldown(&self) -> Result<(), String> {
+        if self
+            .cooldown
+            .lock()
+            .map_err(|_| "Monochrome rate-limit state unavailable")?
+            .is_some_and(|until| until > Instant::now())
+        {
+            return Err("Monochrome is temporarily rate limited (HTTP 429); trying eligible fallback sources".into());
+        }
+        Ok(())
+    }
+    fn observe_rate_limit(&self, response: &reqwest::Response) {
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let seconds = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(30)
+                .clamp(1, 120);
+            if let Ok(mut cooldown) = self.cooldown.lock() {
+                let until = Instant::now() + Duration::from_secs(seconds);
+                *cooldown = Some(cooldown.map_or(until, |current| current.max(until)));
+            }
+        }
     }
     pub async fn search(&self, query: &str) -> Result<Vec<(Track, Candidate)>, String> {
         self.search_with_limit(query, CANDIDATE_SEARCH_LIMIT)
@@ -78,6 +111,7 @@ impl Client {
         if query.trim().is_empty() || query.chars().count() > 500 {
             return Err("Enter a search of 1–500 characters".into());
         }
+        self.check_cooldown()?;
         let limit = requested_limit.clamp(1, INTERACTIVE_SEARCH_LIMIT);
         let limit_parameter = limit.to_string();
         let response = self
@@ -87,6 +121,7 @@ impl Client {
             .send()
             .await
             .map_err(|_| "Monochrome search connection failed")?;
+        self.observe_rate_limit(&response);
         if !response.status().is_success() {
             return Err(format!(
                 "Monochrome search returned HTTP {}",
@@ -172,6 +207,7 @@ impl Client {
         (dedupe_candidates(candidates), errors)
     }
     pub async fn inspect(&self, candidate: &Candidate) -> Result<Candidate, String> {
+        self.check_cooldown()?;
         let parsed =
             url::Url::parse(&candidate.url).map_err(|_| "Invalid Monochrome stream URL")?;
         let base = url::Url::parse(&self.base).map_err(|_| "Invalid Monochrome server")?;
@@ -191,6 +227,7 @@ impl Client {
             .send()
             .await
             .map_err(|_| "Monochrome audio connection failed")?;
+        self.observe_rate_limit(&response);
         if !response.status().is_success() {
             return Err(format!(
                 "Monochrome audio returned HTTP {}",
@@ -636,6 +673,59 @@ mod tests {
         );
         assert_ne!(result.confidence, "high");
     }
+    #[tokio::test]
+    async fn rate_limited_probe_suppresses_catalog_retry_until_bounded_cooldown_expires() {
+        use axum::{routing::get, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = requests.clone();
+        let app = Router::new().fallback(get(move || {
+            let seen = seen.clone();
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                (
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    [("retry-after", "9999")],
+                    "rate limited",
+                )
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let candidate = Candidate {
+            url: format!("{}/track/154030613014253568", client.base),
+            ..Candidate::default()
+        };
+        assert!(client
+            .inspect(&candidate)
+            .await
+            .unwrap_err()
+            .contains("429"));
+        let remaining = client
+            .cooldown
+            .lock()
+            .unwrap()
+            .unwrap()
+            .saturating_duration_since(Instant::now());
+        assert!(remaining > Duration::from_secs(119) && remaining <= Duration::from_secs(120));
+        assert!(client
+            .clone()
+            .search("artist title")
+            .await
+            .unwrap_err()
+            .contains("rate limited"));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        *client.cooldown.lock().unwrap() = Some(Instant::now() - Duration::from_secs(1));
+        assert!(client
+            .search("artist title")
+            .await
+            .unwrap_err()
+            .contains("429"));
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        server.abort();
+    }
+
     #[tokio::test]
     async fn http_search_and_probe_do_not_claim_m4a_is_flac() {
         use axum::{routing::get, Json, Router};

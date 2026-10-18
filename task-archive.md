@@ -4,6 +4,8 @@ Completed work moved from [todo.md](todo.md) on 2026-10-18. Entries retain their
 
 ## Post-release fixes and documentation — 2026-10-18
 
+- Investigated repeated Lithium failure: observed truncated source transfer and HTTP 429, added bounded shared backoff and owner-bound resumed-media clock verification, and extended safe seek/buffer diagnostics. All 1,114 native/998 frontend tests pass. The same recording advances through 73.953s on the corrected local build; saved occurrence and paused 42.112s state were preserved before retry. User's newer playback was left untouched. Public installer delivery and broader network qualification remain separate. [Live evidence](docs/performance-results/2026-10-18-lithium-recovery/stream-retry-proof.json).
+
 - Renamed public extension assets to `firefox-extension-0.2.2.xpi` and `chrome-extension-0.2.2.zip`; preserved signed bytes, updated checksum manifests/inventory, and verified the eight-download release. Added platform/browser installation links to the release, beginner setup instructions for macOS/Windows/Linux and permanent Firefox/Chrome/Edge installation steps. Future packaging normalizes names and has byte-preservation/inventory fixtures.
 - Corrected same-source rebuffer events resetting established playback progress and suppressing bounded stall recovery. Five new regression variants fail before/pass after; all 994 frontend tests, Svelte and build pass. The local current window runs the fix with queue/account/paused 42.112s preservation. Original transport cause and installer delivery remain explicitly unqualified. [Evidence](docs/performance-results/2026-10-18-lithium-recovery/README.md).
 

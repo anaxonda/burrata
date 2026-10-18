@@ -1075,6 +1075,18 @@ async fn resolve_serial(
             break;
         }
         trace.event("provider_start", &provider, json!({"pinned":pinned}));
+        // A rate-limited service cannot supply even a remembered/static URL.
+        // Skip it without spending the remaining foreground attempt, while
+        // preserving an explicit source's provider-only scope.
+        if provider == "monochrome" {
+            if let Err(error) =
+                crate::monochrome::Client::new().and_then(|client| client.check_cooldown())
+            {
+                last_error = error;
+                trace.event("provider_cooldown", &provider, json!({"rateLimited":true}));
+                continue;
+            }
+        }
         if *cancel.borrow() {
             return Err("Cancelled".into());
         }

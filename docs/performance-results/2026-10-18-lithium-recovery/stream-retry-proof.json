@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "recording": "Nirvana \u2014 Lithium",
+  "trackId": "spotify:2YodwKJnbPyNKe8XXSE9V7",
+  "candidate": "b36940b3cbadb99a79dcf3b51a03bbb8b62a136275aa0629f7884b132b48de0d",
+  "originalPausedPosition": 42.112,
+  "observations": [
+    {
+      "position": 54.624383,
+      "readyState": 4,
+      "seeking": false,
+      "buffered": [
+        [
+          0,
+          87.467520165
+        ]
+      ],
+      "seekable": [
+        [
+          0,
+          257.051770833
+        ]
+      ]
+    },
+    {
+      "position": 73.952908,
+      "status": "playing",
+      "paused": false,
+      "lastStartupFailure": null,
+      "lastMediaFailure": null
+    }
+  ],
+  "sameOccurrenceAndSession": true,
+  "restartPreservation": {
+    "queue": true,
+    "queueEntryIds": true,
+    "queueTotal": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true
+  },
+  "nativeTests": {
+    "passed": 1114,
+    "ignored": 21
+  },
+  "frontendTests": {
+    "passed": 998,
+    "files": 82
+  },
+  "frontendSha256": "ac945691b9c55b06b683e3585985aa1d26056441962ac426b61625658a36f6e0",
+  "scope": "Actual WebView media progress after resume, not physical-audibility or whole-recording qualification. Monitor stopped after recording/queue changed; current playback was left unchanged."
+}

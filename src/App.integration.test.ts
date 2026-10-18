@@ -935,10 +935,13 @@ describe("read-only WebView media inspection", () => {
       paused: { configurable: true, get: () => false }, readyState: { configurable: true, get: () => 4 },
       networkState: { configurable: true, get: () => 2 }, currentSrc: { configurable: true, get: () => "https://secret.invalid/audio?token=never-return" },
       error: { configurable: true, get: () => null },
+      seeking: { configurable: true, get: () => true },
+      buffered: { configurable: true, get: () => ({ length: 2, start: (index: number) => [0, 10][index], end: (index: number) => [5, 18][index] }) },
+      seekable: { configurable: true, get: () => ({ length: 1, start: () => 0, end: () => 131 }) },
     });
     const playback = await latestPublishedPlayback();
     const response = await inspectWithRequest({ requestId: "webview-media:test", trackId: playback.trackId, sessionId: playback.sessionId, sourceGeneration: playback.sourceGeneration, seekSerial: playback.seekSerial, currentIndex: playback.currentIndex, queueTotal: (playback.queue as unknown[]).length, entryId: null, queueTrackId: playback.trackId });
-    expect(response?.layout).toMatchObject({ engine: "webview", applicable: true, media: { present: true, currentTime: 10.25, duration: 131, paused: false, readyState: 4, networkState: 2, errorCode: null, sourcePresent: true, sourceStable: true } });
+    expect(response?.layout).toMatchObject({ engine: "webview", applicable: true, media: { present: true, currentTime: 10.25, duration: 131, paused: false, seeking: true, buffered: [[0, 5], [10, 18]], seekable: [[0, 131]], readyState: 4, networkState: 2, errorCode: null, sourcePresent: true, sourceStable: true } });
     expect(JSON.stringify(response)).not.toContain("secret.invalid");
     expect(JSON.stringify(response)).not.toContain("never-return");
   });
@@ -6015,6 +6018,12 @@ describe("saved recording navigation", () => {
       return;
     }
 
+    if (outcome === "fresh-success" || outcome === "fresh-failure-fallback") {
+      document.querySelector("audio")!.currentTime += 0.3;
+      clock += 25;
+      await vi.advanceTimersByTimeAsync(25);
+      await settle();
+    }
     const resolutionCalls = mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track");
     expect(resolutionCalls).toHaveLength(outcome === "fresh-success" ? 2 : 3);
     expect(resolutionCalls[1][1]).toEqual(expect.objectContaining({
@@ -6209,9 +6218,63 @@ describe("saved recording navigation", () => {
     clock += 20_000;
     await vi.advanceTimersByTimeAsync(20_000);
     await settle();
+    clock += 25; await vi.advanceTimersByTimeAsync(25); await settle();
     expect(plays).toBe(2);
     expect(document.querySelector(".player-status")?.textContent).not.toMatch(/^Playing/);
     expect(document.querySelector(".player-error")?.textContent).toContain("could not resume at its previous playback position");
+  });
+
+  it.each(["seeking-frozen", "settled-frozen", "pending-progress", "stale-progress"] as const)("requires owned media-clock progress for automatic resume (%s)", async mode => {
+    vi.useFakeTimers();
+    let clock = 1000, plays = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    previewMode = "fallback";
+    savedChartTracks = [{ ...savedTrack, durationSeconds: 240 }];
+    playbackResolverCandidates = [
+      { ...youtubeCandidate(savedTrack), id: "youtube:resume-proof-first" },
+      { ...youtubeCandidate(savedTrack), id: "youtube:resume-proof-second" },
+    ];
+    automationPlaybackAck = { protocolVersion: 1, accepted: true, needFull: false };
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype, "seeking", "get").mockImplementation(() => plays >= 2 && mode === "seeking-frozen");
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
+      ++plays;
+      return plays >= 2 && mode === "pending-progress" ? new Promise<void>(() => {}) : Promise.resolve();
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    expect((await automationAction("resume-proof-start", "play", { trackIds: [savedTrack.id] })).error).toBeNull();
+    const audio = document.querySelector("audio")!;
+    clock += 36_000;
+    audio.currentTime = 36;
+    await vi.advanceTimersByTimeAsync(36_000);
+    audio.dispatchEvent(new Event("timeupdate"));
+    await settle();
+    audio.dispatchEvent(new Event("waiting"));
+    clock += 20_000;
+    await vi.advanceTimersByTimeAsync(20_000);
+    await settle();
+    expect(plays).toBe(2);
+    expect(document.querySelector(".player-status")?.textContent).not.toMatch(/^Playing/);
+    if (mode === "pending-progress") {
+      const recovered = document.querySelector("audio")!;
+      recovered.currentTime += 0.3;
+      clock += 25; await vi.advanceTimersByTimeAsync(25); await settle();
+      expect(document.querySelector(".player-status")?.textContent).toMatch(/^Playing/);
+      return;
+    }
+    if (mode === "stale-progress") {
+      await automationAction("cancel-resume-proof", "pause");
+      audio.currentTime += 0.3;
+      audio.dispatchEvent(new Event("timeupdate"));
+    }
+    clock += 20_000; await vi.advanceTimersByTimeAsync(20_000); await settle();
+    expect(document.querySelector(".player-status")?.textContent).not.toMatch(/^Playing/);
+    if (mode !== "stale-progress") expect(document.querySelector(".player-error")?.textContent).toContain("20-second");
   });
 
   it("bounds a held active seek and keeps its requested recovery target", async () => {
@@ -6357,6 +6420,8 @@ describe("saved recording navigation", () => {
     await settle();
 
     expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track")).toHaveLength(1);
+    document.querySelector("audio")!.currentTime += 0.3;
+    clock += 25; await vi.advanceTimersByTimeAsync(25); await settle();
     const recovered = await automationAction("initial-full-source-after-stall", "volume", { volume: 0.8 });
     expect(recovered.error).toBeNull();
     expect(recovered.playback.queueEntryIds).toEqual([occurrence]);
@@ -6396,6 +6461,7 @@ describe("saved recording navigation", () => {
     clock += 20_000;
     await vi.advanceTimersByTimeAsync(20_000);
     await settle();
+    clock += 25; await vi.advanceTimersByTimeAsync(25); await settle();
     expect(plays).toBe(2);
     const recovered = await automationAction("zero-resume-after-stall", "volume", { volume: 0.8 });
     expect(recovered.error).toBeNull();

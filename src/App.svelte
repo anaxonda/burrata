@@ -2607,14 +2607,17 @@
     await tick();
     if (!previewRequests.isCurrent(request) || playingTrack?.id !== t.id || !audio) return false;
     const node = audio;
+    const source = preview;
     const startupGeneration = ++audioStartupGeneration;
     const recovery = automaticPreviewRecovery;
-    const deadline = recovery?.request === request && recovery.track.id === t.id ? recovery.deadline : undefined;
+    const recoveryDeadline = recovery?.request === request && recovery.track.id === t.id ? recovery.deadline : undefined;
+    const deadline = recoveryDeadline ?? (pendingResumePosition > 0 ? performance.now() + 20_000 : undefined);
     let attemptActive = true;
     const startupStartedAt = performance.now();
     const resumeRequested = pendingResumePosition > 0;
     let startupPhase: WebviewStartupPhase = 'attach';
-    const stillCurrent = () => attemptActive && previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview?.url === result.url;
+    const stillCurrent = () => attemptActive && previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview === source && audioStartupGeneration === startupGeneration;
+    let progressCheck: ReturnType<typeof setInterval> | undefined;
     node.volume = volume;
     try {
       await withinPreviewStartupBudget(() => prepareAudioStream(request, stillCurrent), deadline, stillCurrent);
@@ -2627,6 +2630,7 @@
       }
       let playPromise: Promise<void>;
       await withinPreviewStartupBudget(() => {
+        const startPosition = node.currentTime;
         playPromise = node.play();
         void playPromise.then(() => {
           if (!attemptActive && startupGeneration === audioStartupGeneration) {
@@ -2637,8 +2641,23 @@
             }
           }
         }, () => {});
-        return playPromise;
+        if (!resumeRequested) return playPromise;
+        // A fulfilled play promise only proves that playback was requested. A
+        // resumed attachment must leave seeking and advance this source's clock.
+        const progressed = new Promise<void>((resolve, reject) => {
+          void playPromise.catch(reject);
+          progressCheck = setInterval(() => {
+            if (stillCurrent() && requiredRecoveryResume?.request === request && node.currentTime < requiredRecoveryResume.position - 1) {
+              reject(new Error("The recovered audio source could not resume at its previous playback position."));
+              return;
+            }
+            if (stillCurrent() && !node.paused && !node.seeking && node.readyState >= 2 &&
+                Number.isFinite(node.currentTime) && node.currentTime - startPosition >= 0.25) resolve();
+          }, 25);
+        });
+        return progressed;
       }, deadline, stillCurrent);
+      if (progressCheck !== undefined) { clearInterval(progressCheck); progressCheck = undefined; }
       if (!stillCurrent()) return false;
       const requiredResume = requiredRecoveryResume;
       if (requiredResume?.request === request) {
@@ -2657,16 +2676,18 @@
       if (candidate) void prepareCandidateDetails(t, candidate, request);
       return true;
     } catch (failure) {
-      if (previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview?.url === result.url) {
+      if (progressCheck !== undefined) clearInterval(progressCheck);
+      const ownsSource = stillCurrent();
+      if (ownsSource) {
         lastStartupFailure = captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt);
       }
       attemptActive = false;
-      if (previewRequests.isCurrent(request) && playingTrack?.id === t.id && preview?.url === result.url) {
+      if (ownsSource) {
         node.pause();
         audioStreamHandle?.destroy();
         audioStreamHandle = null;
       }
-      if (previewRequests.isCurrent(request)) {
+      if (ownsSource) {
         if (automaticPreviewRecovery?.request === request) automaticPreviewRecovery.failureReason = automaticPreviewRecovery.stallCause
           ? `${automaticPreviewRecovery.stallCause} A refreshed verified source could not start: ${safePreviewError(failure)}`
           : `Playback could not start: ${safePreviewError(failure)}`;
@@ -5177,9 +5198,10 @@
         const identity = () => ({trackId:playingTrack?.id??null,sessionId:playbackSession??null,sourceGeneration:preview?.sourceGeneration??null,seekSerial,currentIndex:queueIndex,entryId:automationQueueProjection.entryIds[queueIndex]??null,queueTrackId:queueTracks[queueIndex]?.id??null});
         const before=identity(), element=audio, sourceBefore=element?(element.currentSrc||element.src):"";
         const finite=(value:number)=>Number.isFinite(value)&&value>=0?value:null;
+        const ranges=(value:TimeRanges|undefined)=>{const rows:number[][]=[];if(!value)return rows;try{for(let index=0;index<Math.min(value.length,8);index++){const start=value.start(index),end=value.end(index);if(Number.isFinite(start)&&Number.isFinite(end)&&start>=0&&end>=start&&end<=1e9)rows.push([start,end]);}}catch{}return rows;};
         const sample:any={engine:"webview",applicable:true,...before,queueTotal:queueTracks.length,previewKind:preview?.kind??null,media:{
           present:Boolean(element),currentTime:element?finite(element.currentTime):null,duration:element?finite(element.duration):null,
-          paused:element?element.paused:null,readyState:element?element.readyState:null,networkState:element?element.networkState:null,
+          paused:element?element.paused:null,seeking:element?element.seeking:null,buffered:ranges(element?.buffered),seekable:ranges(element?.seekable),readyState:element?element.readyState:null,networkState:element?element.networkState:null,
           errorCode:element?.error?.code??null,sourcePresent:Boolean(element&&(element.currentSrc||element.src)),sourceStable:Boolean(element&&(element.currentSrc||element.src)===sourceBefore)
         }};
         if(mediaEventDiagnosticsEnabled) {
