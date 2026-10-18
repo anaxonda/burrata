@@ -1,16 +1,18 @@
 {
   "releaseId": 416310605,
-  "url": "https://github.com/anaxonda/burrata/releases/tag/untagged-2951018c6630cf30afde",
+  "url": "https://github.com/anaxonda/burrata/releases/tag/untagged-357d834fedd09303f11d",
+  "supportReleaseId": 416528508,
+  "supportUrl": "https://github.com/anaxonda/burrata/releases/tag/untagged-26f63c0ec9ce9d663846",
   "tag": "v0.1.2",
+  "sourceCommit": "34507720aa0d1362af3abee062a5a0cc3d033087",
   "isDraft": true,
   "isPrerelease": true,
-  "assetCount": 94,
-  "manifestEntriesMatchedGitHubDigests": 92,
-  "downloadedMetadataHashesVerified": 10,
+  "assetCount": 95,
+  "mainAssetCount": 8,
+  "supportAssetCount": 87,
+  "manifestEntriesMatchedGitHubDigests": 93,
   "installerCount": 5,
-  "platformInventories": [
-    "macos-arm64",
-    "linux-x64",
-    "windows-x64"
-  ]
+  "extensionCount": 2,
+  "originalNonChecksumAssetsPreserved": 93,
+  "helperFeedCoLocated": true
 }
