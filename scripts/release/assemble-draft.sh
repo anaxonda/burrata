@@ -75,3 +75,4 @@ Source commit: $RELEASE_COMMIT
 
 This is a draft prerelease assembled from native macOS arm64, Windows x64, and Linux x64 jobs. Review signing and notarization, fresh-machine installation, dependency licensing, and acceptance evidence before publishing. No workflow promotes this draft.
 EOF
+python3 "$(dirname "${BASH_SOURCE[0]}")/split-release-assets.py" release-artifacts support-artifacts

@@ -370,6 +370,8 @@ jobs:
           pattern: burrata-*-${{ needs.prepare.outputs.commit }}
           path: incoming
           merge-multiple: false
+      - name: Check installer and supporting-download separation
+        run: python3 scripts/release/test-feed-assembly.py
       - name: Validate complete artifact set and assemble draft bundle
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -379,8 +381,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
+          set -euo pipefail
           shopt -s nullglob
           assets=(release-artifacts/*)
-          test "${#assets[@]}" -gt 0
-          gh release create "$RELEASE_TAG" "${assets[@]}" --draft --prerelease --verify-tag --title "Burrata $RELEASE_TAG" --generate-notes
+          support_assets=(support-artifacts/*)
+          test "${#assets[@]}" = 8
+          test "${#support_assets[@]}" -gt 0
+          support_url="$(gh release create "support-$RELEASE_TAG" "${support_assets[@]}" --draft --prerelease --target "$RELEASE_COMMIT" --title "Burrata $RELEASE_TAG supporting downloads" --notes "Optional helper updates, matching dependency sources, licenses and acceptance evidence for Burrata $RELEASE_TAG. Source commit: $RELEASE_COMMIT. Main installers and browser companions are on the repository Releases page. This draft is not automatically published.")"
+          gh release create "$RELEASE_TAG" "${assets[@]}" --draft --prerelease --verify-tag --title "Burrata $RELEASE_TAG" --generate-notes --notes "Choose your platform's main installer or browser companion below; required runtime helpers are bundled with the installers. Optional helper updates, matching dependency sources, licenses and verification records: $support_url"

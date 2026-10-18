@@ -43,6 +43,9 @@ jobs:
       - run: npm ci
       - name: Check installed-smoke path handling
         run: python scripts/release/test_smoke_installed.py
+      - name: Check installer and supporting-download separation
+        if: runner.os == 'Linux'
+        run: python3 scripts/release/test-feed-assembly.py
       - name: Audit source for common secrets
         run: |
           python3 scripts/test_audit_secrets.py
