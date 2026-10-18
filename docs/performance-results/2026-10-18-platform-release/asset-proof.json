@@ -1,0 +1,16 @@
+{
+  "releaseId": 416310605,
+  "url": "https://github.com/anaxonda/burrata/releases/tag/untagged-2951018c6630cf30afde",
+  "tag": "v0.1.2",
+  "isDraft": true,
+  "isPrerelease": true,
+  "assetCount": 94,
+  "manifestEntriesMatchedGitHubDigests": 92,
+  "downloadedMetadataHashesVerified": 10,
+  "installerCount": 5,
+  "platformInventories": [
+    "macos-arm64",
+    "linux-x64",
+    "windows-x64"
+  ]
+}

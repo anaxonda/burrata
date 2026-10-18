@@ -6,7 +6,7 @@ Finish concrete playback fixes, repair outstanding desktop UI issues, complete t
 
 ## Remaining before release
 
-- **Release artifacts.** Desktop0.1.2 fixes shared media-worker ownership and canonical Windows drive-prefix browsing. Linux/macOS full check jobs pass. Windows decoder startup passes with the test-only Common Controls v6 resource link; its latest full suite passes 1,017 tests with one fixture expecting a Unix path separator. That fixture now compares native path components and verifies browsing the returned child path; final Windows CI is pending. Then complete all platform installer/smoke gates and verify draft-release assets. Prior Linux installer/smoke and signed companion0.2.1 jobs pass. Keep the release non-public; do not move the failed v0.1.1 tag.
+None for the requested non-public draft. [Burrata v0.1.2 draft](https://github.com/anaxonda/burrata/releases/tag/untagged-2951018c6630cf30afde) is assembled and verified; public promotion remains on hold. [Release evidence](docs/performance-results/2026-10-18-platform-release/README.md).
 
 ## Deferred and follow-up
 
@@ -22,6 +22,8 @@ Finish concrete playback fixes, repair outstanding desktop UI issues, complete t
 - Single-instance verified relaunch preserves all 30 queue occurrences, selected index, position and settings. Old generated build caches were removed only after process/hash checks; library data and provider profiles were preserved.
 
 # done
+
+- **Burrata 0.1.2 draft prerelease:** tag `v0.1.2` pins `3450772`; [all platform CI](https://github.com/anaxonda/burrata/actions/runs/39106398365) and [tagged release workflow](https://github.com/anaxonda/burrata/actions/runs/39106996579) pass. Linux DEB, macOS DMG and Windows NSIS installed-app smokes pass; RPM/AppImage are built/checksummed. All five installer inventories match hashes/sizes, and all 92 checksum entries match uploaded asset digests. Signed companion 0.2.1 is verified. The sole normal app runs exact tagged-source native `957eac158d87`; Vite/module/frontend/MCP handshake and all nine queue/playback preservation checks pass, with no playback-bar layout findings. About 5 GB of inactive incremental compiler cache was removed; user data and sessions remain intact. [Evidence](docs/performance-results/2026-10-18-platform-release/README.md).
 
 - **Final local release checks:** complete Cargo command passes 1,092 library tests (21 ignored), binary targets and doc tests; frontend978/81files, worker153, extension77, MCP12, player5, decoder and launcher contracts pass. Source audit, eight command/permission contracts, Svelte check and production frontend/debug native builds pass. Windows-safe profile fixture setup and a deterministic storage-fault read-ahead fixture preserve all original fault assertions. Local browser/staging profiles are excluded from Git. Tagged platform packages remain pending.
 

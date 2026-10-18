@@ -1,10 +1,12 @@
 # Desktop release readiness
 
-## Active release effort — 2026-10-17
+## Active release effort — 2026-10-18
 
-The user requests a good-enough release after concrete playback/UI fixes, with source crosswalk work included. Desktop0.1.2 (companion0.2.1) is staged in the worktree. Final hinted crosswalk source passes 1,092 native tests/21 ignored; production frontend, source/permission contracts, scanner, provider-worker and companion/MCP/player checks pass within the scopes tracked in [todo](../todo.md). Final local deployment/live checks pass; tagged platform artifacts and installed-package smoke checks remain pending. Complete Cargo tests (1,092 library passes/21 ignored, binary targets and doc tests) and all978 frontend tests pass. The pushed v0.1.1 candidate failed macOS/Windows compilation on one system-media worker handle type; Linux main CI and signed companion packaging passed. That type is corrected in the 0.1.2 worktree. No draft release exists; the failed tag remains unchanged. Keep the release non-public as previously requested; old exhaustive benchmark gates below are follow-up qualification, not a reason to keep expanding this practical release effort.
+[Burrata v0.1.2](https://github.com/anaxonda/burrata/releases/tag/untagged-2951018c6630cf30afde) is a verified **draft prerelease**, pinned to `34507720aa0d1362af3abee062a5a0cc3d033087`. [Full platform CI](https://github.com/anaxonda/burrata/actions/runs/39106398365) and [tagged release workflow](https://github.com/anaxonda/burrata/actions/runs/39106996579) pass. Linux DEB, macOS DMG and Windows NSIS installed-app smokes pass; RPM/AppImage are generated and checksummed. All five installer inventories match uploaded hashes/sizes; all 92 checksum entries match GitHub asset digests. Companion 0.2.1 includes the verified AMO-signed Firefox XPI. [Acceptance evidence](performance-results/2026-10-18-platform-release/README.md).
 
-Spotify playlist work remains paused; YouTube writeback remains disabled pending explicit approval of its reviewed preview. Preserve all existing sessions and user data. Experimental codec/storage changes remain off.
+The sole local app runs exact tagged-source native `957eac158d87`, with the complete 30-occurrence queue and nine protected playback fields preserved. The verified launcher checks Vite-transformed modules and frontend/MCP connectivity. Final playback-bar geometry has no findings. Keep this release non-public as requested; OS security prompts, public signing/notarization and fresh-machine product qualification remain outside the recorded smoke checks.
+
+Spotify playlist work remains paused; YouTube writeback remains disabled pending exact-preview approval. Experimental codec/storage changes remain off. Older exhaustive performance gates below are follow-up qualification, not blockers for this completed draft effort. [Current todo](../todo.md).
 
 ## Prior audit and distribution evidence
 

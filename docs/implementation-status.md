@@ -1,14 +1,12 @@
 # Implementation status
 
-## Active release checkpoint — 2026-10-17
+## Active release checkpoint — 2026-10-18
 
-The sole normal Linux debug app runs immutable native `4bfab35be85c` with the final reachable identity action and compact Search controls. Exact 30-occurrence queue, selected index, paused position 277.684804476s, volume, repeat and shuffle settings are preserved. Its predecessor successfully replays the previously stalled recording through 305.37s before restoring that position.
+[Burrata v0.1.2 draft prerelease](https://github.com/anaxonda/burrata/releases/tag/untagged-2951018c6630cf30afde) is assembled and verified from tag `v0.1.2` / commit `3450772`. All platform CI and tagged release jobs pass, including native tests (Linux 1,092, macOS 1,058, Windows 1,018; 21 ignored each), decoder fixtures and installed DEB/DMG/NSIS smoke checks. RPM/AppImage are generated/checksummed. All five installer hashes/sizes and all 92 uploaded checksum entries are verified. Companion 0.2.1 includes signed Firefox output. [Release evidence](performance-results/2026-10-18-platform-release/README.md).
 
-Final source passes 1,092 native library tests (21 ignored), 978 frontend tests across 81 files, source/permission contracts and the secret-pattern scan. Production frontend/native debug builds pass with 5,645 pinned inputs unchanged. Provider-worker153, extension77, MCP12, player5 and decoder/launcher checks pass within their stated scopes. The complete Cargo command passes, including binary targets and doc tests. Final fixture-only corrections preserve production executable bytes (`4bfab35be85c`); code whitespace, source audit and command contracts pass.
+The sole normal app now runs exact tagged-source Linux debug native `957eac158d87`, with App `0ffccc7ebacb`. All 5,645 pinned build inputs stayed unchanged, the verified launcher connected successfully, and the complete 30-entry queue plus nine protected playback fields remain exact (paused position 277.684804476s). Final playback-bar geometry has no findings. Inactive incremental compiler cache was cleared to relieve local disk pressure; user data and provider profiles were preserved.
 
-Live exact hinted-album verification succeeds; a wrong-edition hint fails closed. Actual narrow Details displays the identity action, Search sort text is readable and playback geometry reports no overlap. See [crosswalk evidence](performance-results/2026-10-17-verified-source-crosswalk/README.md) and [desktop evidence](performance-results/2026-10-17-release-desktop-pass/README.md). Catalog identity does not guarantee playable audio.
-
-Remaining work is final release checks and tagged platform builds/installed-package smoke checks, then the non-public GitHub release. The v0.1.1 tag is pushed; cloud macOS/Windows checks found a shared system-media handle-type mismatch while Linux main CI and companion signing passed. The correction is being prepared as desktop0.1.2, preserving the failed tag; no draft release exists yet. Spotify playlist work remains paused, YouTube writes remain off pending review and experiments remain off. [Current todo](../todo.md).
+Playback recovery/seek deadlines, compact desktop controls and recording-scoped source crosswalk preparation are implemented and covered by the linked tests/live checks. Identity verification does not guarantee source availability. Spotify playlist work stays paused, YouTube writes stay off pending reviewed-preview approval, experiments stay off and public promotion stays on hold. [Current todo](../todo.md).
 
 ## Historical checkpoints
 

@@ -1,0 +1,17 @@
+{
+  "commit": "34507720aa0d1362af3abee062a5a0cc3d033087",
+  "nativeSha256": "957eac158d87a4c1a90216657a6e32f70f7ccd4d4281d76b6a3ce0ec354159b5",
+  "equal": {
+    "queue": true,
+    "queueEntryIds": true,
+    "currentIndex": true,
+    "position": true,
+    "paused": true,
+    "volume": true,
+    "repeat": true,
+    "shuffle": true,
+    "trackId": true
+  },
+  "queueTotal": 30,
+  "position": 277.684804476
+}
