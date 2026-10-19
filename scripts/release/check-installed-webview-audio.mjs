@@ -54,6 +54,22 @@ function sampleReady(snapshot, playback) {
 }
 
 let started = false;
+const samplingStartedAt = performance.now();
+let first = null, second = null, latest = null;
+let firstSampleElapsedMs = null, secondSampleElapsedMs = null;
+let latestSampleElapsedMs = null;
+async function inspectMediaSample() {
+  const media = await call('inspect_webview_media');
+  latestSampleElapsedMs = performance.now() - samplingStartedAt;
+  return media;
+}
+function diagnostics() {
+  return { first, second, latest, sampling: {
+    firstSampleElapsedMs, secondSampleElapsedMs, latestSampleElapsedMs,
+    betweenSamplesWallMs: firstSampleElapsedMs === null || secondSampleElapsedMs === null ? null : secondSampleElapsedMs - firstSampleElapsedMs,
+    totalElapsedMs: performance.now() - samplingStartedAt,
+  } };
+}
 try {
   await client.connect(transport);
   const listing = await client.listTools();
@@ -78,18 +94,19 @@ try {
   started = true;
 
   const deadline = Date.now() + 10_000;
-  let first = null;
   while (Date.now() < deadline) {
     const [playback, media] = await Promise.all([
       call('playback_state', { offset: 0, limit: 1 }),
-      call('inspect_webview_media'),
+      inspectMediaSample(),
     ]);
+    latest = { ...media, playbackStatus: playback?.status };
     const errorCode = media?.media?.errorCode;
     if (errorCode === 4) throw Object.assign(new Error('unsupported_media'), { category: 'unsupported_media' });
     if (errorCode === 2) throw Object.assign(new Error('source_failure'), { category: 'source_failure' });
     if (errorCode === 3) throw Object.assign(new Error('decode_failure'), { category: 'decode_failure' });
     if (sampleReady(media, playback)) {
-      first = { ...media, playbackStatus: playback.status };
+      first = latest;
+      firstSampleElapsedMs = latestSampleElapsedMs;
       break;
     }
     if (playback?.trackId && playback.trackId !== trackId) {
@@ -99,10 +116,13 @@ try {
   }
   if (!first) throw Object.assign(new Error('audio_not_ready'), { category: 'audio_not_ready' });
   await sleep(900);
-  const [playback, second] = await Promise.all([
+  const [playback, secondMedia] = await Promise.all([
     call('playback_state', { offset: 0, limit: 1 }),
-    call('inspect_webview_media'),
+    inspectMediaSample(),
   ]);
+  second = { ...secondMedia, playbackStatus: playback?.status };
+  latest = second;
+  secondSampleElapsedMs = latestSampleElapsedMs;
   const errorCode = second?.media?.errorCode;
   if (errorCode === 4) throw Object.assign(new Error('unsupported_media'), { category: 'unsupported_media' });
   if (errorCode === 2) throw Object.assign(new Error('source_failure'), { category: 'source_failure' });
@@ -110,10 +130,9 @@ try {
   if (!sampleReady(second, playback)) {
     throw Object.assign(new Error('audio_state_not_playing'), { category: 'audio_state_not_playing' });
   }
-  process.stdout.write(`${JSON.stringify({ status: 'sampled', first,
-    second: { ...second, playbackStatus: playback.status } })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: 'sampled', ...diagnostics() })}\n`);
 } catch (error) {
-  process.stdout.write(`${JSON.stringify({ status: 'failed', failureCategory: error?.category ?? 'mcp_failure' })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: 'failed', failureCategory: error?.category ?? 'mcp_failure', ...diagnostics() })}\n`);
   process.exitCode = 1;
 } finally {
   if (started) await call('pause_playback').catch(() => {});

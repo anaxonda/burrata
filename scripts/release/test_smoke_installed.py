@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Focused tests for installed smoke runner path handling."""
 import importlib.util
-from contextlib import closing
+from contextlib import closing, ExitStack
 from unittest.mock import patch
 import pathlib
+import json
+import subprocess
 import plistlib
 import sqlite3
 import tempfile
@@ -72,6 +74,79 @@ class MacosTransportSecurityTests(unittest.TestCase):
                 app = self._write_bundle({"NSAppTransportSecurity": ats})
                 with self.assertRaises(smoke.SmokeFailure):
                     smoke.macos_transport_security_check(app)
+
+    def _run_installed_bundle_smoke(self, app_bundle: pathlib.Path, *, audio_failure=None):
+        executable = app_bundle / "Contents/MacOS/burrata"
+        executable.parent.mkdir(parents=True)
+        executable.write_bytes(b"synthetic application executable")
+        resources = app_bundle / "Contents/Resources"
+        resources.mkdir()
+        installer = app_bundle.parent / "Burrata.dmg"
+        installer.write_bytes(b"synthetic installer")
+        evidence_path = app_bundle.parent / "smoke-evidence.json"
+        with ExitStack() as patches:
+            patches.enter_context(patch.object(smoke.sys, "platform", "darwin"))
+            patches.enter_context(patch.object(smoke.sys, "argv", [
+                str(SCRIPT), "--installer", str(installer), "--evidence", str(evidence_path),
+            ]))
+            patches.enter_context(patch.object(smoke, "install_macos",
+                                               return_value=(executable, resources, str(app_bundle))))
+            for name in ["run", "stop_process", "bundled_tool_checks", "bundled_media_checks",
+                         "wait_for_app", "native_host_check", "run_mcp_status", "run_mcp_webview_audio"]:
+                mocked = patches.enter_context(patch.object(smoke, name, return_value={}))
+                if name == "run_mcp_webview_audio" and audio_failure is not None:
+                    mocked.side_effect = audio_failure
+            patches.enter_context(patch.object(smoke, "build_webview_audio_fixture",
+                                               return_value={"trackId": "local:fixture"}))
+            launch = patches.enter_context(patch.object(smoke, "launch_app"))
+            status = smoke.main()
+            launches = launch.call_args_list
+        evidence = __import__("json").loads(evidence_path.read_text())
+        return status, evidence, launches, executable
+
+    def test_main_checks_installed_bundle_while_launching_its_executable(self) -> None:
+        app = self._write_bundle({
+            "NSAppTransportSecurity": {
+                "NSExceptionDomains": {
+                    "127.0.0.1": {"NSExceptionAllowsInsecureHTTPLoads": True},
+                },
+            },
+        })
+        status, evidence, launches, executable = self._run_installed_bundle_smoke(app)
+        self.assertEqual(status, 0)
+        self.assertEqual(evidence["status"], "passed")
+        self.assertEqual(evidence["checks"]["transportSecurity"],
+                         {"loopbackHttpException": "127.0.0.1", "broadExemptions": "absent"})
+        self.assertEqual(len(launches), 1)
+        self.assertEqual(launches[0].args[0], executable)
+
+    def test_main_retains_audio_failure_diagnostics_without_marking_smoke_passed(self) -> None:
+        app = self._write_bundle({"NSAppTransportSecurity": {"NSExceptionDomains": {
+            "127.0.0.1": {"NSExceptionAllowsInsecureHTTPLoads": True},
+        }}})
+        failure = smoke.SmokeFailure("WebView audio", "WebView audio clock did not advance by 0.5 seconds")
+        failure.diagnostics = {"first": {"media": {"currentTime": 0.2}}, "second": {"media": {"currentTime": 0.2}}}
+        status, evidence, _, _ = self._run_installed_bundle_smoke(app, audio_failure=failure)
+        self.assertEqual(status, 1)
+        self.assertEqual(evidence["status"], "failed")
+        self.assertEqual(evidence["checks"]["webviewAudio"]["status"], "failed")
+        self.assertEqual(evidence["checks"]["webviewAudio"]["diagnostics"], failure.diagnostics)
+        self.assertEqual(evidence["checks"]["webviewAudio"]["mediaLogTail"], {"stderr": [], "stdout": []})
+
+    def test_main_rejects_broad_installed_bundle_ats_before_launch(self) -> None:
+        app = self._write_bundle({
+            "NSAppTransportSecurity": {
+                "NSExceptionDomains": {
+                    "127.0.0.1": {"NSExceptionAllowsInsecureHTTPLoads": True},
+                },
+                "NSAllowsArbitraryLoads": True,
+            },
+        })
+        status, evidence, launches, _ = self._run_installed_bundle_smoke(app)
+        self.assertEqual(status, 1)
+        self.assertEqual(evidence["failedStage"], "macOS ATS")
+        self.assertEqual(evidence["error"], "broad ATS transport exemption is present")
+        self.assertEqual(launches, [])
 
 
 class InstalledWebviewAudioTests(unittest.TestCase):
@@ -165,6 +240,71 @@ class InstalledWebviewAudioTests(unittest.TestCase):
         with self.assertRaisesRegex(smoke.SmokeFailure, "unsupported_media"):
             smoke.assess_webview_audio_progress("local:fixture", unsupported,
                                                 self._sample("local:fixture", 0.9))
+
+
+class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
+    def _run_payload(self, payload, returncode=0):
+        with tempfile.TemporaryDirectory(prefix="burrata-audio-evidence-") as directory:
+            root = pathlib.Path(directory)
+            target = "synthetic-target"
+            tools = root / "tools" / target
+            tools.mkdir(parents=True)
+            (tools / ("burrata-mcp.exe" if smoke.sys.platform == "win32" else "burrata-mcp")).touch()
+            completed = subprocess.CompletedProcess([], returncode, json.dumps(payload).encode(), b"")
+            with patch.object(smoke.shutil, "which", return_value="synthetic-node"), patch.object(smoke, "run", return_value=completed):
+                return smoke.run_mcp_webview_audio(root, target, root / "automation.json", {}, "local:fixture")
+
+    def test_clock_failure_keeps_both_media_samples_and_actual_wall_timing(self) -> None:
+        first = InstalledWebviewAudioTests._sample("local:fixture", 0.2)
+        second = InstalledWebviewAudioTests._sample("local:fixture", 0.2)
+        for sample in (first, second):
+            sample["media"].update({"ended": False, "seeking": False, "buffered": [[0, 4]], "seekable": [[0, 4]]})
+        payload = {"status": "sampled", "first": first, "second": second, "latest": second,
+                   "sampling": {"firstSampleElapsedMs": 400, "secondSampleElapsedMs": 1325, "betweenSamplesWallMs": 925, "totalElapsedMs": 1330}}
+        with self.assertRaisesRegex(smoke.SmokeFailure, "did not advance by 0.5 seconds") as caught:
+            self._run_payload(payload)
+        diagnostics = caught.exception.diagnostics
+        self.assertEqual(diagnostics["first"]["media"]["currentTime"], 0.2)
+        self.assertEqual(diagnostics["second"]["media"]["currentTime"], 0.2)
+        self.assertEqual(diagnostics["sampling"]["betweenSamplesWallMs"], 925)
+        self.assertIs(diagnostics["second"]["media"]["ended"], False)
+        self.assertIs(diagnostics["second"]["media"]["seeking"], False)
+        self.assertEqual(diagnostics["second"]["media"]["buffered"], [[0, 4]])
+
+    def test_early_media_error_retains_partial_latest_sample(self) -> None:
+        latest = InstalledWebviewAudioTests._sample("local:fixture", 0, error_code=4)
+        with self.assertRaisesRegex(smoke.SmokeFailure, "unsupported_media") as caught:
+            self._run_payload({"status": "failed", "failureCategory": "unsupported_media", "first": None, "second": None, "latest": latest}, 1)
+        self.assertIsNone(caught.exception.diagnostics["first"])
+        self.assertEqual(caught.exception.diagnostics["latest"]["media"]["errorCode"], 4)
+        self.assertIsNone(caught.exception.diagnostics["latest"]["media"]["ended"])
+
+    def test_retention_allows_only_bounded_media_fields_and_no_source_material(self) -> None:
+        sample = InstalledWebviewAudioTests._sample("https://private.invalid/?token=track-secret", 0.2, entry_id="token=entry-secret")
+        sample.update({"url": "https://private.invalid/?token=url-secret", "message": "Authorization: Bearer bearer-secret"})
+        sample["media"].update({"currentSrc": "file:///private/file-secret", "errorMessage": "password=error-secret", "buffered": [[0, 4]] * 100, "seekable": [[0, float("inf")], [False, 4], [0, 4]], "currentTime": float("nan")})
+        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample, "sampling": {"totalElapsedMs": float("inf"), "url": "https://private.invalid"}}, "local:fixture")
+        encoded = json.dumps(diagnostics)
+        for secret in ("private.invalid", "track-secret", "entry-secret", "url-secret", "bearer-secret", "file-secret", "error-secret"):
+            self.assertNotIn(secret, encoded)
+        self.assertLess(len(encoded), 4000)
+        self.assertEqual(len(diagnostics["first"]["media"]["buffered"]), 8)
+        self.assertEqual(diagnostics["first"]["media"]["seekable"], [[0, 4]])
+        self.assertIsNone(diagnostics["first"]["media"]["currentTime"])
+        self.assertIsNone(diagnostics["sampling"]["totalElapsedMs"])
+
+    def test_platform_log_tail_is_bounded_and_sensitive_lines_are_fully_redacted(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="burrata-audio-log-") as directory:
+            path = pathlib.Path(directory) / "app.log"
+            path.write_text("ignored untrusted metadata\n" + "GStreamer pipeline waiting for clock\n" * 100 + "WebKit failed https://private.invalid/?token=url-secret\nALSA token=token-secret\nPulseAudio file:///tmp/path-secret\nGStreamer " + "x" * 1000)
+            lines = smoke.safe_media_log_tail(path)
+            self.assertLessEqual(len(lines), 20)
+            self.assertTrue(all(len(line) <= 200 for line in lines))
+            encoded = json.dumps(lines)
+            for secret in ("private.invalid", "url-secret", "token-secret", "path-secret", "untrusted metadata"):
+                self.assertNotIn(secret, encoded)
+            self.assertIn("[redacted media diagnostic line]", lines)
+            self.assertIn("GStreamer pipeline waiting for clock", lines)
 
 
 if __name__ == "__main__":

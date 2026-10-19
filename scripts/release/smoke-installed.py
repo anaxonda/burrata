@@ -12,6 +12,7 @@ import shutil
 import signal
 import math
 import plistlib
+import re
 import sqlite3
 import struct
 import subprocess
@@ -34,6 +35,7 @@ class SmokeFailure(RuntimeError):
     def __init__(self, stage: str, reason: str):
         super().__init__(reason)
         self.stage = stage
+        self.diagnostics: dict | None = None
 
 
 def canonical_temp_root(path: pathlib.Path) -> pathlib.Path:
@@ -454,6 +456,72 @@ def assess_webview_audio_progress(track_id: str, first: dict, second: dict) -> d
     return {"engine": "webview", "previewKind": "local", "clockAdvanceSeconds": round(advance, 3)}
 
 
+def safe_webview_audio_diagnostics(payload: dict, track_id: str) -> dict:
+    """Retain only bounded synthetic-fixture media evidence, never source text."""
+    def number(value, maximum=1e9):
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= maximum and math.isfinite(value) else None
+
+    def sample(raw):
+        if not isinstance(raw, dict):
+            return None
+        media = raw.get("media") if isinstance(raw.get("media"), dict) else {}
+        result = {key: raw.get(key) if raw.get(key) in allowed else None for key, allowed in {
+            "engine": ("webview", "native"), "previewKind": ("local", "audio", "direct", "native", "external"),
+            "playbackStatus": ("idle", "resolving", "buffering", "playing", "paused", "ended", "failed"),
+        }.items()}
+        for key in ("trackId", "queueTrackId"):
+            result[key] = track_id if raw.get(key) == track_id else "[unexpected-track]"
+        entry = raw.get("entryId")
+        result["entryId"] = entry if isinstance(entry, str) and re.fullmatch(r"[a-zA-Z0-9_:.-]{1,200}", entry) and not re.search(r"token|secret|password|authorization|cookie", entry, re.I) else None
+        result["applicable"] = raw.get("applicable") if isinstance(raw.get("applicable"), bool) else None
+        for key in ("sourceGeneration", "seekSerial", "currentIndex", "queueTotal"):
+            result[key] = number(raw.get(key))
+        result["media"] = {key: media.get(key) if isinstance(media.get(key), bool) else None for key in (
+            "present", "paused", "ended", "seeking", "sourcePresent", "sourceStable",
+        )}
+        for key in ("currentTime", "duration"):
+            result["media"][key] = number(media.get(key))
+        for key, maximum in (("readyState", 4), ("networkState", 3), ("errorCode", 4)):
+            value = media.get(key)
+            result["media"][key] = value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum else None
+        for key in ("buffered", "seekable"):
+            ranges = media.get(key)
+            result["media"][key] = [[start, end] for row in ranges[:8]
+                if isinstance(row, list) and len(row) == 2
+                and (start := number(row[0])) is not None and (end := number(row[1])) is not None and end >= start] if isinstance(ranges, list) else []
+        return result
+
+    timing = payload.get("sampling") if isinstance(payload.get("sampling"), dict) else {}
+    return {
+        "first": sample(payload.get("first")), "second": sample(payload.get("second")),
+        "latest": sample(payload.get("latest")),
+        "sampling": {key: number(timing.get(key), 120_000) for key in (
+            "firstSampleElapsedMs", "secondSampleElapsedMs", "latestSampleElapsedMs", "betweenSamplesWallMs", "totalElapsedMs",
+        )},
+    }
+
+
+def safe_media_log_tail(path: pathlib.Path) -> list[str]:
+    """Bounded media-platform log lines from the isolated synthetic smoke only."""
+    try:
+        with path.open("rb") as source:
+            source.seek(max(0, path.stat().st_size - 65_536))
+            lines = source.read(65_536).decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    selected = []
+    for line in lines:
+        if not re.search(r"gstreamer|gst[_.:]|webkit|pulse(?:audio)?|alsa", line, re.I):
+            continue
+        line = re.sub(r"[\x00-\x1f\x7f]", " ", line)
+        # Drop the full line when it may carry source/account material. Keeping
+        # arbitrary fragments of credential-bearing diagnostics is unnecessary.
+        if re.search(r"(?:https?|ftp|file):|[/\\]|\b(?:token|access[_-]?token|refresh[_-]?token|authorization|bearer|cookie|password|secret|signature|api[_-]?key)\b", line, re.I):
+            line = "[redacted media diagnostic line]"
+        selected.append(line[:200])
+    return selected[-20:]
+
+
 def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
                           discovery: pathlib.Path, env: dict[str, str],
                           track_id: str) -> dict:
@@ -464,8 +532,12 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
         raise SmokeFailure("WebView audio", "installed MCP launcher or Node.js is unavailable")
     result = run([node, ROOT / "scripts/release/check-installed-webview-audio.mjs",
                   mcp, discovery, track_id], timeout=30, env=env, check=False)
+    diagnostics = None
     try:
         payload = json.loads(result.stdout.decode().strip().splitlines()[-1])
+        if not isinstance(payload, dict):
+            raise ValueError("expected diagnostic object")
+        diagnostics = safe_webview_audio_diagnostics(payload, track_id)
         if payload.get("status") != "sampled":
             category = payload.get("failureCategory")
             messages = {
@@ -488,8 +560,13 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
             raise SmokeFailure("WebView audio", "installed MCP playback checker exited unsuccessfully")
         samples = payload
         return assess_webview_audio_progress(track_id, samples["first"], samples["second"])
+    except SmokeFailure as error:
+        error.diagnostics = diagnostics
+        raise
     except (ValueError, IndexError, KeyError, TypeError) as error:
-        raise SmokeFailure("WebView audio", "installed MCP returned invalid audio evidence") from error
+        failure = SmokeFailure("WebView audio", "installed MCP returned invalid audio evidence")
+        failure.diagnostics = diagnostics
+        raise failure from error
 
 
 def native_host_check(resource_root: pathlib.Path, target: str,
@@ -671,7 +748,7 @@ def main() -> int:
         evidence["installedLocation"] = pathlib.Path(installed_path).name if sys.platform != "linux" else installed_path
 
         if sys.platform == "darwin":
-            evidence["checks"]["transportSecurity"] = macos_transport_security_check(app)
+            evidence["checks"]["transportSecurity"] = macos_transport_security_check(pathlib.Path(installed_path))
 
         target = TARGETS[sys.platform]
         evidence["checks"]["packagedTools"] = bundled_tool_checks(resource_root, target, env)
@@ -697,10 +774,17 @@ def main() -> int:
     except SmokeFailure as error:
         evidence["failedStage"] = error.stage
         evidence["error"] = str(error)
+        if error.stage == "WebView audio" and error.diagnostics is not None:
+            evidence["checks"]["webviewAudio"] = {"status": "failed", "diagnostics": error.diagnostics}
         print(f"Installed smoke failed at {error.stage}: {error}", file=sys.stderr)
         return 1
     finally:
         stop_process(app_process, temp)
+        if evidence.get("failedStage") == "WebView audio":
+            evidence["checks"].setdefault("webviewAudio", {"status": "failed"})["mediaLogTail"] = {
+                "stderr": safe_media_log_tail(temp / "installed-app.stderr.log"),
+                "stdout": safe_media_log_tail(temp / "installed-app.stdout.log"),
+            }
         if sys.platform == "linux" and package_name:
             run(["sudo", "-n", "apt-get", "remove", "-y", package_name], timeout=300, check=False)
         if sys.platform == "darwin" and mount:
