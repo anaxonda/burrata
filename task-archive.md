@@ -214,3 +214,9 @@ Audited default WebView2 transport, optional native output ownership/reconnect, 
 The Linux native library suite passes 1,166 tests (25 ignored) after these changes; six installed-smoke Python tests and the WebView protocol regression pass. The initial restricted-sandbox run denied local fixture socket binds; the permitted-loopback rerun passes all tests. This is not a Windows runtime pass. The platform audit and installation guide now record Windows N Media Feature Pack risk, unsigned-app policy, native device/sleep qualification and deliberately gated Windows provider sessions. Historical native-engine release-hold wording was corrected to distinguish optional-engine promotion from already published v0.1.3.
 
 [Windows findings](docs/platform-playback-compatibility.md#windows-follow-up-audit).
+
+## Playback reliability implementation — 2026-10-19
+
+Implemented typed fresh recording proofs and source persistence, shared extraction/deadline budgets, optional-research bounds, typed failure policy, radio/source recovery, native preload error ownership and atomic duplicate-occurrence queue checkpoints. Added strict native ranges and repaired vendored sparse seek and pending-header cancellation bugs. Public native errors redact credentials and paths. Startup timeout choices are 20/30/45 seconds.
+
+Validation: 1,259 native library tests and 1,065 frontend tests pass; Svelte check and frontend build pass. Dependency source/license packaging tests pass. The six-run helper-prewarm experiment was inconclusive for total startup and stays opt-in. See [evidence](docs/performance-results/2026-10-19-playback-reliability/README.md). Live/platform/memory acceptance and publication remain in `todo.md`; this entry does not claim those complete.

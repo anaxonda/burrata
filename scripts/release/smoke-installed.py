@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -387,7 +388,7 @@ def register_webview_audio_fixture(app_data: pathlib.Path, audio_path: pathlib.P
         raise SmokeFailure("WebView audio setup", "smoke app database already exists")
     app_data.mkdir(parents=True, exist_ok=True)
     try:
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection:
             connection.executescript(SCHEMA.read_text(encoding="utf-8"))
             with connection:
                 connection.execute("INSERT INTO works(id,title,artist) VALUES(?,?,?)",

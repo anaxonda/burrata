@@ -14,10 +14,10 @@ This checkpoint implements the approved reliability plan on top of the existing 
 
 ## Verification
 
-- Full frontend suite: 1,060 passed. Svelte check: zero errors and warnings.
+- Full frontend suite: 1,065 passed. Svelte check: zero errors and warnings.
 - Isolated experiment tests: 17 Node and five Python tests passed.
 - [Offline loopback matrix](../../../scripts/performance/innertube/results/2026-10-19-offline-loopback.json): 100/100 measured successful excerpts, 15 excluded warmups and one expected corrupt-media failure. This is FFmpeg decoder/fixture evidence; it excludes catalog matching, real provider availability, mixer/device output and cross-platform acceptance.
-- Native suite: 1,256 passed, zero failures, 25 ignored. This includes local HTTP fixtures and native preload ownership/failure regressions. A final rerun includes the latest settings-navigation automation.
+- Native suite: 1,259 passed, zero failures, 25 ignored. This includes local HTTP fixtures and native preload ownership/failure regressions. The final run includes the latest settings-navigation automation, public-error redaction and real pending-header cancellation tests.
 - Strict range checks exposed an upstream stream-download 0.24.4 sparse-seek bug: a missing range before the requested position could produce a reversed request. A narrowly patched, licensed vendored dependency fixes gap selection; direct vendor regressions and the full native suite pass.
 - Matthew production-resolver smoke produces five seconds of PCM, with exploratory first-PCM times around 12–14 seconds. The selected upload differs from the expected reference ID. Short-excerpt fingerprints support correspondence, but full-version equivalence remains unproven; later checks encountered HTTP 403. All outcomes are retained in the experiment reports.
 - Desktop UI acceptance and broader native/live comparisons remain outstanding. Source fixes do not constitute live correctness or p95 qualification.
@@ -25,3 +25,11 @@ This checkpoint implements the approved reliability plan on top of the existing 
 ## Remaining acceptance
 
 Run the final regression suite and controlled native/live comparisons with the reported recordings, retain all failures and incorrect matches, perform the 30-minute memory/recovery exercise, and verify packaged Apple Silicon macOS and Windows playback before promoting resolver/codec changes. The five-second startup p95 target remains; raising the timeout setting does not satisfy it.
+
+## v0.1.4 candidate
+
+Candidate source: `ed6ae8ae6a710285fd2c3bf6d0982f4f8b1e84af`. [Platform qualification run](https://github.com/anaxonda/burrata/actions/runs/39294067482) is running; the candidate is not published. Local Svelte check and production frontend build pass. The final Linux native library suite passes 1,259 tests, zero failures, 25 ignored; the full frontend suite passes 1,065 tests.
+
+The actual StreamDownload cancellation regression failed before the second dependency patch: an uncached range request awaiting headers did not wake its blocking seeker within 500 ms after cancellation. The outer cancellation-select fix makes the seek return an error and closes the pending request; all 11 HTTP tests pass.
+
+Foreground helper prewarming was attempted with three alternating pairs, all six producing five seconds of PCM and cleaning up helpers. Helper waiting fell from a median 3,046 ms to 2 ms, but the two pairs with matching source IDs averaged 774 ms slower overall. The production behavior remains unchanged. [Raw comparison](../../../scripts/performance/innertube/results/2026-10-19-matthew-prewarm-ab/comparison.json).

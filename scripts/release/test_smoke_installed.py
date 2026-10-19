@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Focused tests for installed smoke runner path handling."""
 import importlib.util
+from contextlib import closing
+from unittest.mock import patch
 import pathlib
 import plistlib
 import sqlite3
@@ -93,8 +95,17 @@ class InstalledWebviewAudioTests(unittest.TestCase):
             audio = root / "fixture" / "tone.m4a"
             audio.parent.mkdir()
             audio.write_bytes(b"synthetic-aac-fixture")
-            fixture = smoke.register_webview_audio_fixture(app_data, audio, 4.0, root)
-            with sqlite3.connect(app_data / "burrata.sqlite") as connection:
+            closed = []
+            class TrackedConnection(sqlite3.Connection):
+                def close(self):
+                    closed.append(True)
+                    super().close()
+            connect = sqlite3.connect
+            with patch.object(smoke.sqlite3, "connect",
+                              side_effect=lambda *a, **kw: connect(*a, factory=TrackedConnection, **kw)):
+                fixture = smoke.register_webview_audio_fixture(app_data, audio, 4.0, root)
+            self.assertEqual(closed, [True], "fixture registration must release its SQLite handle")
+            with closing(sqlite3.connect(app_data / "burrata.sqlite")) as connection:
                 listing = connection.execute(
                     "SELECT provider,provider_id,recording_id,source_url,metadata FROM catalog_listings"
                 ).fetchone()
@@ -104,11 +115,28 @@ class InstalledWebviewAudioTests(unittest.TestCase):
             self.assertEqual(listing[0], "local")
             self.assertEqual(listing[1], listing[2].removeprefix("local:"))
             self.assertEqual(listing[2], fixture["trackId"])
-            self.assertTrue(pathlib.Path(asset[1]).is_relative_to(root))
+            self.assertTrue(pathlib.Path(asset[1]).resolve(strict=True).is_relative_to(root.resolve(strict=True)))
             self.assertEqual(asset[0], listing[2])
             self.assertEqual(asset[2], listing[1])
             self.assertEqual(__import__("json").loads(asset[3])["track"]["assetId"],
                              __import__("json").loads(listing[4])["assetId"])
+
+    def test_fixture_registration_accepts_canonicalized_temporary_alias(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="burrata-fixture-alias-") as directory:
+            real = pathlib.Path(directory) / "real"
+            real.mkdir()
+            alias = pathlib.Path(directory) / "alias"
+            try:
+                alias.symlink_to(real, target_is_directory=True)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"directory symlinks unavailable: {error}")
+            audio = alias / "tone.m4a"
+            audio.write_bytes(b"synthetic-aac-fixture")
+            smoke.register_webview_audio_fixture(alias / "data", audio, 4.0, alias)
+            with closing(sqlite3.connect(real / "data" / "burrata.sqlite")) as connection:
+                saved = pathlib.Path(connection.execute("SELECT path FROM local_assets").fetchone()[0])
+            self.assertEqual(saved, audio.resolve(strict=True))
+            self.assertTrue(saved.is_relative_to(alias.resolve(strict=True)))
 
     def test_clock_progress_requires_same_playing_track_and_entry(self) -> None:
         first = self._sample("local:fixture", 0.2)
