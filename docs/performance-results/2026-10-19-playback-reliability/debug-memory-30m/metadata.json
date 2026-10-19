@@ -1,0 +1,96 @@
+{
+  "runStartedAtUtc": "2026-10-19T17:31:18.309940+00:00",
+  "measurementStartedAtUtc": "2026-10-19T17:32:34.361699+00:00",
+  "measurementFinishedAtUtc": "2026-10-19T18:02:35.096242+00:00",
+  "platform": "Linux-7.2.9-arch1-1-x86_64-with-glibc2.44",
+  "python": "3.14.8",
+  "binary": "/home/loki/projects/burrata/.cache/verification-target/debug/burrata",
+  "binarySha256": "c9e3e3c06295043037223e971028fbef934fde12cce4056a1cb30211c38d7e2e",
+  "frontendMode": "vite",
+  "workload": "isolated synthetic local WAV playback, volume 0, six queued copies of one six-minute fixture; 20,000 seeded metadata-only fixture listings; MCP library search pages during playback",
+  "fixture": {
+    "id": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+    "sha256": "1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+    "durationSeconds": 360
+  },
+  "libraryMetadataRows": 20000,
+  "measurementSeconds": 1800,
+  "intervalSeconds": 5.0,
+  "settleSecondsBeforeSampling": 30,
+  "operationId": "0167779b-ed35-457e-b0dd-616c67976af4",
+  "appProcessId": 3818412,
+  "viteProcessId": 3817902,
+  "viteProcessOwnership": "owned",
+  "mcpPrepare": {
+    "mode": "prepare",
+    "volume": 0,
+    "playbackStatus": "playing",
+    "positionSeconds": 0.844625850340136,
+    "queueTotal": 6,
+    "syntheticLibraryRows": 20000,
+    "finalPageRows": 100
+  },
+  "mcpMeasurement": {
+    "mode": "measure",
+    "operationId": "0167779b-ed35-457e-b0dd-616c67976af4",
+    "durationSeconds": 1800,
+    "searchPages": 117,
+    "playbackStateReads": 117,
+    "queueTransitions": 5
+  },
+  "localPlaybackQualification": {
+    "file": "local-playback-qualification.json",
+    "failureCount": 0,
+    "warmups": 3,
+    "starts": 20,
+    "seeks": 60
+  },
+  "measurement": {
+    "applicationProcessTree": {
+      "intervalSamples": 356,
+      "cpuPercentOneLogicalCore": {
+        "median": 27.008,
+        "p95": 36.51,
+        "worst": 53.999,
+        "cpuSeconds": 499.0
+      },
+      "processGroupRssBytes": {
+        "median": 718221312,
+        "p95": 726130688,
+        "peak": 730263552
+      },
+      "storageIoBytes": {
+        "read": 4734976,
+        "write": 0
+      }
+    },
+    "viteServerProcessTree": {
+      "intervalSamples": 356,
+      "cpuPercentOneLogicalCore": {
+        "median": 0.0,
+        "p95": 0.99,
+        "worst": 44.055,
+        "cpuSeconds": 6.75
+      },
+      "processGroupRssBytes": {
+        "median": 1381912576,
+        "p95": 1428643840,
+        "peak": 1740152832
+      },
+      "storageIoBytes": {
+        "read": 2514944,
+        "write": 0
+      },
+      "ownership": "owned",
+      "attribution": "launched for this isolated app"
+    },
+    "limitations": "Application group excludes the separately sampled Vite server. When shared, Vite CPU/RSS/I/O can include unrelated clients and activity and is not attributable only to this app. Each process-group RSS sums resident pages and can double-count shared memory; storage IO is not network traffic; short-lived children between polls may be missed."
+  },
+  "limitations": [
+    "Synthetic local audio and synthetic metadata only; no provider login or network playback was used.",
+    "This measures the isolated app and observed descendants on this Linux host, not cross-platform performance.",
+    "Profiler RSS aggregates process RSS and may double-count shared pages; storage IO is not network traffic.",
+    "Vite is sampled as a separate sibling process group; its CPU/RSS/I/O are excluded from application totals.",
+    "The 30-second playback settle time is excluded from the profiler window; build/compilation is not run by this script."
+  ]
+}

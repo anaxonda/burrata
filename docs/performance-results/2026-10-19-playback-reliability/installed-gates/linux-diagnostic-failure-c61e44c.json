@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "platform": "linux",
+  "target": "x86_64-unknown-linux-gnu",
+  "installer": "Burrata_0.1.4_amd64.deb",
+  "status": "failed",
+  "checks": {
+    "installer": "installed",
+    "packagedTools": {
+      "node": {
+        "path": "tools/x86_64-unknown-linux-gnu/node",
+        "version": "v24.21.0"
+      },
+      "yt-dlp": {
+        "path": "tools/x86_64-unknown-linux-gnu/yt-dlp",
+        "version": "2026.10.10.233141"
+      },
+      "ffmpeg": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffmpeg",
+        "version": "ffmpeg version 8.1.3 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      "ffprobe": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffprobe",
+        "version": "ffprobe version 8.1.3 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      "fpcalc": {
+        "path": "tools/x86_64-unknown-linux-gnu/fpcalc",
+        "version": "fpcalc version 1.5.1 (FFmpeg Lavc58.134.100 Lavf58.76.100 SwR3.9.100)"
+      },
+      "recognizer": {
+        "path": "tools/x86_64-unknown-linux-gnu/burrata-recognize",
+        "started": "true"
+      },
+      "browserHost": {
+        "path": "tools/x86_64-unknown-linux-gnu/burrata-browser-host",
+        "protocol": "present"
+      }
+    },
+    "mediaFixtures": {
+      "ffmpeg": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffmpeg",
+        "mp3": "encoded",
+        "opus": "encoded",
+        "analysisDecode": {
+          "mp3": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.118909
+          },
+          "opus": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.126433
+          }
+        }
+      },
+      "ffprobe": {
+        "path": "tools/x86_64-unknown-linux-gnu/ffprobe",
+        "mp3Tags": "read",
+        "opusTags": "read",
+        "pngCover": "attached and decoded"
+      }
+    },
+    "webviewAudioFixture": {
+      "codec": "aac",
+      "mimeType": "audio/mp4",
+      "durationSeconds": 4.0,
+      "registered": "isolated local asset"
+    },
+    "guiStartup": "automation discovery published",
+    "nativeHost": {
+      "path": "tools/x86_64-unknown-linux-gnu/burrata-browser-host",
+      "heartbeat": "accepted"
+    },
+    "mcp": {
+      "initialized": true,
+      "toolCount": 103,
+      "statusRunning": true,
+      "frontendMounted": true
+    },
+    "webviewAudio": {
+      "status": "failed",
+      "diagnostics": {
+        "first": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "3e6df902-e3ed-47b5-b4b2-d07c00302a8e",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.013834,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "second": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "3e6df902-e3ed-47b5-b4b2-d07c00302a8e",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.116099774,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "latest": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "3e6df902-e3ed-47b5-b4b2-d07c00302a8e",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.116099774,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "sampling": {
+          "firstSampleElapsedMs": 744.637297,
+          "secondSampleElapsedMs": 1650.882587,
+          "latestSampleElapsedMs": 1650.882587,
+          "betweenSamplesWallMs": 906.2452900000001,
+          "totalElapsedMs": 1651.031541
+        }
+      },
+      "mediaLogTail": {
+        "stderr": [],
+        "stdout": []
+      }
+    }
+  },
+  "osSecurityPrompts": "not tested",
+  "sourceRunId": "39297682337",
+  "sourceCommit": "7fd86094f2c648cc24503cbd56c4ddba5808ce2e",
+  "installedLocation": "/usr/bin/burrata",
+  "failedStage": "WebView audio",
+  "error": "WebView audio clock did not advance by 0.5 seconds",
+  "evidenceProvenance": {
+    "runtimeSourceCommit": "7fd86094f2c648cc24503cbd56c4ddba5808ce2e",
+    "runtimeSourceRunId": "39297682337",
+    "harnessCommit": "c61e44c31094108daf2588d087eedee9c8b23fc9",
+    "jobUrl": "https://github.com/anaxonda/burrata/actions/runs/39303042874/job/118232926350",
+    "sourceReportSha256": "4002e8c18312b7eb73c33ad13bb1312ad4f6dc3c99bbff445a3bd0b322e3d196",
+    "scope": "Hosted-runner installed local synthetic AAC/media/tool smoke; no physical device or public provider qualification.",
+    "redaction": "Original report already omits source URLs, private files, credentials and stderr; only synthetic occurrence identities and packaged-tool paths are retained."
+  }
+}

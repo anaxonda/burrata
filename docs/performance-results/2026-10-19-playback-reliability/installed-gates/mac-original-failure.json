@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "target": "aarch64-apple-darwin",
+  "installer": "Burrata_0.1.4_aarch64.dmg",
+  "status": "failed",
+  "checks": {
+    "installer": "installed"
+  },
+  "osSecurityPrompts": "not tested",
+  "installedLocation": "Burrata.app",
+  "failedStage": "macOS ATS",
+  "error": "installed app Info.plist is unreadable",
+  "evidenceProvenance": {
+    "runtimeSourceCommit": "7fd86094f2c648cc24503cbd56c4ddba5808ce2e",
+    "runtimeSourceRunId": "39297682337",
+    "harnessCommit": "7fd86094f2c648cc24503cbd56c4ddba5808ce2e",
+    "jobUrl": "https://github.com/anaxonda/burrata/actions/runs/39297682337/job/118214414613",
+    "sourceReportSha256": "2d08e769fe2ef50e4decf5526e9fb02e10bbbc775d519841550e9fb08195d90f",
+    "scope": "Hosted-runner installed local synthetic AAC/media/tool smoke; no physical device or public provider qualification.",
+    "redaction": "Original report already omits source URLs, private files, credentials and stderr; only synthetic occurrence identities and packaged-tool paths are retained."
+  }
+}

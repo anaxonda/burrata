@@ -1,0 +1,6 @@
+{
+  "uncompressedSha256": "13183459efaddf9ef43a8543e521943ae47f3a4963042dd41e571c109ee5cf88",
+  "uncompressedBytes": 9635492,
+  "compressedSha256": "9c2939818bc6d05f6bb43cf2587c10cd6310fadc82d77b44df61dc8349922989",
+  "scope": "Unchanged raw app/Vite process and thread observations; decompression yields original samples.json."
+}

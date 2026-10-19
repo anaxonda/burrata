@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "target": "aarch64-apple-darwin",
+  "installer": "Burrata_0.1.4_aarch64.dmg",
+  "status": "passed",
+  "checks": {
+    "installer": "installed",
+    "transportSecurity": {
+      "loopbackHttpException": "127.0.0.1",
+      "broadExemptions": "absent"
+    },
+    "packagedTools": {
+      "node": {
+        "path": "tools/aarch64-apple-darwin/node",
+        "version": "v24.21.0"
+      },
+      "yt-dlp": {
+        "path": "tools/aarch64-apple-darwin/yt-dlp",
+        "version": "2026.10.10.233141"
+      },
+      "ffmpeg": {
+        "path": "tools/aarch64-apple-darwin/ffmpeg",
+        "version": "ffmpeg version 8.1.3 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      "ffprobe": {
+        "path": "tools/aarch64-apple-darwin/ffprobe",
+        "version": "ffprobe version 8.1.3 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      "fpcalc": {
+        "path": "tools/aarch64-apple-darwin/fpcalc",
+        "version": "fpcalc version 1.5.1 (FFmpeg Lavc58.134.100 Lavf58.76.100 SwR3.9.100)"
+      },
+      "recognizer": {
+        "path": "tools/aarch64-apple-darwin/burrata-recognize",
+        "started": "true"
+      },
+      "browserHost": {
+        "path": "tools/aarch64-apple-darwin/burrata-browser-host",
+        "protocol": "present"
+      }
+    },
+    "mediaFixtures": {
+      "ffmpeg": {
+        "path": "tools/aarch64-apple-darwin/ffmpeg",
+        "mp3": "encoded",
+        "opus": "encoded",
+        "analysisDecode": {
+          "mp3": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.118908
+          },
+          "opus": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.126474
+          }
+        }
+      },
+      "ffprobe": {
+        "path": "tools/aarch64-apple-darwin/ffprobe",
+        "mp3Tags": "read",
+        "opusTags": "read",
+        "pngCover": "attached and decoded"
+      }
+    },
+    "webviewAudioFixture": {
+      "codec": "aac",
+      "mimeType": "audio/mp4",
+      "durationSeconds": 4.0,
+      "registered": "isolated local asset"
+    },
+    "guiStartup": "automation discovery published",
+    "nativeHost": {
+      "path": "tools/aarch64-apple-darwin/burrata-browser-host",
+      "heartbeat": "accepted"
+    },
+    "mcp": {
+      "initialized": true,
+      "toolCount": 103,
+      "statusRunning": true,
+      "frontendMounted": true
+    },
+    "webviewAudio": {
+      "engine": "webview",
+      "previewKind": "local",
+      "clockAdvanceSeconds": 0.776
+    }
+  },
+  "osSecurityPrompts": "not tested",
+  "sourceRunId": "39297682337",
+  "sourceCommit": "7fd86094f2c648cc24503cbd56c4ddba5808ce2e",
+  "installedLocation": "Burrata.app",
+  "evidenceProvenance": {
+    "runtimeSourceCommit": "7fd86094f2c648cc24503cbd56c4ddba5808ce2e",
+    "runtimeSourceRunId": "39297682337",
+    "harnessCommit": "c61e44c31094108daf2588d087eedee9c8b23fc9",
+    "jobUrl": "https://github.com/anaxonda/burrata/actions/runs/39303041772/job/118232957749",
+    "sourceReportSha256": "66f4a4f2cc0652f2bca1cf3fa13d12b1cda828139d7dfa371930df0971341f3b",
+    "scope": "Hosted-runner installed local synthetic AAC/media/tool smoke; no physical device or public provider qualification.",
+    "redaction": "Original report already omits source URLs, private files, credentials and stderr; only synthetic occurrence identities and packaged-tool paths are retained."
+  }
+}

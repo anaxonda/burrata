@@ -1,0 +1,54 @@
+{
+  "scope": "Linux debug app + WebView process group; excludes owned Vite; RSS may double-count shared pages",
+  "windows": [
+    {
+      "fromSeconds": 0,
+      "toSeconds": 300,
+      "samples": 59,
+      "rssMedianBytes": 716615680,
+      "rssMinBytes": 714997760,
+      "rssMaxBytes": 727760896
+    },
+    {
+      "fromSeconds": 300,
+      "toSeconds": 600,
+      "samples": 59,
+      "rssMedianBytes": 723066880,
+      "rssMinBytes": 721735680,
+      "rssMaxBytes": 730263552
+    },
+    {
+      "fromSeconds": 600,
+      "toSeconds": 900,
+      "samples": 59,
+      "rssMedianBytes": 725549056,
+      "rssMinBytes": 723628032,
+      "rssMaxBytes": 726974464
+    },
+    {
+      "fromSeconds": 900,
+      "toSeconds": 1200,
+      "samples": 59,
+      "rssMedianBytes": 718458880,
+      "rssMinBytes": 692772864,
+      "rssMaxBytes": 726253568
+    },
+    {
+      "fromSeconds": 1200,
+      "toSeconds": 1500,
+      "samples": 60,
+      "rssMedianBytes": 591718400,
+      "rssMinBytes": 590897152,
+      "rssMaxBytes": 660545536
+    },
+    {
+      "fromSeconds": 1500,
+      "toSeconds": 1800,
+      "samples": 60,
+      "rssMedianBytes": 591558656,
+      "rssMinBytes": 590737408,
+      "rssMaxBytes": 592531456
+    }
+  ],
+  "lastMinusFirstWindowMedianBytes": -125057024
+}
