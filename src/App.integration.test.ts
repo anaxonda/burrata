@@ -10056,6 +10056,38 @@ describe("search-only upcoming WebView preparation", () => {
     await automationAction("candidate-prefetch-seek","seek",{position:30});await settle();
     expect(mocks.call).toHaveBeenCalledWith("cancel_remote_read",{requestId:(warmups[0][1] as {requestId:string}).requestId});
     expect(mocks.call.mock.calls.filter(([command])=>command==="warm_playback_candidate_search")).toHaveLength(1);
+    audio.dispatchEvent(new Event("playing")); await settle();
+    expect(mocks.call.mock.calls.filter(([command])=>command==="warm_playback_candidate_search")).toHaveLength(2);
+    for (let i = 0; i < 20; i++) audio.dispatchEvent(new Event("playing")); await settle();
+    expect(mocks.call.mock.calls.filter(([command])=>command==="warm_playback_candidate_search")).toHaveLength(2);
+  });
+
+  it("reorders the playing queue and warms its new next occurrence without another playing event", async () => {
+    previewMode = "direct";
+    const thirdTrack: Track = {...savedTrack, id: "prefetch-third", title: "Third Recording"};
+    const local = new Map<string, string>([["burrata.playback-queue.v1", JSON.stringify({tracks: [savedTrack, secondTrack, thirdTrack], currentIndex: 0, repeat: "off"})]]);
+    vi.stubGlobal("localStorage", {getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => local.set(key, value), removeItem: (key: string) => local.delete(key)});
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command, args) => command === "warm_playback_candidate_search" ? new Promise(() => {}) : original(command, args));
+    const instance = mount(App, {target: document.body}); unmountApp = () => {void unmount(instance);}; await settle();
+    await automationAction("prefetch-reorder-start", "resume"); await settle();
+    const audio = document.querySelector("audio")!;
+    audio.dispatchEvent(new Event("playing")); await settle();
+    const first = mocks.call.mock.calls.find(([command]) => command === "warm_playback_candidate_search")!;
+    expect(first[1]).toMatchObject({track: {id: secondTrack.id}});
+    document.querySelector<HTMLButtonElement>('[aria-label="Show playback queue and chapters"]')!.click(); await settle();
+    document.querySelector<HTMLElement>('[aria-label="More actions for Third Recording"]')!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Move up")!.click(); await settle();
+    const warmups = mocks.call.mock.calls.filter(([command]) => command === "warm_playback_candidate_search");
+    expect(warmups).toHaveLength(2);
+    expect(warmups[1][1]).toMatchObject({track: {id: thirdTrack.id}});
+    expect(mocks.call).toHaveBeenCalledWith("cancel_remote_read", {requestId: (first[1] as {requestId: string}).requestId});
+    expect(document.querySelector("audio")).toBe(audio);
   });
 
   it("queued receipt accepts the installed exact album before source completion and keeps all 19 failures beyond 45 seconds", async () => {

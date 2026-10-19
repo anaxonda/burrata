@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebviewNextCandidatePrefetch, type UpcomingPlayback } from "./webview-next-candidate-prefetch";
 import type { Track } from "./types";
 const track = (id: string): Track => ({ id, provider: "spotify", title: id, artist: "Artist" } as Track);
 const queue = (overrides: Partial<UpcomingPlayback> = {}): UpcomingPlayback => ({ webview: true, playing: true, generation: 1, session: "playback-1", currentTrackId: "a", queue: { tracks: [track("a"), track("b"), track("c")], entryIds: ["occ-a", "occ-b", "occ-c"], currentIndex: 0, repeat: "off" }, ...overrides });
 describe("WebView next candidate search", () => {
+  afterEach(() => vi.useRealTimers());
   it("searches only the actual next shuffled occurrence once per successful start", () => {
     const invoke = vi.fn((_command:string,_args:Record<string,unknown>) => new Promise(() => {}));
     const prefetch = new WebviewNextCandidatePrefetch(invoke, () => "request-1");
@@ -22,10 +23,60 @@ describe("WebView next candidate search", () => {
     expect(invoke.mock.calls.filter(([name])=>name==="cancel_remote_read")).toEqual([["cancel_remote_read",{requestId:"request-1"}],["cancel_remote_read",{requestId:"request-2"}]]);
     expect(invoke.mock.calls.some(([name])=>name==="cancel_playback_resolution")).toBe(false);
   });
-  it("does not restart cancelled work on the same playing/position occurrence", () => {
+  it("retries a cancelled occurrence once without repeated playing-event thrash", () => {
     const invoke=vi.fn((_command:string,_args:Record<string,unknown>)=>new Promise(()=>{}));const prefetch=new WebviewNextCandidatePrefetch(invoke,()=>"own");
     prefetch.started(queue());prefetch.cancel();for(let i=0;i<100;i++)prefetch.started(queue());
+    expect(invoke.mock.calls.filter(([name])=>name==="warm_playback_candidate_search")).toHaveLength(2);
+    prefetch.cancel(); prefetch.started(queue());
+    expect(invoke.mock.calls.filter(([name])=>name==="warm_playback_candidate_search")).toHaveLength(2);
+  });
+  it("backs off one failed search, retries once, and stops after the second failure", async () => {
+    vi.useFakeTimers();
+    let sequence = 0;
+    const invoke = vi.fn(async (_command: string, _args: Record<string, unknown>) => { throw new Error("search unavailable"); });
+    const prefetch = new WebviewNextCandidatePrefetch(invoke, () => `retry-${++sequence}`);
+    prefetch.started(queue()); await Promise.resolve();
+    for (let i = 0; i < 100; i++) prefetch.started(queue());
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5000);
+    for (let i = 0; i < 100; i++) prefetch.started(queue());
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+  it("cancels a pending retry when paused and lets a later playing event retry", async () => {
+    vi.useFakeTimers();
+    let sequence = 0;
+    const invoke = vi.fn((command: string, _args: Record<string, unknown>) => command === "warm_playback_candidate_search" ? Promise.reject(new Error("network")) : Promise.resolve());
+    const prefetch = new WebviewNextCandidatePrefetch(invoke, () => `pause-${++sequence}`);
+    prefetch.started(queue()); await Promise.resolve();
+    prefetch.cancel();
+    await vi.advanceTimersByTimeAsync(5000);
     expect(invoke.mock.calls.filter(([name])=>name==="warm_playback_candidate_search")).toHaveLength(1);
+    prefetch.started(queue()); await Promise.resolve();
+    expect(invoke.mock.calls.filter(([name])=>name==="warm_playback_candidate_search")).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(invoke.mock.calls.filter(([name])=>name==="warm_playback_candidate_search")).toHaveLength(2);
+  });
+  it("reordering an uninterrupted playing queue warms the new next occurrence and fences the old completion", async () => {
+    let finishOld!: () => void;
+    let sequence = 0;
+    const invoke = vi.fn((command: string, _args: Record<string, unknown>) => command === "warm_playback_candidate_search" && sequence === 1 ? new Promise<void>(resolve => { finishOld = resolve; }) : new Promise<void>(() => {}));
+    const prefetch = new WebviewNextCandidatePrefetch(invoke, () => `reorder-${++sequence}`);
+    prefetch.started(queue());
+    const changed = queue({generation: 2});
+    changed.queue.tracks = [track("a"), track("c"), track("b")];
+    changed.queue.entryIds = ["occ-a", "occ-c", "occ-b"];
+    prefetch.started(changed);
+    expect(invoke).toHaveBeenCalledWith("cancel_remote_read", {requestId: "reorder-1"});
+    expect(invoke).toHaveBeenLastCalledWith("warm_playback_candidate_search", {track: track("c"), requestId: "reorder-2"});
+    finishOld(); await Promise.resolve();
+    prefetch.started(changed);
+    expect(invoke.mock.calls.filter(([name])=>name==="warm_playback_candidate_search")).toHaveLength(2);
+    prefetch.cancel();
+    expect(invoke).toHaveBeenLastCalledWith("cancel_remote_read", {requestId: "reorder-2"});
   });
   it("respects native mode, repeat-one, radio, local/chapter, stale current and queue end", () => {
     for(const input of [queue({webview:false}),queue({playing:false}),queue({currentTrackId:"stale"}),queue({pinnedTrackIds:["b"]})]){

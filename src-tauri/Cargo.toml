@@ -10,6 +10,9 @@ license = "GPL-3.0-or-later"
 default = []
 custom-protocol = ["tauri/custom-protocol"]
 experimental-opus = ["dep:symphonia-experiment", "dep:symphonia-opus-adapter"]
+# Diagnostic-only early playback verification overlap experiment. Disabled in
+# ordinary builds; additionally requires BURRATA_PLAYBACK_EARLY_CANDIDATE_EXPERIMENT=1.
+playback-early-candidate-experiment = []
 
 [lib]
 name = "burrata_lib"

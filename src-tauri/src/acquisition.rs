@@ -82,7 +82,7 @@ const RAW_AUDIO_SEARCH_CACHE_MAX: usize = 64;
 const PREVIEW_SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 const PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT: usize = 10;
 const OPTIONAL_PLAYBACK_RESEARCH_MAX: Duration = Duration::from_secs(3);
-const PLAYBACK_EXTRACTION_RESERVE: Duration = Duration::from_secs(8);
+pub(crate) const PLAYBACK_EXTRACTION_RESERVE: Duration = Duration::from_secs(8);
 const PREVIEW_AUDIO_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const PREVIEW_AUDIO_CACHE_MAX: usize = 64;
 const PLAYBACK_EXTRACTION_PROFILE: &str = "playback-metadata-v1-managed-mweb-progressive";
@@ -2429,13 +2429,30 @@ impl CandidateSearchCache {
     async fn get_or_search_cancelled_observed<F, Fut>(
         &self,
         key: String,
-        mut cancel: watch::Receiver<bool>,
+        cancel: watch::Receiver<bool>,
         trace: Option<crate::playback_sources::SourceTrace>,
         load: F,
     ) -> Result<Vec<Candidate>, String>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+    {
+        self.get_or_search_cancelled_observed_decided(key, cancel, trace, || async {
+            load().await.map(|candidates| (candidates, true))
+        })
+        .await
+    }
+
+    async fn get_or_search_cancelled_observed_decided<F, Fut>(
+        &self,
+        key: String,
+        mut cancel: watch::Receiver<bool>,
+        trace: Option<crate::playback_sources::SourceTrace>,
+        load: F,
+    ) -> Result<Vec<Candidate>, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
     {
         if *cancel.borrow() {
             return Err("Cancelled".into());
@@ -2500,8 +2517,8 @@ impl CandidateSearchCache {
         let cache_miss_observed_elapsed_ms = trace_enabled
             .then(|| trace.as_ref().map(|trace| trace.elapsed_ms()))
             .flatten();
-        let candidates = match load().await {
-            Ok(candidates) => candidates,
+        let (candidates, cacheable) = match load().await {
+            Ok(result) => result,
             Err(error) => {
                 drop(guard);
                 self.remove_flight_if_unused(&key, &gate);
@@ -2519,24 +2536,26 @@ impl CandidateSearchCache {
                 return Err(error);
             }
         };
-        if let Ok(mut entries) = self.entries.lock() {
-            entries.retain(|_, v| v.cached_at.elapsed() < SEARCH_CACHE_TTL);
-            if entries.len() >= SEARCH_CACHE_MAX {
-                if let Some(oldest) = entries
-                    .iter()
-                    .min_by_key(|(_, v)| v.cached_at)
-                    .map(|(k, _)| k.clone())
-                {
-                    entries.remove(&oldest);
+        if cacheable {
+            if let Ok(mut entries) = self.entries.lock() {
+                entries.retain(|_, v| v.cached_at.elapsed() < SEARCH_CACHE_TTL);
+                if entries.len() >= SEARCH_CACHE_MAX {
+                    if let Some(oldest) = entries
+                        .iter()
+                        .min_by_key(|(_, v)| v.cached_at)
+                        .map(|(k, _)| k.clone())
+                    {
+                        entries.remove(&oldest);
+                    }
                 }
+                entries.insert(
+                    key.clone(),
+                    CachedCandidates {
+                        cached_at: Instant::now(),
+                        candidates: candidates.clone(),
+                    },
+                );
             }
-            entries.insert(
-                key.clone(),
-                CachedCandidates {
-                    cached_at: Instant::now(),
-                    candidates: candidates.clone(),
-                },
-            );
         }
         drop(guard);
         self.remove_flight_if_unused(&key, &gate);
@@ -2605,6 +2624,37 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
 {
+    complete_playback_candidate_search_observed(
+        track,
+        providers,
+        _alternate_artist,
+        found,
+        cancel,
+        deadline,
+        catalog,
+        None,
+    )
+    .await
+    .map(|(found, _cacheable)| found)
+}
+
+/// Diagnostic-only observation point: `found` is the complete flat-search
+/// batch, while the optional catalog branch is still pending. This never
+/// changes what is cached or returned by the search.
+async fn complete_playback_candidate_search_observed<F, Fut>(
+    track: &Track,
+    providers: &[String],
+    _alternate_artist: Option<&str>,
+    mut found: Vec<Candidate>,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    catalog: F,
+    observe_flat_batch: Option<Box<dyn FnOnce(Vec<Candidate>) + Send>>,
+) -> Result<(Vec<Candidate>, bool), String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+{
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
@@ -2612,8 +2662,7 @@ where
         return Err("Playback candidate search timed out".into());
     }
     let optional_budget = optional_playback_research_budget(deadline.remaining());
-    if !optional_budget.is_zero()
-        && providers.len() == 1
+    let optional_eligible = providers.len() == 1
         && providers[0] == "youtube"
         && track.playback_range.is_none()
         && !track.provenance["chapters"]
@@ -2627,21 +2676,28 @@ where
         })
         && !found
             .iter()
-            .any(|candidate| crate::source_fallback::playback_recording_matches(track, candidate))
-    {
+            .any(|candidate| crate::source_fallback::playback_recording_matches(track, candidate));
+    let mut cacheable = !optional_eligible;
+    if optional_eligible && !optional_budget.is_zero() {
+        if let Some(observe) = observe_flat_batch {
+            observe(found.clone());
+        }
         match tokio::select! {
             biased;
             _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
             result = tokio::time::timeout(optional_budget, catalog()) => result.unwrap_or_else(|_| Err("Optional playback catalog search timed out".into())),
         } {
-            Ok(items) => found.extend(items),
+            Ok(items) => {
+                found.extend(items);
+                cacheable = true;
+            }
             Err(error) if *cancel.borrow() || error == "Cancelled" => {
                 return Err("Cancelled".into())
             }
-            Err(_) => {} // Optional research failure retains ordinary search candidates.
+            Err(_) => cacheable = false, // Keep flat rows available, but retry optional work later.
         }
     }
-    Ok(found)
+    Ok((found, cacheable))
 }
 
 fn playback_candidate_search_cache_key(
@@ -2654,6 +2710,24 @@ fn playback_candidate_search_cache_key(
         "{}:playback-source-search:{}",
         search_cache_key(track, provider_ids, settings, 3),
         serde_json::to_string(alternate_artists).unwrap_or_default(),
+    )
+}
+
+fn flat_playback_candidate_search_cache_key(
+    track: &Track,
+    provider: &str,
+    settings: &Settings,
+    alternate_artists: &[String],
+) -> String {
+    format!(
+        "flat:{}:{}",
+        playback_candidate_search_cache_key(
+            track,
+            &[provider.to_owned()],
+            settings,
+            alternate_artists,
+        ),
+        provider
     )
 }
 
@@ -3164,6 +3238,43 @@ async fn resolve_bandcamp_preview_audio(
 /// signed URL. Check real bytes before caching it or handing it to the webview.
 /// A single delayed 403 retry gives the same URL time to propagate; throttling
 /// and server errors use a shorter backoff.
+#[cfg(test)]
+pub(crate) async fn diagnostic_verify_preview_audio_access(
+    client: &reqwest::Client,
+    stream: &url::Url,
+    expected_content_length: u64,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<(), String> {
+    verify_preview_audio_access(client, stream, &[], Some(expected_content_length), cancel).await
+}
+
+/// Diagnostic hybrid arm: the production bounded tail checks, with no separate
+/// head request. Its initial native reader must validate and retain the prefix.
+#[cfg(test)]
+pub(crate) async fn diagnostic_verify_preview_audio_tail(
+    client: &reqwest::Client,
+    stream: &url::Url,
+    length: u64,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<(), String> {
+    if length <= PREVIEW_TAIL_PROBE_THRESHOLD {
+        return Err("Diagnostic requires the production tail threshold".into());
+    }
+    let range = (length - 1024, length - 1);
+    let response = send_preview_range(
+        client,
+        stream,
+        &[],
+        range,
+        cancel.clone(),
+        None,
+        "other",
+        "tail",
+    )
+    .await?;
+    validate_preview_range(response, range, length, cancel, None, "other", "tail").await
+}
+
 async fn verify_preview_audio_access(
     client: &reqwest::Client,
     stream: &url::Url,
@@ -4795,6 +4906,7 @@ impl AcquisitionManager {
             cancel,
             deadline,
             None,
+            None,
         )
         .await
     }
@@ -4817,6 +4929,82 @@ impl AcquisitionManager {
             cancel,
             deadline,
             Some(trace),
+            None,
+        )
+        .await
+    }
+
+    /// Warm only the flat provider discovery rows. These entries are never
+    /// returned as a completed playback search: foreground still performs its
+    /// request-scoped optional catalog work before populating the full cache.
+    pub(crate) async fn warm_playback_candidates_cancelled(
+        &self,
+        track: &Track,
+        alternate_artists: &[String],
+        provider_ids: &[String],
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<usize, String> {
+        let search_track = track_for_playback_source_search(track);
+        let alternate_artist = alternate_artists.first().cloned();
+        let mut warmed_count = 0;
+        for provider in provider_ids {
+            if *cancel.borrow() {
+                return Err("Cancelled".into());
+            }
+            if deadline.remaining().is_zero() {
+                return Err("Playback candidate search timed out".into());
+            }
+            let key = flat_playback_candidate_search_cache_key(
+                track,
+                provider,
+                settings,
+                alternate_artists,
+            );
+            let found = self
+                .inner
+                .search_cache
+                .get_or_search_cancelled(key, cancel.clone(), || async {
+                    find_candidates_with_cancel_until_alias(
+                        &search_track,
+                        std::slice::from_ref(provider),
+                        settings,
+                        cancel.clone(),
+                        PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                        PREVIEW_SEARCH_TIMEOUT,
+                        Some(deadline),
+                        alternate_artist.clone(),
+                    )
+                    .await
+                })
+                .await?;
+            warmed_count += found.len();
+        }
+        Ok(warmed_count)
+    }
+
+    #[cfg(feature = "playback-early-candidate-experiment")]
+    pub(crate) async fn prefetch_playback_candidates_with_early_observer(
+        &self,
+        track: &Track,
+        alternate_artists: &[String],
+        provider_ids: &[String],
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        trace: crate::playback_sources::SourceTrace,
+        observe: Box<dyn FnOnce(Vec<Candidate>) + Send>,
+    ) -> Result<Vec<Candidate>, String> {
+        self.playback_candidates_cached(
+            track,
+            alternate_artists,
+            provider_ids,
+            settings,
+            cancel,
+            deadline,
+            Some(trace),
+            Some(observe),
         )
         .await
     }
@@ -4830,28 +5018,49 @@ impl AcquisitionManager {
         cancel: watch::Receiver<bool>,
         deadline: crate::playback_sources::PlaybackDeadline,
         trace: Option<crate::playback_sources::SourceTrace>,
+        observe_flat_batch: Option<Box<dyn FnOnce(Vec<Candidate>) + Send>>,
     ) -> Result<Vec<Candidate>, String> {
         let search_track = track_for_playback_source_search(track);
-        // Warmup and foreground must cache the same complete search. Otherwise
-        // a flat-only warmup hit can suppress the foreground catalog locator.
+        // The completed cache stores only full request-scoped results; warmup
+        // rows live under a separate flat-only key and are merged below.
         let key =
             playback_candidate_search_cache_key(track, provider_ids, settings, alternate_artists);
         let alternate_artist = alternate_artists.first().cloned();
+        let flat_key = if provider_ids.len() == 1 {
+            Some(flat_playback_candidate_search_cache_key(
+                track,
+                &provider_ids[0],
+                settings,
+                alternate_artists,
+            ))
+        } else {
+            None
+        };
         self.inner
             .search_cache
-            .get_or_search_cancelled_observed(key, cancel.clone(), trace, || async {
-                let found = find_candidates_with_cancel_until_alias(
-                    &search_track,
-                    provider_ids,
-                    settings,
-                    cancel.clone(),
-                    PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
-                    PREVIEW_SEARCH_TIMEOUT,
-                    Some(deadline),
-                    alternate_artist.clone(),
-                )
-                .await?;
-                complete_playback_candidate_search(
+            .get_or_search_cancelled_observed_decided(key, cancel.clone(), trace, || async {
+                let search_flat = || async {
+                    find_candidates_with_cancel_until_alias(
+                        &search_track,
+                        provider_ids,
+                        settings,
+                        cancel.clone(),
+                        PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                        PREVIEW_SEARCH_TIMEOUT,
+                        Some(deadline),
+                        alternate_artist.clone(),
+                    )
+                    .await
+                };
+                let found = if let Some(flat_key) = flat_key {
+                    self.inner
+                        .search_cache
+                        .get_or_search_cancelled(flat_key, cancel.clone(), search_flat)
+                        .await?
+                } else {
+                    search_flat().await?
+                };
+                complete_playback_candidate_search_observed(
                     &search_track,
                     provider_ids,
                     alternate_artist.as_deref(),
@@ -4869,6 +5078,7 @@ impl AcquisitionManager {
                         .await?;
                         Ok(playback_music_catalog_candidates(&search_track, items))
                     },
+                    observe_flat_batch,
                 )
                 .await
             })
@@ -7040,6 +7250,133 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn flat_warm_cache_is_distinct_and_foreground_completes_catalog_before_caching() {
+        let cache = CandidateSearchCache::default();
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            ..Track::default()
+        };
+        let provider = "youtube".to_owned();
+        let providers = vec![provider.clone()];
+        let aliases = vec!["Verified Alias".to_owned()];
+        let settings = Settings::default();
+        let flat_key =
+            flat_playback_candidate_search_cache_key(&track, &provider, &settings, &aliases);
+        let full_key = playback_candidate_search_cache_key(&track, &providers, &settings, &aliases);
+        assert_ne!(flat_key, full_key);
+
+        let (_tx, cancel) = idle_cancel();
+        let flat_row = Candidate {
+            id: "youtube:flat-row".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        cache
+            .get_or_search_cancelled(flat_key.clone(), cancel.clone(), || async {
+                Ok(vec![flat_row.clone()])
+            })
+            .await
+            .unwrap();
+
+        let catalog_calls = std::sync::atomic::AtomicUsize::new(0);
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20));
+        let completed = cache
+            .get_or_search_cancelled(full_key.clone(), cancel.clone(), || async {
+                let flat = cache
+                    .get_or_search_cancelled(flat_key.clone(), cancel.clone(), || async {
+                        panic!("warm flat result should be reused")
+                    })
+                    .await?;
+                complete_playback_candidate_search(
+                    &track,
+                    &providers,
+                    aliases.first().map(String::as_str),
+                    flat,
+                    cancel.clone(),
+                    deadline,
+                    || async {
+                        catalog_calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(vec![Candidate {
+                            id: "youtube:catalog-locator".into(),
+                            provider: "youtube".into(),
+                            ..Candidate::default()
+                        }])
+                    },
+                )
+                .await
+            })
+            .await
+            .unwrap();
+        assert_eq!(completed.len(), 2);
+        assert_eq!(catalog_calls.load(Ordering::SeqCst), 1);
+
+        let foreground = cache
+            .get_or_search_cancelled(full_key, cancel, || async {
+                panic!("completed foreground result should now be cached")
+            })
+            .await
+            .unwrap();
+        assert_eq!(foreground[1].id, "youtube:catalog-locator");
+        assert_eq!(catalog_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn flat_batch_observer_runs_before_catalog_and_does_not_finish_search_early() {
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let (_tx, cancel) = idle_cancel();
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20));
+        let (batch_tx, mut batch_rx) = tokio::sync::oneshot::channel();
+        let (catalog_tx, catalog_rx) = tokio::sync::oneshot::channel();
+        let search = complete_playback_candidate_search_observed(
+            &track,
+            &providers,
+            None,
+            vec![Candidate {
+                id: "youtube:flat-row".into(),
+                ..Candidate::default()
+            }],
+            cancel,
+            deadline,
+            || async move {
+                let _ = catalog_tx.send(());
+                std::future::pending::<Result<Vec<Candidate>, String>>().await
+            },
+            Some(Box::new(move |batch| {
+                let _ = batch_tx.send(batch);
+            })),
+        );
+        tokio::pin!(search);
+        // Poll the search while waiting for its observer. Awaiting the receiver
+        // alone would leave this lazy future unpolled and falsely time out.
+        let batch = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::select! {
+                batch = &mut batch_rx => batch.expect("observer should deliver the flat batch"),
+                _ = &mut search => panic!("search must remain pending in catalog"),
+            }
+        })
+        .await
+        .expect("flat batch should be available before catalog completion");
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].id, "youtube:flat-row");
+        tokio::time::timeout(Duration::from_millis(100), catalog_rx)
+            .await
+            .expect("catalog branch should start after observer delivery")
+            .expect("catalog-start signal should be delivered");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), &mut search)
+                .await
+                .is_err(),
+            "the full search must remain pending until catalog settles"
+        );
+    }
+
+    #[tokio::test]
     async fn known_duration_unverified_search_results_allow_exact_catalog_fallback() {
         let track = Track {
             artist: "John Denver".into(),
@@ -7095,24 +7432,35 @@ mod tests {
         let providers = vec!["youtube".into()];
         let (tx, cancel) = watch::channel(false);
         let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20));
+        let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed_callback = observed.clone();
         let result = cache
-            .get_or_search_cancelled("completion".into(), cancel.clone(), || async {
-                complete_playback_candidate_search(
-                    &track,
-                    &providers,
-                    None,
-                    vec![],
-                    cancel.clone(),
-                    deadline,
-                    || async {
-                        tx.send_replace(true);
-                        std::future::pending::<Result<Vec<Candidate>, String>>().await
-                    },
-                )
-                .await
-            })
+            .get_or_search_cancelled_observed_decided(
+                "completion".into(),
+                cancel.clone(),
+                None,
+                || async {
+                    complete_playback_candidate_search_observed(
+                        &track,
+                        &providers,
+                        None,
+                        vec![],
+                        cancel.clone(),
+                        deadline,
+                        || async {
+                            tx.send_replace(true);
+                            std::future::pending::<Result<Vec<Candidate>, String>>().await
+                        },
+                        Some(Box::new(move |_batch| {
+                            observed_callback.store(true, Ordering::SeqCst);
+                        })),
+                    )
+                    .await
+                },
+            )
             .await;
         assert_eq!(result.unwrap_err(), "Cancelled");
+        assert!(observed.load(Ordering::SeqCst));
         let (_tx, fresh) = idle_cancel();
         let result = cache
             .get_or_search_cancelled("completion".into(), fresh, || async {
@@ -7160,7 +7508,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn optional_catalog_timeout_retains_and_caches_collected_search_rows() {
+    async fn optional_catalog_timeout_returns_flat_rows_without_caching_incomplete_search() {
         let cache = CandidateSearchCache::default();
         let track = Track {
             artist: "Catalog Artist".into(),
@@ -7173,32 +7521,95 @@ mod tests {
             PLAYBACK_EXTRACTION_RESERVE + Duration::from_millis(25),
         );
         let result = cache
-            .get_or_search_cancelled("completion".into(), cancel.clone(), || async {
-                complete_playback_candidate_search(
-                    &track,
-                    &providers,
-                    None,
-                    vec![Candidate {
-                        id: "ordinary-search-row".into(),
-                        ..Candidate::default()
-                    }],
-                    cancel.clone(),
-                    deadline,
-                    || std::future::pending::<Result<Vec<Candidate>, String>>(),
-                )
-                .await
-            })
+            .get_or_search_cancelled_observed_decided(
+                "completion".into(),
+                cancel.clone(),
+                None,
+                || async {
+                    complete_playback_candidate_search_observed(
+                        &track,
+                        &providers,
+                        None,
+                        vec![Candidate {
+                            id: "ordinary-search-row".into(),
+                            ..Candidate::default()
+                        }],
+                        cancel.clone(),
+                        deadline,
+                        || std::future::pending::<Result<Vec<Candidate>, String>>(),
+                        None,
+                    )
+                    .await
+                },
+            )
             .await
             .unwrap();
         assert_eq!(result[0].id, "ordinary-search-row");
         assert!(deadline.remaining() > Duration::from_secs(7));
         let cached = cache
             .get_or_search_cancelled("completion".into(), cancel, || async {
-                panic!("optional research timeout must retain a usable flat-search cache entry")
+                Ok(vec![Candidate {
+                    id: "foreground-retry".into(),
+                    ..Candidate::default()
+                }])
             })
             .await
             .unwrap();
-        assert_eq!(cached[0].id, "ordinary-search-row");
+        assert_eq!(cached[0].id, "foreground-retry");
+    }
+
+    #[tokio::test]
+    async fn warm_budget_without_catalog_time_is_not_a_full_search_cache_hit() {
+        let cache = CandidateSearchCache::default();
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let (_tx, cancel) = idle_cancel();
+        let deadline =
+            crate::playback_sources::PlaybackDeadline::after(PLAYBACK_EXTRACTION_RESERVE);
+        let warm_key = "budgeted-completion".to_owned();
+        let warmed = cache
+            .get_or_search_cancelled_observed_decided(
+                warm_key.clone(),
+                cancel.clone(),
+                None,
+                || async {
+                    complete_playback_candidate_search_observed(
+                        &track,
+                        &providers,
+                        None,
+                        vec![Candidate {
+                            id: "flat-only".into(),
+                            ..Candidate::default()
+                        }],
+                        cancel.clone(),
+                        deadline,
+                        || async { panic!("catalog must not start with zero budget") },
+                        None,
+                    )
+                    .await
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(warmed[0].id, "flat-only");
+
+        let retry_calls = std::sync::atomic::AtomicUsize::new(0);
+        let foreground = cache
+            .get_or_search_cancelled(warm_key, cancel, || async {
+                retry_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![Candidate {
+                    id: "foreground-complete".into(),
+                    ..Candidate::default()
+                }])
+            })
+            .await
+            .unwrap();
+        assert_eq!(foreground[0].id, "foreground-complete");
+        assert_eq!(retry_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

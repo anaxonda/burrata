@@ -5695,3 +5695,716 @@ mod seek_queue_tests {
 #[cfg(test)]
 #[path = "native_preload_tests.rs"]
 mod reliability_tests;
+
+/// Diagnostic-only comparison: production preflight + native URL open versus
+/// a validated owned StreamDownload handed to the same native decoder. No device.
+#[cfg(test)]
+mod validation_handoff_diagnostic {
+    use super::*;
+    use std::io::{Seek, SeekFrom, Write};
+    use std::net::TcpListener;
+
+    #[derive(Clone, Copy, Debug)]
+    enum Fault {
+        None,
+        WrongTailRange,
+        TruncatedTail,
+        CorruptAudio,
+        WrongInitialRange,
+        WrongInitialLength,
+        InitialHtml,
+        TruncatedPrefix,
+    }
+
+    // The downloader may repair a short response with another range request.
+    // Observe the underlying transport, rather than mistaking a completed read
+    // for equivalence with preflight's strict single-response validation.
+    #[derive(Clone)]
+    struct ObservedHttpClient {
+        inner: native_http::NativeHttpClient,
+        failures: Arc<AtomicU64>,
+    }
+    struct ObservedHttpResponse {
+        inner: native_http::NativeHttpResponse,
+        failures: Arc<AtomicU64>,
+    }
+    impl stream_download::http::Client for ObservedHttpClient {
+        type Url = <native_http::NativeHttpClient as stream_download::http::Client>::Url;
+        type Headers = <native_http::NativeHttpClient as stream_download::http::Client>::Headers;
+        type Response = ObservedHttpResponse;
+        type Error = native_http::NativeHttpError;
+        fn create() -> Self {
+            Self {
+                inner: stream_download::http::Client::create(),
+                failures: Arc::new(AtomicU64::new(0)),
+            }
+        }
+        async fn get(&self, url: &Self::Url) -> Result<Self::Response, Self::Error> {
+            let response = stream_download::http::Client::get(&self.inner, url).await;
+            if response.is_err() {
+                self.failures.fetch_add(1, Ordering::Relaxed);
+            }
+            response.map(|inner| ObservedHttpResponse {
+                inner,
+                failures: self.failures.clone(),
+            })
+        }
+        async fn get_range(
+            &self,
+            url: &Self::Url,
+            start: u64,
+            end: Option<u64>,
+        ) -> Result<Self::Response, Self::Error> {
+            let response =
+                stream_download::http::Client::get_range(&self.inner, url, start, end).await;
+            if response.is_err() {
+                self.failures.fetch_add(1, Ordering::Relaxed);
+            }
+            response.map(|inner| ObservedHttpResponse {
+                inner,
+                failures: self.failures.clone(),
+            })
+        }
+    }
+    impl stream_download::http::ClientResponse for ObservedHttpResponse {
+        type ResponseError = native_http::NativeHttpError;
+        type StreamError = native_http::NativeHttpError;
+        type Headers =
+            <native_http::NativeHttpResponse as stream_download::http::ClientResponse>::Headers;
+        fn content_length(&self) -> Option<u64> {
+            stream_download::http::ClientResponse::content_length(&self.inner)
+        }
+        fn content_type(&self) -> Option<&str> {
+            stream_download::http::ClientResponse::content_type(&self.inner)
+        }
+        fn headers(&self) -> Self::Headers {
+            stream_download::http::ClientResponse::headers(&self.inner)
+        }
+        fn into_result(self) -> Result<Self, Self::ResponseError> {
+            let Self { inner, failures } = self;
+            let result = stream_download::http::ClientResponse::into_result(inner);
+            if result.is_err() {
+                failures.fetch_add(1, Ordering::Relaxed);
+            }
+            result.map(|inner| Self { inner, failures })
+        }
+        fn stream(
+            self,
+        ) -> Box<
+            dyn futures_util::Stream<Item = Result<axum::body::Bytes, Self::StreamError>>
+                + Unpin
+                + Send
+                + Sync,
+        > {
+            use futures_util::StreamExt;
+            let failures = self.failures;
+            Box::new(
+                stream_download::http::ClientResponse::stream(self.inner).inspect(move |result| {
+                    if result.is_err() {
+                        failures.fetch_add(1, Ordering::Relaxed);
+                    }
+                }),
+            )
+        }
+    }
+
+    #[derive(Clone, serde::Serialize)]
+    struct Request {
+        ranged: bool,
+        start: usize,
+        end: usize,
+        accepted_body_bytes: usize,
+    }
+
+    struct Fixture {
+        url: String,
+        length: usize,
+        requests: Arc<std::sync::Mutex<Vec<Request>>>,
+        stop: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+    }
+    impl Fixture {
+        fn start(rtt_ms: u64, fault: Fault) -> Self {
+            let mut wav = Vec::new();
+            let frames = 48_000usize * 15;
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&(36 + frames as u32 * 2).to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            wav.extend_from_slice(&16u32.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&48_000u32.to_le_bytes());
+            wav.extend_from_slice(&96_000u32.to_le_bytes());
+            wav.extend_from_slice(&2u16.to_le_bytes());
+            wav.extend_from_slice(&16u16.to_le_bytes());
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&(frames as u32 * 2).to_le_bytes());
+            for frame in 0..frames {
+                wav.extend_from_slice(&(((frame % 97) as i16 - 48) * 300).to_le_bytes());
+            }
+            if matches!(fault, Fault::CorruptAudio) {
+                wav[..64].fill(b'X');
+            }
+            let bytes = Arc::new(wav);
+            let length = bytes.len();
+            assert!(
+                length > 1024 * 1024,
+                "must exercise production tail preflight"
+            );
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/fixture.wav", listener.local_addr().unwrap());
+            listener.set_nonblocking(true).unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let (worker_stop, worker_requests) = (stop.clone(), requests.clone());
+            let worker = thread::spawn(move || {
+                let mut clients = Vec::new();
+                while !worker_stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((mut socket, _)) => {
+                            let (bytes, stop, requests) =
+                                (bytes.clone(), worker_stop.clone(), worker_requests.clone());
+                            clients.push(thread::spawn(move || {
+                                let _ = socket.set_read_timeout(Some(Duration::from_secs(2)));
+                                let _ = socket.set_write_timeout(Some(Duration::from_secs(2)));
+                                let mut header = Vec::new(); let mut byte = [0];
+                                while !header.ends_with(b"\r\n\r\n") && header.len() < 16_384 {
+                                    if socket.read_exact(&mut byte).is_err() { return; } header.push(byte[0]);
+                                }
+                                let header = String::from_utf8_lossy(&header).to_ascii_lowercase();
+                                let range = header.lines().find_map(|line| line.strip_prefix("range: bytes="));
+                                let (start, end) = range.and_then(|range| range.split_once('-')).map(|(start,end)| {
+                                    (start.parse::<usize>().unwrap(), if end.is_empty() { bytes.len()-1 } else { end.parse::<usize>().unwrap().min(bytes.len()-1) })
+                                }).unwrap_or((0,bytes.len()-1));
+                                if start >= bytes.len() || end < start { return; }
+                                let index = { let mut rows = requests.lock().unwrap(); let index = rows.len(); rows.push(Request {ranged:range.is_some(),start,end,accepted_body_bytes:0}); index };
+                                thread::sleep(Duration::from_millis(rtt_ms));
+                                let status = if range.is_some() { "206 Partial Content" } else { "200 OK" };
+                                let is_tail = start >= bytes.len()-1024;
+                                let declared_length = end-start+1 + usize::from(range.is_none() && matches!(fault, Fault::WrongInitialLength));
+                                let mime = if range.is_none() && matches!(fault, Fault::InitialHtml) { "text/html" } else { "audio/wav" };
+                                if write!(socket,"HTTP/1.1 {status}\r\nContent-Length: {declared_length}\r\nContent-Type: {mime}\r\nAccept-Ranges: bytes\r\nETag: \"fixture-stable\"\r\nConnection: close\r\n").is_err(){return;}
+                                if range.is_none() && matches!(fault, Fault::WrongInitialRange) {
+                                    if write!(socket,"Content-Range: bytes 1-{end}/{}\r\n",bytes.len()).is_err(){return;}
+                                }
+                                if range.is_some() {
+                                    let reported_start = if is_tail && matches!(fault,Fault::WrongTailRange) { start+1 } else { start };
+                                    if write!(socket,"Content-Range: bytes {reported_start}-{end}/{}\r\n",bytes.len()).is_err(){return;}
+                                }
+                                if socket.write_all(b"\r\n").is_err(){return;}
+                                let actual_end = if (is_tail && matches!(fault,Fault::TruncatedTail)) || (start == 0 && matches!(fault,Fault::TruncatedPrefix)) { start+255 } else { end };
+                                for chunk in bytes[start..=actual_end].chunks(8192) {
+                                    if stop.load(Ordering::Relaxed) { break; }
+                                    if socket.write_all(chunk).is_err() { break; }
+                                    requests.lock().unwrap()[index].accepted_body_bytes += chunk.len();
+                                    // Keep the tail outside the initial 32KiB buffered prefix.
+                                    thread::sleep(Duration::from_millis(2));
+                                }
+                            }));
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(1))
+                        }
+                        Err(error) => panic!("fixture accept: {error}"),
+                    }
+                }
+                for client in clients {
+                    client.join().unwrap();
+                }
+            });
+            Self {
+                url,
+                length,
+                requests,
+                stop,
+                worker: Some(worker),
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(worker) = self.worker.take() {
+                worker.join().unwrap();
+            }
+        }
+    }
+
+    struct DeadlineStop {
+        done: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+    }
+    impl DeadlineStop {
+        fn start(cancel: Arc<AtomicBool>) -> Self {
+            let done = Arc::new(AtomicBool::new(false));
+            let observed = done.clone();
+            let worker = thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(6);
+                while !observed.load(Ordering::Relaxed) && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                if !observed.load(Ordering::Relaxed) {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            });
+            Self {
+                done,
+                worker: Some(worker),
+            }
+        }
+    }
+    impl Drop for DeadlineStop {
+        fn drop(&mut self) {
+            self.done.store(true, Ordering::Relaxed);
+            if let Some(worker) = self.worker.take() {
+                worker.join().unwrap();
+            }
+        }
+    }
+
+    fn arm(
+        fixture: &Fixture,
+        handoff: bool,
+        enforce_response_errors: bool,
+    ) -> (serde_json::Value, Vec<f32>) {
+        arm_with_hybrid(fixture, handoff, enforce_response_errors, false)
+    }
+
+    fn arm_with_hybrid(
+        fixture: &Fixture,
+        handoff: bool,
+        enforce_response_errors: bool,
+        hybrid: bool,
+    ) -> (serde_json::Value, Vec<f32>) {
+        let session = Arc::new(DecoderSession::default());
+        let cancelled = Arc::new(AtomicBool::new(false));
+        session.bind(&cancelled);
+        session.set_startup_deadline(Some(Instant::now() + Duration::from_secs(5)));
+        let _deadline_stop = DeadlineStop::start(cancelled.clone());
+        let (tx, rx) = std_mpsc::sync_channel(8);
+        let diagnostics = Arc::new(std::sync::Mutex::new(None));
+        let source = AudioSource {
+            input: fixture.url.clone(),
+            ffmpeg: "diagnostic-ffmpeg-unavailable".into(),
+            headers: vec![],
+            decoder_hint: None,
+        };
+        let (url, length) = (fixture.url.clone(), fixture.length as u64);
+        let (worker_session, worker_cancel, worker_diagnostics) =
+            (session.clone(), cancelled.clone(), diagnostics.clone());
+        let validation_http_failures = Arc::new(AtomicU64::new(0));
+        let observed_failures = validation_http_failures.clone();
+        let started = Instant::now();
+        let worker = thread::spawn(move || -> Result<serde_json::Value, String> {
+            let runtime = network_runtime()?;
+            let validation_started = Instant::now();
+            let mut owned_reader_setup_ms = None;
+            let mut owned_decoder_setup_ms = None;
+            if handoff {
+                use stream_download::{
+                    http::HttpStream,
+                    storage::{adaptive::AdaptiveStorageProvider, temp::TempStorageProvider},
+                    Settings, StreamDownload,
+                };
+                let setup_started = Instant::now();
+                let faults = worker_session.storage_faults.clone();
+                let transport_failures = observed_failures.clone();
+                let mut reader = await_remote_reader_setup(
+                    runtime,
+                    worker_cancel.clone(),
+                    worker_session.startup_deadline(),
+                    async move {
+                        let tail_url = url.clone();
+                        let reader_setup = async move {
+                            let client = stream_download::http::reqwest::Client::builder()
+                                .no_proxy()
+                                .connect_timeout(Duration::from_secs(2))
+                                .build()
+                                .map_err(|e| e.to_string())?;
+                            let stream = HttpStream::new(
+                                ObservedHttpClient {
+                                    inner: native_http::NativeHttpClient::new(client),
+                                    failures: transport_failures,
+                                },
+                                url.parse().map_err(|e: url::ParseError| e.to_string())?,
+                            )
+                            .await
+                            .map_err(|e| e.to_string())?;
+                            if stream.content_type().as_ref().is_none_or(|mime| {
+                                format!("{}/{}", mime.r#type, mime.subtype) != "audio/wav"
+                            }) {
+                                return Err("fixture MIME mismatch".into());
+                            }
+                            StreamDownload::from_stream(
+                                stream,
+                                AdaptiveStorageProvider::new(
+                                    storage_fault::Observed {
+                                        inner: TempStorageProvider::with_tempfile_builder(|| {
+                                            stream_download::storage::temp::tempfile::Builder::new()
+                                                .tempfile()
+                                        }),
+                                        faults,
+                                    },
+                                    std::num::NonZeroUsize::new(2 * 1024 * 1024).unwrap(),
+                                ),
+                                Settings::default().prefetch_bytes(32 * 1024),
+                            )
+                            .await
+                            .map_err(|e| e.to_string())
+                        };
+                        if hybrid {
+                            let tail_probe = async move {
+                                let client = reqwest::Client::builder()
+                                    .no_proxy()
+                                    .redirect(reqwest::redirect::Policy::none())
+                                    .timeout(Duration::from_secs(4))
+                                    .build()
+                                    .map_err(|e| e.to_string())?;
+                                let (_stop, mut cancel) = tokio::sync::watch::channel(false);
+                                crate::acquisition::diagnostic_verify_preview_audio_tail(
+                                    &client,
+                                    &tail_url
+                                        .parse()
+                                        .map_err(|e: url::ParseError| e.to_string())?,
+                                    length,
+                                    &mut cancel,
+                                )
+                                .await
+                            };
+                            let (reader, ()) = tokio::try_join!(reader_setup, tail_probe)?;
+                            Ok::<_, String>(reader)
+                        } else {
+                            reader_setup.await
+                        }
+                    },
+                )?;
+                owned_reader_setup_ms = Some(setup_started.elapsed().as_secs_f64() * 1000.);
+                if reader.content_length() != Some(length) {
+                    return Err("fixture length mismatch".into());
+                }
+                let token = reader.cancellation_token();
+                let abort = token.clone();
+                register_download_cancellation(
+                    runtime,
+                    &worker_session,
+                    move || abort.cancel(),
+                    move || token.is_cancelled(),
+                );
+                let decoder_started;
+                let decoder = if hybrid {
+                    // Retain the actual initial response prefix and rewind inside
+                    // this same buffer; never seek the downloader to the tail.
+                    let mut retained = BufReader::with_capacity(
+                        32 * 1024,
+                        Box::new(reader) as Box<dyn ReadSeekSend>,
+                    );
+                    let mut head = [0u8; 1024];
+                    retained
+                        .read_exact(&mut head)
+                        .map_err(|e| format!("hybrid prefix read: {e}"))?;
+                    retained
+                        .seek_relative(-1024)
+                        .map_err(|e| format!("hybrid cached prefix rewind: {e}"))?;
+                    if enforce_response_errors && observed_failures.load(Ordering::Relaxed) > 0 {
+                        return Err("Hybrid initial response failed before handoff".into());
+                    }
+                    decoder_started = Instant::now();
+                    build_native_decoder(retained, Some(length))?
+                } else {
+                    let mut head = [0u8; 1024];
+                    reader
+                        .read_exact(&mut head)
+                        .map_err(|e| format!("owned head read: {e}"))?;
+                    reader
+                        .seek(SeekFrom::Start(length - 1024))
+                        .map_err(|e| format!("owned tail seek: {e}"))?;
+                    let mut tail = [0u8; 1024];
+                    reader
+                        .read_exact(&mut tail)
+                        .map_err(|e| format!("owned tail read: {e}"))?;
+                    reader
+                        .seek(SeekFrom::Start(0))
+                        .map_err(|e| format!("owned rewind: {e}"))?;
+                    if enforce_response_errors && observed_failures.load(Ordering::Relaxed) > 0 {
+                        return Err(
+                            "Owned validation observed a rejected HTTP response before handoff"
+                                .into(),
+                        );
+                    }
+                    decoder_started = Instant::now();
+                    build_native_decoder(
+                        BufReader::new(Box::new(reader) as Box<dyn ReadSeekSend>),
+                        Some(length),
+                    )?
+                };
+                owned_decoder_setup_ms = Some(decoder_started.elapsed().as_secs_f64() * 1000.);
+                *worker_session.decoder.lock().unwrap() = Some(decoder);
+            } else {
+                let (_stop, mut cancel) = tokio::sync::watch::channel(false);
+                runtime.block_on(async {
+                    let client = reqwest::Client::builder()
+                        .no_proxy()
+                        .redirect(reqwest::redirect::Policy::none())
+                        .timeout(Duration::from_secs(4))
+                        .build()
+                        .map_err(|e| e.to_string())?;
+                    crate::acquisition::diagnostic_verify_preview_audio_access(
+                        &client,
+                        &url.parse().map_err(|e: url::ParseError| e.to_string())?,
+                        length,
+                        &mut cancel,
+                    )
+                    .await
+                })?;
+            }
+            let validation_ms = validation_started.elapsed().as_secs_f64() * 1000.;
+            decode_with_session_and_diagnostics(
+                source,
+                0.,
+                Some(0.25),
+                48_000,
+                1,
+                tx,
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                Some(worker_diagnostics),
+                worker_cancel,
+                worker_session,
+            )?;
+            Ok(
+                serde_json::json!({"validationAndPreparationMs":validation_ms,"ownedReaderSetupMs":owned_reader_setup_ms,"ownedDecoderSetupMs":owned_decoder_setup_ms}),
+            )
+        });
+        let mut pcm = Vec::new();
+        let mut first_pcm_ms = None;
+        while let Ok(block) = rx.recv_timeout(Duration::from_secs(7)) {
+            if !block.is_empty() && first_pcm_ms.is_none() {
+                first_pcm_ms = Some(started.elapsed().as_secs_f64() * 1000.);
+            }
+            pcm.extend(block);
+        }
+        cancelled.store(true, Ordering::Relaxed);
+        let result = worker.join().unwrap();
+        let mut report = serde_json::json!({"arm":if hybrid{"owned_prefix_parallel_strict_tail"}else if handoff{"owned_validated_reader_handoff"}else{"separate_preflight_then_production_decode"},"ok":result.is_ok(),"firstPcmMs":first_pcm_ms,"pcmSamples":pcm.len(),"decoder":diagnostics.lock().unwrap().clone()});
+        match result {
+            Ok(stages) => report["stages"] = stages,
+            Err(error) => {
+                report["failure"] =
+                    serde_json::json!(crate::playback::safe_failure_text(&error, 250))
+            }
+        }
+        report["validationObservedHttpFailures"] =
+            serde_json::json!(validation_http_failures.load(Ordering::Relaxed));
+        report["enforceValidationResponseErrors"] = serde_json::json!(enforce_response_errors);
+        let rows = fixture.requests.lock().unwrap().clone();
+        let requested_bytes: usize = rows.iter().map(|row| row.end - row.start + 1).sum();
+        let mut ranges: Vec<_> = rows.iter().map(|row| (row.start, row.end)).collect();
+        ranges.sort_unstable();
+        let mut union = 0;
+        let mut covered: Option<(usize, usize)> = None;
+        for (start, end) in ranges {
+            match covered {
+                Some((old_start, old_end)) if start <= old_end + 1 => {
+                    covered = Some((old_start, old_end.max(end)))
+                }
+                Some((old_start, old_end)) => {
+                    union += old_end - old_start + 1;
+                    covered = Some((start, end));
+                }
+                None => covered = Some((start, end)),
+            }
+        }
+        if let Some((start, end)) = covered {
+            union += end - start + 1;
+        }
+        report["requestCount"] = serde_json::json!(rows.len());
+        report["initialByteRequests"] =
+            serde_json::json!(rows.iter().filter(|row| row.start == 0).count());
+        report["tailRequests"] = serde_json::json!(rows
+            .iter()
+            .filter(|row| row.start >= fixture.length - 1024)
+            .count());
+        report["duplicateRequestedBytes"] = serde_json::json!(requested_bytes - union);
+        report["requests"] = serde_json::json!(rows);
+        (report, pcm)
+    }
+
+    fn snapshot(
+        trials: &[serde_json::Value],
+        safeguards: &[serde_json::Value],
+        unguarded: &Option<serde_json::Value>,
+        completed: bool,
+    ) -> serde_json::Value {
+        let report = serde_json::json!({"schemaVersion":2,"completed":completed,"scope":"diagnostic-only local WAV fixtures; production access probe/native decoder baseline versus test-owned reader handoff; no device, queue, live source, credentials, or production change","limitations":["WAV has no trailing container metadata dependency","owned validation performs head/tail seeks sequentially while preflight probes are parallel","owned decoder cache seeding omits native reader counters; compare outer timings and server request accounting","requested byte overlap is distinct from bytes actually received","three trials per simulated RTT are diagnostic, not a release performance claim","response-error rejection is a test-only baseline-equivalence guard, not a production network retry policy"],"trials":trials,"unguardedTruncatedTailControl":unguarded,"safeguards":safeguards});
+        if let Some(path) = std::env::var_os("BURRATA_VALIDATION_HANDOFF_REPORT") {
+            std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+        }
+        report
+    }
+
+    fn hybrid_snapshot(
+        trials: &[serde_json::Value],
+        safeguards: &[serde_json::Value],
+        completed: bool,
+    ) {
+        let report = serde_json::json!({
+            "schemaVersion":1, "completed":completed,
+            "scope":"cfg(test) only; owned initial native reader with retained 1024-byte prefix and independent production strict bounded tail probe in parallel; no production change",
+            "limitations":[
+                "Initial response uses native complete-resource 200/206 validation, expected total and audio MIME, not a synthetic bounded-206 head response",
+                "Exactly 1024 prefix bytes are retained and rewound in the same BufReader; later complete-body errors remain native transport errors",
+                "Strict tail uses unchanged production bounded range/length/body checks",
+                "Local 15-second PCM WAV, no trailing container metadata dependency, no audio device or live source",
+                "Server accepted bytes are successful server writes, not client-received or first-PCM byte counts",
+                "Three trials per simulated RTT are diagnostic only"
+            ], "trials":trials, "safeguards":safeguards
+        });
+        if let Some(path) = std::env::var_os("BURRATA_HYBRID_HANDOFF_REPORT") {
+            std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "diagnostic-only hybrid retained-prefix/strict-tail comparison; run explicitly"]
+    fn compare_preflight_same_reader_and_hybrid_handoff() {
+        let mut trials = Vec::new();
+        let mut safeguards = Vec::new();
+        hybrid_snapshot(&trials, &safeguards, false);
+        for rtt_ms in [0, 40, 100] {
+            for trial in 0..3 {
+                let mut reference = None;
+                // Rotate arm order to avoid giving one strategy a fixed order.
+                for offset in 0..3 {
+                    let mode = (trial + offset) % 3;
+                    let fixture = Fixture::start(rtt_ms, Fault::None);
+                    let (mut report, pcm) = arm_with_hybrid(&fixture, mode != 0, true, mode == 2);
+                    report["simulatedHandshakeRttMs"] = serde_json::json!(rtt_ms);
+                    report["trial"] = serde_json::json!(trial);
+                    trials.push(report.clone());
+                    hybrid_snapshot(&trials, &safeguards, false);
+                    assert_eq!(report["ok"], true, "{report}");
+                    assert_eq!(pcm.len(), 12_000, "{report}");
+                    if let Some(reference) = reference.as_ref() {
+                        assert_eq!(&pcm, reference);
+                    } else {
+                        reference = Some(pcm);
+                    }
+                    if mode == 2 {
+                        assert_eq!(
+                            report["requestCount"], 2,
+                            "hybrid must avoid gap/reopen: {report}"
+                        );
+                        assert_eq!(report["initialByteRequests"], 1, "{report}");
+                        assert_eq!(report["tailRequests"], 1, "{report}");
+                    }
+                }
+            }
+        }
+        for fault in [
+            Fault::WrongTailRange,
+            Fault::TruncatedTail,
+            Fault::CorruptAudio,
+            Fault::WrongInitialRange,
+            Fault::WrongInitialLength,
+            Fault::InitialHtml,
+            Fault::TruncatedPrefix,
+        ] {
+            for hybrid in [false, true] {
+                let fixture = Fixture::start(10, fault);
+                let (mut report, pcm) = arm_with_hybrid(&fixture, hybrid, true, hybrid);
+                report["fault"] = serde_json::json!(format!("{fault:?}"));
+                // Initial-full-response-only faults do not affect baseline's
+                // earlier bounded head response. Record that independent reopen
+                // honestly; require every hybrid fault to fail before PCM.
+                let required_rejection = hybrid
+                    || !matches!(
+                        fault,
+                        Fault::WrongInitialRange | Fault::WrongInitialLength | Fault::InitialHtml
+                    );
+                report["requiredRejectionBeforePcm"] = serde_json::json!(required_rejection);
+                safeguards.push(report.clone());
+                hybrid_snapshot(&trials, &safeguards, false);
+                if required_rejection {
+                    assert_eq!(report["ok"], false, "fault must fail before PCM: {report}");
+                    assert!(pcm.is_empty(), "fault produced PCM: {report}");
+                }
+            }
+        }
+        hybrid_snapshot(&trials, &safeguards, true);
+    }
+
+    #[test]
+    #[ignore = "diagnostic-only local HTTP preflight/owned-reader comparison; run explicitly"]
+    fn compare_preflight_and_owned_validated_reader_handoff() {
+        let mut trials = Vec::new();
+        let mut safeguards = Vec::new();
+        let mut unguarded = None;
+        snapshot(&trials, &safeguards, &unguarded, false);
+        for rtt_ms in [0, 40, 100] {
+            for trial in 0..3 {
+                let order = if trial % 2 == 0 {
+                    [false, true]
+                } else {
+                    [true, false]
+                };
+                let mut pcm_reference = None;
+                for handoff in order {
+                    let fixture = Fixture::start(rtt_ms, Fault::None);
+                    let (mut report, pcm) = arm(&fixture, handoff, true);
+                    report["simulatedHandshakeRttMs"] = serde_json::json!(rtt_ms);
+                    report["trial"] = serde_json::json!(trial);
+                    report["reopenedByteZero"] =
+                        serde_json::json!(report["initialByteRequests"].as_u64().unwrap() > 1);
+                    trials.push(report.clone());
+                    snapshot(&trials, &safeguards, &unguarded, false);
+                    assert_eq!(report["ok"], true, "{report}");
+                    assert!(!pcm.is_empty());
+                    if let Some(reference) = pcm_reference.as_ref() {
+                        assert_eq!(&pcm, reference, "arms must decode identical PCM");
+                    } else {
+                        pcm_reference = Some(pcm);
+                    }
+                    assert!(
+                        report["tailRequests"].as_u64().unwrap() >= 1,
+                        "tail validation must remain exercised"
+                    );
+                }
+            }
+        }
+        {
+            let fixture = Fixture::start(10, Fault::TruncatedTail);
+            let (mut report, pcm) = arm(&fixture, true, false);
+            report["fault"] = serde_json::json!("TruncatedTail");
+            unguarded = Some(report.clone());
+            snapshot(&trials, &safeguards, &unguarded, false);
+            assert_eq!(
+                report["ok"], true,
+                "unguarded control must reproduce repaired response: {report}"
+            );
+            assert!(!pcm.is_empty());
+            assert!(report["validationObservedHttpFailures"].as_u64().unwrap() > 0);
+        }
+        for fault in [
+            Fault::WrongTailRange,
+            Fault::TruncatedTail,
+            Fault::CorruptAudio,
+        ] {
+            for handoff in [false, true] {
+                let fixture = Fixture::start(10, fault);
+                let (mut report, pcm) = arm(&fixture, handoff, true);
+                report["fault"] = serde_json::json!(format!("{fault:?}"));
+                safeguards.push(report.clone());
+                snapshot(&trials, &safeguards, &unguarded, false);
+                assert_eq!(
+                    report["ok"], false,
+                    "invalid fixture must not qualify: {report}"
+                );
+                assert!(pcm.is_empty(), "invalid fixture must not produce first PCM");
+            }
+        }
+        let report = snapshot(&trials, &safeguards, &unguarded, true);
+        eprintln!("{}", serde_json::to_string(&report).unwrap());
+    }
+}

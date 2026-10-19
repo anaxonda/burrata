@@ -4520,15 +4520,12 @@ async fn warm_playback_candidate_search(
             || serde_json::json!({"requestId":trace_request_id}),
         );
     }
-    let aliases =
-        crate::artist_credit_aliases::cached_verified_artist_alias_tracks(&state.store, &track);
-    let alternate_artists = aliases
-        .iter()
-        .map(|variant| variant.artist.clone())
-        .collect::<Vec<_>>();
+    let alternate_artists =
+        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&state.store, &track)
+            .search_artist_candidates();
     let search = state
         .acquisition
-        .prefetch_playback_candidates_cancelled(
+        .warm_playback_candidates_cancelled(
             &track,
             &alternate_artists,
             std::slice::from_ref(&provider),
@@ -4539,7 +4536,7 @@ async fn warm_playback_candidate_search(
         .await;
     let elapsed_ms = started.elapsed().as_millis();
     let (ok, result_count, cancelled, deadline_expired) = match &search {
-        Ok(found) => (true, Some(found.len()), false, false),
+        Ok(found) => (true, Some(*found), false, false),
         Err(error) => (
             false,
             None,

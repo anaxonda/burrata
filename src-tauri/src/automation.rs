@@ -7914,7 +7914,7 @@ mod tests {
             json!({"kind":"view","view":"settings","settingsCategory":"playback","settingsControl":"playbackStartupTimeout"})
         );
         assert_eq!(
-            sanitize_ui_navigation_completion(&control,"settings","complete").unwrap(),
+            sanitize_ui_navigation_completion(&control, "settings", "complete").unwrap(),
             json!({"status":"complete","targetKind":"view","destination":"settings","settingsCategory":"playback","settingsControl":"playbackStartupTimeout"})
         );
         for arguments in [

@@ -2109,6 +2109,7 @@
     playbackQueueSaveError = savePlaybackQueue(playbackQueue)
       ? ""
       : "Your playback queue couldn't be saved. You can continue listening, but changes may be lost after restarting Burrata.";
+    if (!paused && !resolvingPlayback && !bufferingAudio) prepareUpcomingWebviewCandidate(audio ?? null);
   }
   async function advanceQueue(direction: number, ended = false, failedSkips = 0, requestId: string | null = null) {
     if (nativeActive()) {

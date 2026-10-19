@@ -27,6 +27,28 @@ const QUEUE_KEY: &str = "nativePlaybackQueue.v1";
 const ENGINE_KEY: &str = "playbackEngine.v1";
 const STEADY_BUFFERING_RECOVERY_DELAY: Duration = Duration::from_secs(5);
 
+fn preparation_window_seconds(override_value: Option<&str>) -> f64 {
+    match override_value {
+        Some("45") => 45.,
+        _ => 30.,
+    }
+}
+
+fn configured_preparation_window_seconds() -> f64 {
+    #[cfg(debug_assertions)]
+    {
+        preparation_window_seconds(
+            std::env::var("BURRATA_DIAGNOSTIC_NEXT_PREPARATION_SECONDS")
+                .ok()
+                .as_deref(),
+        )
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        30.
+    }
+}
+
 fn startup_deadline(request_started: Instant, first_audio_seen: bool) -> Instant {
     if first_audio_seen {
         Instant::now() + crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE
@@ -114,6 +136,7 @@ struct PersistedSessionKey {
 }
 
 struct Preloaded {
+    preparation_trace: Option<crate::playback_sources::SourceTrace>,
     generation: u64,
     index: usize,
     entry: String,
@@ -123,6 +146,71 @@ struct Preloaded {
     steady_http_stream: bool,
     offset: f64,
     end: Option<f64>,
+}
+
+/// Identity of one speculative preparation. Queue position and generation alone
+/// can be reused after pause/resume; the watch channel distinguishes its owner.
+struct PreloadPreparationOwner {
+    generation: u64,
+    index: usize,
+    entry: String,
+    cancel: watch::Sender<bool>,
+}
+
+fn preload_preparation_is_current(state: &State, owner: &PreloadPreparationOwner) -> bool {
+    state.generation == owner.generation
+        && state.entries.get(owner.index) == Some(&owner.entry)
+        && state.status == "playing"
+        && !*owner.cancel.borrow()
+        && state
+            .preload_cancel
+            .as_ref()
+            .is_some_and(|current| current.same_channel(&owner.cancel))
+}
+
+/// Called under the ownership lock after asynchronous resolution. In particular,
+/// a late failure cannot clear the replacement preparation's cancellation slot.
+fn finish_preload_resolution<T>(
+    state: &mut State,
+    owner: &PreloadPreparationOwner,
+    result: Result<T, String>,
+) -> Option<T> {
+    if !preload_preparation_is_current(state, owner) {
+        return None;
+    }
+    match result {
+        Ok(value) => Some(value),
+        Err(_) => {
+            state.preload_cancel = None;
+            None
+        }
+    }
+}
+
+fn cancel_preload_state(state: &mut State) {
+    if let Some(cancel) = state.preload_cancel.take() {
+        cancel.send_replace(true);
+    }
+    state.preload = None;
+}
+
+fn apply_device_lost(state: &mut State, generation: u64, position: f64, reason: &str) -> bool {
+    if state.generation != generation {
+        return false;
+    }
+    // Output discarded its queued readers with the lost device. Retire their
+    // service-side owner too, so reconnect can prepare the next occurrence again.
+    cancel_preload_state(state);
+    state.position = (position - state.offset).max(0.);
+    state.output_ready = false;
+    if state.status != "paused" {
+        state.status = "buffering".into();
+        state.message = format!("Audio output interrupted ({reason}); reconnecting…");
+    } else {
+        state.message = format!("Audio output interrupted ({reason}); reconnecting while paused…");
+    }
+    state.revision += 1;
+    true
 }
 
 struct State {
@@ -2090,21 +2178,10 @@ impl PlaybackService {
             } => {
                 if self.current(generation) {
                     let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-                    if s.generation != generation {
+                    if !apply_device_lost(&mut s, generation, position, &reason) {
                         return;
                     }
-                    s.position = (position - s.offset).max(0.);
-                    s.output_ready = false;
                     self.inner.audible.send_replace(false);
-                    if s.status != "paused" {
-                        s.status = "buffering".into();
-                        s.message = format!("Audio output interrupted ({reason}); reconnecting…");
-                    } else {
-                        s.message = format!(
-                            "Audio output interrupted ({reason}); reconnecting while paused…"
-                        );
-                    }
-                    s.revision += 1;
                     drop(s);
                     self.publish();
                 }
@@ -2152,10 +2229,7 @@ impl PlaybackService {
     }
     fn clear_preload(&self) {
         let mut s = self.inner.state.lock().unwrap();
-        if let Some(cancel) = s.preload_cancel.take() {
-            let _ = cancel.send(true);
-        }
-        s.preload = None;
+        cancel_preload_state(&mut s);
         let _ = self.inner.output.send(OutputCommand::ClearPreload {
             generation: s.generation,
         });
@@ -2188,7 +2262,7 @@ impl PlaybackService {
         });
     }
     fn prepare_next(&self) {
-        let (g, index, entry, track, cancel) = {
+        let (owner, track, cancel) = {
             let mut s = self.inner.state.lock().unwrap();
             if s.status != "playing" || s.station.is_some() || s.preload_cancel.is_some() {
                 return;
@@ -2201,12 +2275,36 @@ impl PlaybackService {
                 return;
             }
             let (tx, rx) = watch::channel(false);
-            s.preload_cancel = Some(tx);
-            (s.generation, index, s.entries[index].clone(), track, rx)
+            s.preload_cancel = Some(tx.clone());
+            let owner = PreloadPreparationOwner {
+                generation: s.generation,
+                index,
+                entry: s.entries[index].clone(),
+                cancel: tx,
+            };
+            (owner, track, rx)
         };
         let track = self.track_with_registered_chapter_asset(&track);
         let service = self.clone();
+        let window_seconds = configured_preparation_window_seconds();
+        let operation_id = format!("preparation:{}", uuid::Uuid::new_v4());
+        let trace =
+            crate::playback_sources::SourceTrace::new(Some(operation_id.clone()), None, None);
         tauri::async_runtime::spawn(async move {
+            let span = crate::playback_sources::TraceSpan::begin(
+                trace.clone(),
+                "other",
+                "next_preparation_start",
+                "next_preparation_end",
+            );
+            trace.event(
+                "next_preparation_policy",
+                "other",
+                json!({
+                    "windowSeconds":window_seconds,"generation":owner.generation,
+                    "localSource":track.local_path.is_some(),
+                }),
+            );
             let mut updates = service.subscribe();
             // Stable candidate discovery can be reused; expiring stream URLs
             // and decoder preparation wait until the next occurrence is near.
@@ -2216,14 +2314,20 @@ impl PlaybackService {
                     if settings.streaming_fallback_enabled {
                         providers.extend(settings.streaming_fallback_sources.iter().cloned());
                     }
-                    providers.sort();
-                    providers.dedup();
-                    let _ = service
+                    let mut seen = HashSet::new();
+                    providers.retain(|provider| seen.insert(provider.clone()));
+                    let aliases =
+                        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(
+                            &service.inner.store,
+                            &track,
+                        );
+                    let alternate_artists = aliases.search_artist_candidates();
+                    let discovery = service
                         .inner
                         .acquisition
-                        .prefetch_playback_candidates_cancelled(
+                        .warm_playback_candidates_cancelled(
                             &track,
-                            &[],
+                            &alternate_artists,
                             &providers,
                             &settings,
                             cancel.clone(),
@@ -2232,46 +2336,68 @@ impl PlaybackService {
                             )),
                         )
                         .await;
+                    trace.event(
+                        "next_preparation_discovery_end",
+                        "other",
+                        json!({
+                            "ok":discovery.is_ok(),"resultCount":discovery.ok(),
+                        }),
+                    );
                 }
             }
             loop {
                 let prepare_now = {
                     let state = service.inner.state.lock().unwrap();
-                    if state.generation != g
-                        || state.entries.get(index) != Some(&entry)
-                        || state.status != "playing"
-                        || *cancel.borrow()
-                    {
+                    if !preload_preparation_is_current(&state, &owner) {
+                        span.finish(if *cancel.borrow() {
+                            "cancelled"
+                        } else {
+                            "obsolete"
+                        });
                         return;
                     }
-                    state.duration <= 0. || state.duration - state.position <= 30.
+                    state.duration <= 0. || state.duration - state.position <= window_seconds
                 };
                 if prepare_now {
                     break;
                 }
                 tokio::select! {
                     biased;
-                    _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return,
-                    changed = updates.changed() => { if changed.is_err() { return; } },
+                    _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
+                        span.finish("cancelled"); return;
+                    },
+                    changed = updates.changed() => {
+                        if changed.is_err() { span.finish("updates_closed"); return; }
+                    },
                 }
             }
-            let resolved = crate::playback_sources::resolve(
+            trace.event("next_preparation_resolve_start", "other", json!({}));
+            let resolved = crate::playback_sources::resolve_with_trace_context(
                 &service.inner.store,
                 &service.inner.acquisition,
                 &track,
                 None,
                 cancel.clone(),
+                Some(operation_id),
+                None,
+                None,
             )
             .await;
-            if *cancel.borrow() {
-                return;
-            }
+            let resolved_ok = resolved.is_ok();
+            trace.event(
+                "next_preparation_resolve_end",
+                "other",
+                json!({"ok":resolved_ok}),
+            );
             let mut s = service.inner.state.lock().unwrap();
-            if s.generation != g || s.entries.get(index) != Some(&entry) || s.status != "playing" {
-                return;
-            }
-            let Ok(resolved) = resolved else {
-                s.preload_cancel = None;
+            let Some(resolved) = finish_preload_resolution(&mut s, &owner, resolved) else {
+                span.finish(if *cancel.borrow() {
+                    "cancelled"
+                } else if resolved_ok {
+                    "obsolete"
+                } else {
+                    "failed"
+                });
                 return;
             };
             let (offset, end) = service.source_bounds(&track);
@@ -2292,9 +2418,10 @@ impl PlaybackService {
             s.generation_counter += 1;
             let generation = s.generation_counter;
             s.preload = Some(Preloaded {
+                preparation_trace: Some(trace.clone()),
                 generation,
-                index,
-                entry,
+                index: owner.index,
+                entry: owner.entry,
                 candidate: resolved.candidate,
                 quality: resolved.quality,
                 duration: resolved.duration,
@@ -2302,12 +2429,22 @@ impl PlaybackService {
                 offset,
                 end,
             });
-            let _ = service.inner.output.send(OutputCommand::Preload {
-                generation: g,
+            let queued = service.inner.output.send(OutputCommand::Preload {
+                generation: owner.generation,
                 next_generation: generation,
                 source: resolved.source,
                 position: offset,
                 end,
+            });
+            trace.event(
+                "next_preparation_queued",
+                "other",
+                json!({"ok":queued.is_ok(),"generation":generation}),
+            );
+            span.finish(if queued.is_ok() {
+                "queued"
+            } else {
+                "output_unavailable"
             });
         });
     }
@@ -2321,6 +2458,13 @@ impl PlaybackService {
             return false;
         }
         let p = s.preload.take().unwrap();
+        if let Some(trace) = p.preparation_trace.as_ref() {
+            trace.event(
+                "next_preparation_adopted",
+                "other",
+                json!({"generation":generation}),
+            );
+        }
         s.preload_cancel = None;
         if let Some(cancel) = s.cancel.take() {
             let _ = cancel.send(true);
@@ -3872,6 +4016,194 @@ fn shuffle_upcoming(state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn next_preparation_diagnostic_window_is_bounded_to_thirty_or_forty_five_seconds() {
+        assert_eq!(preparation_window_seconds(Some("30")), 30.);
+        assert_eq!(preparation_window_seconds(Some("45")), 45.);
+        for invalid in [
+            None,
+            Some("0"),
+            Some("-1"),
+            Some("60"),
+            Some("NaN"),
+            Some("45.0"),
+            Some(" 45"),
+        ] {
+            assert_eq!(preparation_window_seconds(invalid), 30.);
+        }
+    }
+
+    fn preparation_fixture() -> (State, PreloadPreparationOwner, watch::Receiver<bool>) {
+        let mut state = State::default();
+        let track = Track {
+            id: "same-recording".into(),
+            title: "Repeated recording".into(),
+            ..Track::default()
+        };
+        state.queue = vec![track.clone(), track];
+        state.entries = vec!["current-occurrence".into(), "next-occurrence".into()];
+        state.status = "playing".into();
+        state.generation = 41;
+        state.generation_counter = 41;
+        state.output_ready = true;
+        state.offset = 5.;
+        let (cancel, receiver) = watch::channel(false);
+        state.preload_cancel = Some(cancel.clone());
+        let owner = PreloadPreparationOwner {
+            generation: 41,
+            index: 1,
+            entry: "next-occurrence".into(),
+            cancel,
+        };
+        (state, owner, receiver)
+    }
+
+    fn replace_preparation(state: &mut State) -> PreloadPreparationOwner {
+        let (cancel, _) = watch::channel(false);
+        state.preload_cancel = Some(cancel.clone());
+        PreloadPreparationOwner {
+            generation: state.generation,
+            index: 1,
+            entry: state.entries[1].clone(),
+            cancel,
+        }
+    }
+
+    #[test]
+    fn preload_completion_rechecks_cancel_and_owner_at_the_publication_boundary() {
+        for success in [false, true] {
+            let (mut state, old, old_receiver) = preparation_fixture();
+            assert!(preload_preparation_is_current(&state, &old));
+            // Resolve has already completed and the old task is about to lock
+            // State. Pause/resume can replace its owner without changing this
+            // generation, occurrence, or final playing status.
+            let result = if success {
+                Ok("old-source")
+            } else {
+                Err("old-network-error".into())
+            };
+            state.status = "paused".into();
+            cancel_preload_state(&mut state);
+            assert!(*old_receiver.borrow());
+            state.status = "playing".into();
+            let replacement = replace_preparation(&mut state);
+            assert!(finish_preload_resolution(&mut state, &old, result).is_none());
+            assert!(state
+                .preload_cancel
+                .as_ref()
+                .unwrap()
+                .same_channel(&replacement.cancel));
+            assert!(preload_preparation_is_current(&state, &replacement));
+            assert_eq!(
+                finish_preload_resolution(&mut state, &replacement, Ok("replacement-source")),
+                Some("replacement-source")
+            );
+        }
+    }
+
+    #[test]
+    fn preload_channel_identity_fences_an_abandoned_owner_even_without_a_cancel_signal() {
+        let (mut state, old, receiver) = preparation_fixture();
+        let replacement = replace_preparation(&mut state);
+        assert!(!*receiver.borrow());
+        assert!(!preload_preparation_is_current(&state, &old));
+        assert!(
+            finish_preload_resolution::<()>(&mut state, &old, Err("late failure".into())).is_none()
+        );
+        assert!(state
+            .preload_cancel
+            .as_ref()
+            .unwrap()
+            .same_channel(&replacement.cancel));
+    }
+
+    #[test]
+    fn preload_failure_releases_only_its_current_slot_and_stale_occurrences_cannot_adopt() {
+        let (mut state, owner, _) = preparation_fixture();
+        assert!(finish_preload_resolution::<()>(
+            &mut state,
+            &owner,
+            Err("temporary failure".into())
+        )
+        .is_none());
+        assert!(
+            state.preload_cancel.is_none(),
+            "owned failure must allow a later preparation"
+        );
+        let replacement = replace_preparation(&mut state);
+        state.entries[1] = "different-occurrence-of-same-recording".into();
+        assert_eq!(state.queue[0].id, state.queue[1].id);
+        assert!(
+            finish_preload_resolution(&mut state, &replacement, Ok("old-occurrence-source"))
+                .is_none()
+        );
+        assert!(state
+            .preload_cancel
+            .as_ref()
+            .unwrap()
+            .same_channel(&replacement.cancel));
+    }
+
+    #[test]
+    fn preload_active_device_loss_cancels_reader_and_releases_reconnect_preparation() {
+        let (mut state, old, receiver) = preparation_fixture();
+        state.preload = Some(Preloaded {
+            preparation_trace: None,
+            generation: 42,
+            index: 1,
+            entry: old.entry.clone(),
+            candidate: None,
+            quality: json!({}),
+            duration: Some(60.),
+            steady_http_stream: false,
+            offset: 0.,
+            end: None,
+        });
+        let event = OutputEvent::DeviceLost {
+            generation: 41,
+            position: 17.,
+            reason: "fixture device removed".into(),
+        };
+        let OutputEvent::DeviceLost {
+            generation,
+            position,
+            reason,
+        } = event
+        else {
+            unreachable!()
+        };
+        assert!(apply_device_lost(&mut state, generation, position, &reason));
+        assert!(*receiver.borrow());
+        assert!(state.preload.is_none());
+        assert!(state.preload_cancel.is_none());
+        assert_eq!(state.position, 12.);
+        assert_eq!(state.status, "buffering");
+        assert!(!state.output_ready);
+        // Reconnected Started keeps the current generation but must be able to
+        // acquire a new speculative owner, rather than keeping a stranded slot.
+        state.status = "playing".into();
+        let replacement = replace_preparation(&mut state);
+        assert!(preload_preparation_is_current(&state, &replacement));
+        assert!(finish_preload_resolution(&mut state, &old, Ok("discarded-reader")).is_none());
+        assert!(preload_preparation_is_current(&state, &replacement));
+    }
+
+    #[test]
+    fn preload_stale_device_loss_preserves_new_owner_and_paused_state() {
+        let (mut state, owner, receiver) = preparation_fixture();
+        assert!(!apply_device_lost(&mut state, 40, 99., "old device"));
+        assert!(!*receiver.borrow());
+        assert!(preload_preparation_is_current(&state, &owner));
+        assert_eq!(state.status, "playing");
+        assert!(state.output_ready);
+        state.status = "paused".into();
+        assert!(apply_device_lost(&mut state, 41, 17., "current device"));
+        assert_eq!(state.status, "paused");
+        assert!(*receiver.borrow());
+        assert!(state.preload_cancel.is_none());
+        assert!(!state.output_ready);
+    }
 
     #[tokio::test]
     async fn native_acceptance_commits_before_a_competing_command_can_replace_owner() {
