@@ -116,7 +116,7 @@ class Schema(unittest.TestCase):
             sql=json.loads(literal.replace('\n',r'\n'))
             if re.search(r'PRAGMA\s+user_version\s*=',sql):
                 self.db.executescript(sql)
-        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],8)
+        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],10)
         merge=storage.split('pub fn merge_recordings',1)[1].split('pub fn save_chart',1)[0]
         sqls=[json.loads(s) for s in re.findall(r'"(?:[^"\\]|\\.)*"',merge) if s.startswith(('"UPDATE','"INSERT','"DELETE'))]
         for sql in sqls:
