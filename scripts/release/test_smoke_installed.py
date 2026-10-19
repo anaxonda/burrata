@@ -271,6 +271,31 @@ class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
         self.assertIs(diagnostics["second"]["media"]["seeking"], False)
         self.assertEqual(diagnostics["second"]["media"]["buffered"], [[0, 4]])
 
+    def test_initial_readiness_and_first_clock_progress_survive_startup_failure(self) -> None:
+        initial = InstalledWebviewAudioTests._sample("local:fixture", 0.013834)
+        progress = InstalledWebviewAudioTests._sample("local:fixture", 0.61)
+        with self.assertRaisesRegex(smoke.SmokeFailure, "steady playback") as caught:
+            self._run_payload({"status": "failed", "failureCategory": "steady_clock_stalled",
+                               "initialReady": initial, "firstProgress": progress,
+                               "first": progress, "second": InstalledWebviewAudioTests._sample("local:fixture", 0.71),
+                               "sampling": {"initialReadyElapsedMs": 744.6, "firstProgressElapsedMs": 5400}}, 1)
+        self.assertEqual(caught.exception.diagnostics["initialReady"]["media"]["currentTime"], 0.013834)
+        self.assertEqual(caught.exception.diagnostics["firstProgress"]["media"]["currentTime"], 0.61)
+        self.assertEqual(caught.exception.diagnostics["sampling"]["initialReadyElapsedMs"], 744.6)
+        self.assertEqual(caught.exception.diagnostics["sampling"]["firstProgressElapsedMs"], 5400)
+
+    def test_passing_evidence_retains_startup_proof_and_steady_samples(self) -> None:
+        initial = InstalledWebviewAudioTests._sample("local:fixture", 0.013834)
+        first = InstalledWebviewAudioTests._sample("local:fixture", 0.61)
+        second = InstalledWebviewAudioTests._sample("local:fixture", 1.51)
+        evidence = self._run_payload({"status": "sampled", "initialReady": initial, "firstProgress": first,
+                                      "first": first, "second": second, "latest": second,
+                                      "sampling": {"initialReadyElapsedMs": 744.6, "firstProgressElapsedMs": 2200, "betweenSamplesWallMs": 900}})
+        self.assertEqual(evidence["clockAdvanceSeconds"], 0.9)
+        self.assertEqual(evidence["diagnostics"]["initialReady"]["media"]["currentTime"], 0.013834)
+        self.assertEqual(evidence["diagnostics"]["firstProgress"]["media"]["currentTime"], 0.61)
+        self.assertEqual(evidence["diagnostics"]["sampling"]["betweenSamplesWallMs"], 900)
+
     def test_early_media_error_retains_partial_latest_sample(self) -> None:
         latest = InstalledWebviewAudioTests._sample("local:fixture", 0, error_code=4)
         with self.assertRaisesRegex(smoke.SmokeFailure, "unsupported_media") as caught:
@@ -305,6 +330,33 @@ class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
                 self.assertNotIn(secret, encoded)
             self.assertIn("[redacted media diagnostic line]", lines)
             self.assertIn("GStreamer pipeline waiting for clock", lines)
+
+
+class LinuxAudioDiagnosticTests(unittest.TestCase):
+    def test_sink_diagnostics_keep_only_availability_and_bounded_state_counts(self) -> None:
+        info = subprocess.CompletedProcess([], 0, b"Server String: /private/server\nCookie: token-secret\nDefault Sink: private-sink-name\n", b"")
+        sinks = subprocess.CompletedProcess([], 0, b"1\tprivate-sink-name\tdriver\ts16le 2ch 44100Hz\tIDLE\n2\tother-private-name\tdriver\ts16le 2ch 44100Hz\tRUNNING\n", b"")
+        with patch.object(smoke.shutil, "which", return_value="synthetic-pactl"), patch.object(smoke, "run", side_effect=[info, sinks]) as runner:
+            diagnostics = smoke.linux_audio_diagnostics({"PATH": "/usr/bin"})
+        self.assertIs(diagnostics["serverReachable"], True)
+        self.assertIs(diagnostics["defaultSinkPresent"], True)
+        self.assertEqual(diagnostics["sinkCount"], 2)
+        self.assertEqual(diagnostics["sinkStates"], {"RUNNING": 1, "IDLE": 1, "SUSPENDED": 0, "UNKNOWN": 0})
+        for value in ("private", "token-secret", "server", "sink-name"):
+            self.assertNotIn(value, json.dumps(diagnostics).replace("serverReachable", ""))
+        self.assertEqual(runner.call_args_list[0].kwargs["env"]["LC_ALL"], "C")
+        self.assertEqual(runner.call_args_list[0].kwargs["timeout"], 5)
+
+    def test_missing_or_unreachable_pulse_server_is_diagnostic_only(self) -> None:
+        with patch.object(smoke.shutil, "which", return_value=None):
+            self.assertEqual(smoke.linux_audio_diagnostics({}), {"available": False})
+        failed = subprocess.CompletedProcess([], 1, b"", b"Authorization cookie=secret")
+        with patch.object(smoke.shutil, "which", return_value="synthetic-pactl"), patch.object(smoke, "run", return_value=failed):
+            diagnostics = smoke.linux_audio_diagnostics({})
+        self.assertIs(diagnostics["serverReachable"], False)
+        self.assertIs(diagnostics["sinkListingSucceeded"], False)
+        self.assertEqual(diagnostics["sinkCount"], 0)
+        self.assertNotIn("secret", json.dumps(diagnostics))
 
 
 if __name__ == "__main__":

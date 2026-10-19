@@ -493,10 +493,11 @@ def safe_webview_audio_diagnostics(payload: dict, track_id: str) -> dict:
 
     timing = payload.get("sampling") if isinstance(payload.get("sampling"), dict) else {}
     return {
+        "initialReady": sample(payload.get("initialReady")), "firstProgress": sample(payload.get("firstProgress")),
         "first": sample(payload.get("first")), "second": sample(payload.get("second")),
         "latest": sample(payload.get("latest")),
         "sampling": {key: number(timing.get(key), 120_000) for key in (
-            "firstSampleElapsedMs", "secondSampleElapsedMs", "latestSampleElapsedMs", "betweenSamplesWallMs", "totalElapsedMs",
+            "initialReadyElapsedMs", "firstProgressElapsedMs", "firstSampleElapsedMs", "secondSampleElapsedMs", "latestSampleElapsedMs", "betweenSamplesWallMs", "totalElapsedMs",
         )},
     }
 
@@ -550,6 +551,10 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
                 "webview_engine_unavailable": "installed app did not expose applicable WebView media",
                 "wrong_playback_track": "installed WebView played a different track",
                 "audio_not_ready": "WebView media did not become ready before the deadline",
+                "audio_clock_not_started": "WebView audio clock did not advance by 0.5 seconds before the startup deadline",
+                "steady_clock_stalled": "WebView audio clock did not advance by 0.5 seconds during steady playback",
+                "playback_identity_changed": "playback identity changed during the audio check",
+                "steady_sample_too_early": "steady audio sample was captured before the measurement interval",
                 "audio_state_not_playing": "WebView media was not playing during the second sample",
             }
             detail = messages.get(category, "installed WebView audio check did not complete")
@@ -559,7 +564,9 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
         if result.returncode != 0:
             raise SmokeFailure("WebView audio", "installed MCP playback checker exited unsuccessfully")
         samples = payload
-        return assess_webview_audio_progress(track_id, samples["first"], samples["second"])
+        assessment = assess_webview_audio_progress(track_id, samples["first"], samples["second"])
+        assessment["diagnostics"] = diagnostics
+        return assessment
     except SmokeFailure as error:
         error.diagnostics = diagnostics
         raise
@@ -586,6 +593,36 @@ def native_host_check(resource_root: pathlib.Path, target: str,
     if length != len(response.stdout) - 4 or not isinstance(payload, dict) or payload.get("ok") is not True:
         raise SmokeFailure("native-host", "packaged browser host heartbeat was not accepted by the app")
     return {"path": str(host.relative_to(resource_root)), "heartbeat": "accepted"}
+
+
+def linux_audio_diagnostics(env: dict[str, str]) -> dict:
+    """Report server/default-sink availability and bounded state counts only."""
+    pactl = shutil.which("pactl", path=env.get("PATH"))
+    if not pactl:
+        return {"available": False}
+    try:
+        diagnostic_env = {**env, "LC_ALL": "C"}
+        info = run([pactl, "info"], timeout=5, env=diagnostic_env, check=False)
+        sinks = run([pactl, "list", "short", "sinks"], timeout=5, env=diagnostic_env, check=False)
+    except SmokeFailure:
+        return {"available": True, "inspectionCompleted": False}
+    info_text = info.stdout[:65_536].decode("utf-8", errors="replace")
+    rows = sinks.stdout[:65_536].decode("utf-8", errors="replace").splitlines()[:64]
+    states = {state: 0 for state in ("RUNNING", "IDLE", "SUSPENDED", "UNKNOWN")}
+    count = 0
+    for row in rows:
+        fields = row.split("\t")
+        if len(fields) < 2 or not fields[0].isdigit():
+            continue
+        count += 1
+        state = fields[-1].strip().upper()
+        states[state if state in states else "UNKNOWN"] += 1
+    return {
+        "available": True, "inspectionCompleted": True,
+        "serverReachable": info.returncode == 0, "sinkListingSucceeded": sinks.returncode == 0,
+        "defaultSinkPresent": any(line.startswith("Default Sink:") and line.partition(":")[2].strip() for line in info_text.splitlines()),
+        "sinkCount": count, "sinkStates": states,
+    }
 
 
 def launch_app(app: pathlib.Path, env: dict[str, str], temp: pathlib.Path) -> subprocess.Popen:
@@ -764,6 +801,8 @@ def main() -> int:
         evidence["checks"]["guiStartup"] = "automation discovery published"
         evidence["checks"]["nativeHost"] = native_host_check(resource_root, target, env)
         evidence["checks"]["mcp"] = run_mcp_status(resource_root, target, discovery, env)
+        if sys.platform == "linux":
+            evidence["checks"]["linuxAudio"] = {"beforePlayback": linux_audio_diagnostics(env)}
         evidence["checks"]["webviewAudio"] = run_mcp_webview_audio(
             resource_root, target, discovery, env, str(audio_fixture["trackId"])
         )
@@ -779,6 +818,8 @@ def main() -> int:
         print(f"Installed smoke failed at {error.stage}: {error}", file=sys.stderr)
         return 1
     finally:
+        if sys.platform == "linux" and app_process is not None:
+            evidence["checks"].setdefault("linuxAudio", {})["afterPlayback"] = linux_audio_diagnostics(env)
         stop_process(app_process, temp)
         if evidence.get("failedStage") == "WebView audio":
             evidence["checks"].setdefault("webviewAudio", {"status": "failed"})["mediaLogTail"] = {

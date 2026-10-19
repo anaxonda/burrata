@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { webviewMediaProbeConfirmsEngine } from './webview-audio-protocol.mjs';
+import { createWebviewAudioSmokeGate, webviewMediaProbeConfirmsEngine } from './webview-audio-protocol.mjs';
 
 const [command, discoveryPath, trackId] = process.argv.slice(2);
 if (!command || !discoveryPath || !/^local:[a-f0-9]{64}$/.test(trackId ?? '')) {
@@ -32,43 +32,14 @@ async function call(name, args = {}) {
   return response.structuredContent?.result ?? response.structuredContent ?? null;
 }
 
-function sampleReady(snapshot, playback) {
-  const media = snapshot?.media;
-  return playback?.status === 'playing'
-    && playback?.trackId === trackId
-    && snapshot?.engine === 'webview'
-    && snapshot?.applicable === true
-    && snapshot?.trackId === trackId
-    && snapshot?.queueTrackId === trackId
-    && typeof snapshot?.entryId === 'string'
-    && snapshot.entryId.length > 0
-    && snapshot?.queueTotal === 1
-    && snapshot?.previewKind === 'local'
-    && media?.present === true
-    && media?.sourceStable === true
-    && media?.paused === false
-    && Number.isInteger(media?.readyState)
-    && media.readyState >= 2
-    && Number.isFinite(media?.duration)
-    && Number.isFinite(media?.currentTime);
-}
-
 let started = false;
-const samplingStartedAt = performance.now();
-let first = null, second = null, latest = null;
-let firstSampleElapsedMs = null, secondSampleElapsedMs = null;
-let latestSampleElapsedMs = null;
+let gate = null;
 async function inspectMediaSample() {
   const media = await call('inspect_webview_media');
-  latestSampleElapsedMs = performance.now() - samplingStartedAt;
-  return media;
+  return { media, receivedAtMs: performance.now() };
 }
 function diagnostics() {
-  return { first, second, latest, sampling: {
-    firstSampleElapsedMs, secondSampleElapsedMs, latestSampleElapsedMs,
-    betweenSamplesWallMs: firstSampleElapsedMs === null || secondSampleElapsedMs === null ? null : secondSampleElapsedMs - firstSampleElapsedMs,
-    totalElapsedMs: performance.now() - samplingStartedAt,
-  } };
+  return gate?.diagnostics(performance.now()) ?? {};
 }
 try {
   await client.connect(transport);
@@ -93,43 +64,22 @@ try {
   await call('play_tracks', { trackIds: [trackId] });
   started = true;
 
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const [playback, media] = await Promise.all([
+  gate = createWebviewAudioSmokeGate(trackId, performance.now());
+  while (performance.now() < gate.startupDeadlineMs) {
+    const [playback, { media, receivedAtMs }] = await Promise.all([
       call('playback_state', { offset: 0, limit: 1 }),
       inspectMediaSample(),
     ]);
-    latest = { ...media, playbackStatus: playback?.status };
-    const errorCode = media?.media?.errorCode;
-    if (errorCode === 4) throw Object.assign(new Error('unsupported_media'), { category: 'unsupported_media' });
-    if (errorCode === 2) throw Object.assign(new Error('source_failure'), { category: 'source_failure' });
-    if (errorCode === 3) throw Object.assign(new Error('decode_failure'), { category: 'decode_failure' });
-    if (sampleReady(media, playback)) {
-      first = latest;
-      firstSampleElapsedMs = latestSampleElapsedMs;
-      break;
-    }
-    if (playback?.trackId && playback.trackId !== trackId) {
-      throw Object.assign(new Error('wrong_playback_track'), { category: 'wrong_playback_track' });
-    }
+    if (gate.observe(playback, media, receivedAtMs) === 'steady') break;
     await sleep(150);
   }
-  if (!first) throw Object.assign(new Error('audio_not_ready'), { category: 'audio_not_ready' });
+  if (gate.phase !== 'steady') gate.expireStartup();
   await sleep(900);
-  const [playback, secondMedia] = await Promise.all([
+  const [playback, { media, receivedAtMs }] = await Promise.all([
     call('playback_state', { offset: 0, limit: 1 }),
     inspectMediaSample(),
   ]);
-  second = { ...secondMedia, playbackStatus: playback?.status };
-  latest = second;
-  secondSampleElapsedMs = latestSampleElapsedMs;
-  const errorCode = second?.media?.errorCode;
-  if (errorCode === 4) throw Object.assign(new Error('unsupported_media'), { category: 'unsupported_media' });
-  if (errorCode === 2) throw Object.assign(new Error('source_failure'), { category: 'source_failure' });
-  if (errorCode === 3) throw Object.assign(new Error('decode_failure'), { category: 'decode_failure' });
-  if (!sampleReady(second, playback)) {
-    throw Object.assign(new Error('audio_state_not_playing'), { category: 'audio_state_not_playing' });
-  }
+  gate.observe(playback, media, receivedAtMs);
   process.stdout.write(`${JSON.stringify({ status: 'sampled', ...diagnostics() })}\n`);
 } catch (error) {
   process.stdout.write(`${JSON.stringify({ status: 'failed', failureCategory: error?.category ?? 'mcp_failure', ...diagnostics() })}\n`);
