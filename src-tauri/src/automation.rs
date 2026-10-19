@@ -117,6 +117,7 @@ impl PlayerPanel {
 enum UiNavigationTarget {
     View(String),
     SettingsCategory(String),
+    SettingsControl(String),
     SpotifyArtist(String),
     SpotifyProfile(String),
     SpotifyPlaylist(String),
@@ -125,7 +126,7 @@ enum UiNavigationTarget {
 impl UiNavigationTarget {
     fn kind(&self) -> &'static str {
         match self {
-            Self::View(_) | Self::SettingsCategory(_) => "view",
+            Self::View(_) | Self::SettingsCategory(_) | Self::SettingsControl(_) => "view",
             Self::SpotifyArtist(_) => "spotify_artist",
             Self::SpotifyProfile(_) => "spotify_profile",
             Self::SpotifyPlaylist(_) => "spotify_playlist",
@@ -135,7 +136,7 @@ impl UiNavigationTarget {
     fn ack_key(&self) -> &str {
         match self {
             Self::View(view) => view,
-            Self::SettingsCategory(_) => "settings",
+            Self::SettingsCategory(_) | Self::SettingsControl(_) => "settings",
             Self::SpotifyArtist(id)
             | Self::SpotifyProfile(id)
             | Self::SpotifyPlaylist(id)
@@ -148,6 +149,9 @@ impl UiNavigationTarget {
             Self::SettingsCategory(category) => {
                 json!({"kind":"view","view":"settings","settingsCategory":category})
             }
+            Self::SettingsControl(control) => json!({
+                "kind":"view","view":"settings","settingsCategory":"playback","settingsControl":control
+            }),
             Self::SpotifyArtist(id) => json!({"kind":"spotify_artist","spotifyArtistId":id}),
             Self::SpotifyProfile(id) => json!({"kind":"spotify_profile","spotifyProfileId":id}),
             Self::SpotifyPlaylist(id) => json!({"kind":"spotify_playlist","spotifyPlaylistId":id}),
@@ -162,6 +166,16 @@ fn parse_ui_navigation_request(arguments: &Value) -> Result<UiNavigationTarget, 
         .as_object()
         .ok_or_else(|| ToolError::bad("UI navigation arguments must be an object"))?;
     if let Some(category) = object.get("settingsCategory") {
+        if object.len() == 3
+            && object.get("view").and_then(Value::as_str) == Some("settings")
+            && category.as_str() == Some("playback")
+            && object.get("settingsControl").and_then(Value::as_str)
+                == Some("playbackStartupTimeout")
+        {
+            return Ok(UiNavigationTarget::SettingsControl(
+                "playbackStartupTimeout".into(),
+            ));
+        }
         if object.len() == 2 && object.get("view").and_then(Value::as_str) == Some("settings") {
             if let Some(category) = category
                 .as_str()
@@ -172,6 +186,11 @@ fn parse_ui_navigation_request(arguments: &Value) -> Result<UiNavigationTarget, 
         }
         return Err(ToolError::bad(
             "A supported settingsCategory requires only view=settings",
+        ));
+    }
+    if object.contains_key("settingsControl") {
+        return Err(ToolError::bad(
+            "A supported settingsControl requires view=settings and settingsCategory=playback",
         ));
     }
     if object.len() != 1 {
@@ -227,8 +246,15 @@ fn sanitize_ui_navigation_completion(
     }
     let mut result =
         json!({"status":status,"targetKind":expected.kind(),"destination":expected.ack_key()});
-    if let UiNavigationTarget::SettingsCategory(category) = expected {
-        result["settingsCategory"] = json!(category);
+    match expected {
+        UiNavigationTarget::SettingsCategory(category) => {
+            result["settingsCategory"] = json!(category)
+        }
+        UiNavigationTarget::SettingsControl(control) => {
+            result["settingsCategory"] = json!("playback");
+            result["settingsControl"] = json!(control);
+        }
+        _ => {}
     }
     if matches!(
         expected,
@@ -6766,7 +6792,7 @@ fn tool_definitions() -> Vec<Value> {
  ("play_search_result","Play one exact currently loaded search occurrence by its expiring UI token", "control"),
  ("interact_queue_ui","Dispatch finite synthetic queue DOM events in a marked isolated paused native profile; not a trusted OS gesture", "control"),
  ("set_player_panel","Open the playback queue, track information panel, or close the player panel", "control"),
- ("navigate_ui","Navigate to a finite view, one settings category, exact Spotify artist/profile/playlist, or Back/Forward. settingsCategory is allowed only with view=settings. Completion acknowledges route transition; inspect the UI separately to verify visible content", "control"),
+ ("navigate_ui","Navigate to a finite view, one settings category, the Playback startup timeout control, exact Spotify artist/profile/playlist, or Back/Forward. settingsCategory is allowed only with view=settings; settingsControl is allowed only for playbackStartupTimeout under Playback settings", "control"),
  ("start_managed_provider_login","Open the isolated provider sign-in window; login remains interactive", "control"),
  ("preview_verification_playlist_intent","Prepare an exact new private empty UUID-title intent locally; requires explicit review and never creates remotely", "control"),("apply_verification_playlist_intent","Create a separately explicitly approved private empty intent exactly once; never retry unknown outcomes", "manage"),("create_verification_playlist","Create exactly one private empty Burrata verification playlist for the confirmed account; never automatically retry an unknown result", "control"),
  ("confirm_managed_provider_account","Verify the account in the owned login window and enable provider access", "control"),
@@ -6827,7 +6853,7 @@ fn tool_definitions() -> Vec<Value> {
  "set_player_panel"=>(json!({"panel":{"type":"string","enum":["queue","info","closed"]}}),json!(["panel"])),
  "identify_playing_track"=>(json!({"captureId":{"type":"string","minLength":36,"maxLength":36,"pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$","description":"Optional caller-generated UUID; pass the same value to cancel_playing_track_identification. Omit it for legacy uncancellable calls."}}),json!([])),
  "cancel_playing_track_identification"=>(json!({"captureId":{"type":"string","minLength":36,"maxLength":36,"pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}),json!(["captureId"])),
- "navigate_ui"=>(json!({"view":{"type":"string","enum":["library","favorites","history","downloads","settings","radio"]},"settingsCategory":{"type":"string","enum":UI_SETTINGS_CATEGORIES,"description":"Optional existing category; accepted only with view=settings"},"spotifyArtistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"spotifyProfileId":{"type":"string","minLength":1,"maxLength":256,"description":"Canonical Spotify user ID only; no URL, whitespace, separators or query"},"spotifyPlaylistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","minLength":22,"maxLength":22},"historyDirection":{"type":"string","enum":["back","forward"]}}),json!([])),
+ "navigate_ui"=>(json!({"view":{"type":"string","enum":["library","favorites","history","downloads","settings","radio"]},"settingsCategory":{"type":"string","enum":UI_SETTINGS_CATEGORIES,"description":"Optional existing category; accepted only with view=settings"},"settingsControl":{"type":"string","enum":["playbackStartupTimeout"],"description":"Optional fixed control; requires view=settings and settingsCategory=playback"},"spotifyArtistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"spotifyProfileId":{"type":"string","minLength":1,"maxLength":256,"description":"Canonical Spotify user ID only; no URL, whitespace, separators or query"},"spotifyPlaylistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","minLength":22,"maxLength":22},"historyDirection":{"type":"string","enum":["back","forward"]}}),json!([])),
  "repair_spotify_durations_public"|"cancel_public_spotify_duration_repair"|"public_spotify_duration_repair_running"=>(json!({}),json!([])),
  "search_library"=>(json!({"query":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["query"])),
  "list_tracks_page"=>(json!({"view":{"type":"string","enum":["library","favorites","shortlist","collections"]},"collectionId":{"type":"string","maxLength":256},"query":{"type":"string","maxLength":500},"sortField":{"type":"string","enum":["sourceOrder","rank","title","artist","album","duration","durationSeconds","releaseDate","dateAdded","bpm","key","plays","views"]},"direction":{"type":"string","enum":["asc","desc"]},"minDurationSeconds":{"type":"integer","minimum":0,"maximum":4294967295u64},"maxDurationSeconds":{"type":"integer","minimum":0,"maximum":4294967295u64},"availability":{"type":"string","enum":["all","local","not-local"]},"provider":{"type":"string","maxLength":80},"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!(["view"])),
@@ -6851,7 +6877,7 @@ fn tool_definitions() -> Vec<Value> {
  {"type":"object","properties":{"action":{"const":"select"},"index":index,"modifier":{"enum":["none","ctrl","shift"]}},"required":["action","index","modifier"],"additionalProperties":false},
  {"type":"object","properties":{"action":{"const":"arrow"},"index":index,"direction":{"enum":["up","down"]}},"required":["action","index","direction"],"additionalProperties":false},
  {"type":"object","properties":{"action":{"const":"drag"},"from":index,"to":index},"required":["action","from","to"],"additionalProperties":false}]}); }
- if name=="navigate_ui" { input_schema["oneOf"]=json!([{"required":["view"]},{"required":["spotifyArtistId"]},{"required":["spotifyProfileId"]},{"required":["spotifyPlaylistId"]},{"required":["historyDirection"]}]); input_schema["if"]=json!({"required":["settingsCategory"]}); input_schema["then"]=json!({"required":["view"],"properties":{"view":{"const":"settings"}}}); }
+ if name=="navigate_ui" { input_schema["oneOf"]=json!([{"required":["view"]},{"required":["spotifyArtistId"]},{"required":["spotifyProfileId"]},{"required":["spotifyPlaylistId"]},{"required":["historyDirection"]}]); input_schema["if"]=json!({"required":["settingsCategory"]}); input_schema["then"]=json!({"required":["view"],"properties":{"view":{"const":"settings"}}}); input_schema["allOf"]=json!([{"if":{"required":["settingsControl"]},"then":{"required":["view","settingsCategory"],"properties":{"view":{"const":"settings"},"settingsCategory":{"const":"playback"}}}}]); }
  json!({"name":name,"description":description,"scope":scope,"inputSchema":input_schema})
  }).collect()
 }
@@ -7878,6 +7904,31 @@ mod tests {
                 "accepted {arguments}"
             );
         }
+        let control = parse_ui_navigation_request(&json!({"view":"settings","settingsCategory":"playback","settingsControl":"playbackStartupTimeout"})).unwrap();
+        assert_eq!(
+            control,
+            UiNavigationTarget::SettingsControl("playbackStartupTimeout".into())
+        );
+        assert_eq!(
+            control.payload(),
+            json!({"kind":"view","view":"settings","settingsCategory":"playback","settingsControl":"playbackStartupTimeout"})
+        );
+        assert_eq!(
+            sanitize_ui_navigation_completion(&control,"settings","complete").unwrap(),
+            json!({"status":"complete","targetKind":"view","destination":"settings","settingsCategory":"playback","settingsControl":"playbackStartupTimeout"})
+        );
+        for arguments in [
+            json!({"view":"settings","settingsControl":"playbackStartupTimeout"}),
+            json!({"view":"settings","settingsCategory":"general","settingsControl":"playbackStartupTimeout"}),
+            json!({"view":"library","settingsCategory":"playback","settingsControl":"playbackStartupTimeout"}),
+            json!({"view":"settings","settingsCategory":"playback","settingsControl":"arbitrary"}),
+            json!({"view":"settings","settingsCategory":"playback","settingsControl":"playbackStartupTimeout","script":"x"}),
+        ] {
+            assert!(
+                parse_ui_navigation_request(&arguments).is_err(),
+                "accepted {arguments}"
+            );
+        }
         let tool = tool_definitions()
             .into_iter()
             .find(|tool| tool["name"] == "navigate_ui")
@@ -7889,6 +7940,14 @@ mod tests {
         assert_eq!(
             tool["inputSchema"]["then"],
             json!({"required":["view"],"properties":{"view":{"const":"settings"}}})
+        );
+        assert_eq!(
+            tool["inputSchema"]["properties"]["settingsControl"]["enum"],
+            json!(["playbackStartupTimeout"])
+        );
+        assert_eq!(
+            tool["inputSchema"]["allOf"][0]["then"],
+            json!({"required":["view","settingsCategory"],"properties":{"view":{"const":"settings"},"settingsCategory":{"const":"playback"}}})
         );
     }
 
@@ -7939,7 +7998,7 @@ mod tests {
             .contains(&json!("radio")));
         assert_eq!(
             tool["inputSchema"]["properties"].as_object().unwrap().len(),
-            6
+            7
         );
         assert_eq!(
             tool["inputSchema"]["oneOf"],

@@ -3855,6 +3855,30 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete",{requestId:"navigate-playback-settings",destination:"settings",status:"complete"});
   });
 
+  it("scrolls to and focuses only the fixed startup timeout control before completing navigation", async () => {
+    const previousScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const previousRect = HTMLElement.prototype.getBoundingClientRect;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype,"scrollIntoView",{configurable:true,value:scrollIntoView});
+    Object.defineProperty(HTMLElement.prototype,"getBoundingClientRect",{configurable:true,value:()=>({x:20,y:30,top:30,right:220,bottom:70,left:20,width:200,height:40,toJSON:()=>({})})});
+    try {
+      const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+      eventHandlers.get("automation-ui-navigation")!({event:"automation-ui-navigation",id:1,payload:{
+        requestId:"focus-playback-timeout",target:{kind:"view",view:"settings",settingsCategory:"playback",settingsControl:"playbackStartupTimeout"},
+      }});await settle();await settle();
+      const control=document.getElementById("playback-startup-timeout") as HTMLSelectElement;
+      expect(scrollIntoView).toHaveBeenCalledWith({block:"center",inline:"nearest"});
+      expect(document.activeElement).toBe(control);
+      const completionCall = mocks.call.mock.calls.findIndex(([name,args]) => name === "automation_ui_navigation_complete" && args?.requestId === "focus-playback-timeout");
+      expect(scrollIntoView.mock.invocationCallOrder[0]).toBeLessThan(mocks.call.mock.invocationCallOrder[completionCall]);
+      expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete",{requestId:"focus-playback-timeout",destination:"settings",status:"complete"});
+    } finally {
+      if(previousScrollIntoView)Object.defineProperty(HTMLElement.prototype,"scrollIntoView",{configurable:true,value:previousScrollIntoView});
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      Object.defineProperty(HTMLElement.prototype,"getBoundingClientRect",{configurable:true,value:previousRect});
+    }
+  });
+
   it.each([
     {kind:"view",view:"settings",settingsCategory:"arbitrary"},
     {kind:"view",view:"library",settingsCategory:"playback"},

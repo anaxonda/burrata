@@ -5439,17 +5439,19 @@
         void call("automation_layout_complete",{requestId:request.requestId,layout:sample}).catch(()=>{});
       });
       let activeUiNavigationRequest: string | null = null;
-      const navigationListenerReady = register<{requestId:string;target:{kind:"view";view:"library"|"favorites"|"history"|"downloads"|"settings"|"radio";settingsCategory?:SettingsCategory}|{kind:"spotify_artist";spotifyArtistId:string}|{kind:"spotify_profile";spotifyProfileId:string}|{kind:"spotify_playlist";spotifyPlaylistId:string}|{kind:"history";historyDirection:"back"|"forward"}}>("automation-ui-navigation", request => {
+      const navigationListenerReady = register<{requestId:string;target:{kind:"view";view:"library"|"favorites"|"history"|"downloads"|"settings"|"radio";settingsCategory?:SettingsCategory;settingsControl?:string}|{kind:"spotify_artist";spotifyArtistId:string}|{kind:"spotify_profile";spotifyProfileId:string}|{kind:"spotify_playlist";spotifyPlaylistId:string}|{kind:"history";historyDirection:"back"|"forward"}}>("automation-ui-navigation", request => {
         activeUiNavigationRequest = request.requestId;
         const target = request.target;
         const destination = target.kind === "view" ? target.view : target.kind === "spotify_artist" ? target.spotifyArtistId : target.kind === "spotify_profile" ? target.spotifyProfileId : target.kind === "spotify_playlist" ? target.spotifyPlaylistId : target.historyDirection;
         const historyStack = target.kind === "history" ? (target.historyDirection === "back" ? backRoutes : forwardRoutes) : [];
         const historyRoute = historyStack[historyStack.length - 1];
         const targetView = target.kind === "view" ? target.view : target.kind === "spotify_artist" ? "artist" : target.kind === "history" ? historyRoute?.view : "source-browser";
+        const hasSettingsControl = "settingsControl" in target;
         const before = navigationRequest;
         let expectedNavigation = before + 1;
         void (async () => {
           try {
+            if (hasSettingsControl && (target.kind !== "view" || target.view !== "settings" || target.settingsCategory !== "playback" || target.settingsControl !== "playbackStartupTimeout")) throw new Error("invalid settings control");
             if (target.kind === "view") {
               if (target.settingsCategory !== undefined) {
                 if (target.view !== "settings" || !["general","playback","library","downloads","connections","integrations","advanced"].includes(target.settingsCategory)) throw new Error("invalid settings category");
@@ -5479,6 +5481,17 @@
             await tick();
             if (disposed || activeUiNavigationRequest !== request.requestId || navigationRequest !== expectedNavigation || view !== targetView) return;
             if (target.kind === "view" && target.settingsCategory !== undefined && settingsCategory !== target.settingsCategory) return;
+            if (hasSettingsControl) {
+              const control = document.getElementById("playback-startup-timeout") as HTMLSelectElement | null;
+              if (!control || !control.isConnected || control.tagName !== "SELECT") throw new Error("Playback startup timeout control is unavailable");
+              control.scrollIntoView({block:"center",inline:"nearest"});
+              control.focus({preventScroll:true});
+              await tick();
+              const rect = control.getBoundingClientRect();
+              const bounds = [rect.x,rect.y,rect.top,rect.right,rect.bottom,rect.left,rect.width,rect.height,window.innerWidth,window.innerHeight];
+              const visible = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+              if (disposed || activeUiNavigationRequest !== request.requestId || !control.isConnected || document.activeElement !== control || !bounds.every(Number.isFinite) || !visible) throw new Error("Playback startup timeout control did not become visible and focused");
+            }
             if (target.kind === "spotify_playlist" && (provider !== "spotify" || remotePlaylistUrl !== `https://open.spotify.com/playlist/${target.spotifyPlaylistId}`)) return;
             activeUiNavigationRequest = null;
             // Route completion is not proof that remote content has loaded.
@@ -5844,7 +5857,7 @@
         {#if settingsCategory === "general" || settingsCategory === "playback"}<section class="settings-basic-card" aria-labelledby="playback-settings-title">
           <h2 id="playback-settings-title">{settingsCategory === "general" ? "Appearance" : "Playback behavior"}</h2>
           <div class="settings-grid">{#if settingsCategory === "general"}<label>Theme<select bind:value={settings.theme}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>{/if}
-          {#if settingsCategory === "playback"}<label>Playback startup timeout<select bind:value={settings.playbackStartupTimeoutSeconds}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label><label>Preview delay (ms)<input type="number" min="0" max="5000" bind:value={settings.previewDelayMs} /></label>{/if}</div>
+          {#if settingsCategory === "playback"}<label>Playback startup timeout<select id="playback-startup-timeout" bind:value={settings.playbackStartupTimeoutSeconds}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label><label>Preview delay (ms)<input type="number" min="0" max="5000" bind:value={settings.previewDelayMs} /></label>{/if}</div>
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.autoPreview} /><span><strong>Play songs selected with arrow keys</strong><small>Wait for the preview delay before starting audio.</small></span></label>{/if}
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.pauseOnSourceOpen} /><span>Pause when opening the playing track’s source</span></label><label class="settings-option"><input type="checkbox" bind:checked={settings.sourceOpenAtPosition} /><span>Open source at current position (YouTube and SoundCloud)</span></label>{/if}
           <button onclick={()=>void saveSettingsFields(["theme","autoPreview","previewDelayMs","playbackStartupTimeoutSeconds","pauseOnSourceOpen","sourceOpenAtPosition"],"Playback preferences saved.")}>{settingsCategory === "general" ? "Save appearance" : "Save playback preferences"}</button>
