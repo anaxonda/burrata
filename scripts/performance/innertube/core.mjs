@@ -6,13 +6,35 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commandBudget, failure } from './budget.mjs';
 
-export async function decodePcm(input, { position = 0, seconds = 5, ffmpeg = 'ffmpeg', signal } = {}) {
+export function playbackHeaders(client) {
+  const headers = {
+    accept: '*/*', 'accept-language': '*',
+    origin: 'https://www.youtube.com', referer: 'https://www.youtube.com/', dnt: '?1',
+  };
+  const userAgent = client.session?.user_agent ?? client.session?.context?.client?.userAgent;
+  if (typeof userAgent === 'string' && userAgent.length > 0) headers['user-agent'] = userAgent;
+  for (const [key, value] of Object.entries(headers)) {
+    if (/[\r\n]/.test(key) || /[\r\n]/.test(value) || value.length > 1024) throw failure('INVALID_PLAYBACK_HEADERS', 'format');
+  }
+  return headers;
+}
+
+export async function decodePcm(input, { position = 0, seconds = 5, ffmpeg = 'ffmpeg', headers = {}, signal } = {}) {
   signal?.throwIfAborted();
   const started = performance.now();
+  const allowedHeaders = new Set(['accept', 'accept-language', 'dnt', 'origin', 'referer', 'user-agent']);
+  const headerLines = Object.entries(headers).map(([name, value]) => {
+    if (!allowedHeaders.has(name.toLowerCase()) || typeof value !== 'string' || /[\r\n]/.test(name + value) || value.length > 1024)
+      throw failure('INVALID_PLAYBACK_HEADERS', 'decode');
+    return `${name}: ${value}\r\n`;
+  }).join('');
   const directory = await mkdtemp(join(tmpdir(), 'burrata-decoder-accounting-'));
   const accounting = join(directory, 'usage.json');
   const args = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-rw_timeout', '10000000'];
   if (position) args.push('-ss', String(position));
+  // FFmpeg's HTTP protocol option is invalid for local files and other
+  // non-HTTP inputs; the native playback path still forwards it for URLs.
+  if (headerLines && /^https?:\/\//i.test(input)) args.push('-headers', headerLines);
   args.push('-i', input, '-t', String(seconds), '-vn', '-f', 'f32le', '-acodec', 'pcm_f32le', '-ar', '48000', '-ac', '2', 'pipe:1');
   const child = spawn('python3', [fileURLToPath(new URL('./measure_child.py', import.meta.url)), accounting, ffmpeg, ...args], {
     stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32',
@@ -63,7 +85,7 @@ export async function atStage(stage, operation, stages) {
   finally { if (stages) stages[stage] = (stages[stage] ?? 0) + performance.now() - started; }
 }
 
-export function createPrototype({ createClient, decode = decodePcm, ensureToken, now = Date.now, clientName = 'WEB' }) {
+export function createPrototype({ createClient, decode = decodePcm, ensureToken, applyCachedToken, now = Date.now, clientName = 'WEB' }) {
   let clientPromise;
   const infoCache = new Map();
   return async function execute(request, { signal, started = performance.now() } = {}) {
@@ -76,7 +98,8 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
         if (typeof request.query !== 'string' || !request.query.trim() || request.query.length > 500) throw failure('INVALID_QUERY');
       } else if (!/^[A-Za-z0-9_-]{11}$/.test(request.videoId ?? '') || request.expectedVideoId !== request.videoId ||
                  !Number.isFinite(request.position ?? 0) || (request.position ?? 0) < 0 ||
-                 !Number.isFinite(request.seconds ?? 5) || (request.seconds ?? 5) < 5 || (request.seconds ?? 5) > 30) {
+                 !Number.isFinite(request.seconds ?? 5) || (request.seconds ?? 5) < 5 || (request.seconds ?? 5) > 30 ||
+                 (request.formatId !== undefined && (!Number.isInteger(request.formatId) || request.formatId < 1 || request.formatId > 999_999))) {
         throw failure('INVALID_PLAYBACK_REQUEST');
       }
       const cpu = process.cpuUsage();
@@ -94,17 +117,47 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
           .map(row => ({ videoId: row.id, title: String(row.title ?? ''), artist: String(row.author?.name ?? ''), durationSeconds: row.duration?.seconds ?? null }));
         return { preparedMs, searchMs: stages.search, stages, candidates };
       }
-      let token = ensureToken ? await stage('token', () => ensureToken(client, { signal: budget.signal })) : { tokenMode: 'disabled' };
+      let token = { tokenMode: 'disabled' };
+      if (ensureToken) {
+        const tokenSignal = client.playbackPreparationSignal
+          ? AbortSignal.any([budget.signal, client.playbackPreparationSignal]) : budget.signal;
+        const tokenTask = stage('token', () => ensureToken(client, { videoId: request.videoId, signal: tokenSignal }));
+        const playbackTask = stage('playbackPreparation', async () => {
+          if (client.playbackReady) await client.playbackReady;
+          return true;
+        });
+        try {
+          [token] = await Promise.all([tokenTask, playbackTask]);
+          if (applyCachedToken) applyCachedToken(client, { videoId: request.videoId });
+        }
+        catch (error) {
+          client.abortPlaybackPreparation?.(error);
+          if (clientPromise === pendingClient) clientPromise = null;
+          infoCache.clear();
+          // Both branches are already observed by Promise.all; settle them before
+          // dropping this context so no player/token work leaks into the next call.
+          await Promise.allSettled([tokenTask, playbackTask]);
+          throw error;
+        }
+      } else if (client.playbackReady) {
+        try { await stage('playbackPreparation', () => client.playbackReady); }
+        catch (error) {
+          if (clientPromise === pendingClient) clientPromise = null;
+          infoCache.clear();
+          throw error;
+        }
+      }
       let cached = infoCache.get(request.videoId);
       if (request.refresh || (cached && cached.expires <= now())) { infoCache.delete(request.videoId); cached = null; }
-      let audio, format, expires, decodeStarted;
+      let audio, format, headers, expires, decodeStarted, selectedInfo;
       let retryDecoderCpuMs = 0, retryWrapperCpuMs = 0, retryDecoderMaxRssBytes = 0;
       const extractionStarted = performance.now();
       let refreshedAfterDenial = false;
       for (let attempt = 0; attempt < 2; attempt++) {
         const info = cached?.info ?? await stage('extraction', () => client.getBasicInfo(request.videoId, { client: clientName }));
+        selectedInfo = info;
         const actualId = info.basic_info?.id;
-        if (actualId && actualId !== request.videoId) throw failure('RECORDING_MISMATCH', 'extraction');
+        if (actualId !== request.videoId) throw failure('RECORDING_MISMATCH', 'extraction');
         // Missing expiry cannot justify caching a signed manifest.
         const providerExpiry = info.streaming_data?.expires instanceof Date ? info.streaming_data.expires.getTime() - 30_000 : null;
         expires = Number.isFinite(providerExpiry) ? providerExpiry : now();
@@ -115,7 +168,16 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
         }
         try {
           if (Number.isFinite(providerExpiry) && providerExpiry <= now()) throw failure('MANIFEST_EXPIRED', 'extraction');
-          format = await stage('format', () => info.chooseFormat({ type: 'audio', quality: 'best', format: 'any' }));
+          ({ format, headers } = await stage('format', async () => {
+            let selected;
+            if (request.formatId === undefined) selected = info.chooseFormat({ type: 'audio', quality: 'best', format: 'any' });
+            else {
+              try { selected = info.chooseFormat({ itag: request.formatId }); }
+              catch { throw failure('FORMAT_UNAVAILABLE', 'format'); }
+              if (selected?.itag !== request.formatId || selected.has_audio === false) throw failure('FORMAT_MISMATCH', 'format');
+            }
+            return { format: selected, headers: playbackHeaders(client) };
+          }));
           const stream = await stage('decipher', () => format.decipher(client.session.player));
           const parsed = new URL(stream);
           const urlExpiry = Number(parsed.searchParams.get('expire')) * 1000;
@@ -124,7 +186,7 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
           if (expires <= now()) infoCache.delete(request.videoId);
           else if (infoCache.has(request.videoId)) infoCache.get(request.videoId).expires = expires;
           decodeStarted = performance.now();
-          audio = await stage('decode', () => decode(stream, { position: request.position ?? 0, seconds: request.seconds ?? 5, signal: budget.signal }));
+          audio = await stage('decode', () => decode(stream, { position: request.position ?? 0, seconds: request.seconds ?? 5, headers, signal: budget.signal }));
           break;
         } catch (error) {
           infoCache.delete(request.videoId);
@@ -134,13 +196,20 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
           if (!['STREAM_DENIED', 'MANIFEST_EXPIRED'].includes(error.code) || attempt === 1) throw error;
           refreshedAfterDenial = true; cached = null;
           if (ensureToken) {
-            const refreshed = await stage('token', () => ensureToken(client, { signal: budget.signal, refresh: true }));
+            const refreshed = await stage('token', () => ensureToken(client, { videoId: request.videoId, signal: budget.signal, refresh: true }));
             token = { ...refreshed, tokenHelperCpuMs: (token.tokenHelperCpuMs ?? 0) + (refreshed.tokenHelperCpuMs ?? 0) };
           }
         }
       }
       const used = process.cpuUsage(cpu);
       const helperCpuMs = (used.user + used.system) / 1000;
+      const metadata = selectedInfo?.basic_info;
+      const providerMetadata = {
+        videoId: request.videoId,
+        title: typeof metadata?.title === 'string' ? metadata.title.slice(0, 256) : null,
+        channel: typeof metadata?.author === 'string' ? metadata.author.slice(0, 256) : null,
+        durationSeconds: Number.isFinite(metadata?.duration) ? metadata.duration : null,
+      };
       return { clientName, preparedMs, extractionMs: performance.now() - extractionStarted - stages.decode,
         infoCacheHit: Boolean(cached), manifestExpiresInMs: Math.max(0, expires - now()), refreshedAfterDenial,
         ...audio, firstPcmFromCommandMs: Number.isFinite(audio.firstPcmMs) ? decodeStarted - started + audio.firstPcmMs : null,
@@ -151,7 +220,12 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
         helperMaxRssBytes: process.resourceUsage().maxRSS * 1024,
         accountingComplete: Number.isFinite(audio.decoderCpuMs) && Number.isFinite(audio.accountingWrapperCpuMs) && (!ensureToken || Number.isFinite(token.tokenHelperCpuMs)),
         totalCpuMs: helperCpuMs + (token.tokenHelperCpuMs ?? 0) + (audio.decoderCpuMs ?? 0) + (audio.accountingWrapperCpuMs ?? 0) + retryDecoderCpuMs + retryWrapperCpuMs,
-        wallMs: performance.now() - started, codec: /^audio\/[\w.+-]+(?:; codecs="[\w., -]+")?$/.test(format.mime_type ?? '') ? format.mime_type : null, recordingVerified: true,
+        wallMs: performance.now() - started,
+        formatId: Number.isInteger(format.itag) ? format.itag : null,
+        headerNames: Object.keys(headers).sort(),
+        playbackPreparation: client.playbackPreparation,
+        providerMetadata,
+        codec: /^audio\/[\w.+-]+(?:; codecs="[\w., -]+")?$/.test(format.mime_type ?? '') ? format.mime_type : null, recordingVerified: true,
         identityScope: 'explicit-provider-video-id; not acoustic verification' };
     } catch (error) {
       if (budget.signal.aborted) { clientPromise = null; infoCache.clear(); }

@@ -1,0 +1,30 @@
+{
+  "diagnostic": "one pinned-source Python attempt with isolated yt-dlp-ejs dependency",
+  "ejsPackageFileSha256": {
+    "yt_dlp_ejs/__init__.py": "fe502eb717291a121cb756cc4849dd67267d5ccec13695573e6b93094296f1dd",
+    "yt_dlp_ejs/_version.py": "46db65f810da76d716d50cc69cd7df09603f59cf6650a0cc3813d9a7ef8c9ec7",
+    "yt_dlp_ejs/yt/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "yt_dlp_ejs/yt/solver/__init__.py": "8341c613acde41befdf033f817d90b02c50735207e379427d8c510ed80997a73",
+    "yt_dlp_ejs/yt/solver/core.min.js": "18da6ce0758b416e7ae645084f4f8801f9f9d59d6c477c05eaa0ff94ebd8cc00",
+    "yt_dlp_ejs/yt/solver/lib.min.js": "c55987fe697e5b9ee18830163f7af85327e9bb5c3e674b969d38c8d205eaa577"
+  },
+  "ejsVersion": "0.8.0",
+  "helperWarmReadyMs": 1282.7639839961194,
+  "row": {
+    "errorClass": null,
+    "errorType": null,
+    "extractMs": 4940.680781000992,
+    "formatId": "18",
+    "identityMatched": true,
+    "initMs": null,
+    "ok": true,
+    "pcm5s": true,
+    "pcmBytes": 960000,
+    "pcmMs": 402.9833899985533,
+    "videoId": "jNQXAC9IVRw"
+  },
+  "urlLogged": false,
+  "videoId": "jNQXAC9IVRw",
+  "wallLimitSeconds": 20,
+  "workerStartupMs": 215.53173800202785
+}

@@ -1,0 +1,170 @@
+{
+  "arms": {
+    "bundled_cli_fresh": [
+      {
+        "errorClass": null,
+        "extractMs": 5548.630022996804,
+        "formatId": "140",
+        "identityMatched": true,
+        "ok": true,
+        "pcm5s": true,
+        "pcmBytes": 960000,
+        "pcmMs": 600.629819004098,
+        "processMs": 5548.630022996804,
+        "videoId": "jNQXAC9IVRw"
+      },
+      {
+        "errorClass": "extractor_error",
+        "extractMs": 2307.128546999593,
+        "identityMatched": false,
+        "ok": false,
+        "pcm5s": false,
+        "pcmBytes": 0,
+        "pcmMs": null,
+        "processMs": 2307.128546999593,
+        "videoId": "BaW_jenozKc"
+      },
+      {
+        "errorClass": null,
+        "extractMs": 4451.65632100543,
+        "formatId": "258",
+        "identityMatched": true,
+        "ok": true,
+        "pcm5s": true,
+        "pcmBytes": 960000,
+        "pcmMs": 3059.0171099975123,
+        "processMs": 4451.65632100543,
+        "videoId": "aqz-KE-bpKQ"
+      }
+    ],
+    "python_process_fresh_object": [
+      {
+        "errorClass": "extractor_error",
+        "extractMs": null,
+        "identityMatched": false,
+        "initMs": null,
+        "ok": false,
+        "pcm5s": false,
+        "pcmBytes": 0,
+        "pcmMs": null,
+        "processMs": 6120.187613996677,
+        "videoId": "jNQXAC9IVRw"
+      },
+      {
+        "errorClass": "extractor_error",
+        "extractMs": null,
+        "identityMatched": false,
+        "initMs": null,
+        "ok": false,
+        "pcm5s": false,
+        "pcmBytes": 0,
+        "pcmMs": null,
+        "processMs": 1580.858964996878,
+        "videoId": "BaW_jenozKc"
+      },
+      {
+        "errorClass": "extractor_error",
+        "extractMs": null,
+        "identityMatched": false,
+        "initMs": null,
+        "ok": false,
+        "pcm5s": false,
+        "pcmBytes": 0,
+        "pcmMs": null,
+        "processMs": 2894.7782070026733,
+        "videoId": "aqz-KE-bpKQ"
+      }
+    ],
+    "python_resident_reused_object": [
+      {
+        "errorClass": "extractor_error",
+        "extractMs": null,
+        "identityMatched": false,
+        "initMs": null,
+        "ok": false,
+        "pcm5s": false,
+        "pcmBytes": 0,
+        "pcmMs": null,
+        "requestWallMs": 2280.5786129974877,
+        "videoId": "jNQXAC9IVRw"
+      },
+      {
+        "errorClass": "extractor_error",
+        "extractMs": null,
+        "identityMatched": false,
+        "initMs": null,
+        "ok": false,
+        "pcm5s": false,
+        "pcmBytes": 0,
+        "pcmMs": null,
+        "requestWallMs": 1289.5960780006135,
+        "videoId": "BaW_jenozKc"
+      },
+      {
+        "errorClass": "extractor_error",
+        "extractMs": null,
+        "identityMatched": false,
+        "initMs": null,
+        "ok": false,
+        "pcm5s": false,
+        "pcmBytes": 0,
+        "pcmMs": null,
+        "requestWallMs": 8235.802201998013,
+        "videoId": "aqz-KE-bpKQ"
+      }
+    ]
+  },
+  "assets": {
+    "bundledExecutableSha256": "60606cef1a65d70f6639a85b45ebb7acf08dbb81831e134dd93939e23ca2b792",
+    "helperCommit": "26475e9d3665b972c4aeb83b4dbaafcf64b88438",
+    "helperVersion": "2.0.2",
+    "nodeVersion": "v24.21.0",
+    "python": "3.14.8",
+    "sourceArchiveSha256": "f983c6d3ded7148de5b8b22a7db41e12cef05f38f1b5396985d969593efad059",
+    "sourceGitHead": "897341241f2bfb2439fe0367f4c7c9ccd29a3828",
+    "ytDlpCommit": "8973412",
+    "ytDlpVersion": "2026.10.10.233141"
+  },
+  "helperWarmReadyMs": 1381.0335710004438,
+  "live": true,
+  "protocol": "metadata+selected-audio-URL+5s-PCM",
+  "residentWorkerReadinessWallMs": 320.4209859977709,
+  "residentWorkerStartupMs": 210.64451200072654,
+  "schemaVersion": 1,
+  "summary": {
+    "bundled_cli_fresh": {
+      "attempts": 3,
+      "failuresByClass": {
+        "extractor_error": 1
+      },
+      "fiveSecondPcm": 2,
+      "identityMatches": 2,
+      "medianExtractMs": 4451.65632100543,
+      "medianPcmMs": 1829.8234645008051,
+      "medianProcessOrRequestMs": 4451.65632100543
+    },
+    "python_process_fresh_object": {
+      "attempts": 3,
+      "failuresByClass": {
+        "extractor_error": 3
+      },
+      "fiveSecondPcm": 0,
+      "identityMatches": 0,
+      "medianExtractMs": null,
+      "medianPcmMs": null,
+      "medianProcessOrRequestMs": 2894.7782070026733
+    },
+    "python_resident_reused_object": {
+      "attempts": 3,
+      "failuresByClass": {
+        "extractor_error": 3
+      },
+      "fiveSecondPcm": 0,
+      "identityMatches": 0,
+      "medianExtractMs": null,
+      "medianPcmMs": null,
+      "medianProcessOrRequestMs": 2280.5786129974877
+    }
+  },
+  "urlLogged": false
+}

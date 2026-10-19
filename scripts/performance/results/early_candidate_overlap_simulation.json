@@ -1,0 +1,121 @@
+{
+  "experiment": "deterministic-early-candidate-overlap-protocol-simulation",
+  "synthetic": true,
+  "productionCodeChanged": false,
+  "notAProductionSchedulerTest": true,
+  "interpretation": "Illustrative toy timing model only. It assumes a provisional candidate may speculatively consume one extraction slot while search continues, then a canonical candidate may use slot two after fresh identity/version failure. It does not verify production scheduling, safety, or measured latency. Any accepted source still requires fresh identity and access checks in the model.",
+  "policyAssumptions": [
+    "Whole-batch baseline waits until search completion and ranks canonical before provisional candidates.",
+    "Incremental lane in this toy allows provisional speculation before the complete priority frontier is known; this differs from the conservative policy of waiting for all current higher-priority rows.",
+    "Extraction and access durations are invented fixed values, not measured yt-dlp timings.",
+    "The two-attempt limit is modeled from SourceTrace's request-wide budget; cancellation and deadlines are not measured here."
+  ],
+  "cases": [
+    {
+      "scenario": "early_canonical_candidate_passes_fresh_identity",
+      "batchesArriveMs": [
+        250,
+        700,
+        1200,
+        1600
+      ],
+      "searchDoneMs": 1800,
+      "freshExtractionMs": 700,
+      "accessValidationMs": 150,
+      "wholeBatch": {
+        "candidateStarted": "canonical-a",
+        "verifiedSourceReadyMs": 2650,
+        "extractions": 1
+      },
+      "incremental": {
+        "verifiedSourceReadyMs": 1100,
+        "extractions": 1,
+        "candidateProofs": [
+          {
+            "candidate": "canonical-a",
+            "tier": "canonical",
+            "startMs": 250,
+            "identityMs": 950,
+            "accessMs": 1100,
+            "accepted": true
+          }
+        ],
+        "searchCancelledAfterSuccess": true
+      },
+      "savedMs": 1550
+    },
+    {
+      "scenario": "provisional_wrong_version_is_rejected_then_canonical_passes",
+      "batchesArriveMs": [
+        200,
+        500,
+        900,
+        1200
+      ],
+      "searchDoneMs": 1200,
+      "freshExtractionMs": 600,
+      "accessValidationMs": 100,
+      "wholeBatch": {
+        "candidateStarted": "canonical-correct-version",
+        "verifiedSourceReadyMs": 1900,
+        "extractions": 1
+      },
+      "incremental": {
+        "verifiedSourceReadyMs": 1500,
+        "extractions": 2,
+        "candidateProofs": [
+          {
+            "candidate": "provisional-wrong-version",
+            "tier": "provisional",
+            "startMs": 200,
+            "identityMs": 800,
+            "accepted": false,
+            "rejection": "fresh identity/version mismatch"
+          },
+          {
+            "candidate": "canonical-correct-version",
+            "tier": "canonical",
+            "startMs": 800,
+            "identityMs": 1400,
+            "accessMs": 1500,
+            "accepted": true
+          }
+        ],
+        "searchCancelledAfterSuccess": true
+      },
+      "savedMs": 400
+    },
+    {
+      "scenario": "rejected_metadata_waits_for_later_exact_batch",
+      "batchesArriveMs": [
+        250,
+        800,
+        1400
+      ],
+      "searchDoneMs": 1400,
+      "freshExtractionMs": 600,
+      "accessValidationMs": 100,
+      "wholeBatch": {
+        "candidateStarted": "provisional-only",
+        "verifiedSourceReadyMs": null,
+        "extractions": 1
+      },
+      "incremental": {
+        "verifiedSourceReadyMs": null,
+        "extractions": 1,
+        "candidateProofs": [
+          {
+            "candidate": "provisional-only",
+            "tier": "provisional",
+            "startMs": 250,
+            "identityMs": 850,
+            "accepted": false,
+            "rejection": "fresh identity/version mismatch"
+          }
+        ],
+        "searchCancelledAfterSuccess": false
+      },
+      "savedMs": null
+    }
+  ]
+}

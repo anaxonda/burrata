@@ -8,15 +8,16 @@ import { fileURLToPath } from 'node:url';
 import { createPrototype, decodePcm } from './core.mjs';
 
 function fake() {
-  const calls = { clients: 0, info: 0, decoded: [] };
+  const calls = { clients: 0, info: 0, decoded: [], formatRequests: [] };
   let time = 1000, fail = false;
   const execute = createPrototype({
     now: () => time,
     async createClient() {
       calls.clients++;
-      return { session: { player: {} },
-        async getBasicInfo() { calls.info++; return { streaming_data: { expires: new Date(time + 90_000) },
-          chooseFormat: () => ({ mime_type: 'audio/webm; codecs="opus"', decipher: async () => 'https://cdn.example/private-token' }) }; },
+      return { session: { player: {}, user_agent: 'offline-test-agent' },
+      async getBasicInfo() { calls.info++; return { basic_info: { id: 'abcdefghijk', title: 'Fixture Track', author: 'Fixture Topic', duration: 123 },
+          streaming_data: { expires: new Date(time + 90_000) },
+          chooseFormat: options => { calls.formatRequests.push(options); return { itag: 140, mime_type: 'audio/webm; codecs="opus"', decipher: async () => 'https://cdn.example/private-token' }; } }; },
         async search() { return { results: [{ type: 'Video', id: 'abcdefghijk', title: 'Track' }, { type: 'Channel', id: 'ignore' }] }; } };
     },
     async decode(input, options) { calls.decoded.push({ input, options }); if (fail) throw new Error('private-token');
@@ -32,6 +33,9 @@ test('persistent client and unexpired extraction are reused across seeks without
   const seek = await execute({ ...play, action: 'seek', position: 60 });
   assert.equal(calls.clients, 1); assert.equal(calls.info, 1);
   assert.equal(first.infoCacheHit, false); assert.equal(seek.infoCacheHit, true);
+  assert.equal(first.formatId, 140);
+  assert.equal(first.codec, 'audio/webm; codecs="opus"');
+  assert.deepEqual(first.providerMetadata, { videoId: 'abcdefghijk', title: 'Fixture Track', channel: 'Fixture Topic', durationSeconds: 123 });
   assert.equal(seek.recordingVerified, true);
   assert.equal(calls.decoded[1].options.position, 60);
   assert.ok(!JSON.stringify(seek).includes('private-token'));
@@ -49,6 +53,60 @@ test('expired and denied streams are resolved again', async () => {
   state.fail(false);
   await state.execute(play);
   assert.equal(state.calls.info, 3);
+});
+
+test('strict format pin selects only exact itag and passes bounded native stream headers', async () => {
+  const { execute, calls } = fake();
+  const result = await execute({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk', formatId: 140, budgetMs: 1000 });
+  assert.deepEqual(calls.formatRequests[0], { itag: 140 });
+  assert.equal(result.formatId, 140);
+  assert.ok(result.headerNames.includes('user-agent'));
+  assert.equal(calls.decoded[0].options.headers['user-agent'], 'offline-test-agent');
+  assert.equal(calls.decoded[0].options.headers.referer, 'https://www.youtube.com/');
+  await assert.rejects(execute({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk', formatId: 251, budgetMs: 1000 }),
+    error => error.code === 'FORMAT_MISMATCH');
+  assert.equal(calls.decoded.length, 1, 'mismatched itag must not fall through to another format or decode');
+  await assert.rejects(execute({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk', formatId: 0, budgetMs: 1000 }),
+    error => error.code === 'INVALID_PLAYBACK_REQUEST');
+});
+
+test('GVS token mint overlaps player preparation and is applied before extraction', async () => {
+  let resolveReady, ready = false, tokenStarted = false, applied = false;
+  const client = { session: { player: undefined }, playbackReady: new Promise(resolve => { resolveReady = () => { ready = true; resolve(); }; }),
+    playbackPreparationSignal: new AbortController().signal,
+    async getBasicInfo() {
+      assert.equal(ready, true); assert.equal(applied, true);
+      return { basic_info: { id: 'abcdefghijk' }, streaming_data: { expires: new Date(Date.now() + 90_000) },
+        chooseFormat: () => ({ itag: 251, mime_type: 'audio/webm; codecs="opus"', decipher: async () => 'https://cdn.example/audio' }) };
+    } };
+  const execute = createPrototype({ createClient: async () => client,
+    async ensureToken() { tokenStarted = true; return { tokenCacheHit: false, tokenHelperCpuMs: 1 }; },
+    applyCachedToken() { assert.equal(ready, true); client.session.player = { po_token: 'already-minted' }; applied = true; },
+    decode: async () => ({ firstPcmMs: 1, decodedFrames: 240000, decodedAudioMs: 5000 }) });
+  const pending = execute({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk', formatId: 251, budgetMs: 1000 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(tokenStarted, true, 'token work starts while player preparation is pending');
+  resolveReady();
+  const result = await pending;
+  assert.equal(result.formatId, 251);
+});
+
+test('cached token application waits for a fast player and the slower token mint', async () => {
+  let resolveToken, tokenFinished = false, applied = false;
+  const client = { session: { player: {} }, playbackReady: Promise.resolve(), async getBasicInfo() {
+    return { basic_info: { id: 'abcdefghijk' }, streaming_data: { expires: new Date(Date.now() + 90_000) },
+      chooseFormat: () => ({ itag: 251, mime_type: 'audio/webm; codecs="opus"', decipher: async () => 'https://cdn.example/audio' }) };
+  } };
+  const execute = createPrototype({ createClient: async () => client,
+    ensureToken: () => new Promise(resolve => { resolveToken = () => { tokenFinished = true; resolve({ tokenHelperCpuMs: 1 }); }; }),
+    applyCachedToken() { assert.equal(tokenFinished, true); applied = true; },
+    decode: async () => ({ firstPcmMs: 1, decodedFrames: 240000, decodedAudioMs: 5000 }) });
+  const pending = execute({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk', budgetMs: 1000 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(applied, false, 'fast player readiness must not race ahead of token mint');
+  resolveToken();
+  await pending;
+  assert.equal(applied, true);
 });
 
 test('search candidates remain unverified and invalid requests do not initialize a client', async () => {
@@ -76,13 +134,14 @@ test('JSONL worker rejects invalid requests without touching session data', asyn
 test('FFmpeg probe decodes five seconds of real PCM rather than accepting extraction metadata', { timeout: 15000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'burrata-innertube-pcm-'));
   try {
-    const samples = 8000 * 5, wav = Buffer.alloc(44 + samples * 2);
+    const samples = 8000 * 8, wav = Buffer.alloc(44 + samples * 2);
     wav.write('RIFF'); wav.writeUInt32LE(36 + samples * 2, 4); wav.write('WAVEfmt ', 8);
     wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
     wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
     wav.write('data', 36); wav.writeUInt32LE(samples * 2, 40);
     const fixture = join(directory, 'fixture.wav'); await writeFile(fixture, wav);
-    const result = await decodePcm(fixture);
+    const result = await decodePcm(fixture, { position: 2, seconds: 5,
+      headers: { 'user-agent': 'offline-test-agent', 'accept-language': '*', referer: 'https://www.youtube.com/' } });
     assert.ok(result.decodedFrames >= 239900 && result.decodedFrames <= 240100);
     assert.ok(result.firstPcmMs >= 0);
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -111,6 +170,13 @@ test('cancellation interrupts a pending provider and pre-cancel avoids client cr
 test('explicit recording mismatch is rejected before session initialization', async () => {
   const { execute, calls } = fake();
   await assert.rejects(execute({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'zzzzzzzzzzz', budgetMs: 1000 }), error => error.code === 'INVALID_PLAYBACK_REQUEST');
+  assert.equal(calls.clients, 0);
+});
+
+test('invalid strict format pin is rejected before session initialization', async () => {
+  const { execute, calls } = fake();
+  await assert.rejects(execute({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk', formatId: '251', budgetMs: 1000 }),
+    error => error.code === 'INVALID_PLAYBACK_REQUEST');
   assert.equal(calls.clients, 0);
 });
 
@@ -161,6 +227,12 @@ test('worker exits on idle without creating session files', async () => {
 test('missing FFmpeg is a typed decoder availability failure with wrapper accounting', async () => {
   await assert.rejects(decodePcm('/not-opened', { ffmpeg: '/does-not-exist/burrata-ffmpeg' }), error =>
     error.code === 'DECODER_UNAVAILABLE' && error.decoderUsage.childUnavailable === true);
+});
+
+test('decoder header allowlist rejects credential and newline injection', async () => {
+  await assert.rejects(decodePcm('/not-opened', { headers: { cookie: 'secret' } }), error => error.code === 'INVALID_PLAYBACK_HEADERS');
+  await assert.rejects(decodePcm('/not-opened', { headers: { 'user-agent': 'unsafe\r\nCookie: secret' } }),
+    error => error.code === 'INVALID_PLAYBACK_HEADERS');
 });
 
 test('cancellation terminates a real decoder subprocess within the kill grace', { timeout: 3000 }, async () => {

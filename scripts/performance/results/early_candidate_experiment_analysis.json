@@ -1,0 +1,1458 @@
+{
+  "analysis": "offline reclassification of captured flat search metadata",
+  "input": "early_candidate_experiment_escalated.json",
+  "inputSha256": "dbfcdb5da3ab5f67bbf0f6676d5afe527fa05b3ce0bc854d78a60cd7cbad281a",
+  "hintRule": "normalize title to exact `artist title`; require 30<duration<=86400; canonical-like hint when duration delta<=5s; weaker provisional-like hint when delta<=7s. This is not implementation parity or recording proof.",
+  "summary": {
+    "jsonl": {
+      "runs": 6,
+      "requestExitMedianMs": 2513.5,
+      "firstRowMedianMs": 2350.0,
+      "firstTitleDurationHintMedianMs": 2356.0,
+      "firstStrongTitleDurationHintMedianMs": 2558.5,
+      "lastRowMedianMs": 2376.5,
+      "lastRowToExitMedianMs": 138.0,
+      "runsWithAnyTitleDurationHint": 6,
+      "runsWithStrongTitleDurationHint": 2
+    },
+    "single": {
+      "runs": 6,
+      "requestExitMedianMs": 2408.5,
+      "firstRowMedianMs": 2284.0,
+      "firstTitleDurationHintMedianMs": 2284.0,
+      "firstStrongTitleDurationHintMedianMs": 2686.0,
+      "lastRowMedianMs": 2284.0,
+      "lastRowToExitMedianMs": 128.5,
+      "runsWithAnyTitleDurationHint": 6,
+      "runsWithStrongTitleDurationHint": 4
+    }
+  },
+  "pairedRuns": [
+    {
+      "queryNumber": 1,
+      "pair": 1,
+      "jsonlFirstRowMs": 2425,
+      "singleFirstRowMs": 2239,
+      "jsonlFirstHintMs": 2430,
+      "singleFirstHintMs": 2239,
+      "jsonlFirstStrongHintMs": 2444,
+      "singleFirstStrongHintMs": null,
+      "jsonlLastRowMs": 2444,
+      "singleLastRowMs": 2239,
+      "jsonlExitMs": 2584,
+      "singleExitMs": 2365,
+      "jsonlStrongHintIds": [
+        "ps9X-DXUFGY"
+      ],
+      "singleStrongHintIds": [],
+      "strongHintIdIntersection": []
+    },
+    {
+      "queryNumber": 1,
+      "pair": 2,
+      "jsonlFirstRowMs": 2654,
+      "singleFirstRowMs": 3043,
+      "jsonlFirstHintMs": 2658,
+      "singleFirstHintMs": 3043,
+      "jsonlFirstStrongHintMs": 2673,
+      "singleFirstStrongHintMs": 3043,
+      "jsonlLastRowMs": 2673,
+      "singleLastRowMs": 3043,
+      "jsonlExitMs": 2800,
+      "singleExitMs": 3170,
+      "jsonlStrongHintIds": [
+        "ps9X-DXUFGY"
+      ],
+      "singleStrongHintIds": [
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIdIntersection": [
+        "ps9X-DXUFGY"
+      ]
+    },
+    {
+      "queryNumber": 1,
+      "pair": 3,
+      "jsonlFirstRowMs": 2403,
+      "singleFirstRowMs": 2329,
+      "jsonlFirstHintMs": 2409,
+      "singleFirstHintMs": 2329,
+      "jsonlFirstStrongHintMs": null,
+      "singleFirstStrongHintMs": 2329,
+      "jsonlLastRowMs": 2426,
+      "singleLastRowMs": 2329,
+      "jsonlExitMs": 2553,
+      "singleExitMs": 2452,
+      "jsonlStrongHintIds": [],
+      "singleStrongHintIds": [
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIdIntersection": []
+    },
+    {
+      "queryNumber": 2,
+      "pair": 1,
+      "jsonlFirstRowMs": 2297,
+      "singleFirstRowMs": 2204,
+      "jsonlFirstHintMs": 2303,
+      "singleFirstHintMs": 2204,
+      "jsonlFirstStrongHintMs": null,
+      "singleFirstStrongHintMs": null,
+      "jsonlLastRowMs": 2327,
+      "singleLastRowMs": 2204,
+      "jsonlExitMs": 2474,
+      "singleExitMs": 2334,
+      "jsonlStrongHintIds": [],
+      "singleStrongHintIds": [],
+      "strongHintIdIntersection": []
+    },
+    {
+      "queryNumber": 2,
+      "pair": 2,
+      "jsonlFirstRowMs": 2000,
+      "singleFirstRowMs": 3508,
+      "jsonlFirstHintMs": 2007,
+      "singleFirstHintMs": 3508,
+      "jsonlFirstStrongHintMs": null,
+      "singleFirstStrongHintMs": 3508,
+      "jsonlLastRowMs": 2028,
+      "singleLastRowMs": 3508,
+      "jsonlExitMs": 2360,
+      "singleExitMs": 3645,
+      "jsonlStrongHintIds": [],
+      "singleStrongHintIds": [
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIdIntersection": []
+    },
+    {
+      "queryNumber": 2,
+      "pair": 3,
+      "jsonlFirstRowMs": 2011,
+      "singleFirstRowMs": 1929,
+      "jsonlFirstHintMs": 2017,
+      "singleFirstHintMs": 1929,
+      "jsonlFirstStrongHintMs": null,
+      "singleFirstStrongHintMs": 1929,
+      "jsonlLastRowMs": 2032,
+      "singleLastRowMs": 1929,
+      "jsonlExitMs": 2168,
+      "singleExitMs": 2066,
+      "jsonlStrongHintIds": [],
+      "singleStrongHintIds": [
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIdIntersection": []
+    }
+  ],
+  "runs": [
+    {
+      "run": 1,
+      "format": "jsonl",
+      "query": "john denver matthew",
+      "elapsedMs": 2584,
+      "firstRowAvailableMs": 2425,
+      "firstSearchHintMs": 2425,
+      "firstStrongFlatHintMs": 2444,
+      "rowCount": 10,
+      "totalStdoutBytes": 18731,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2425,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2428,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2430,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2432,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2434,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2436,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2438,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2440,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2442,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2444,
+          "id": "ps9X-DXUFGY",
+          "title": "JOHN DENVER - MATTHEW.",
+          "durationSeconds": 225,
+          "searchHint": "strong_title_duration_hint"
+        }
+      ],
+      "queryNumber": 1,
+      "pair": 1,
+      "firstTitleDurationHintMs": 2430,
+      "firstStrongTitleDurationHintMs": 2444,
+      "lastRowAvailableMs": 2444,
+      "lastRowToProcessExitMs": 140,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I",
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIds": [
+        "ps9X-DXUFGY"
+      ]
+    },
+    {
+      "run": 2,
+      "format": "single",
+      "query": "john denver matthew",
+      "elapsedMs": 2365,
+      "firstRowAvailableMs": 2239,
+      "firstSearchHintMs": 2239,
+      "firstStrongFlatHintMs": null,
+      "rowCount": 10,
+      "totalStdoutBytes": 10810,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2239,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2239,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2239,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2239,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2239,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2239,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2239,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2239,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2239,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2239,
+          "id": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "searchHint": "none"
+        }
+      ],
+      "queryNumber": 1,
+      "pair": 1,
+      "firstTitleDurationHintMs": 2239,
+      "firstStrongTitleDurationHintMs": null,
+      "lastRowAvailableMs": 2239,
+      "lastRowToProcessExitMs": 126,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I"
+      ],
+      "strongHintIds": []
+    },
+    {
+      "run": 3,
+      "format": "single",
+      "query": "john denver matthew",
+      "elapsedMs": 3170,
+      "firstRowAvailableMs": 3043,
+      "firstSearchHintMs": 3043,
+      "firstStrongFlatHintMs": 3043,
+      "rowCount": 10,
+      "totalStdoutBytes": 10732,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 3043,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 3043,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 3043,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 3043,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 3043,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 3043,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 3043,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 3043,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 3043,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 3043,
+          "id": "ps9X-DXUFGY",
+          "title": "JOHN DENVER - MATTHEW.",
+          "durationSeconds": 225,
+          "searchHint": "strong_title_duration_hint"
+        }
+      ],
+      "queryNumber": 1,
+      "pair": 2,
+      "firstTitleDurationHintMs": 3043,
+      "firstStrongTitleDurationHintMs": 3043,
+      "lastRowAvailableMs": 3043,
+      "lastRowToProcessExitMs": 127,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I",
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIds": [
+        "ps9X-DXUFGY"
+      ]
+    },
+    {
+      "run": 4,
+      "format": "jsonl",
+      "query": "john denver matthew",
+      "elapsedMs": 2800,
+      "firstRowAvailableMs": 2654,
+      "firstSearchHintMs": 2654,
+      "firstStrongFlatHintMs": 2673,
+      "rowCount": 10,
+      "totalStdoutBytes": 18815,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2654,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2656,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2658,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2660,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2663,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2665,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2667,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2670,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2672,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2673,
+          "id": "ps9X-DXUFGY",
+          "title": "JOHN DENVER - MATTHEW.",
+          "durationSeconds": 225,
+          "searchHint": "strong_title_duration_hint"
+        }
+      ],
+      "queryNumber": 1,
+      "pair": 2,
+      "firstTitleDurationHintMs": 2658,
+      "firstStrongTitleDurationHintMs": 2673,
+      "lastRowAvailableMs": 2673,
+      "lastRowToProcessExitMs": 127,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I",
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIds": [
+        "ps9X-DXUFGY"
+      ]
+    },
+    {
+      "run": 5,
+      "format": "jsonl",
+      "query": "john denver matthew",
+      "elapsedMs": 2553,
+      "firstRowAvailableMs": 2403,
+      "firstSearchHintMs": 2403,
+      "firstStrongFlatHintMs": null,
+      "rowCount": 10,
+      "totalStdoutBytes": 18984,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2403,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2405,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2409,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2412,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2415,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2417,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2419,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2421,
+          "id": "lqZ-HBlpD98",
+          "title": "John Denver - Matthew (live 1974)",
+          "durationSeconds": 233,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2424,
+          "id": "M5NPZmqTOOU",
+          "title": "At 78, Annie Denver Confirmed The Rumor About John Denver",
+          "durationSeconds": 1834,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2426,
+          "id": "fGHGdjf62aw",
+          "title": "John Denver   Matthew  KARAOKE",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        }
+      ],
+      "queryNumber": 1,
+      "pair": 3,
+      "firstTitleDurationHintMs": 2409,
+      "firstStrongTitleDurationHintMs": null,
+      "lastRowAvailableMs": 2426,
+      "lastRowToProcessExitMs": 127,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I"
+      ],
+      "strongHintIds": []
+    },
+    {
+      "run": 6,
+      "format": "single",
+      "query": "john denver matthew",
+      "elapsedMs": 2452,
+      "firstRowAvailableMs": 2329,
+      "firstSearchHintMs": 2329,
+      "firstStrongFlatHintMs": 2329,
+      "rowCount": 10,
+      "totalStdoutBytes": 10732,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2329,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2329,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2329,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2329,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2329,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2329,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2329,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2329,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2329,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2329,
+          "id": "ps9X-DXUFGY",
+          "title": "JOHN DENVER - MATTHEW.",
+          "durationSeconds": 225,
+          "searchHint": "strong_title_duration_hint"
+        }
+      ],
+      "queryNumber": 1,
+      "pair": 3,
+      "firstTitleDurationHintMs": 2329,
+      "firstStrongTitleDurationHintMs": 2329,
+      "lastRowAvailableMs": 2329,
+      "lastRowToProcessExitMs": 123,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I",
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIds": [
+        "ps9X-DXUFGY"
+      ]
+    },
+    {
+      "run": 7,
+      "format": "jsonl",
+      "query": "\"john denver\" \"matthew\"",
+      "elapsedMs": 2474,
+      "firstRowAvailableMs": 2297,
+      "firstSearchHintMs": 2297,
+      "firstStrongFlatHintMs": null,
+      "rowCount": 10,
+      "totalStdoutBytes": 19129,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2297,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2300,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2303,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2307,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2311,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2314,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2317,
+          "id": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2320,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2324,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2327,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        }
+      ],
+      "queryNumber": 2,
+      "pair": 1,
+      "firstTitleDurationHintMs": 2303,
+      "firstStrongTitleDurationHintMs": null,
+      "lastRowAvailableMs": 2327,
+      "lastRowToProcessExitMs": 147,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I"
+      ],
+      "strongHintIds": []
+    },
+    {
+      "run": 8,
+      "format": "single",
+      "query": "\"john denver\" \"matthew\"",
+      "elapsedMs": 2334,
+      "firstRowAvailableMs": 2204,
+      "firstSearchHintMs": 2204,
+      "firstStrongFlatHintMs": null,
+      "rowCount": 10,
+      "totalStdoutBytes": 10850,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2204,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2204,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2204,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2204,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2204,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2204,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2204,
+          "id": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2204,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2204,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2204,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        }
+      ],
+      "queryNumber": 2,
+      "pair": 1,
+      "firstTitleDurationHintMs": 2204,
+      "firstStrongTitleDurationHintMs": null,
+      "lastRowAvailableMs": 2204,
+      "lastRowToProcessExitMs": 130,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I"
+      ],
+      "strongHintIds": []
+    },
+    {
+      "run": 9,
+      "format": "single",
+      "query": "\"john denver\" \"matthew\"",
+      "elapsedMs": 3645,
+      "firstRowAvailableMs": 3508,
+      "firstSearchHintMs": 3508,
+      "firstStrongFlatHintMs": 3508,
+      "rowCount": 10,
+      "totalStdoutBytes": 10831,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 3508,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 3508,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 3508,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 3508,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 3508,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 3508,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 3508,
+          "id": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 3508,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 3508,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 3508,
+          "id": "ps9X-DXUFGY",
+          "title": "JOHN DENVER - MATTHEW.",
+          "durationSeconds": 225,
+          "searchHint": "strong_title_duration_hint"
+        }
+      ],
+      "queryNumber": 2,
+      "pair": 2,
+      "firstTitleDurationHintMs": 3508,
+      "firstStrongTitleDurationHintMs": 3508,
+      "lastRowAvailableMs": 3508,
+      "lastRowToProcessExitMs": 137,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I",
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIds": [
+        "ps9X-DXUFGY"
+      ]
+    },
+    {
+      "run": 10,
+      "format": "jsonl",
+      "query": "\"john denver\" \"matthew\"",
+      "elapsedMs": 2360,
+      "firstRowAvailableMs": 2000,
+      "firstSearchHintMs": 2000,
+      "firstStrongFlatHintMs": null,
+      "rowCount": 10,
+      "totalStdoutBytes": 19129,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2000,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2003,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2007,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2011,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2015,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2017,
+          "id": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2019,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2022,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2025,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2028,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        }
+      ],
+      "queryNumber": 2,
+      "pair": 2,
+      "firstTitleDurationHintMs": 2007,
+      "firstStrongTitleDurationHintMs": null,
+      "lastRowAvailableMs": 2028,
+      "lastRowToProcessExitMs": 332,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I"
+      ],
+      "strongHintIds": []
+    },
+    {
+      "run": 11,
+      "format": "jsonl",
+      "query": "\"john denver\" \"matthew\"",
+      "elapsedMs": 2168,
+      "firstRowAvailableMs": 2011,
+      "firstSearchHintMs": 2011,
+      "firstStrongFlatHintMs": null,
+      "rowCount": 10,
+      "totalStdoutBytes": 19129,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 2011,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 2014,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 2017,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 2019,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 2021,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 2023,
+          "id": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 2025,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 2028,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 2030,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 2032,
+          "id": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "searchHint": "none"
+        }
+      ],
+      "queryNumber": 2,
+      "pair": 3,
+      "firstTitleDurationHintMs": 2017,
+      "firstStrongTitleDurationHintMs": null,
+      "lastRowAvailableMs": 2032,
+      "lastRowToProcessExitMs": 136,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I"
+      ],
+      "strongHintIds": []
+    },
+    {
+      "run": 12,
+      "format": "single",
+      "query": "\"john denver\" \"matthew\"",
+      "elapsedMs": 2066,
+      "firstRowAvailableMs": 1929,
+      "firstSearchHintMs": 1929,
+      "firstStrongFlatHintMs": 1929,
+      "rowCount": 10,
+      "totalStdoutBytes": 10768,
+      "exitCode": 0,
+      "failure": null,
+      "failureEvidence": null,
+      "rows": [
+        {
+          "ordinal": 1,
+          "arrivalMs": 1929,
+          "id": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 2,
+          "arrivalMs": 1929,
+          "id": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 3,
+          "arrivalMs": 1929,
+          "id": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 4,
+          "arrivalMs": 1929,
+          "id": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 5,
+          "arrivalMs": 1929,
+          "id": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 6,
+          "arrivalMs": 1929,
+          "id": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "searchHint": "provisional_title_duration_hint"
+        },
+        {
+          "ordinal": 7,
+          "arrivalMs": 1929,
+          "id": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 8,
+          "arrivalMs": 1929,
+          "id": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 9,
+          "arrivalMs": 1929,
+          "id": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "searchHint": "none"
+        },
+        {
+          "ordinal": 10,
+          "arrivalMs": 1929,
+          "id": "ps9X-DXUFGY",
+          "title": "JOHN DENVER - MATTHEW.",
+          "durationSeconds": 225,
+          "searchHint": "strong_title_duration_hint"
+        }
+      ],
+      "queryNumber": 2,
+      "pair": 3,
+      "firstTitleDurationHintMs": 1929,
+      "firstStrongTitleDurationHintMs": 1929,
+      "lastRowAvailableMs": 1929,
+      "lastRowToProcessExitMs": 137,
+      "eligibleHintIds": [
+        "wKPmoLxAqCM",
+        "FRP_lYROd-I",
+        "ps9X-DXUFGY"
+      ],
+      "strongHintIds": [
+        "ps9X-DXUFGY"
+      ]
+    }
+  ],
+  "limits": [
+    "Both arms used --flat-playlist and --lazy-playlist; this isolates output framing and does not reproduce production's non-lazy --dump-single-json command.",
+    "Public result membership/order varied between paired requests; row IDs are retained for assessing that instability.",
+    "Timing covers candidate JSON visibility and process exit only. It does not measure yt-dlp extraction, fresh identity verification, stream access, or playback startup.",
+    "Search hints only locate interesting metadata rows. Correct recording/version and safe playback still require fresh extractor identity and access validation."
+  ]
+}

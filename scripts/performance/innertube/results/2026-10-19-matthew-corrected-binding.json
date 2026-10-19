@@ -1,0 +1,49 @@
+[
+  {
+    "id": "matthew-direct-token-binding-fix",
+    "ok": true,
+    "clientName": "MWEB",
+    "preparedMs": 5216.655604,
+    "extractionMs": 365.09369399999923,
+    "infoCacheHit": false,
+    "manifestExpiresInMs": 299385,
+    "refreshedAfterDenial": false,
+    "firstPcmMs": 426.8099739999998,
+    "decodedFrames": 240000,
+    "decodedAudioMs": 5000,
+    "decodeWallMs": 578.6009919999997,
+    "decoderCpuMs": 93.10499999999999,
+    "decoderMaxRssBytes": 20312064,
+    "accountingWrapperCpuMs": 70.896,
+    "accountingWrapperMaxRssBytes": 47181824,
+    "decoderAccounting": "wait4-reaped-command-tree",
+    "firstPcmFromCommandMs": 11837.686802,
+    "tokenCacheHit": false,
+    "tokenExpiresInMs": 21599998,
+    "tokenHelperCpuMs": 5293.313,
+    "tokenHelperMaxRssBytes": 240791552,
+    "tokenBindings": {
+      "player": "visitorData",
+      "gvs": "videoId"
+    },
+    "stages": {
+      "session": 5214.698265,
+      "sessionWait": 5214.480667,
+      "token": 5829.173468,
+      "extraction": 331.20614900000146,
+      "format": 0.5299439999998867,
+      "decipher": 32.890902000001006,
+      "decode": 581.1797129999995
+    },
+    "helperCpuMs": 5768.436,
+    "helperRssBytes": 423256064,
+    "helperMaxRssBytes": 423256064,
+    "accountingComplete": true,
+    "totalCpuMs": 11225.75,
+    "wallMs": 11992.488623,
+    "codec": "audio/webm; codecs=\"opus\"",
+    "recordingVerified": true,
+    "identityScope": "explicit-provider-video-id; not acoustic verification",
+    "tokenMode": "bgutil"
+  }
+]

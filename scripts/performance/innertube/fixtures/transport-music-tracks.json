@@ -1,0 +1,32 @@
+[
+  {
+    "name": "matthew",
+    "videoId": "uZGRATckoBM",
+    "formatId": 251,
+    "codec": "audio/webm; codecs=\"opus\"",
+    "titleNeedle": "Matthew",
+    "channelNeedle": "John Denver",
+    "durationSeconds": 228,
+    "source": "anonymous YouTube flat search by exact public ID; prior isolated direct probe decoded this explicit ID"
+  },
+  {
+    "name": "poso-lyric-video",
+    "videoId": "hRNx674Z4QE",
+    "formatId": 251,
+    "codec": "audio/webm; codecs=\"opus\"",
+    "titleNeedle": "Poso S' Agapo",
+    "channelNeedle": "MLK",
+    "durationSeconds": 251,
+    "source": "anonymous YouTube flat search by exact public ID; known catalog duration differs from this explicit lyric-video duration"
+  },
+  {
+    "name": "timmy-topic",
+    "videoId": "YoHI6frgjz4",
+    "formatId": 251,
+    "codec": "audio/webm; codecs=\"opus\"",
+    "titleNeedle": "Bathi Ndiyabanda",
+    "channelNeedle": "Timmy Regisford - Topic",
+    "durationSeconds": 288,
+    "source": "anonymous ytsearch metadata result for Timmy Regisford Sasa Main Version query; independent Topic audio candidate"
+  }
+]

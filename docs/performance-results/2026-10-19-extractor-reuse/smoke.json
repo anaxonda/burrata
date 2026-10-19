@@ -1,0 +1,66 @@
+{
+  "arms": {
+    "bundled_cli_fresh": [
+      {
+        "errorClass": null,
+        "extractMs": 6459.212210997066,
+        "formatId": "140",
+        "identityMatched": true,
+        "ok": true,
+        "pcm5s": true,
+        "pcmBytes": 960000,
+        "pcmMs": 357.05137599870795,
+        "processMs": 6459.212210997066,
+        "videoId": "jNQXAC9IVRw"
+      }
+    ],
+    "python_process_fresh_object": [],
+    "python_resident_reused_object": []
+  },
+  "assets": {
+    "bundledExecutableSha256": "60606cef1a65d70f6639a85b45ebb7acf08dbb81831e134dd93939e23ca2b792",
+    "helperCommit": "26475e9d3665b972c4aeb83b4dbaafcf64b88438",
+    "helperVersion": "2.0.2",
+    "nodeVersion": "v24.21.0",
+    "python": "3.14.8",
+    "sourceArchiveSha256": "f983c6d3ded7148de5b8b22a7db41e12cef05f38f1b5396985d969593efad059",
+    "sourceGitHead": "897341241f2bfb2439fe0367f4c7c9ccd29a3828",
+    "ytDlpCommit": "8973412",
+    "ytDlpVersion": "2026.10.10.233141"
+  },
+  "helperWarmReadyMs": 1446.2307949943352,
+  "live": true,
+  "protocol": "metadata+selected-audio-URL+5s-PCM",
+  "residentWorkerStartupMs": 290.9079150049365,
+  "schemaVersion": 1,
+  "summary": {
+    "bundled_cli_fresh": {
+      "attempts": 1,
+      "failuresByClass": {},
+      "fiveSecondPcm": 1,
+      "identityMatches": 1,
+      "medianExtractMs": 6459.212210997066,
+      "medianPcmMs": 357.05137599870795,
+      "medianProcessOrRequestMs": 6459.212210997066
+    },
+    "python_process_fresh_object": {
+      "attempts": 0,
+      "failuresByClass": {},
+      "fiveSecondPcm": 0,
+      "identityMatches": 0,
+      "medianExtractMs": null,
+      "medianPcmMs": null,
+      "medianProcessOrRequestMs": null
+    },
+    "python_resident_reused_object": {
+      "attempts": 0,
+      "failuresByClass": {},
+      "fiveSecondPcm": 0,
+      "identityMatches": 0,
+      "medianExtractMs": null,
+      "medianPcmMs": null,
+      "medianProcessOrRequestMs": null
+    }
+  },
+  "urlLogged": false
+}

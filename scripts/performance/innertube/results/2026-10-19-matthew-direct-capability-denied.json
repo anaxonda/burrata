@@ -1,0 +1,18 @@
+[
+  {
+    "id": "matthew-direct-01",
+    "ok": false,
+    "failure": "STREAM_DENIED",
+    "stage": "decode",
+    "stages": {
+      "session": 4277.917993,
+      "sessionWait": 4277.660987,
+      "token": 6542.659909,
+      "extraction": 670.4464540000008,
+      "format": 0.7648460000000341,
+      "decipher": 61.81095000000096,
+      "decode": 906.6852460000009
+    },
+    "accountingComplete": false
+  }
+]

@@ -1,0 +1,429 @@
+{
+  "accountingComplete": false,
+  "assets": {
+    "bundledExecutableSha256": "60606cef1a65d70f6639a85b45ebb7acf08dbb81831e134dd93939e23ca2b792",
+    "dependencyFilesSha256": {
+      "yt_dlp_ejs/__init__.py": "fe502eb717291a121cb756cc4849dd67267d5ccec13695573e6b93094296f1dd",
+      "yt_dlp_ejs/_version.py": "46db65f810da76d716d50cc69cd7df09603f59cf6650a0cc3813d9a7ef8c9ec7",
+      "yt_dlp_ejs/yt/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "yt_dlp_ejs/yt/solver/__init__.py": "8341c613acde41befdf033f817d90b02c50735207e379427d8c510ed80997a73",
+      "yt_dlp_ejs/yt/solver/core.min.js": "18da6ce0758b416e7ae645084f4f8801f9f9d59d6c477c05eaa0ff94ebd8cc00",
+      "yt_dlp_ejs/yt/solver/lib.min.js": "c55987fe697e5b9ee18830163f7af85327e9bb5c3e674b969d38c8d205eaa577"
+    },
+    "ejsSolverSha3_512": {
+      "core": "ee5b307d07f55e91e4723edf5ac205cc877a474187849d757dc1322e38427b157a9d706d510c1723d3670f98e5a3f8cbcde77874a80406bd7204bc9fea30f283",
+      "lib": "8420c259ad16e99ce004e4651ac1bcabb53b4457bf5668a97a9359be9a998a789fee8ab124ee17f91a2ea8fd84e0f2b2fc8eabcaf0b16a186ba734cf422ad053"
+    },
+    "ejsVersion": "0.8.0",
+    "frozenCliRuntimeParity": false,
+    "helperCommit": "26475e9d3665b972c4aeb83b4dbaafcf64b88438",
+    "helperVersion": "2.0.2",
+    "nodeVersion": "v24.21.0",
+    "python": "3.14.8",
+    "pythonDependencyPolicy": "python-S; pinned-source plus explicit EJS package; no site/user packages",
+    "scriptSha256": "f24ff8d09e8cd09a08ba4a3163d87d0789a4111923add8f44ca6c81d85ed49f8",
+    "sourceArchiveSha256": "f983c6d3ded7148de5b8b22a7db41e12cef05f38f1b5396985d969593efad059",
+    "sourceGitHead": "897341241f2bfb2439fe0367f4c7c9ccd29a3828",
+    "sourceTreeManifestSha256": "bc8c8ee09d2f4538cac30359d935b730d60258d9536de4a504bab03459a95a83",
+    "ytDlpCommit": "8973412",
+    "ytDlpVersion": "2026.10.10.233141"
+  },
+  "attempts": [
+    {
+      "arm": "bundled_cli_fresh",
+      "expectedFormatId": "251",
+      "failure": "EXTRACTOR_ERROR",
+      "failureStage": "extract",
+      "formatId": null,
+      "formatMatched": false,
+      "identityMatched": false,
+      "ok": false,
+      "pairId": 1,
+      "pcm5s": false,
+      "pcmBytes": 0,
+      "requestToFirstPcmMs": null,
+      "requestWallMs": 1461.030015,
+      "resolvedVideoId": null,
+      "stages": {
+        "extractionMs": 1458.723277
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "python_process_fresh_object",
+      "decoderFirstPcmMs": 294.060715,
+      "decoderFiveSecondCompleteMs": 437.976983,
+      "decoderWallMs": 445.615191,
+      "diagnosticCategories": [],
+      "expectedFormatId": "251",
+      "failure": null,
+      "failureStage": null,
+      "formatId": "251",
+      "formatMatched": true,
+      "headerNames": [
+        "user-agent",
+        "accept-language"
+      ],
+      "identityMatched": true,
+      "ok": true,
+      "pairId": 1,
+      "pcm5s": true,
+      "pcmBytes": 960000,
+      "requestToFirstPcmMs": 7292.426661,
+      "requestWallMs": 7444.753551,
+      "residentRestarted": false,
+      "resolvedVideoId": "uZGRATckoBM",
+      "selectionFingerprint": {
+        "acodec": "opus",
+        "channels": 2,
+        "contentLength": 3845541,
+        "ext": "webm",
+        "formatId": "251",
+        "protocol": "https",
+        "sampleRate": 48000
+      },
+      "stages": {
+        "extractionMs": 6533.452083,
+        "workerReadinessMs": 464.224704
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "python_resident_reused_object",
+      "decoderFirstPcmMs": null,
+      "decoderFiveSecondCompleteMs": null,
+      "decoderWallMs": 467.975481,
+      "diagnosticCategories": [],
+      "expectedFormatId": "251",
+      "failure": "STREAM_DENIED",
+      "failureStage": "decode",
+      "formatId": "251",
+      "formatMatched": true,
+      "headerNames": [
+        "user-agent",
+        "accept-language"
+      ],
+      "identityMatched": true,
+      "ok": false,
+      "pairId": 1,
+      "pcm5s": false,
+      "pcmBytes": 0,
+      "requestToFirstPcmMs": null,
+      "requestWallMs": 6182.760689,
+      "residentRestarted": false,
+      "resolvedVideoId": "uZGRATckoBM",
+      "selectionFingerprint": {
+        "acodec": "opus",
+        "channels": 2,
+        "contentLength": 3845541,
+        "ext": "webm",
+        "formatId": "251",
+        "protocol": "https",
+        "sampleRate": 48000
+      },
+      "stages": {
+        "extractionMs": 4920.292326,
+        "workerReadinessMs": 792.768611
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "python_process_fresh_object",
+      "decoderFirstPcmMs": null,
+      "decoderFiveSecondCompleteMs": null,
+      "decoderWallMs": 283.312286,
+      "diagnosticCategories": [],
+      "expectedFormatId": "251",
+      "failure": "STREAM_DENIED",
+      "failureStage": "decode",
+      "formatId": "251",
+      "formatMatched": true,
+      "headerNames": [
+        "user-agent",
+        "accept-language"
+      ],
+      "identityMatched": true,
+      "ok": false,
+      "pairId": 2,
+      "pcm5s": false,
+      "pcmBytes": 0,
+      "requestToFirstPcmMs": null,
+      "requestWallMs": 6119.955827,
+      "residentRestarted": false,
+      "resolvedVideoId": "uZGRATckoBM",
+      "selectionFingerprint": {
+        "acodec": "opus",
+        "channels": 2,
+        "contentLength": 3845541,
+        "ext": "webm",
+        "formatId": "251",
+        "protocol": "https",
+        "sampleRate": 48000
+      },
+      "stages": {
+        "extractionMs": 5221.718936,
+        "workerReadinessMs": 613.726088
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "python_resident_reused_object",
+      "decoderFirstPcmMs": 487.674545,
+      "decoderFiveSecondCompleteMs": 633.979058,
+      "decoderWallMs": 642.137961,
+      "diagnosticCategories": [],
+      "expectedFormatId": "251",
+      "failure": null,
+      "failureStage": null,
+      "formatId": "251",
+      "formatMatched": true,
+      "headerNames": [
+        "user-agent",
+        "accept-language"
+      ],
+      "identityMatched": true,
+      "ok": true,
+      "pairId": 2,
+      "pcm5s": true,
+      "pcmBytes": 960000,
+      "requestToFirstPcmMs": 5273.775841,
+      "requestWallMs": 5429.454514,
+      "residentRestarted": false,
+      "resolvedVideoId": "uZGRATckoBM",
+      "selectionFingerprint": {
+        "acodec": "opus",
+        "channels": 2,
+        "contentLength": 3845541,
+        "ext": "webm",
+        "formatId": "251",
+        "protocol": "https",
+        "sampleRate": 48000
+      },
+      "stages": {
+        "extractionMs": 4785.214713,
+        "workerReadinessMs": 0
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "bundled_cli_fresh",
+      "expectedFormatId": "251",
+      "failure": "EXTRACTOR_ERROR",
+      "failureStage": "extract",
+      "formatId": null,
+      "formatMatched": false,
+      "identityMatched": false,
+      "ok": false,
+      "pairId": 2,
+      "pcm5s": false,
+      "pcmBytes": 0,
+      "requestToFirstPcmMs": null,
+      "requestWallMs": 1689.243492,
+      "resolvedVideoId": null,
+      "stages": {
+        "extractionMs": 1686.982242
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "python_resident_reused_object",
+      "decoderFirstPcmMs": null,
+      "decoderFiveSecondCompleteMs": null,
+      "decoderWallMs": 304.638358,
+      "diagnosticCategories": [],
+      "expectedFormatId": "251",
+      "failure": "STREAM_DENIED",
+      "failureStage": "decode",
+      "formatId": "251",
+      "formatMatched": true,
+      "headerNames": [
+        "user-agent",
+        "accept-language"
+      ],
+      "identityMatched": true,
+      "ok": false,
+      "pairId": 3,
+      "pcm5s": false,
+      "pcmBytes": 0,
+      "requestToFirstPcmMs": null,
+      "requestWallMs": 4237.845449,
+      "residentRestarted": false,
+      "resolvedVideoId": "uZGRATckoBM",
+      "selectionFingerprint": {
+        "acodec": "opus",
+        "channels": 2,
+        "contentLength": 3845541,
+        "ext": "webm",
+        "formatId": "251",
+        "protocol": "https",
+        "sampleRate": 48000
+      },
+      "stages": {
+        "extractionMs": 3931.748924,
+        "workerReadinessMs": 0
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "bundled_cli_fresh",
+      "expectedFormatId": "251",
+      "failure": "EXTRACTOR_ERROR",
+      "failureStage": "extract",
+      "formatId": null,
+      "formatMatched": false,
+      "identityMatched": false,
+      "ok": false,
+      "pairId": 3,
+      "pcm5s": false,
+      "pcmBytes": 0,
+      "requestToFirstPcmMs": null,
+      "requestWallMs": 1389.272248,
+      "resolvedVideoId": null,
+      "stages": {
+        "extractionMs": 1388.311441
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    },
+    {
+      "arm": "python_process_fresh_object",
+      "diagnosticCategories": [
+        "format_unavailable"
+      ],
+      "errorType": "DownloadError",
+      "expectedFormatId": "251",
+      "failure": "FORMAT_UNAVAILABLE",
+      "failureStage": "extract",
+      "formatId": null,
+      "formatMatched": false,
+      "identityMatched": false,
+      "ok": false,
+      "pairId": 3,
+      "pcm5s": false,
+      "pcmBytes": 0,
+      "requestToFirstPcmMs": null,
+      "requestWallMs": 5566.695476,
+      "residentRestarted": false,
+      "resolvedVideoId": null,
+      "stages": {
+        "extractionMs": 4886.804795,
+        "workerReadinessMs": 679.317535
+      },
+      "videoId": "uZGRATckoBM",
+      "warmup": false
+    }
+  ],
+  "client": "mweb",
+  "complete": true,
+  "expectedFormatId": "251",
+  "helperPolicy": "one shared anonymous warm helper; setup excluded from arm timings",
+  "helperSetupMs": 2511.6961029998492,
+  "helperShutdownObserved": true,
+  "limitations": [
+    "frozen CLI and experimental Python have different runtime/dependency graphs",
+    "itag/source equality is not exact signedURL/CDN equality",
+    "small Latin rotation; no performance qualification",
+    "helper readiness excluded; no whole-application cold-start claim"
+  ],
+  "live": true,
+  "pcmScope": "FFmpeg decoder only; five seconds48kHz stereo s16le; no mixer/device",
+  "qualification": false,
+  "repetitionsPerArm": 3,
+  "requestBudgetSeconds": 20.0,
+  "residentIdleSeconds": 60.0,
+  "schema": "burrata.extractor-reuse-matched/v2",
+  "summary": {
+    "arms": {
+      "bundled_cli_fresh": {
+        "attempts": 3,
+        "failuresByClass": {
+          "EXTRACTOR_ERROR": 3
+        },
+        "medianRequestToFirstPcmMs": null,
+        "medianRequestWallMs": null,
+        "successes": 0
+      },
+      "python_process_fresh_object": {
+        "attempts": 3,
+        "failuresByClass": {
+          "FORMAT_UNAVAILABLE": 1,
+          "STREAM_DENIED": 1
+        },
+        "medianRequestToFirstPcmMs": 7292.426661,
+        "medianRequestWallMs": 7444.753551,
+        "successes": 1
+      },
+      "python_resident_reused_object": {
+        "attempts": 3,
+        "failuresByClass": {
+          "STREAM_DENIED": 2
+        },
+        "medianRequestToFirstPcmMs": 5273.775841,
+        "medianRequestWallMs": 5429.454514,
+        "successes": 1
+      }
+    },
+    "pairedDeltas": [
+      {
+        "controlArm": "bundled_cli_fresh",
+        "included": false,
+        "pairId": 1,
+        "reason": "FAILED_OR_UNMATCHED_ATTEMPT",
+        "requestToFirstPcmDeltaMs": null,
+        "treatmentArm": "python_process_fresh_object"
+      },
+      {
+        "controlArm": "python_process_fresh_object",
+        "included": false,
+        "pairId": 1,
+        "reason": "FAILED_OR_UNMATCHED_ATTEMPT",
+        "requestToFirstPcmDeltaMs": null,
+        "treatmentArm": "python_resident_reused_object"
+      },
+      {
+        "controlArm": "bundled_cli_fresh",
+        "included": false,
+        "pairId": 2,
+        "reason": "FAILED_OR_UNMATCHED_ATTEMPT",
+        "requestToFirstPcmDeltaMs": null,
+        "treatmentArm": "python_process_fresh_object"
+      },
+      {
+        "controlArm": "python_process_fresh_object",
+        "included": false,
+        "pairId": 2,
+        "reason": "FAILED_OR_UNMATCHED_ATTEMPT",
+        "requestToFirstPcmDeltaMs": null,
+        "treatmentArm": "python_resident_reused_object"
+      },
+      {
+        "controlArm": "bundled_cli_fresh",
+        "included": false,
+        "pairId": 3,
+        "reason": "FAILED_OR_UNMATCHED_ATTEMPT",
+        "requestToFirstPcmDeltaMs": null,
+        "treatmentArm": "python_process_fresh_object"
+      },
+      {
+        "controlArm": "python_process_fresh_object",
+        "included": false,
+        "pairId": 3,
+        "reason": "FAILED_OR_UNMATCHED_ATTEMPT",
+        "requestToFirstPcmDeltaMs": null,
+        "treatmentArm": "python_resident_reused_object"
+      }
+    ]
+  },
+  "timingScope": "parent request start through first decoder PCM; same monotonic clock in child; worker startup included when needed",
+  "totalBudgetSeconds": 240.0,
+  "videoId": "uZGRATckoBM",
+  "wallMs": 43721.52426800312,
+  "warmups": 0
+}

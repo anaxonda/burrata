@@ -1,0 +1,121 @@
+{
+  "schema": "innertube-serial-same-worker-v1",
+  "scope": "anonymous MWEB; same worker; sequential requests; provider IDs only",
+  "timingOrigin": "driver starts before writing each request; worker firstPcmFromCommandMs starts on JSONL receipt; process launch excluded from that field",
+  "perRequestBudgetMs": 20000,
+  "outerBudgetMs": 65000,
+  "totalWallMs": 11469.092,
+  "requests": [
+    {
+      "tokenExpiresInMs": 21599997,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "tokenCacheHit": false,
+      "firstPcmFromCommandMs": 9728.111841,
+      "recordingVerified": true,
+      "clientName": "MWEB",
+      "accountingComplete": true,
+      "id": "reuse-matthew-1",
+      "tokenHelperCpuMs": 3701.556,
+      "codec": "audio/webm; codecs=\"opus\"",
+      "decodeWallMs": 570.6010729999998,
+      "stages": {
+        "session": 5293.676589,
+        "sessionWait": 5293.277649,
+        "token": 3689.7515649999996,
+        "extraction": 292.0426470000002,
+        "format": 0.5702590000000782,
+        "decipher": 34.55790699999852,
+        "decode": 573.3245339999994
+      },
+      "ok": true,
+      "tokenHelperMaxRssBytes": 243032064,
+      "wallMs": 9887.881581,
+      "manifestExpiresInMs": 299391,
+      "refreshedAfterDenial": false,
+      "extractionMs": 327.4702890000008,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "decodedAudioMs": 5000,
+      "formatId": 251,
+      "preparedMs": 5296.992056,
+      "infoCacheHit": false,
+      "requestReceiptToResponseMs": 9992.3,
+      "status": "completed"
+    },
+    {
+      "tokenExpiresInMs": 21599094,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "tokenCacheHit": true,
+      "firstPcmFromCommandMs": 372.10079699999915,
+      "recordingVerified": true,
+      "clientName": "MWEB",
+      "accountingComplete": true,
+      "id": "reuse-matthew-2",
+      "tokenHelperCpuMs": 0,
+      "codec": "audio/webm; codecs=\"opus\"",
+      "decodeWallMs": 510.28534800000125,
+      "stages": {
+        "sessionWait": 0.04025499999988824,
+        "token": 0.14873900000020512,
+        "format": 0.10134500000094704,
+        "decipher": 21.439195999999356,
+        "decode": 511.4027129999995
+      },
+      "ok": true,
+      "tokenHelperMaxRssBytes": 243032064,
+      "wallMs": 533.9093039999989,
+      "manifestExpiresInMs": 299467,
+      "refreshedAfterDenial": false,
+      "extractionMs": 21.819305000000895,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "decodedAudioMs": 5000,
+      "formatId": 251,
+      "preparedMs": 0.3559769999992568,
+      "infoCacheHit": true,
+      "requestReceiptToResponseMs": 534.902,
+      "status": "completed"
+    },
+    {
+      "tokenExpiresInMs": 21598558,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "tokenCacheHit": false,
+      "firstPcmFromCommandMs": 546.3542560000005,
+      "recordingVerified": true,
+      "clientName": "MWEB",
+      "accountingComplete": true,
+      "id": "reuse-public-3",
+      "tokenHelperCpuMs": 2.6219999999998436,
+      "codec": "audio/mp4; codecs=\"mp4a.40.2\"",
+      "decodeWallMs": 492.8543559999998,
+      "stages": {
+        "sessionWait": 0.050660000000789296,
+        "token": 1.40015399999902,
+        "extraction": 118.87856499999907,
+        "format": 0.1478029999998398,
+        "decipher": 22.370435000000725,
+        "decode": 493.9381259999991
+      },
+      "ok": true,
+      "tokenHelperMaxRssBytes": 243032064,
+      "wallMs": 637.7682139999997,
+      "manifestExpiresInMs": 299483,
+      "refreshedAfterDenial": false,
+      "extractionMs": 141.88500999999997,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "decodedAudioMs": 5000,
+      "formatId": 140,
+      "preparedMs": 0.34804299999996147,
+      "infoCacheHit": false,
+      "requestReceiptToResponseMs": 638.351,
+      "status": "completed"
+    }
+  ]
+}

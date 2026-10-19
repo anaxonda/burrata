@@ -6,6 +6,7 @@ import { Script } from 'node:vm';
 import { performance } from 'node:perf_hooks';
 import { createPrototype, decodePcm } from './core.mjs';
 import { createTokenManager } from './token.mjs';
+import { createAnonymousClientFactory } from './client_factory.mjs';
 import { failure } from './budget.mjs';
 
 const directory = process.env.BURRATA_BENCH_DATA_DIR;
@@ -19,22 +20,29 @@ if (!['WEB', 'MWEB', 'ANDROID', 'IOS', 'TV'].includes(clientName)) throw new Err
 const tokenManager = createTokenManager();
 const tokenMode = process.env.BURRATA_BENCH_TOKEN_MODE ?? 'bgutil';
 if (!['bgutil', 'none'].includes(tokenMode)) throw new Error('Unsupported experimental token mode');
+const parallelPlayer = process.env.BURRATA_BENCH_PARALLEL_PLAYER === '1';
+let createClientFactory;
 const execute = createPrototype({
   clientName,
   ensureToken: tokenMode === 'bgutil' ? tokenManager.ensure : undefined,
-  async createClient() {
-    const { Innertube, UniversalCache, Platform, Log } = await import('youtubei.js');
+  applyCachedToken: tokenMode === 'bgutil' ? tokenManager.applyCached : undefined,
+  async createClient(options) {
+    const { Innertube, Player, UniversalCache, Platform, Log } = await import('youtubei.js');
     Log.setLevel(Log.Level.NONE);
     Platform.shim.eval = data => new Script(`(function(){${data.output}\n})()`).runInNewContext(Object.create(null), { timeout: 1000 });
     const cache = resolve(directory, 'youtube-session');
     await mkdir(cache, { recursive: true, mode: 0o700 });
-    return Innertube.create({ cache: new UniversalCache(true, cache), enable_session_cache: true,
-      fetch: (input, init = {}) => fetch(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, currentSignal]) : currentSignal }) });
+    const requestFetch = (input, init = {}) => fetch(input, { ...init,
+      signal: init.signal ? AbortSignal.any([init.signal, currentSignal]) : currentSignal });
+    createClientFactory ??= createAnonymousClientFactory({ Innertube, Player,
+      cache: new UniversalCache(true, cache), fetch: requestFetch,
+      sessionOptions: { enable_session_cache: true }, parallelPlayer });
+    return createClientFactory(options);
   },
   decode: (input, options) => decodePcm(input, { ...options, ffmpeg: process.env.BURRATA_BENCH_FFMPEG ?? 'ffmpeg' }),
 });
-const errors = new Set(['INVALID_ACTION', 'INVALID_QUERY', 'INVALID_PLAYBACK_REQUEST', 'INVALID_BUDGET', 'RECORDING_MISMATCH', 'STREAM_DENIED', 'MANIFEST_EXPIRED', 'DECODE_FAILED', 'DECODER_UNAVAILABLE', 'NO_PCM', 'SHORT_AUDIO', 'TIMEOUT', 'CANCELLED', 'TOKEN_PROVIDER_FAILED', 'TOKEN_PROVIDER_UNAVAILABLE', 'TOKEN_BINDING_MISSING', 'INVALID_JSON', 'QUEUE_FULL']);
-const stages = new Set(['session', 'sessionWait', 'search', 'token', 'extraction', 'format', 'decipher', 'decode']);
+const errors = new Set(['INVALID_ACTION', 'INVALID_QUERY', 'INVALID_PLAYBACK_REQUEST', 'INVALID_BUDGET', 'INVALID_PLAYBACK_HEADERS', 'FORMAT_UNAVAILABLE', 'FORMAT_MISMATCH', 'RECORDING_MISMATCH', 'STREAM_DENIED', 'MANIFEST_EXPIRED', 'DECODE_FAILED', 'DECODER_UNAVAILABLE', 'NO_PCM', 'SHORT_AUDIO', 'TIMEOUT', 'CANCELLED', 'TOKEN_PROVIDER_FAILED', 'TOKEN_PROVIDER_UNAVAILABLE', 'TOKEN_BINDING_MISSING', 'INVALID_JSON', 'QUEUE_FULL']);
+const stages = new Set(['session', 'sessionWait', 'search', 'token', 'playbackPreparation', 'extraction', 'format', 'decipher', 'decode']);
 function redact(error) {
   return { failure: errors.has(error.code) ? error.code : 'PROVIDER_FAILED',
     stage: stages.has(error.benchmarkStage) ? error.benchmarkStage : undefined,

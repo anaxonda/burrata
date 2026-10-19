@@ -8,17 +8,17 @@ for (const name of ['log', 'info', 'warn', 'error', 'debug']) console[name] = ()
 let manager;
 for await (const line of createInterface({ input: process.stdin })) {
   try {
-    const { context, bypassCache = false } = JSON.parse(line);
-    const binding = context?.client?.visitorData;
-    if (typeof binding !== 'string' || !binding) throw new Error();
+    const { context, contentBinding, bypassCache = false } = JSON.parse(line);
+    if (typeof context?.client?.visitorData !== 'string' || !context.client.visitorData ||
+        typeof contentBinding !== 'string' || !contentBinding) throw new Error();
     if (!manager) {
       const { SessionManager } = await import(pathToFileURL(process.env.BURRATA_BENCH_BGUTIL_MODULE));
       manager = new SessionManager(false, {});
       manager.logger = { log() {}, debug() {}, warn() {}, error() {} };
     }
-    const result = await manager.generatePoToken(binding, '', bypassCache, undefined, false, undefined, context);
+    const result = await manager.generatePoToken(contentBinding, '', bypassCache, undefined, false, undefined, context);
     const expiresAt = new Date(result.expiresAt).getTime();
     if (!result.poToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now() + 30_000) throw new Error();
-    emit({ ok: true, poToken: result.poToken, expiresAt, contentBinding: binding });
+    emit({ ok: true, poToken: result.poToken, expiresAt, contentBinding });
   } catch { emit({ ok: false }); }
 }

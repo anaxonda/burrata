@@ -1,0 +1,42 @@
+{
+  "scope": "bounded anonymous YouTube flat-search metadata only; no cookies, full info extraction, signed media URL, download, decode, or playback",
+  "source": "bundled yt-dlp with --ignore-config --no-cookies --no-cache-dir --flat-playlist --dump-single-json",
+  "queries": [
+    {
+      "query": "Pengus Victory Lap",
+      "elapsedMs": 4064,
+      "results": [
+        {"videoId": "kzrZXghhy1k", "title": "Pengus - Victory Lap", "channel": "Retro-Synthレトロシンセ", "durationSeconds": 261}
+      ]
+    },
+    {
+      "query": "Timmy Regisford Sasa Main Version",
+      "elapsedMs": 3722,
+      "results": [
+        {"videoId": "YoHI6frgjz4", "title": "Bathi Ndiyabanda", "channel": "Timmy Regisford - Topic", "durationSeconds": 288}
+      ]
+    },
+    {
+      "query": "uZGRATckoBM",
+      "elapsedMs": 3554,
+      "results": [
+        {"videoId": "uZGRATckoBM", "title": "Matthew", "channel": "John Denver", "durationSeconds": 228}
+      ]
+    },
+    {
+      "query": "hRNx674Z4QE",
+      "elapsedMs": 3837,
+      "results": [
+        {"videoId": "hRNx674Z4QE", "title": "Σταμάτης Κραουνάκης - Πόσο Σ' Αγαπώ | Stamatis Kraounakis - Poso S' Agapo (Official Lyric Video)", "channel": "MLK", "durationSeconds": 251}
+      ]
+    },
+    {
+      "query": "kzrZXghhy1k",
+      "elapsedMs": 3185,
+      "results": [
+        {"videoId": "kzrZXghhy1k", "title": "Pengus - Victory Lap", "channel": "Retro-Synthレトロシンセ", "durationSeconds": 261}
+      ]
+    }
+  ],
+  "identityLimit": "These IDs identify explicit provider uploads and their metadata. They do not prove cross-provider/catalog/acoustic equivalence. Poso's catalog duration is 245.48s; its explicit lyric-video upload is 251s and must be treated as a version/source-duration difference."
+}
