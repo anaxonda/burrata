@@ -44,3 +44,7 @@ deploy/slskd/data/
 
 # Local agent staging, test caches and isolated browser profiles
 .tmp/
+
+# Generated synthetic regression inputs are required by clean test builds.
+!/src-tauri/tests/fixtures/aac-startup-fixture.m4a
+!/src-tauri/tests/fixtures/opus-fixture.ogg

@@ -59,7 +59,7 @@ class Contracts(unittest.TestCase):
         self.assertTrue(config['app']['withGlobalTauri'])
         self.assertTrue(any((ROOT/'src-tauri'/icon).is_file() for icon in config['bundle']['icon'] if icon.endswith('.png')))
         for source in (ROOT/'src-tauri/src').rglob('*.rs'):
-            for include in re.findall(r'include_str!\(\s*"([^"]+)"',source.read_text(encoding='utf-8')):
+            for include in re.findall(r'include_(?:str|bytes)!\(\s*"([^"]+)"',source.read_text(encoding='utf-8')):
                 self.assertTrue((source.parent/include).is_file(),f'Missing include source: {source}: {include}')
 
 class Schema(unittest.TestCase):
