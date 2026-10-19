@@ -1,0 +1,12 @@
+{
+  "scope": "isolated Linux debug WebView playback and media clock; no physical audibility or Mac claim",
+  "track": "Victory Lap",
+  "artist": "Pengus",
+  "fixtureOrigin": "exact public MusicBrainz recording; original reported app row ID unknown",
+  "ok": true,
+  "firstPlayableObservedMs": 4851,
+  "clockAdvanceSeconds": 0.534205,
+  "durationSeconds": 260.133151927,
+  "sourceProvider": null,
+  "previewKind": "audio"
+}

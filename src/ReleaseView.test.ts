@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
 // @ts-expect-error Exercise Svelte's browser runtime in jsdom.
 import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error Svelte internal client runtime lacks public declarations
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import ReleaseView from "./ReleaseView.svelte";
 import ReleaseViewHarness from "./ReleaseViewHarness.svelte";
 import type { ArtistReleaseRef } from "./lib/artist-types";
 import type { Track } from "./lib/types";
+
+beforeEach(() => {
+  globalThis.ResizeObserver = class {observe() {} unobserve() {} disconnect() {}} as unknown as typeof ResizeObserver;
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable: true, value: function(this: HTMLDialogElement) {this.setAttribute("open", "");}});
+});
 
 const release: ArtistReleaseRef = {
   release: { provider: "musicbrainz", id: "release-1" }, title: "A Great Album", year: 2020, releaseDate: "2020-06-01", label: "Example Records", primaryType: "Album", trackCount: 2,
@@ -106,25 +111,25 @@ describe("ReleaseView", () => {
     expect(onDownloadAlbum).toHaveBeenCalledWith([tracks[1], tracks[0]]);
   });
 
-  it("filters and sorts track rows, and wires download, artist, playlist, context, and back actions", async () => {
-    const onDownload = vi.fn(); const onArtist = vi.fn(); const onPlaylist = vi.fn(); const onContext = vi.fn(); const onBack = vi.fn();
-    const target = render({ onDownload, onArtist, onPlaylist, onContext, onBack });
+  it("filters and sorts track rows, and wires row actions while leaving navigation to the app toolbar", async () => {
+    const onDownload = vi.fn(); const onArtist = vi.fn(); const onPlaylist = vi.fn(); const onContext = vi.fn();
+    const target = render({ onDownload, onArtist, onPlaylist, onContext });
     const sort = target.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!;
     sort.value = "title"; sort.dispatchEvent(new Event("change", { bubbles: true })); await settle();
     expect([...target.querySelectorAll<HTMLButtonElement>(".track-title")].map(button => button.textContent?.trim())).toEqual(["Alpha", "Zulu"]);
     target.querySelector<HTMLButtonElement>('[aria-label="Download Alpha"]')!.click();
-    target.querySelector<HTMLButtonElement>('[aria-label="More actions for Alpha"]')!.click();
-    [...target.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent === "Add to playlist")!.click();
+    target.querySelector<HTMLButtonElement>('[aria-label="Actions for Alpha"]')!.click();
+    expect(onContext).toHaveBeenCalledWith(tracks[1], expect.any(MouseEvent));
+    expect(target.querySelector(".track-menu")).toBeNull();
     target.querySelector<HTMLButtonElement>(".artist-link")!.click();
     const row = target.querySelector(".shared-track-list li")!;
     const contextEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); row.dispatchEvent(contextEvent);
-    target.querySelector<HTMLButtonElement>(".back")!.click();
+    expect(target.querySelector(".back")).toBeNull();
     expect(onDownload).toHaveBeenCalledWith(tracks[1]);
-    expect(onPlaylist).toHaveBeenCalledWith(tracks[1]);
+    expect(onPlaylist).not.toHaveBeenCalled();
     expect(onArtist).toHaveBeenCalledWith(tracks[1]);
     expect(onContext).toHaveBeenCalledWith(tracks[1], expect.any(MouseEvent));
     expect(contextEvent.defaultPrevented).toBe(true);
-    expect(onBack).toHaveBeenCalledOnce();
     const filter = target.querySelector<HTMLInputElement>('[aria-label="Filter tracks"]')!;
     filter.value = "Zulu"; filter.dispatchEvent(new Event("input", { bubbles: true })); await settle();
     expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(1);

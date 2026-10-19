@@ -424,14 +424,54 @@ describe("SearchPanel", () => {
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ query: "A Song", sourceIds: ["library"], limit: 30 }));
     expect(target.textContent).toContain("A Song");
     expect(target.querySelectorAll(".compact-track .shared-track-list li")).toHaveLength(1);
-    expect(target.querySelector(".compact-track .badges, .compact-track .details-toggle")).toBeNull();
-    expect(target.querySelector<HTMLButtonElement>(".compact-track .more summary")?.getAttribute("aria-label")).toBe("More actions for A Song");
+    expect(target.querySelector(".compact-track .track-list-viewport")?.classList.contains("playlist")).toBe(true);
+    expect(target.querySelector<HTMLButtonElement>('.compact-track .position-play[aria-label="Play A Song"]')).not.toBeNull();
+    expect(target.querySelector<HTMLButtonElement>(".compact-track .more-trigger")?.getAttribute("aria-label")).toBe("Actions for A Song");
     const albumSort = [...target.querySelectorAll<HTMLOptionElement>("[aria-label='Sort loaded tracks'] option")].find(option => option.value === "album");
     expect(albumSort?.disabled).toBe(true);
     expect(albumSort?.textContent).toBe("Album (unavailable)");
     expect(target.querySelector<HTMLButtonElement>('[aria-label="Download A Song"]')).not.toBeNull();
-    target.querySelector<HTMLButtonElement>(".icon-action.play")!.click();
+    target.querySelector<HTMLButtonElement>('.compact-track .row-actions .icon-action[aria-label="Download A Song"]')!.click();
+    target.querySelector<HTMLButtonElement>('.compact-track .position-play[aria-label="Play A Song"]')!.click();
     expect(onPlay).toHaveBeenCalledWith(track);
+  });
+
+  it("uses playlist-style rows for video and track results with left playback and ordered continuation", async () => {
+    const video = { id: "video-result", provider: "youtube", providerId: "video-result", sourceUrl: "https://youtube.test/watch?v=video", title: "BaBa Extended Mix", artist: "DJ Example", artworkUrl: "https://img.example/video.jpg", durationSeconds: 240, favorite: false, provenance: { sourceKind: "audioSearch" } };
+    const catalogTrack = { id: "catalog-result", provider: "youtube", providerId: "catalog-result", sourceUrl: "https://youtube.test/watch?v=catalog", title: "Second Track", artist: "Another Artist", favorite: true, provenance: {} };
+    const onPlay = vi.fn(), onFavorite = vi.fn(), onDownload = vi.fn();
+    const searchSource = vi.fn(async () => ({ sourceId: "youtube", complete: true, results: [
+      { id: "video-row", kind: "video", sourceId: "youtube", title: video.title, url: video.sourceUrl, track: video },
+      { id: "track-row", kind: "track", sourceId: "youtube", title: catalogTrack.title, track: catalogTrack },
+    ] }));
+    const target = render({
+      initialSources: ["youtube"],
+      availableSources: [{ id: "youtube", name: "YouTube", enabled: true, kinds: ["track", "video"] }],
+      searchSource, onPlay, onFavorite, onDownload, playingTrack: catalogTrack,
+    });
+    await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "extended mix"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+
+    const lists = [...target.querySelectorAll<HTMLElement>(".compact-track .track-list-viewport")];
+    expect(lists).toHaveLength(2);
+    expect(lists.every(list => list.classList.contains("playlist"))).toBe(true);
+    expect([...target.querySelectorAll(".compact-track .track-position")].map(node => node.textContent)).toEqual(["1", "2"]);
+    expect(target.querySelectorAll(".compact-track .position-play")).toHaveLength(2);
+    expect(target.querySelector(".compact-track .shared-track-list li.current")?.textContent).toContain("Second Track");
+    expect(target.querySelector('[aria-label="Download BaBa Extended Mix"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Add BaBa Extended Mix to favorites"]')).not.toBeNull();
+
+    target.querySelector<HTMLInputElement>(".continue-setting input")!.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>('.position-play[aria-label="Play BaBa Extended Mix"]')!.click();
+    expect(onPlay).toHaveBeenCalledWith(video, [video, catalogTrack], 0);
+    target.querySelector<HTMLButtonElement>('[aria-label="Add BaBa Extended Mix to favorites"]')!.click();
+    target.querySelector<HTMLButtonElement>('[aria-label="Download BaBa Extended Mix"]')!.click();
+    expect(onFavorite).toHaveBeenCalledWith(video);
+    expect(onDownload).toHaveBeenCalledWith(video);
   });
 
   it("keeps sort fields from the loaded set available when duration filters hide their rows", async () => {
@@ -500,7 +540,8 @@ describe("SearchPanel", () => {
     const nextIndex = Number(lastRendered.dataset.virtualIndex) + 1;
     const controls = [...lastRendered.querySelectorAll<HTMLElement>("button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary")].filter(control => !control.closest("details:not([open])") || control.matches("summary"));
     const lastControl = controls[controls.length - 1]!;
-    expect(lastControl.tagName).toBe("SUMMARY");
+    // Track actions now use the shared menu trigger rather than a details summary.
+    expect(lastControl.matches(".more-trigger")).toBe(true);
     lastControl.focus();
     const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
     lastControl.dispatchEvent(tab);

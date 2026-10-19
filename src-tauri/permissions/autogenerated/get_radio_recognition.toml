@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-radio-recognition"
+description = "Enables the get_radio_recognition command without any pre-configured scope."
+commands.allow = ["get_radio_recognition"]
+
+[[permission]]
+identifier = "deny-get-radio-recognition"
+description = "Denies the get_radio_recognition command without any pre-configured scope."
+commands.deny = ["get_radio_recognition"]

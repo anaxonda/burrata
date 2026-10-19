@@ -1,0 +1,39 @@
+{
+  "build": "radio-artwork-fe6bc4a4b572",
+  "purpose": "single exploratory current-output identification; no independent song ground truth",
+  "before": {
+    "status": "playing",
+    "title": "Hot Thing",
+    "artist": "Prince",
+    "station": "Radio Nova",
+    "historyCount": 1
+  },
+  "wallMs": 3973,
+  "category": "identified",
+  "result": {
+    "artist": "Prince",
+    "artworkUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/a3/b8/f0/a3b8f034-e5cb-336a-4a79-1c782aca4224/075992557726.jpg/400x400cc.jpg",
+    "note": "SongRec identified the captured audio; catalog identity is unverified.",
+    "title": "Hot Thing"
+  },
+  "after": {
+    "status": "playing",
+    "title": "Hot Thing",
+    "artist": "Prince",
+    "station": "Radio Nova",
+    "historyCount": 1
+  },
+  "earlierAttempt": {
+    "wallMs": 13,
+    "category": "error",
+    "message": "Playback changed before identification began",
+    "observation": "Request overlapped automatic recognition; guard now reports identification already in progress instead.",
+    "retainedFrom": "tool output before successful retry replaced local working file"
+  },
+  "visualCheck": {
+    "cardCover": true,
+    "detailsCover": true,
+    "playbarCover": true,
+    "independentBroadcastGroundTruth": false
+  }
+}

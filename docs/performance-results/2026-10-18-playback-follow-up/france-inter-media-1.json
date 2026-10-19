@@ -1,0 +1,27 @@
+{
+  "applicable": true,
+  "currentIndex": 0,
+  "engine": "webview",
+  "entryId": "34cadda2-4788-4dca-b562-f874cb0e539c",
+  "media": {
+    "buffered": [],
+    "currentTime": 17.998348,
+    "duration": null,
+    "errorCode": null,
+    "networkState": 1,
+    "paused": false,
+    "present": true,
+    "readyState": 4,
+    "seekable": [],
+    "seeking": false,
+    "sourcePresent": true,
+    "sourceStable": true
+  },
+  "previewKind": "audio",
+  "queueTotal": 1,
+  "queueTrackId": "radio:rb:d2bbffaf-5d67-4a65-9772-097d8c0269d3",
+  "seekSerial": 0,
+  "sessionId": "a8091e63-46ad-4ecd-b29e-d606bb33d47b",
+  "sourceGeneration": 1792382097848001,
+  "trackId": "radio:rb:d2bbffaf-5d67-4a65-9772-097d8c0269d3"
+}

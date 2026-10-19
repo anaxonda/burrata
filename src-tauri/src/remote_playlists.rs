@@ -26,6 +26,64 @@ use std::{
 
 type Result<T> = std::result::Result<T, String>;
 
+const ALIAS_HYDRATION_CACHE: &str = "artists.spotify-alias-hydration.v1";
+fn alias_hydration_identity(track: &Track) -> Value {
+    json!({"id":track.id,"provider":track.provider,"providerId":track.provider_id,"sourceUrl":track.source_url,
+        "title":track.title,"artist":track.artist,"album":track.album,"albumArtist":track.album_artist,
+        "duration":track.duration_seconds,"isrc":track.isrc,"version":track.version,"range":track.playback_range})
+}
+pub(crate) fn alias_hydration_key(track: &Track) -> Result<String> {
+    let bytes = serde_json::to_vec(&alias_hydration_identity(track)).map_err(|e| e.to_string())?;
+    Ok(Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+fn merge_alias_hydration(original: &Track, provider: &Track) -> Option<Track> {
+    if original.id != provider.id
+        || original.provider != provider.provider
+        || original.provider_id != provider.provider_id
+        || original.source_url != provider.source_url
+        || original.title != provider.title
+        || original.artist != provider.artist
+        || original.duration_seconds != provider.duration_seconds
+        || original.isrc.as_ref().is_some_and(|isrc| {
+            provider.provenance["remoteCatalog"]["isrc"]
+                .as_str()
+                .or_else(|| provider.provenance["recordingContext"]["isrc"].as_str())
+                .is_none_or(|remote| !isrc.eq_ignore_ascii_case(remote))
+        })
+    {
+        return None;
+    }
+    let mut track = original.clone();
+    if !track.provenance.is_object() {
+        return None;
+    }
+    for key in ["catalog", "remoteCatalog", "recordingContext"] {
+        if let Some(value) = provider.provenance.get(key) {
+            track.provenance[key] = value.clone();
+        }
+    }
+    crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track)?;
+    Some(track)
+}
+/// Trusted exact-lookup evidence bound to the original recording identity. Age affects
+/// refresh eligibility, while retained evidence remains available to cache reads.
+pub(crate) fn read_alias_hydrated_track(store: &Store, original: &Track) -> Option<Track> {
+    let payload = store
+        .get_provider_cache(ALIAS_HYDRATION_CACHE, &alias_hydration_key(original).ok()?)
+        .ok()??;
+    let saved_original: Track = serde_json::from_value(payload["original"].clone()).ok()?;
+    if payload["version"] != 1
+        || alias_hydration_identity(&saved_original) != alias_hydration_identity(original)
+    {
+        return None;
+    }
+    let hydrated: Track = serde_json::from_value(payload["hydrated"].clone()).ok()?;
+    merge_alias_hydration(original, &hydrated)
+}
+
 const VERIFIED_SPOTIFY_TRACK_CONTEXT_CACHE: &str = "artists.spotify-track-context.verified-v1";
 const VERIFIED_SPOTIFY_TRACK_CONTEXT_TTL_SECS: u64 = 6 * 60 * 60;
 
@@ -2839,6 +2897,57 @@ impl RemotePlaylistService {
         Ok(status)
     }
 
+    /// Hydrate provider identity into a retained sidecar, preserving every saved tag.
+    pub(crate) async fn prepare_alias_track(
+        &self,
+        original: &Track,
+        cancel: tokio::sync::watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+    ) -> Result<Track> {
+        let fresh = alias_hydration_key(original)
+            .ok()
+            .and_then(|key| {
+                self.store
+                    .get_provider_cache(ALIAS_HYDRATION_CACHE, &key)
+                    .ok()
+                    .flatten()
+            })
+            .and_then(|value| value["checkedAt"].as_i64())
+            .is_some_and(|at| {
+                (0..=30 * 24 * 60 * 60).contains(&(chrono::Utc::now().timestamp() - at))
+            });
+        if fresh {
+            if let Some(track) = read_alias_hydrated_track(&self.store, original) {
+                return Ok(track);
+            }
+        }
+        if original.provider != "spotify"
+            || original.id != format!("spotify:{}", original.provider_id)
+            || original.source_url
+                != format!("https://open.spotify.com/track/{}", original.provider_id)
+            || original.version.is_some()
+            || original.playback_range.is_some()
+        {
+            return Err("Saved track has no exact Spotify identity".into());
+        }
+        let (provider, account) = await_crosswalk_step(
+            deadline,
+            cancel.clone(),
+            self.get_remote_track_with_account("spotify", &original.provider_id),
+        )
+        .await?;
+        let current =
+            await_crosswalk_step(deadline, cancel, self.require_account("spotify")).await?;
+        if current.id != account {
+            return Err("Provider account changed during alias hydration".into());
+        }
+        let hydrated = merge_alias_hydration(original, &provider)
+            .ok_or("Exact provider identity disagrees with saved track")?;
+        self.store.set_retained_provider_cache(ALIAS_HYDRATION_CACHE, &alias_hydration_key(original)?,
+            &json!({"version":1,"original":original,"hydrated":hydrated,"checkedAt":chrono::Utc::now().timestamp()}))?;
+        Ok(hydrated)
+    }
+
     /// Read one exact Spotify catalog track without persisting it to the local library.
     pub async fn get_remote_track(&self, provider: &str, track_id: &str) -> Result<Track> {
         self.get_remote_track_with_account(provider, track_id)
@@ -2895,7 +3004,11 @@ impl RemotePlaylistService {
             duration_seconds: verified_spotify_duration(item, track_id),
             artwork_url: bounded_optional_text(data, "artworkUrl", 2048),
             provenance: {
-                let mut provenance = json!({"providerLookup":"spotifyCatalog"});
+                let mut remote = normalize_catalog_data(Some(data), "track", "spotify")?;
+                remote["trackId"] = json!(track_id);
+                let mut provenance = json!({"providerLookup":"spotifyCatalog", "remoteCatalog":remote,
+                    "catalog":{"verified":true,"provider":"spotify","providerId":track_id,
+                        "artists":remote["artistRefs"],"artistCount":remote["artistCount"]}});
                 if let Some(context) = parse_spotify_recording_context(data)? {
                     provenance["recordingContext"] = context;
                 }
@@ -11616,5 +11729,48 @@ mod spotify_album_hint_crosswalk_tests {
             read_verified_spotify_track_context(&store, TRACK).unwrap(),
             context_before
         );
+    }
+}
+
+#[cfg(test)]
+mod alias_hydration_tests {
+    use super::*;
+    fn provider_track() -> Track {
+        let id = "1234567890123456789012";
+        let refs = json!([{"provider":"spotify","id":"abcdefghijklmnopqrstuv","name":"Artist"}]);
+        Track {
+            id: format!("spotify:{id}"),
+            provider: "spotify".into(),
+            provider_id: id.into(),
+            source_url: format!("https://open.spotify.com/track/{id}"),
+            title: "Song".into(),
+            artist: "Artist".into(),
+            duration_seconds: Some(120.0),
+            provenance: json!({"catalog":{"verified":true,"provider":"spotify",
+                "providerId":id,"artists":refs,"artistCount":1},"remoteCatalog":{"trackId":id,
+                "title":"Song","artist":"Artist","durationSeconds":120.0,"artistRefs":refs,"artistCount":1}}),
+            ..Track::default()
+        }
+    }
+    #[test]
+    fn hydration_preserves_saved_tags_and_rejects_manual_identity_edits() {
+        let provider = provider_track();
+        let mut original = provider.clone();
+        original.provenance = json!({"saved":true});
+        original.album = Some("User album".into());
+        original.genre = Some("User genre".into());
+        let hydrated = merge_alias_hydration(&original, &provider).unwrap();
+        assert_eq!(hydrated.album, original.album);
+        assert_eq!(hydrated.genre, original.genre);
+        assert_eq!(original.provenance, json!({"saved":true}));
+        let mut changed = original.clone();
+        changed.title = "Edited title".into();
+        assert!(merge_alias_hydration(&changed, &provider).is_none());
+        changed = original.clone();
+        changed.artist = "Edited artist".into();
+        assert!(merge_alias_hydration(&changed, &provider).is_none());
+        changed = original;
+        changed.isrc = Some("USABC1234567".into());
+        assert!(merge_alias_hydration(&changed, &provider).is_none());
     }
 }

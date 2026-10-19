@@ -337,6 +337,8 @@ pub struct Settings {
     #[serde(default)]
     pub source_open_at_position: bool,
     pub preview_delay_ms: u32,
+    #[serde(default = "default_playback_startup_timeout_seconds")]
+    pub playback_startup_timeout_seconds: u32,
     pub theme: String,
     pub yt_dlp_path: String,
     pub ffmpeg_path: String,
@@ -362,6 +364,26 @@ pub struct Settings {
     pub download_fallback_allow_lossy: bool,
     #[serde(default)]
     pub playlist_directories: Vec<String>,
+}
+fn default_playback_startup_timeout_seconds() -> u32 {
+    20
+}
+impl Settings {
+    /// Old or manually edited settings must never create an unbounded deadline.
+    pub fn playback_startup_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(match self.playback_startup_timeout_seconds {
+            20 | 30 | 45 => self.playback_startup_timeout_seconds as u64,
+            _ => default_playback_startup_timeout_seconds() as u64,
+        })
+    }
+
+    pub fn validate_playback_startup_timeout(&self) -> Result<(), String> {
+        if matches!(self.playback_startup_timeout_seconds, 20 | 30 | 45) {
+            Ok(())
+        } else {
+            Err("Playback startup timeout must be 20, 30 or 45 seconds".into())
+        }
+    }
 }
 fn default_streaming_fallback_delay() -> u32 {
     1500
@@ -394,6 +416,7 @@ impl Default for Settings {
             pause_on_source_open: false,
             source_open_at_position: false,
             preview_delay_ms: 250,
+            playback_startup_timeout_seconds: default_playback_startup_timeout_seconds(),
             theme: "dark".into(),
             yt_dlp_path: "yt-dlp".into(),
             ffmpeg_path: "ffmpeg".into(),
@@ -409,6 +432,50 @@ impl Default for Settings {
             download_fallback_sources: default_download_fallbacks(),
             download_fallback_allow_lossy: false,
             playlist_directories: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod playback_startup_settings_tests {
+    use super::Settings;
+    use std::time::Duration;
+
+    #[test]
+    fn legacy_settings_default_to_twenty_seconds() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("playbackStartupTimeoutSeconds");
+        let settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(settings.playback_startup_timeout_seconds, 20);
+        assert_eq!(settings.playback_startup_timeout(), Duration::from_secs(20));
+    }
+
+    #[test]
+    fn supported_timeouts_round_trip_and_invalid_values_are_bounded() {
+        for seconds in [20, 30, 45] {
+            let settings = Settings {
+                playback_startup_timeout_seconds: seconds,
+                ..Settings::default()
+            };
+            let encoded = serde_json::to_value(&settings).unwrap();
+            assert_eq!(encoded["playbackStartupTimeoutSeconds"], seconds);
+            let restored: Settings = serde_json::from_value(encoded).unwrap();
+            assert_eq!(
+                restored.playback_startup_timeout(),
+                Duration::from_secs(seconds as u64)
+            );
+            assert!(restored.validate_playback_startup_timeout().is_ok());
+        }
+        for seconds in [0, 1, 19, 21, 46, u32::MAX] {
+            let settings = Settings {
+                playback_startup_timeout_seconds: seconds,
+                ..Settings::default()
+            };
+            assert_eq!(settings.playback_startup_timeout(), Duration::from_secs(20));
+            assert!(settings.validate_playback_startup_timeout().is_err());
         }
     }
 }

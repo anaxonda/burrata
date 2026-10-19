@@ -2,7 +2,20 @@
 
 Completed work moved from [todo.md](todo.md) on 2026-10-18. Entries retain their original evidence and qualification limits; historical build versions and running-app descriptions describe the verification at that time. Outstanding work remains in [todo.md](todo.md), including the linked pre-release snapshot.
 
+## Demand-driven aliases and radio fixes — 2026-10-18
+
+- Implemented demand-driven verified artist aliases, permanent evidence retention with refresh rather than deletion, full artist-credit matching, shared cancellation/deadline/attempt bounds, provider hydration, and redacted timing/resource diagnostics. Native suite passes 1,146 cases. The specific Chalkias/Halkias Spotify recording binding remains unverified; artist aliases alone do not authorize a match. [Behavior](docs/playback-artist-aliases.md), [verification](docs/performance-results/2026-10-18-alias-radio/README.md).
+- Fixed stale Radio Nova station tags overriding audio fingerprints, first-poll races, false cancellation on worker completion, stale poll messages, and obsolete generation results. Recognition tries three seconds before six/twelve. Three exploratory recognitions took 4.07–4.37 seconds; these are not statistical p95 or independent broadcast-identity qualification.
+- Preserved recognized cover art through radio metadata, history, current playback and MCP. A live Prince “Hot Thing” result returned cover art and rendered in the station card, details and playbar. Station history is available inline in 50-record pages with global saved-history filters and an independent latest-identification card.
+- Added exact Spotify/MusicBrainz **Go to album** context navigation. A real saved track opened its exact 13-track Spotify album. Radio/album rows share compact playlist presentation. Fixed WebKit select clipping and replaced large album scope panels with compact text; actual wide and three-pane renders pass. The final complete frontend suite passes 1,028 tests across 85 files, with clean typecheck and production build.
+- Unified track, playlist/station, queue and chapter menus through one ActionMenu frame. Collapsed duration bounds behind Filters, preserved narrow-pane radio titles, removed technical identification notices, and added station links through the shared outline information control. Actual 954×1036 footer/popup, duration popup and Radio + Now Playing renders were reviewed; user queue and paused state were preserved.
+- These changes run locally and are not included in published v0.1.3 installers. Broader qualification and known limitations stay in [todo.md](todo.md).
+
 ## Post-release fixes and documentation — 2026-10-18
+
+- Avoided full-file MP4 startup scanning for verified finite remote AAC by routing through existing FFmpeg with strict truncation errors. Native parity/seek/chapter/cancellation/403/truncation tests pass; full native suite 1,154 passes. Successful Pengus post-lookup first PCM is 0.11–0.27s versus 8.05s before. One cold extraction timeout remains in todo; no Mac/WebView or statistical qualification is claimed. [All outcomes](docs/performance-results/2026-10-18-france-macos/pengus-native-startup-comparison.json).
+
+- Corrected artist-name album discovery (old Nipsey query returned only one title match; artist query returned 87 release groups), added verified same-mount HTTPS radio playback with stale-request guards, and fixed the playbar artwork gap. Full frontend 1,030 and native 1,151 tests pass; Linux build and visual checks pass. A separate Pengus resolver/decoder test succeeds but first PCM takes 20.94 seconds, so Mac/network startup qualification remains open. [Report](docs/performance-results/2026-10-18-france-macos/README.md).
 
 - Investigated repeated Lithium failure: observed truncated source transfer and HTTP 429, added bounded shared backoff and owner-bound resumed-media clock verification, and extended safe seek/buffer diagnostics. All 1,114 native/998 frontend tests pass. The same recording advances through 73.953s on the corrected local build; saved occurrence and paused 42.112s state were preserved before retry. User's newer playback was left untouched. Public installer delivery and broader network qualification remain separate. [Live evidence](docs/performance-results/2026-10-18-lithium-recovery/stream-retry-proof.json).
 
@@ -181,3 +194,23 @@ The source crosswalk implementation, compact desktop controls, search continuati
 - Preserve authoritative completed/partial import outcomes across cancellation races and render the known no-match skip reason with one coherent action. App suites 311 pass, Svelte 0/0 and production build pass. These checks do not qualify provider writes or playback. [Finite report](docs/performance-results/2026-10-17-import-terminal-and-skip-notice/README.md).
 
 - Restore bounded search-to-artist Back/Forward state and scroll without refetch; limit chapter child-row rendering; distinguish explicit occurrence selection from Resume and prevent chapter-boundary double advance. 289 App tests, 50 focused tests, Svelte 0/0, production build and bounded layout review pass. Search-to-album/global Back and live route flows remain open. [Finite report](docs/performance-results/2026-10-17-search-history-occurrence/README.md).
+
+
+## Desktop playback compatibility and startup — 2026-10-18
+
+- Implemented authenticated, generation-owned direct-audio relay, preserving upstream headers and exact station/source identity; bounded cancellation, ranges, CORS and actual AAC decoding pass.
+- Added narrowly scoped macOS 14+ loopback ATS bundle exception and actual installed-plist validation. Added generated-AAC WebView media-progression smoke. These are plausible Mac remedies; physical Mac acceptance is outstanding.
+- Overlapped helper readiness with extraction using per-caller leases and bounded token gates; retained flat-search laziness and safe cancellation/cleanup. Three exploratory cold production Pengus runs reach first PCM in 12.2–12.8s.
+- Applied Windows hidden-console flags to additional GUI helper launches; physical Windows GUI observation remains outstanding.
+- Final verification: 1,166 native / 1,032 frontend tests pass; native/frontend builds and installed-smoke/protocol fixtures pass. Linux WebView local AAC and exact Pengus media clocks advance. No public installer update.
+
+[Platform findings and acceptance limits](docs/platform-playback-compatibility.md), [measurements](docs/performance-results/2026-10-18-france-macos/README.md).
+
+
+## Windows playback follow-up — 2026-10-18
+
+Audited default WebView2 transport, optional native output ownership/reconnect, target-scoped packaged tools and installer coverage. No additional proven Windows audio-decoding or helper-path defect was found. Closed remaining hidden-console gaps for background Node workers/helper, metadata yt-dlp, identification/autotag tools, native-host registry integration and task cleanup. Preserved interactive browser windows and command args/stdIO/cancellation.
+
+The Linux native library suite passes 1,166 tests (25 ignored) after these changes; six installed-smoke Python tests and the WebView protocol regression pass. The initial restricted-sandbox run denied local fixture socket binds; the permitted-loopback rerun passes all tests. This is not a Windows runtime pass. The platform audit and installation guide now record Windows N Media Feature Pack risk, unsigned-app policy, native device/sleep qualification and deliberately gated Windows provider sessions. Historical native-engine release-hold wording was corrected to distinguish optional-engine promotion from already published v0.1.3.
+
+[Windows findings](docs/platform-playback-compatibility.md#windows-follow-up-audit).

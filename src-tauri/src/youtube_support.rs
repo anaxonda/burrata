@@ -23,6 +23,10 @@ use tokio::{
     sync::Mutex,
 };
 
+#[path = "youtube_provider_broker.rs"]
+mod provider_broker;
+pub(crate) use provider_broker::ProviderInvocation;
+
 const REPO_API: &str = "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest";
 const RECOMMENDED_REPO_API: &str =
     "https://api.github.com/repos/anaxonda/burrata/releases?per_page=10";
@@ -125,6 +129,7 @@ pub struct YouTubeSupportManager {
     helper_script: Option<PathBuf>,
     plugin_dir: Option<PathBuf>,
     helper: Arc<Mutex<Option<Child>>>,
+    uses: Arc<std::sync::Mutex<provider_broker::Uses>>,
     exiting: Arc<AtomicBool>,
     helper_port: Arc<AtomicU64>,
     last_used: Arc<AtomicU64>,
@@ -149,6 +154,7 @@ impl YouTubeSupportManager {
             helper_script,
             plugin_dir,
             helper: Arc::new(Mutex::new(None)),
+            uses: Arc::new(std::sync::Mutex::new(provider_broker::Uses::default())),
             exiting: Arc::new(AtomicBool::new(false)),
             helper_port: Arc::new(AtomicU64::new(HELPER_PORT.into())),
             last_used: Arc::new(AtomicU64::new(now_secs())),
@@ -560,7 +566,9 @@ impl YouTubeSupportManager {
             let port = pick_port().await?;
             let node = self.node_executable.as_ref().expect("checked assets");
             let script = self.helper_script.as_ref().expect("checked assets");
-            let child = Command::new(node)
+            let mut command = Command::new(node);
+            crate::tools::configure_no_console_tokio(&mut command);
+            let child = command
                 .arg(script)
                 .args(["--port", &port.to_string()])
                 .stdin(Stdio::null())
@@ -592,7 +600,8 @@ impl YouTubeSupportManager {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
         self.provider_verified.store(false, Ordering::Relaxed);
-        let _ = self.shutdown().await;
+        // Invocation leases own cleanup. A failed readiness probe must not
+        // terminate a worker still in use by another independent invocation.
         Err("BgUtils helper started but its /ping probe did not succeed. Check the bundled provider server build.".into())
     }
 
@@ -601,7 +610,18 @@ impl YouTubeSupportManager {
     /// packaged, trusted plugin package search root. yt-dlp enumerates child
     /// directories of `--plugin-dirs`, so this must be the parent of the
     /// packaged `plugin/yt_dlp_plugins` tree.
-    pub async fn provider_args(&self) -> Result<Vec<std::ffi::OsString>, String> {
+    pub(crate) async fn provider_invocation(&self) -> Result<ProviderInvocation, String> {
+        provider_broker::ordinary(self).await
+    }
+    pub(crate) async fn playback_provider_invocation(
+        &self,
+        deadline: tokio::time::Instant,
+        cancel: tokio::sync::watch::Receiver<bool>,
+        trace: Option<crate::playback_sources::SourceTrace>,
+    ) -> Result<ProviderInvocation, String> {
+        provider_broker::playback(self, deadline, cancel, trace).await
+    }
+    async fn provider_args(&self) -> Result<Vec<std::ffi::OsString>, String> {
         if !self.provider_assets_present() {
             return Ok(Vec::new());
         }
@@ -630,12 +650,20 @@ impl YouTubeSupportManager {
     }
 
     pub async fn stop_helper_if_idle(&self) -> Result<bool, String> {
+        if self.uses.lock().unwrap_or_else(|e| e.into_inner()).count > 0 {
+            return Ok(false);
+        }
+
         if now_secs().saturating_sub(self.last_used.load(Ordering::Relaxed))
             < IDLE_TIMEOUT.as_secs()
         {
             return Ok(false);
         }
         let mut lock = self.helper.lock().await;
+        let active = self.uses.lock().unwrap_or_else(|e| e.into_inner());
+        if active.count > 0 {
+            return Ok(false);
+        }
         if let Some(child) = lock.as_mut() {
             child
                 .start_kill()
@@ -693,11 +721,11 @@ impl YouTubeSupportManager {
 
     async fn diagnose_executable(&self, executable: &Path, url: &str) -> SupportDiagnosis {
         let version = version(executable).await.ok();
-        let provider = self.provider_args().await;
+        let provider = self.provider_invocation().await;
         let provider_available =
-            !provider.as_ref().is_ok_and(|v| v.is_empty()) && self.provider_assets_ready();
-        let args = match provider {
-            Ok(args) => args,
+            !provider.as_ref().is_ok_and(|v| v.args.is_empty()) && self.provider_assets_ready();
+        let mut invocation = match provider {
+            Ok(invocation) => invocation,
             Err(_) => return diagnosis(false, DiagnosisCategory::TokenProvider, version, false, false,
                 "The bundled anonymous token provider could not start. Check the provider bundle and Node runtime.")
         };
@@ -712,7 +740,7 @@ impl YouTubeSupportManager {
             "-g",
         ]);
         command
-            .args(args)
+            .args(&invocation.args)
             .arg(url)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -755,6 +783,7 @@ impl YouTubeSupportManager {
             let message = diagnosis_message(&category);
             return diagnosis(false, category, version, provider_available, false, message);
         }
+        invocation.complete();
         let stream = String::from_utf8_lossy(&output.stdout)
             .lines()
             .next()
@@ -921,6 +950,7 @@ impl YouTubeSupportManager {
     fn start_idle_monitor(&self) {
         let helper = self.helper.clone();
         let last_used = self.last_used.clone();
+        let uses = self.uses.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(15)).await;
@@ -930,6 +960,10 @@ impl YouTubeSupportManager {
                     continue;
                 }
                 let mut guard = helper.lock().await;
+                let active = uses.lock().unwrap_or_else(|e| e.into_inner());
+                if active.count > 0 {
+                    continue;
+                }
                 if let Some(child) = guard.as_mut() {
                     let _ = child.start_kill();
                     *guard = None;
@@ -959,13 +993,6 @@ pub fn active_executable() -> PathBuf {
         .get()
         .map(YouTubeSupportManager::active_executable)
         .unwrap_or_else(|| PathBuf::from("yt-dlp"))
-}
-pub async fn yt_dlp_provider_args() -> Result<Vec<std::ffi::OsString>, String> {
-    GLOBAL_MANAGER
-        .get()
-        .ok_or("YouTube support manager has not been initialized")?
-        .provider_args()
-        .await
 }
 
 pub fn verify_manifest_sha256(name: &str, bytes: &[u8], manifest: &[u8]) -> Result<(), String> {

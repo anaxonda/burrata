@@ -19,8 +19,8 @@ describe("captured WebView PCM WAV", () => {
   });
 
   it("rejects short, oversized, and silent captures before IPC", () => {
-    expect(() => encodeMonoPcm16WavBase64(new Float32Array(7 * 48_000).fill(.1))).toThrow(/eight to twelve seconds/);
-    expect(() => encodeMonoPcm16WavBase64(new Float32Array(13 * 48_000).fill(.1))).toThrow(/eight to twelve seconds/);
+    expect(() => encodeMonoPcm16WavBase64(new Float32Array(2 * 48_000).fill(.1))).toThrow(/three to twelve seconds/);
+    expect(() => encodeMonoPcm16WavBase64(new Float32Array(13 * 48_000).fill(.1))).toThrow(/three to twelve seconds/);
     expect(() => encodeMonoPcm16WavBase64(new Float32Array(8 * 48_000))).toThrow(/silence/);
   });
 
@@ -133,6 +133,72 @@ describe("captured WebView PCM WAV", () => {
       expect(stop).toHaveBeenCalledTimes(2);
       expect(close).toHaveBeenCalledTimes(2);
     } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
+  });
+
+  it("cancels an in-flight provider when the overall capture deadline expires", async () => {
+    vi.useFakeTimers();
+    const stop = vi.fn(), onCancel = vi.fn();
+    class FakeContext {
+      sampleRate = 48_000; destination = {};
+      audioWorklet = {addModule: async () => {}};
+      createMediaStreamSource = () => ({connect: vi.fn(), disconnect: vi.fn()});
+      createGain = () => ({gain: {value: 1}, connect: vi.fn(), disconnect: vi.fn()});
+      resume = async () => {}; close = async () => {};
+    }
+    class FakeWorklet {
+      port = {onmessage: null as ((event: MessageEvent) => void) | null, close: vi.fn(), postMessage: ({id, minFrames}: {id: number; minFrames: number}) => {
+        queueMicrotask(() => this.port.onmessage?.({data: {type: "snapshot", id, samples: new Float32Array(minFrames).fill(.2).buffer}} as MessageEvent));
+      }};
+      connect = vi.fn(); disconnect = vi.fn();
+    }
+    vi.stubGlobal("AudioContext", FakeContext); vi.stubGlobal("AudioWorkletNode", FakeWorklet);
+    const onSample = vi.fn(() => new Promise<boolean>(() => {}));
+    try {
+      const pending = captureWebviewRadioWavBase64({captureStream: () => ({getAudioTracks: () => [{}], getTracks: () => [{stop}]})} as unknown as HTMLAudioElement,
+        () => true, new AbortController().signal, undefined, {onSample, onCancel});
+      const rejected = expect(pending).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(250);
+      expect(onSample).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(90_000);
+      await rejected;
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(onSample).toHaveBeenCalledTimes(1);
+    } finally {vi.useRealTimers(); vi.unstubAllGlobals();}
+  });
+
+  it.each([6, 12])("tries progressive heard-audio samples sequentially and stops at %s seconds", async (matchAt) => {
+    vi.useFakeTimers();
+    const stop = vi.fn(), capture = vi.fn(() => ({getAudioTracks: () => [{}], getTracks: () => [{stop}]}));
+    const starts: number[] = [], lengths: number[] = [];
+    class FakeContext {
+      sampleRate = 48_000; destination = {};
+      audioWorklet = {addModule: async () => {}};
+      createMediaStreamSource = () => ({connect: vi.fn(), disconnect: vi.fn()});
+      createGain = () => ({gain: {value: 1}, connect: vi.fn(), disconnect: vi.fn()});
+      resume = async () => {}; close = async () => {};
+    }
+    class FakeWorklet {
+      port = {onmessage: null as ((event: MessageEvent) => void) | null, close: vi.fn(), postMessage: ({id, minFrames}: {id: number; minFrames: number}) => {
+        queueMicrotask(() => this.port.onmessage?.({data: {type: "snapshot", id, samples: new Float32Array(minFrames).fill(.2).buffer}} as MessageEvent));
+      }};
+      connect = vi.fn(); disconnect = vi.fn();
+    }
+    vi.stubGlobal("AudioContext", FakeContext); vi.stubGlobal("AudioWorkletNode", FakeWorklet);
+    const onSample = vi.fn(async (_wav: string, seconds: number) => {starts.push(Date.now()); lengths.push(seconds); return seconds === matchAt;});
+    try {
+      const pending = captureWebviewRadioWavBase64({captureStream: capture} as unknown as HTMLAudioElement, () => true, new AbortController().signal, undefined, {onSample});
+      await vi.advanceTimersByTimeAsync(250);
+      expect(lengths).toEqual([3]);
+      await vi.advanceTimersByTimeAsync(matchAt === 6 ? 10_000 : 20_000);
+      await pending;
+      expect(lengths).toEqual(matchAt === 6 ? [3, 6] : [3, 6, 12]);
+      expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(10_000);
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(stop).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(onSample).toHaveBeenCalledTimes(matchAt === 6 ? 2 : 3);
+    } finally {vi.useRealTimers(); vi.unstubAllGlobals();}
   });
 
 });

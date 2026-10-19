@@ -1,0 +1,67 @@
+{
+  "album": "The Essential John Denver",
+  "albumArtist": null,
+  "artist": "John Denver",
+  "artworkUrl": "https://i.scdn.co/image/ab67616d00001e0295bc0fb413585095b24d005b",
+  "assetId": null,
+  "bpm": null,
+  "catalogNumber": null,
+  "discNumber": null,
+  "discTotal": null,
+  "disposition": null,
+  "durationSeconds": 222.426,
+  "favorite": false,
+  "genre": null,
+  "id": "spotify:1Ua153c9hxARpugkSb1VPh",
+  "isrc": null,
+  "key": null,
+  "label": null,
+  "localAvailability": "none",
+  "normalizedGenre": null,
+  "previewUrl": null,
+  "provenance": {
+    "catalog": {
+      "artistCount": 1,
+      "artists": [
+        {
+          "id": "7EK1bQADBoqbYXnT4Cqv9w",
+          "name": "John Denver",
+          "provider": "spotify"
+        }
+      ],
+      "provider": "spotify",
+      "providerId": "1Ua153c9hxARpugkSb1VPh",
+      "verified": true
+    },
+    "manualFields": {},
+    "remoteCatalog": {
+      "album": "The Essential John Denver",
+      "artist": "John Denver",
+      "artistCount": 1,
+      "artistRefs": [
+        {
+          "id": "7EK1bQADBoqbYXnT4Cqv9w",
+          "name": "John Denver",
+          "provider": "spotify"
+        }
+      ],
+      "artworkUrl": "https://i.scdn.co/image/ab67616d00001e0295bc0fb413585095b24d005b",
+      "available": true,
+      "durationSeconds": 222.426,
+      "title": "Matthew",
+      "trackId": "1Ua153c9hxARpugkSb1VPh",
+      "url": "https://open.spotify.com/track/1Ua153c9hxARpugkSb1VPh"
+    }
+  },
+  "provider": "spotify",
+  "providerId": "1Ua153c9hxARpugkSb1VPh",
+  "rank": null,
+  "recordingDate": null,
+  "releaseDate": null,
+  "remixers": null,
+  "sourceUrl": "https://open.spotify.com/track/1Ua153c9hxARpugkSb1VPh",
+  "title": "Matthew",
+  "trackNumber": null,
+  "trackTotal": null,
+  "version": null
+}

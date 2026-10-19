@@ -67,6 +67,7 @@ pub struct VerifiedPlaybackSource {
     pub provider: String,
     pub provider_id: String,
     pub permanent_url: String,
+    pub verification_proof: Option<serde_json::Value>,
 }
 #[derive(Debug, Clone)]
 pub struct AnalysisQueueAsset {
@@ -526,7 +527,7 @@ impl Store {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(err)?;
-        if version > 9 {
+        if version > 10 {
             return Err("Database was created by a newer Burrata version".into());
         }
         if version == 0 {
@@ -637,6 +638,26 @@ impl Store {
             }
             migration.push_str("PRAGMA user_version=9; COMMIT;");
             conn.execute_batch(&migration).map_err(err)?;
+        }
+        if version < 10 {
+            let has_proof: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_table_info('verified_playback_sources') WHERE name='verification_proof')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(err)?;
+            if !has_proof {
+                conn.execute_batch(
+                    "BEGIN IMMEDIATE;
+                     ALTER TABLE verified_playback_sources ADD COLUMN verification_proof TEXT;
+                     PRAGMA user_version=10;
+                     COMMIT;",
+                )
+                .map_err(err)?;
+            } else {
+                conn.execute_batch("PRAGMA user_version=10;").map_err(err)?;
+            }
         }
         // Version 9 was not shipped; keep this guard so prototype v9 stores made
         // before the projection column was introduced can still be opened.
@@ -847,6 +868,7 @@ impl Store {
         }
     }
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
+        settings.validate_playback_startup_timeout()?;
         self.lock_connection()?.execute("INSERT INTO settings(key,value) VALUES('application',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [encode(settings)?]).map_err(err)?;
         Ok(())
     }
@@ -873,6 +895,35 @@ impl Store {
             )
             .map_err(err)?;
         Ok(())
+    }
+    /// Commit queue occurrence identity and its session position together. Omitted
+    /// components retain the last committed value, matching incremental callers.
+    pub fn save_playback_checkpoint(
+        &self,
+        queue: Option<&serde_json::Value>,
+        session: Option<&serde_json::Value>,
+    ) -> Result<()> {
+        if queue.is_none() && session.is_none() {
+            return Ok(());
+        }
+        let queue = queue.map(encode).transpose()?;
+        let session = session.map(encode).transpose()?;
+        let mut connection = self.lock_connection()?;
+        let transaction = connection.transaction().map_err(err)?;
+        for (key, value) in [
+            ("nativePlaybackQueue.v1", queue),
+            ("nativePlaybackSession.v1", session),
+        ] {
+            if let Some(value) = value {
+                transaction
+                    .execute(
+                        "INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        params![key, value],
+                    )
+                    .map_err(err)?;
+            }
+        }
+        transaction.commit().map_err(err)
     }
     /// Durable state owned by the playlist synchronizer. Keeping this in SQLite means
     /// source bindings and immutable snapshots survive a missing or moved playlist file.
@@ -929,12 +980,35 @@ impl Store {
             .lock()
             .map_err(err)?
             .execute(
-                "INSERT INTO provider_cache(namespace,key,payload,expires_at) VALUES(?1,?2,?3,?4) ON CONFLICT(namespace,key) DO UPDATE SET payload=excluded.payload,expires_at=excluded.expires_at",
-                params![namespace, key, encoded, expires_at],
+                "INSERT INTO provider_cache(namespace,key,payload,expires_at) VALUES(?1,?2,?3,?4) ON CONFLICT(namespace,key) DO UPDATE SET payload=excluded.payload,expires_at=CASE WHEN provider_cache.expires_at='9999-12-31T23:59:59Z' AND ?5 THEN provider_cache.expires_at ELSE excluded.expires_at END",
+                params![namespace, key, encoded, expires_at, ttl_seconds != 0],
             )
             .map_err(err)?;
         Ok(())
     }
+    /// Retain identity evidence independently of its refresh age. Callers must
+    /// store and validate their own provenance, fingerprint and fetchedAt.
+    /// Unlike ordinary provider responses this evidence never expires by age.
+    pub(crate) fn set_retained_provider_cache(
+        &self,
+        namespace: &str,
+        key: &str,
+        payload: &serde_json::Value,
+    ) -> Result<()> {
+        if !namespace.starts_with("artists.") || key.trim().is_empty() {
+            return Err("Retained artist evidence requires an artist namespace and key".into());
+        }
+        let encoded = encode(payload)?;
+        if encoded.len() > 1024 * 1024 {
+            return Err("Cached provider data is limited to 1 MB".into());
+        }
+        self.lock_connection()?.execute(
+            "INSERT INTO provider_cache(namespace,key,payload,expires_at) VALUES(?1,?2,?3,'9999-12-31T23:59:59Z') ON CONFLICT(namespace,key) DO UPDATE SET payload=excluded.payload,expires_at=excluded.expires_at",
+            params![namespace, key, encoded],
+        ).map_err(err)?;
+        Ok(())
+    }
+
     pub fn get_artist_mapping(
         &self,
         provider: &str,
@@ -1163,6 +1237,44 @@ impl Store {
         provider_id: &str,
         permanent_url: &str,
     ) -> Result<()> {
+        self.save_verified_playback_source_proof(
+            track_id,
+            fingerprint,
+            provider,
+            provider_id,
+            permanent_url,
+            None,
+        )
+    }
+
+    pub fn save_verified_playback_source_with_proof(
+        &self,
+        track_id: &str,
+        fingerprint: &str,
+        provider: &str,
+        provider_id: &str,
+        permanent_url: &str,
+        proof: &serde_json::Value,
+    ) -> Result<()> {
+        self.save_verified_playback_source_proof(
+            track_id,
+            fingerprint,
+            provider,
+            provider_id,
+            permanent_url,
+            Some(proof),
+        )
+    }
+
+    fn save_verified_playback_source_proof(
+        &self,
+        track_id: &str,
+        fingerprint: &str,
+        provider: &str,
+        provider_id: &str,
+        permanent_url: &str,
+        proof: Option<&serde_json::Value>,
+    ) -> Result<()> {
         if fingerprint.len() != 64
             || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
             || !matches!(provider, "youtube" | "soundcloud")
@@ -1190,12 +1302,13 @@ impl Store {
         let recording_id =
             recording_id.ok_or("Verified playback source track is not in the library")?;
         transaction.execute(
-            "INSERT INTO verified_playback_sources(recording_id,fingerprint,provider,provider_id,permanent_url,expires_at,updated_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7)
+            "INSERT INTO verified_playback_sources(recording_id,fingerprint,provider,provider_id,permanent_url,expires_at,updated_at,verification_proof)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(recording_id,fingerprint,provider) DO UPDATE SET
                  provider_id=excluded.provider_id,permanent_url=excluded.permanent_url,
-                 expires_at=excluded.expires_at,updated_at=excluded.updated_at",
-            params![recording_id, fingerprint.to_ascii_lowercase(), provider, provider_id, permanent_url, expires_at, updated_at],
+                 expires_at=excluded.expires_at,updated_at=excluded.updated_at,
+                 verification_proof=excluded.verification_proof",
+            params![recording_id, fingerprint.to_ascii_lowercase(), provider, provider_id, permanent_url, expires_at, updated_at, proof.map(encode).transpose()?],
         ).map_err(err)?;
         transaction.commit().map_err(err)
     }
@@ -1219,16 +1332,16 @@ impl Store {
         let Some(recording_id) = recording_id else {
             return Ok(None);
         };
-        let row: Option<(String, String, String)> = transaction
+        let row: Option<(String, String, String, Option<String>)> = transaction
             .query_row(
-                "SELECT provider_id,permanent_url,expires_at FROM verified_playback_sources
+                "SELECT provider_id,permanent_url,expires_at,verification_proof FROM verified_playback_sources
                  WHERE recording_id=?1 AND fingerprint=?2 AND provider=?3",
                 params![recording_id, fingerprint.to_ascii_lowercase(), provider],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
             .map_err(err)?;
-        let Some((provider_id, permanent_url, expires_at)) = row else {
+        let Some((provider_id, permanent_url, expires_at, verification_proof)) = row else {
             return Ok(None);
         };
         let expires = chrono::DateTime::parse_from_rfc3339(&expires_at).map_err(err)?;
@@ -1247,6 +1360,8 @@ impl Store {
             provider: provider.to_owned(),
             provider_id,
             permanent_url,
+            // A malformed or legacy proof is unverified, not a broken library.
+            verification_proof: verification_proof.and_then(|proof| decode(proof).ok()),
         }))
     }
 
@@ -5355,6 +5470,108 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = Store::open(&d.path().join("library.sqlite")).unwrap();
         (d, s)
+    }
+
+    #[test]
+    fn playback_checkpoint_commits_occurrences_and_session_as_one_pair() {
+        let (directory, store) = db();
+        let queue = serde_json::json!({
+            "tracks": [track("repeat", ""), track("repeat", "")],
+            "entryIds": ["first", "second"],
+            "queueRevision": 7
+        });
+        let session = serde_json::json!({
+            "index": 1, "currentEntryId": "second", "queueRevision": 7,
+            "position": 12.5, "finished": false
+        });
+        store
+            .save_playback_checkpoint(Some(&queue), Some(&session))
+            .unwrap();
+        drop(store);
+        let reopened = Store::open(&directory.path().join("library.sqlite")).unwrap();
+        assert_eq!(
+            reopened
+                .get_json_preference("nativePlaybackQueue.v1")
+                .unwrap(),
+            Some(queue.clone())
+        );
+        assert_eq!(
+            reopened
+                .get_json_preference("nativePlaybackSession.v1")
+                .unwrap(),
+            Some(session)
+        );
+        let updated_session = serde_json::json!({"index": 1, "position": 15});
+        reopened
+            .save_playback_checkpoint(None, Some(&updated_session))
+            .unwrap();
+        assert_eq!(
+            reopened
+                .get_json_preference("nativePlaybackQueue.v1")
+                .unwrap(),
+            Some(queue)
+        );
+        assert_eq!(
+            reopened
+                .get_json_preference("nativePlaybackSession.v1")
+                .unwrap(),
+            Some(updated_session)
+        );
+    }
+
+    #[test]
+    fn playback_checkpoint_write_failure_rolls_back_both_components() {
+        let (_directory, store) = db();
+        let queue = serde_json::json!({"tracks": ["old"], "queueRevision": 1});
+        let session = serde_json::json!({"index": 0, "queueRevision": 1});
+        store
+            .save_playback_checkpoint(Some(&queue), Some(&session))
+            .unwrap();
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER reject_playback_session_update
+             BEFORE UPDATE ON settings WHEN NEW.key='nativePlaybackSession.v1'
+             BEGIN SELECT RAISE(ABORT, 'simulated checkpoint failure'); END;",
+            )
+            .unwrap();
+        let error = store
+            .save_playback_checkpoint(
+                Some(&serde_json::json!({"tracks": ["new"], "queueRevision": 2})),
+                Some(&serde_json::json!({"index": 1, "queueRevision": 2})),
+            )
+            .unwrap_err();
+        assert!(error.contains("simulated checkpoint failure"));
+        assert_eq!(
+            store.get_json_preference("nativePlaybackQueue.v1").unwrap(),
+            Some(queue)
+        );
+        assert_eq!(
+            store
+                .get_json_preference("nativePlaybackSession.v1")
+                .unwrap(),
+            Some(session)
+        );
+    }
+
+    #[test]
+    fn invalid_playback_timeout_does_not_replace_saved_settings() {
+        let (_directory, store) = db();
+        let mut settings = Settings {
+            playback_startup_timeout_seconds: 30,
+            ..Settings::default()
+        };
+        store.save_settings(&settings).unwrap();
+        for invalid in [0, 21, 300, u32::MAX] {
+            settings.playback_startup_timeout_seconds = invalid;
+            assert!(store.save_settings(&settings).is_err());
+            assert_eq!(
+                store.settings().unwrap().playback_startup_timeout_seconds,
+                30
+            );
+        }
     }
 
     #[test]
@@ -10797,6 +11014,75 @@ mod tests {
     }
 
     #[test]
+    fn verified_playback_source_proof_migrates_legacy_rows_and_survives_reopen() {
+        let (directory, store) = db();
+        let source = track("proof-migration", "");
+        store.save_track(&source).unwrap();
+        let fingerprint = "c".repeat(64);
+        let provider_id = "4-XSYttqtls";
+        let url = format!("https://www.youtube.com/watch?v={provider_id}");
+        store
+            .save_verified_playback_source(&source.id, &fingerprint, "youtube", provider_id, &url)
+            .unwrap();
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "ALTER TABLE verified_playback_sources DROP COLUMN verification_proof;
+             PRAGMA user_version=9;",
+            )
+            .unwrap();
+        drop(store);
+        let path = directory.path().join("library.sqlite");
+        let migrated = Store::open(&path).unwrap();
+        let mapping = migrated
+            .verified_playback_source(&source.id, &fingerprint, "youtube")
+            .unwrap()
+            .unwrap();
+        assert_eq!(mapping.permanent_url, url);
+        assert_eq!(mapping.verification_proof, None);
+        let proof = serde_json::json!({"version": 1, "kind": "youtube_music_catalog", "catalogLocator": true});
+        migrated
+            .save_verified_playback_source_with_proof(
+                &source.id,
+                &fingerprint,
+                "youtube",
+                provider_id,
+                &url,
+                &proof,
+            )
+            .unwrap();
+        drop(migrated);
+        let reopened = Store::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .verified_playback_source(&source.id, &fingerprint, "youtube")
+                .unwrap()
+                .unwrap()
+                .verification_proof,
+            Some(proof)
+        );
+        reopened
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE verified_playback_sources SET verification_proof='invalid legacy JSON'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            reopened
+                .verified_playback_source(&source.id, &fingerprint, "youtube")
+                .unwrap()
+                .unwrap()
+                .verification_proof,
+            None
+        );
+    }
+
+    #[test]
     fn verified_playback_sources_are_identity_scoped_stable_and_expire() {
         let (_dir, store) = db();
         let mut track = track("mapping", "radio edit");
@@ -10817,6 +11103,7 @@ mod tests {
                 provider: "youtube".into(),
                 provider_id: provider_id.into(),
                 permanent_url: url.clone(),
+                verification_proof: None,
             })
         );
         assert!(store
@@ -11770,7 +12057,7 @@ mod tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
     }
     #[test]
@@ -11854,7 +12141,7 @@ mod tests {
             connection
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
         let unsaved_default: i64 = connection
             .query_row(
@@ -12045,6 +12332,54 @@ mod tests {
         assert!(store.rename_collection("missing", "  ").is_err());
         assert!(store.remove_from_collection("missing", &[]).is_err());
     }
+    #[test]
+    fn retained_artist_evidence_survives_ordinary_refresh_and_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("retained.sqlite");
+        let store = Store::open(&path).unwrap();
+        store
+            .set_retained_provider_cache(
+                "artists.profile.musicbrainz",
+                "artist",
+                &serde_json::json!({"name":"Old", "fetchedAt":0}),
+            )
+            .unwrap();
+        store
+            .set_provider_cache(
+                "artists.profile.musicbrainz",
+                "artist",
+                &serde_json::json!({"name":"Refreshed", "fetchedAt":0}),
+                60,
+            )
+            .unwrap();
+        let expires:String=store.lock_connection().unwrap().query_row("SELECT expires_at FROM provider_cache WHERE namespace='artists.profile.musicbrainz' AND key='artist'",[],|row|row.get(0)).unwrap();
+        assert_eq!(expires, "9999-12-31T23:59:59Z");
+        drop(store);
+        let reopened = Store::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .get_provider_cache("artists.profile.musicbrainz", "artist")
+                .unwrap()
+                .unwrap()["name"],
+            "Refreshed"
+        );
+        reopened
+            .set_provider_cache(
+                "artists.profile.musicbrainz",
+                "artist",
+                &serde_json::json!({}),
+                0,
+            )
+            .unwrap();
+        assert!(reopened
+            .get_provider_cache("artists.profile.musicbrainz", "artist")
+            .unwrap()
+            .is_none());
+        assert!(reopened
+            .set_retained_provider_cache("unrelated", "key", &serde_json::json!({}))
+            .is_err());
+    }
+
     #[test]
     fn provider_cache_expires_and_artist_mappings_persist() {
         let directory = tempfile::tempdir().unwrap();

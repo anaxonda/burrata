@@ -1,0 +1,56 @@
+{
+  "schema": "burrata.public-excerpt-equivalence/v1",
+  "qualification": false,
+  "leftVideoId": "ps9X-DXUFGY",
+  "rightVideoId": "uZGRATckoBM",
+  "excerptSeconds": 30,
+  "positionSeconds": 0,
+  "perVideoBudgetSeconds": 20,
+  "scope": "explicit fixed-video reference analysis; no search selection or playback latency claim",
+  "limitations": [
+    "Excerpt correspondence does not establish complete-track edit equivalence or album mastering.",
+    "Provider artist/album metadata is evidence, not independent acoustic identification.",
+    "PCM and unredacted extraction JSON are temporary and removed; no stream URLs are reported."
+  ],
+  "sources": [
+    {
+      "videoId": "ps9X-DXUFGY",
+      "title": "JOHN DENVER - MATTHEW.",
+      "durationSeconds": 225,
+      "uploader": "Electricchris1",
+      "channel": "Electricchris1",
+      "channelId": "UC4LSctAUMJcY4bYmhil2whg",
+      "channelIsVerified": null,
+      "track": null,
+      "album": null,
+      "artist": null,
+      "artists": [],
+      "releaseYear": null,
+      "formatId": "251",
+      "codec": "opus",
+      "extractionProfile": "bundled-production-mweb-progressive-format-policy",
+      "formatPolicy": "same-video-alternate-webm-analysis",
+      "formatAttempts": [
+        {
+          "formatId": "140",
+          "ok": false,
+          "failure": "STREAM_DENIED",
+          "stage": "pcm-decode"
+        },
+        {
+          "formatId": "251",
+          "ok": false,
+          "failure": "STREAM_DENIED",
+          "stage": "pcm-decode"
+        }
+      ]
+    }
+  ],
+  "failures": [
+    "STREAM_DENIED"
+  ],
+  "analysisCompleted": false,
+  "failureStage": "pcm-decode",
+  "helperStopped": true,
+  "sourceSha256": "47385aa61c7c4be755b14e96e2ff3df79b040ecdc794a444f281dce6b59a3459"
+}

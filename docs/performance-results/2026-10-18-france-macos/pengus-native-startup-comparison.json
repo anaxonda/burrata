@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "fixture": {
+    "artist": "Pengus",
+    "title": "Victory Lap",
+    "durationSeconds": 260,
+    "musicbrainzRecordingId": "43d497e7-7da4-4101-88c7-83e1ff677bb6",
+    "musicbrainzReleaseId": "154aaccb-f7dc-4c43-ae97-367b80c4b15a",
+    "origin": "Exact public MusicBrainz recording because the reported app provider/source ID was unavailable; not a reproduction of the original saved row"
+  },
+  "scope": "Linux debug native production resolver plus five seconds decoder PCM, isolated fresh Store/default settings each run; no GUI, mixer, device, normal queue, Mac or French network qualification",
+  "nativeSourceSha256": "3952d3c1adf469576c00c78875036e51cf4ed3c8ff9d46dfcb3969f96b98f154",
+  "diagnosticBaseline": {
+    "build": "debug",
+    "decodeWallMs": 8283.617242,
+    "decodedInterleavedSamples": 480000,
+    "decodedSeconds": 5.0,
+    "decoderDiagnostics": {
+      "bytesRead": 2556453,
+      "bytesReceived": 4210738,
+      "channels": 2,
+      "codecHint": "mp4a.40.2",
+      "contentRangeTotal": null,
+      "contentType": "audio/mp4",
+      "decoderKind": "rodio",
+      "decoderReused": false,
+      "decoderSetupMs": 7716,
+      "firstDecodedBlockMs": 8045,
+      "inputContentLength": 4210738,
+      "readerReused": false,
+      "readerSetupMs": 327,
+      "sampleRate": 44100,
+      "totalDurationSeconds": 260.133151927
+    },
+    "firstPcmAfterResolveMs": 8045.800496,
+    "firstPcmFromRequestMs": 21723.555727,
+    "ok": true,
+    "platform": "linux",
+    "resolveMs": 13677.755231000001,
+    "resolved": true,
+    "resolverBudgetMs": 20000,
+    "schemaVersion": 1,
+    "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+    "sourceHint": {
+      "codec": "mp4a.40.2",
+      "contentLength": 4210738,
+      "hasVideo": false,
+      "mimeType": "audio/mp4"
+    },
+    "sourceProvider": "youtube",
+    "totalMs": 21961.609142,
+    "workload": "isolated_reported_track_resolver_and_decoder"
+  },
+  "optimizedAttempts": [
+    {
+      "build": "debug",
+      "decodeWallMs": 372.06908500000003,
+      "decodedInterleavedSamples": 480000,
+      "decodedSeconds": 5.0,
+      "decoderDiagnostics": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "mp4a.40.2",
+        "contentRangeTotal": null,
+        "contentType": "audio/mp4",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 9,
+        "firstDecodedBlockMs": 271,
+        "inputContentLength": 4210738,
+        "readerReused": false,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 260.0
+      },
+      "firstPcmAfterResolveMs": 271.478671,
+      "firstPcmFromRequestMs": 14961.458641000001,
+      "ok": true,
+      "platform": "linux",
+      "resolveMs": 14689.97997,
+      "resolved": true,
+      "resolverBudgetMs": 20000,
+      "schemaVersion": 1,
+      "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+      "sourceHint": {
+        "codec": "mp4a.40.2",
+        "contentLength": 4210738,
+        "hasVideo": false,
+        "mimeType": "audio/mp4"
+      },
+      "sourceProvider": "youtube",
+      "totalMs": 15062.29797,
+      "workload": "isolated_reported_track_resolver_and_decoder",
+      "attempt": 1,
+      "role": "matched_comparison",
+      "wholeAttemptProcessResources": {
+        "userSeconds": 14.88,
+        "systemSeconds": 1.45,
+        "wallSeconds": 15.21,
+        "processPeakRssKiB": 344768
+      }
+    },
+    {
+      "build": "debug",
+      "decodeWallMs": 191.651583,
+      "decodedInterleavedSamples": 480000,
+      "decodedSeconds": 5.0,
+      "decoderDiagnostics": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "mp4a.40.2",
+        "contentRangeTotal": null,
+        "contentType": "audio/mp4",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 110,
+        "inputContentLength": 4210738,
+        "readerReused": false,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 260.0
+      },
+      "firstPcmAfterResolveMs": 110.5087,
+      "firstPcmFromRequestMs": 15645.546436,
+      "ok": true,
+      "platform": "linux",
+      "resolveMs": 15535.037736,
+      "resolved": true,
+      "resolverBudgetMs": 20000,
+      "schemaVersion": 1,
+      "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+      "sourceHint": {
+        "codec": "mp4a.40.2",
+        "contentLength": 4210738,
+        "hasVideo": false,
+        "mimeType": "audio/mp4"
+      },
+      "sourceProvider": "youtube",
+      "totalMs": 15726.982256,
+      "workload": "isolated_reported_track_resolver_and_decoder",
+      "attempt": 2,
+      "role": "exploratory_repetition",
+      "wholeAttemptProcessResources": {
+        "userSeconds": 16.67,
+        "systemSeconds": 1.6,
+        "wallSeconds": 15.92,
+        "processPeakRssKiB": 341668
+      }
+    },
+    {
+      "build": "debug",
+      "decodeWallMs": 392.517379,
+      "decodedInterleavedSamples": 480000,
+      "decodedSeconds": 5.0,
+      "decoderDiagnostics": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "mp4a.40.2",
+        "contentRangeTotal": null,
+        "contentType": "audio/mp4",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 268,
+        "inputContentLength": 4210738,
+        "readerReused": false,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 260.0
+      },
+      "firstPcmAfterResolveMs": 268.915699,
+      "firstPcmFromRequestMs": 15617.123692999998,
+      "ok": true,
+      "platform": "linux",
+      "resolveMs": 15348.207993999999,
+      "resolved": true,
+      "resolverBudgetMs": 20000,
+      "schemaVersion": 1,
+      "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+      "sourceHint": {
+        "codec": "mp4a.40.2",
+        "contentLength": 4210738,
+        "hasVideo": false,
+        "mimeType": "audio/mp4"
+      },
+      "sourceProvider": "youtube",
+      "totalMs": 15740.975993,
+      "workload": "isolated_reported_track_resolver_and_decoder",
+      "attempt": 3,
+      "role": "exploratory_repetition",
+      "wholeAttemptProcessResources": {
+        "userSeconds": 15.61,
+        "systemSeconds": 1.52,
+        "wallSeconds": 15.92,
+        "processPeakRssKiB": 341788
+      }
+    },
+    {
+      "build": "debug",
+      "failureCategory": "deadline_or_network_timeout",
+      "failureStage": "resolver",
+      "ok": false,
+      "platform": "linux",
+      "resolveMs": 20002.707471,
+      "resolved": false,
+      "resolverBudgetMs": 20000,
+      "schemaVersion": 1,
+      "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+      "totalMs": 20002.759787,
+      "workload": "isolated_reported_track_resolver_and_decoder",
+      "attempt": 4,
+      "role": "exploratory_repetition",
+      "wholeAttemptProcessResources": {
+        "userSeconds": 11.09,
+        "systemSeconds": 1.02,
+        "wallSeconds": 20.18,
+        "processPeakRssKiB": 237420
+      },
+      "failureStageTimeline": [
+        {
+          "phase": "search_end",
+          "provider": "youtube",
+          "elapsedMs": 3549,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "search_end",
+          "provider": "soundcloud",
+          "elapsedMs": 5017,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "provider_prepare_end",
+          "provider": "youtube",
+          "elapsedMs": 7671,
+          "details": {
+            "durationMs": 4110,
+            "ok": true
+          }
+        },
+        {
+          "phase": "extraction_start",
+          "provider": "youtube",
+          "elapsedMs": 7671,
+          "details": {}
+        },
+        {
+          "phase": "resolution_end",
+          "provider": "other",
+          "elapsedMs": 20002,
+          "details": {
+            "abandoned": false,
+            "cancelled": false,
+            "deadline": true,
+            "ok": false
+          }
+        }
+      ]
+    }
+  ],
+  "observedSummary": {
+    "successes": 3,
+    "resolverDeadlineFailures": 1,
+    "successfulDecoderFirstPcmMs": [
+      271.478671,
+      110.5087,
+      268.915699
+    ],
+    "successfulDecoderFirstPcmMedianMs": 268.915699,
+    "notAPercentileOrReliabilityBenchmark": true
+  },
+  "resourceScope": "GNU time user/system CPU and maximum RSS include the complete test process and descendants (resolver tools, Node helper, FFmpeg); not decoder-only CPU or summed process-tree RSS. Baseline CPU was not measured, so no CPU improvement is claimed. Concurrent production compilation may affect wall times.",
+  "safetyTests": {
+    "finiteRemoteAac": {
+      "passed": 3,
+      "failed": 0,
+      "covers": [
+        "native/FFmpeg decoded tone and sample-count parity",
+        "repeated seek positions and chapter endpoint",
+        "stalled HTTP cancellation and child reap",
+        "HTTP 403 rejection",
+        "declared-length truncated transport rejection"
+      ]
+    },
+    "truncationNegativeControl": "Without scoped FFmpeg -xerror, the declared-length half-body AAC regression failed because FFmpeg returned successful EOF; the strict path passes."
+  },
+  "limitations": [
+    "One instrumented baseline and four optimized attempts; not a controlled p95 study.",
+    "One optimized attempt exhausted the resolver deadline before reaching the decoder.",
+    "All successful runs used identical AAC MP4 codec, 260-second duration and 4210738-byte hint; no signed media URL retained.",
+    "No zero-PCM-after-cancel claim; cancellation test checks bounded completion and child reaping."
+  ]
+}

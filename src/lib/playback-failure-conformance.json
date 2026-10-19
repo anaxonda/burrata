@@ -1,0 +1,297 @@
+[
+  {
+    "reason": "No audio results were returned by the available providers. Open the catalog source or choose another source.",
+    "failure": {
+      "category": "no_match",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+    "failure": {
+      "category": "recording_identity_mismatch",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.",
+    "failure": {
+      "category": "recording_identity_mismatch",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "No playable audio match was found for Network — Connection (Cancel Mix)",
+    "failure": {
+      "category": "no_match",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "The resolved audio source identity does not match this recording",
+    "failure": {
+      "category": "recording_identity_mismatch",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "This source has no supported audio stream",
+    "failure": {
+      "category": "unsupported_audio",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "Private video",
+    "failure": {
+      "category": "source_private",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "Video has been removed",
+    "failure": {
+      "category": "source_deleted",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
+    "reason": "HTTP 403 unavailable",
+    "failure": {
+      "category": "source_access",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": true,
+      "httpStatus": 403
+    },
+    "skip": false
+  },
+  {
+    "reason": "HTTP 404 unavailable",
+    "failure": {
+      "category": "source_unavailable",
+      "stage": "transport",
+      "scope": "source",
+      "retryable": true,
+      "httpStatus": 404
+    },
+    "skip": false
+  },
+  {
+    "reason": "HTTP 410 unavailable",
+    "failure": {
+      "category": "source_unavailable",
+      "stage": "transport",
+      "scope": "source",
+      "retryable": true,
+      "httpStatus": 410
+    },
+    "skip": false
+  },
+  {
+    "reason": "HTTP Error 429 https://secret.invalid?token=secret",
+    "failure": {
+      "category": "rate_limited",
+      "stage": "transport",
+      "scope": "global",
+      "retryable": true,
+      "httpStatus": 429
+    },
+    "skip": false
+  },
+  {
+    "reason": "HTTP status 503 unavailable",
+    "failure": {
+      "category": "network",
+      "stage": "transport",
+      "scope": "global",
+      "retryable": true,
+      "httpStatus": 503
+    },
+    "skip": false
+  },
+  {
+    "reason": "Network connection unavailable",
+    "failure": {
+      "category": "network",
+      "stage": "transport",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Cancelled",
+    "failure": {
+      "category": "cancelled",
+      "stage": "resolver",
+      "scope": "operation",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "Audio source extraction was superseded",
+    "failure": {
+      "category": "cancelled",
+      "stage": "resolver",
+      "scope": "operation",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "20-second playback deadline",
+    "failure": {
+      "category": "timeout",
+      "stage": "resolver",
+      "scope": "operation",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Audio output device unavailable",
+    "failure": {
+      "category": "output",
+      "stage": "output",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Local file permission denied",
+    "failure": {
+      "category": "storage",
+      "stage": "storage",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Storage operation failed",
+    "failure": {
+      "category": "storage",
+      "stage": "storage",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Audio source format is unavailable; refresh or choose another source",
+    "failure": {
+      "category": "unsupported_audio",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Audio source is private; choose another source",
+    "failure": {
+      "category": "source_private",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "Audio source was removed; choose another source",
+    "failure": {
+      "category": "source_deleted",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "Unknown playback failure",
+    "failure": {
+      "category": "unknown",
+      "stage": "unknown",
+      "scope": "unknown",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "yt-dlp failed: ERROR: This video has been removed",
+    "failure": {
+      "category": "source_deleted",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "yt-dlp failed: ERROR: Private video",
+    "failure": {
+      "category": "source_private",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "yt-dlp failed: ERROR: Private video. Sign in if you have been granted access",
+    "failure": {
+      "category": "source_access",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "This video has been deleted",
+    "failure": {
+      "category": "source_deleted",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
+    "reason": "Video has been deleted",
+    "failure": {
+      "category": "source_deleted",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  }
+]

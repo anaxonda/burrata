@@ -28,6 +28,7 @@ const ARTIST_LIST_PAGE_SIZE: u32 = 100;
 const SEARCH_TTL: u64 = 60 * 60;
 const PROFILE_TTL: u64 = 24 * 60 * 60;
 const LIST_TTL: u64 = 6 * 60 * 60;
+const MUSICBRAINZ_RELEASE_GROUP_SEARCH_CACHE: &str = "albums.search.musicbrainz.v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -543,15 +544,12 @@ impl ArtistService {
             return Err("Album search page is out of range".into());
         }
         let offset = (page - 1) * PAGE_SIZE;
-        let cache_key = format!("{}:{page}", query.to_lowercase());
+        let cache_key = format!("v2:{}:{page}", query.to_lowercase());
         let mut items = Vec::new();
         let mut has_more = false;
         let mut warnings = credentials.warnings.clone();
         let mb_query = vec![
-            (
-                "query",
-                format!("releasegroup:\"{}\"", query.replace('"', "")),
-            ),
+            ("query", musicbrainz_release_group_search_query(query)),
             ("limit", PAGE_SIZE.to_string()),
             ("offset", offset.to_string()),
         ];
@@ -559,7 +557,7 @@ impl ArtistService {
             .musicbrainz_json(
                 "release-group",
                 &mb_query,
-                "albums.search.musicbrainz",
+                MUSICBRAINZ_RELEASE_GROUP_SEARCH_CACHE,
                 &cache_key,
                 SEARCH_TTL,
             )
@@ -651,14 +649,11 @@ impl ArtistService {
             return Err("Album search page is out of range".into());
         }
         let offset = (page - 1) * PAGE_SIZE;
-        let cache_key = format!("{}:{page}", query.to_lowercase());
+        let cache_key = format!("v2:{}:{page}", query.to_lowercase());
         let (items, has_more) = match provider {
             "musicbrainz" => {
                 let params = vec![
-                    (
-                        "query",
-                        format!("releasegroup:\"{}\"", query.replace('"', "")),
-                    ),
+                    ("query", musicbrainz_release_group_search_query(query)),
                     ("limit", PAGE_SIZE.to_string()),
                     ("offset", offset.to_string()),
                 ];
@@ -666,7 +661,7 @@ impl ArtistService {
                     .musicbrainz_json(
                         "release-group",
                         &params,
-                        "albums.search.musicbrainz",
+                        MUSICBRAINZ_RELEASE_GROUP_SEARCH_CACHE,
                         &cache_key,
                         SEARCH_TTL,
                     )
@@ -2621,7 +2616,7 @@ pub(crate) fn parse_musicbrainz_release_tracks(
     }).collect()
 }
 
-fn parse_discogs_release_tracks(
+pub(crate) fn parse_discogs_release_tracks(
     data: &Value,
     edition_id: &str,
     requested_source_url: &str,
@@ -3159,6 +3154,44 @@ fn named_items(value: &Value) -> Vec<String> {
         .filter(|name| !name.trim().is_empty())
         .collect()
 }
+
+fn musicbrainz_release_group_search_query(query: &str) -> String {
+    // Album discovery accepts either a release title or an artist name. Keep
+    // user text inside literal phrases so Lucene operators cannot change the
+    // query's meaning.
+    let phrase = query
+        .chars()
+        .flat_map(|character| {
+            if matches!(
+                character,
+                '+' | '-'
+                    | '&'
+                    | '|'
+                    | '!'
+                    | '('
+                    | ')'
+                    | '{'
+                    | '}'
+                    | '['
+                    | ']'
+                    | '^'
+                    | '"'
+                    | '~'
+                    | '*'
+                    | '?'
+                    | ':'
+                    | '\\'
+                    | '/'
+            ) {
+                vec!['\\', character]
+            } else {
+                vec![character]
+            }
+        })
+        .collect::<String>();
+    format!("releasegroup:\"{phrase}\" OR artist:\"{phrase}\" OR artistname:\"{phrase}\"")
+}
+
 fn string_array(value: &Value) -> Vec<String> {
     value
         .as_array()
@@ -3449,6 +3482,78 @@ mod tests {
         );
         assert_eq!(mb.begin_date.as_deref(), Some("1994"));
         assert_eq!(discogs.artist.provider, "discogs");
+    }
+
+    #[test]
+    fn musicbrainz_album_query_searches_titles_and_artists_as_literal_text() {
+        assert_eq!(
+            musicbrainz_release_group_search_query("Nipsey Hussle"),
+            "releasegroup:\"Nipsey Hussle\" OR artist:\"Nipsey Hussle\" OR artistname:\"Nipsey Hussle\""
+        );
+        assert_eq!(
+            musicbrainz_release_group_search_query("Nipsey\" OR artist:*"),
+            "releasegroup:\"Nipsey\\\" OR artist\\:\\*\" OR artist:\"Nipsey\\\" OR artist\\:\\*\" OR artistname:\"Nipsey\\\" OR artist\\:\\*\""
+        );
+    }
+
+    #[tokio::test]
+    async fn musicbrainz_album_search_includes_artist_matches() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 2048];
+            loop {
+                let n = stream.read(&mut chunk).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..n]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request_line = String::from_utf8_lossy(&request)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            let body = r#"{"count":1,"release-groups":[{"id":"00000000-0000-4000-8000-000000000011","title":"Victory Lap","artist-credit":[{"name":"Nipsey Hussle","artist":{"id":"00000000-0000-4000-8000-000000000012","name":"Nipsey Hussle"}}]}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            request_line
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temp.path().join("album-artist-search.sqlite")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+        let page = service
+            .search_albums_for(
+                "musicbrainz",
+                "Nipsey Hussle",
+                1,
+                &ArtistCredentials::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].title, "Victory Lap");
+        assert_eq!(page.items[0].credits[0].name, "Nipsey Hussle");
+        let request_line = server.await.unwrap();
+        let request_path = request_line.split_whitespace().nth(1).unwrap();
+        let request_url = Url::parse(&format!("http://localhost{request_path}")).unwrap();
+        let params = request_url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(params.get("query").map(|value| value.as_ref()), Some("releasegroup:\"Nipsey Hussle\" OR artist:\"Nipsey Hussle\" OR artistname:\"Nipsey Hussle\""));
+        assert_eq!(params.get("limit").map(|value| value.as_ref()), Some("25"));
+        assert_eq!(params.get("offset").map(|value| value.as_ref()), Some("0"));
     }
 
     #[tokio::test]

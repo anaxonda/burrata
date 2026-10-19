@@ -35,6 +35,7 @@ pub fn open_in_mpv(
         video,
         yt_dlp_configured,
         &[],
+        None,
     )
 }
 
@@ -50,15 +51,24 @@ pub async fn open_in_mpv_with_provider_support(
 ) -> Result<(), String> {
     let source_kind = validate_source(source)?;
     let managed = is_managed_ytdlp(yt_dlp_configured);
-    let provider_args = if managed
+    let invocation = if managed
         && matches!(source_kind, ValidSource::ProviderUrl(_))
         && is_youtube_url(source)?
         && crate::youtube_support::global().is_some()
     {
-        crate::youtube_support::yt_dlp_provider_args().await?
+        Some(
+            crate::youtube_support::global()
+                .expect("checked manager")
+                .provider_invocation()
+                .await?,
+        )
     } else {
-        Vec::new()
+        None
     };
+    let provider_args = invocation
+        .as_ref()
+        .map(|value| value.args.clone())
+        .unwrap_or_default();
     open_in_mpv_with_provider_args(
         source,
         start_seconds,
@@ -66,6 +76,7 @@ pub async fn open_in_mpv_with_provider_support(
         video,
         yt_dlp_configured,
         &provider_args,
+        invocation,
     )
 }
 
@@ -76,6 +87,7 @@ fn open_in_mpv_with_provider_args(
     video: bool,
     yt_dlp_configured: &str,
     provider_args: &[std::ffi::OsString],
+    invocation: Option<crate::youtube_support::ProviderInvocation>,
 ) -> Result<(), String> {
     let executable = find_mpv().ok_or_else(|| {
         "mpv is not installed or was not found. Install mpv or add it to PATH, then restart Burrata.".to_owned()
@@ -104,10 +116,18 @@ fn open_in_mpv_with_provider_args(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    command
+    let mut child = command
         .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Could not start mpv: {error}"))
+        .map_err(|error| format!("Could not start mpv: {error}"))?;
+    if let Some(mut invocation) = invocation {
+        // Keep the helper lease for mpv's independent yt-dlp lifetime.
+        tokio::task::spawn_blocking(move || {
+            if child.wait().is_ok_and(|status| status.success()) {
+                invocation.complete();
+            }
+        });
+    }
+    Ok(())
 }
 
 fn is_managed_ytdlp(configured: &str) -> bool {

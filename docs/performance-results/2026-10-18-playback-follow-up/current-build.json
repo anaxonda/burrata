@@ -1,0 +1,11 @@
+{
+  "binary": "/home/loki/projects/burrata/.cache/immutable-debug-binaries/playback-bugs-cbc8fa0f5904/bin/burrata",
+  "sha256": "cbc8fa0f590455b541d598a8a6cfa8eb5ee9bcc39142d5e224d7e97b499e4782",
+  "resourceRoot": "/home/loki/projects/burrata/.cache/immutable-debug-binaries/playback-bugs-cbc8fa0f5904/lib/Burrata",
+  "resourceMode": "development symlink to reviewed source resources; not an installer",
+  "nativeBaselineFullSuitePassed": 1198,
+  "nativeBaselineIgnored": 25,
+  "laterNativeOutcomeRegressionsPassed": 4,
+  "frontendTestsPassed": 1048,
+  "runtimeQualification": "pending latest-source live checks and relaunch"
+}

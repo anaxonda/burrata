@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:burrata:playback-reliability:v1",
+  "title": "Isolated playback experiment report",
+  "type": "object",
+  "required": [
+    "schema",
+    "mode",
+    "qualification",
+    "runPassed",
+    "repetitions",
+    "attempts",
+    "summary",
+    "failures",
+    "processAccounting",
+    "environment",
+    "sourceHashes",
+    "limitations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "burrata.playback-reliability/v1"
+    },
+    "mode": {
+      "enum": [
+        "offline",
+        "live",
+        "native"
+      ]
+    },
+    "qualification": {
+      "const": false,
+      "description": "These experiments alone cannot qualify audible production playback or all platforms."
+    },
+    "runPassed": {
+      "type": "boolean"
+    },
+    "smoke": {
+      "type": "boolean"
+    },
+    "repetitions": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "warmupsPerScenario": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "default": 3
+    },
+    "transport": {
+      "enum": [
+        "file",
+        "loopback",
+        "provider"
+      ]
+    },
+    "fixtureFault": {
+      "enum": [
+        "none",
+        "deny-first",
+        "truncate",
+        "stall"
+      ]
+    },
+    "environment": {
+      "type": "object"
+    },
+    "sourceHashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attempt"
+      }
+    },
+    "summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "strategy",
+          "scenario",
+          "attempts",
+          "successes",
+          "failures"
+        ]
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "stage",
+          "failure"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string"
+          },
+          "failure": {
+            "$ref": "#/$defs/code"
+          }
+        }
+      }
+    },
+    "processAccounting": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string"
+          },
+          "childCpuMs": {
+            "$ref": "#/$defs/nonnegative"
+          },
+          "childMaxRssBytes": {
+            "$ref": "#/$defs/nonnegative"
+          },
+          "wrapperCpuMs": {
+            "$ref": "#/$defs/nonnegative"
+          },
+          "wrapperMaxRssBytes": {
+            "$ref": "#/$defs/nonnegative"
+          },
+          "accountingComplete": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonnegative": {
+      "type": "number",
+      "minimum": 0
+    },
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "attempt": {
+      "type": "object",
+      "required": [
+        "strategy",
+        "scenario",
+        "iteration",
+        "warmup",
+        "ok"
+      ],
+      "properties": {
+        "strategy": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "iteration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warmup": {
+          "type": "boolean"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "failure": {
+          "$ref": "#/$defs/code"
+        },
+        "expectedFailure": {
+          "$ref": "#/$defs/code"
+        },
+        "accountingComplete": {
+          "type": "boolean"
+        },
+        "positionSeconds": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "firstPcmMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "firstPcmFromCommandMs": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "wallMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "totalCpuMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "helperCpuMs": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "decoderCpuMs": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "helperRssBytes": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "decoderMaxRssBytes": {
+          "$ref": "#/$defs/nonnegative"
+        },
+        "stages": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nonnegative"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "failure"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

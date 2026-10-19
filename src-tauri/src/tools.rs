@@ -2,6 +2,29 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+/// Hide console-subsystem helper processes when launched by the Windows GUI.
+/// Keep this scoped to Burrata-owned child processes; the optional external
+/// player is configured separately because its visibility is user-facing.
+pub fn configure_no_console(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
+pub fn configure_no_console_tokio(command: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.as_std_mut().creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 static RESOURCE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn initialize(resource_dir: PathBuf) {

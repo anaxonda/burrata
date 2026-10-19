@@ -1,7 +1,7 @@
 import workletUrl from "./webview-radio-pcm-worklet.js?url&no-inline";
 
 const SAMPLE_RATE = 48_000;
-const MIN_SECONDS = 8;
+const MIN_SECONDS = 3;
 const MAX_SECONDS = 12;
 const MAX_FRAMES = SAMPLE_RATE * MAX_SECONDS;
 const MAX_WAV_BYTES = 44 + MAX_FRAMES * 2;
@@ -11,6 +11,7 @@ export async function captureWebviewRadioWavBase64(
   isCurrent: () => boolean,
   signal: AbortSignal,
   onProgress: (seconds: number) => void = () => {},
+  options?: { onSample: (wavBase64: string, seconds: number) => Promise<boolean>; onCancel?: () => void },
 ): Promise<string> {
   const media = audio as HTMLAudioElement & { captureStream?: () => MediaStream; webkitCaptureStream?: () => MediaStream };
   const capture = media.captureStream ?? media.webkitCaptureStream;
@@ -27,6 +28,11 @@ export async function captureWebviewRadioWavBase64(
     let interval: ReturnType<typeof setInterval> | undefined;
     let done = false;
     let elapsedFrames = 0;
+    const steps = options ? [3, 6, 12] : [8];
+    let step = 0;
+    let recognizing = false;
+    let requested = false;
+    let lastRequestAt = -Infinity;
     const cleanup = () => {
       if (done) return;
       done = true;
@@ -40,10 +46,16 @@ export async function captureWebviewRadioWavBase64(
       stream?.getTracks().forEach((track) => track.stop());
       if (context) void context.close().catch(() => {});
     };
-    const fail = (error: Error) => { if (done) return; cleanup(); reject(error); };
+    const fail = (error: Error) => {
+      if (done) return;
+      // A provider can still be reading its private WAV when capture expires.
+      // Signal its owner before releasing the capture and admitting another try.
+      if (recognizing) options?.onCancel?.();
+      cleanup(); reject(error);
+    };
     const finish = (value: string) => { if (done) return; cleanup(); resolve(value); };
     const onAbort = () => fail(abortError());
-    const deadlineTimer = setTimeout(() => fail(new Error("Could not capture eight seconds of current audio within twelve seconds.")), 12_000);
+    const deadlineTimer = setTimeout(() => fail(new Error(options ? "Audio identification timed out." : "Could not capture eight seconds of current audio within twelve seconds.")), options ? 90_000 : 12_000);
     signal.addEventListener("abort", onAbort, { once: true });
 
     void (async () => {
@@ -69,14 +81,33 @@ export async function captureWebviewRadioWavBase64(
             elapsedFrames = event.data.frames ?? elapsedFrames;
             onProgress(Math.min(MAX_SECONDS, elapsedFrames / SAMPLE_RATE));
           } else if (event.data.id === 1 && event.data.type === "snapshot" && event.data.samples) {
-            try { finish(encodeMonoPcm16WavBase64(new Float32Array(event.data.samples))); }
-            catch (error) { fail(error instanceof Error ? error : new Error(String(error))); }
+            if (recognizing) return;
+            requested = false;
+            try {
+              const samples = new Float32Array(event.data.samples);
+              const seconds = steps[step]!;
+              const wav = encodeMonoPcm16WavBase64(samples.subarray(Math.max(0, samples.length - seconds * SAMPLE_RATE)));
+              if (!options) { finish(wav); return; }
+              recognizing = true;
+              lastRequestAt = Date.now();
+              void options.onSample(wav, seconds).then(matched => {
+                if (done) return;
+                if (!isCurrent() || signal.aborted) { fail(abortError()); return; }
+                if (matched || step === steps.length - 1) finish(wav);
+                else { step++; recognizing = false; }
+              }).catch(error => fail(error instanceof Error ? error : new Error(String(error))));
+            } catch (error) { fail(error instanceof Error ? error : new Error(String(error))); }
           }
         };
         interval = setInterval(() => {
           if (!isCurrent() || signal.aborted) { fail(abortError()); return; }
           onProgress(Math.min(MAX_SECONDS, elapsedFrames / SAMPLE_RATE));
-          node?.port.postMessage({ type: "snapshot", id: 1, minFrames: MIN_SECONDS * SAMPLE_RATE });
+          if (!recognizing && !requested && Date.now() - lastRequestAt >= 10_000) {
+            requested = true;
+            node?.port.postMessage({ type: "snapshot", id: 1, minFrames: steps[step]! * SAMPLE_RATE });
+            // The worklet ignores requests until enough current audio exists.
+            requested = false;
+          }
         }, 250);
         await context.resume();
       } catch (error) {
@@ -87,7 +118,7 @@ export async function captureWebviewRadioWavBase64(
 }
 
 export function encodeMonoPcm16WavBase64(samples: Float32Array): string {
-  if (samples.length < MIN_SECONDS * SAMPLE_RATE || samples.length > MAX_FRAMES) throw new Error("Captured audio must contain eight to twelve seconds.");
+  if (samples.length < MIN_SECONDS * SAMPLE_RATE || samples.length > MAX_FRAMES) throw new Error("Captured audio must contain three to twelve seconds.");
   const bytes = new Uint8Array(44 + samples.length * 2);
   if (bytes.byteLength > MAX_WAV_BYTES) throw new Error("Captured audio exceeds the twelve-second limit.");
   const view = new DataView(bytes.buffer);

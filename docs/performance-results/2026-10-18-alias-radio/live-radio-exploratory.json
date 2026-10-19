@@ -1,0 +1,35 @@
+{
+  "build": "alias-radio-91413bedee1d",
+  "station": "Radio Nova",
+  "runs": [
+    {
+      "wallMs": 4068,
+      "category": "identified",
+      "artist": "Ruthee",
+      "title": "Zoblazo",
+      "sameSourceGeneration": true,
+      "sameSession": true
+    },
+    {
+      "wallMs": 4371,
+      "category": "identified",
+      "artist": "Ruthee",
+      "title": "Zoblazo",
+      "sameSourceGeneration": true,
+      "sameSession": true
+    },
+    {
+      "wallMs": 4112,
+      "category": "identified",
+      "artist": "Ruthee",
+      "title": "Zoblazo",
+      "sameSourceGeneration": true,
+      "sameSession": true
+    }
+  ],
+  "limitations": [
+    "Three exploratory checks, not statistical qualification.",
+    "No independent broadcast ground truth.",
+    "Later card and artwork changes verified separately."
+  ]
+}

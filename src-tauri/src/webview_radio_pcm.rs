@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 pub const SAMPLE_RATE: u32 = 48_000;
-pub const MIN_SECONDS: usize = 8;
+pub const MIN_SECONDS: usize = 3;
 pub const MAX_SECONDS: usize = 12;
 pub const MAX_WAV_BYTES: usize = 44 + SAMPLE_RATE as usize * MAX_SECONDS * 2;
 const MAX_BASE64_BYTES: usize = ((MAX_WAV_BYTES + 2) / 3) * 4;
@@ -19,7 +19,7 @@ pub fn decode_bounded_wav(encoded: &str) -> Result<Vec<u8>, String> {
 
 pub fn validate_wav(wav: &[u8]) -> Result<(), String> {
     if wav.len() < 44 + SAMPLE_RATE as usize * MIN_SECONDS * 2 || wav.len() > MAX_WAV_BYTES {
-        return Err("Captured audio must contain eight to twelve seconds".into());
+        return Err("Captured audio must contain three to twelve seconds".into());
     }
     if &wav[0..4] != b"RIFF"
         || &wav[8..12] != b"WAVE"
@@ -98,9 +98,11 @@ mod tests {
 
     #[test]
     fn accepts_only_bounded_mono_48khz_pcm_wav() {
+        assert!(validate_wav(&wav(3)).is_ok());
+        assert!(validate_wav(&wav(6)).is_ok());
         assert!(validate_wav(&wav(8)).is_ok());
         assert!(validate_wav(&wav(12)).is_ok());
-        assert!(validate_wav(&wav(7)).is_err());
+        assert!(validate_wav(&wav(2)).is_err());
         assert!(validate_wav(&wav(13)).is_err());
         let mut stereo = wav(8);
         stereo[22..24].copy_from_slice(&2u16.to_le_bytes());

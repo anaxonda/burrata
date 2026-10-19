@@ -11,13 +11,14 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc as std_mpsc, Arc,
+        mpsc as std_mpsc, Arc, Mutex,
     },
 };
 use tokio::sync::mpsc;
 
 const WINDOW_SECONDS: usize = 12;
-const MIN_CAPTURE_SECONDS: f64 = 8.0;
+pub const RECOGNITION_CAPTURE_WINDOWS: [f64; 3] = [3.0, 6.0, 12.0];
+const MIN_CAPTURE_SECONDS: f64 = RECOGNITION_CAPTURE_WINDOWS[0];
 const CHUNK_SAMPLES: usize = 256;
 const CHANNEL_BATCHES: usize = 16; // 16 * 256 = 4096 bounded queued samples.
 
@@ -46,6 +47,7 @@ pub struct PcmTap {
     samples: mpsc::Sender<SampleBatch>,
     captures: mpsc::UnboundedSender<CaptureRequest>,
     current_generation: Arc<AtomicU64>,
+    available: Arc<Mutex<(u64, f64)>>,
 }
 
 impl PcmTap {
@@ -56,8 +58,10 @@ impl PcmTap {
             samples: sample_tx,
             captures: capture_tx,
             current_generation: Arc::new(AtomicU64::new(0)),
+            available: Arc::new(Mutex::new((u64::MAX, 0.0))),
         });
 
+        let available = tap.available.clone();
         tauri::async_runtime::spawn(async move {
             let mut generation = None;
             let mut sample_rate = 0u32;
@@ -106,6 +110,13 @@ impl PcmTap {
                         None => {},
                     },
                 }
+                let seconds = if sample_rate > 0 && channels > 0 {
+                    ring.len() as f64 / sample_rate as f64 / channels as f64
+                } else {
+                    0.0
+                };
+                *available.lock().unwrap_or_else(|e| e.into_inner()) =
+                    (generation.unwrap_or(u64::MAX), seconds);
             }
         });
         tap
@@ -122,6 +133,18 @@ impl PcmTap {
             sample_rate: sample_rate.max(1),
             channels: channels.max(1),
             pending: Vec::with_capacity(CHUNK_SAMPLES),
+        }
+    }
+
+    /// Actual retained PCM, rather than playback position or time since tune-in.
+    pub fn available_seconds(&self, generation: u64) -> f64 {
+        let available = self.available.lock().unwrap_or_else(|e| e.into_inner());
+        if available.0 == generation
+            && self.current_generation.load(Ordering::Acquire) == generation
+        {
+            available.1
+        } else {
+            0.0
         }
     }
 
@@ -233,7 +256,8 @@ fn capture_snapshot(
     channels: u16,
     ring: &VecDeque<f32>,
 ) -> Result<CaptureSnapshot, String> {
-    let minimum = (sample_rate as f64 * channels as f64 * MIN_CAPTURE_SECONDS).ceil() as usize;
+    let minimum =
+        (sample_rate as f64 * channels as f64 * seconds.max(MIN_CAPTURE_SECONDS)).ceil() as usize;
     if sample_rate == 0 || channels == 0 || ring.len() < minimum {
         return Err("Not enough audible PCM has been captured yet".into());
     }
@@ -290,16 +314,29 @@ mod tests {
     use std::time::Duration;
 
     #[tokio::test]
-    async fn capture_wav_checks_generation_and_eight_second_minimum() {
+    async fn capture_wav_checks_generation_and_three_second_minimum() {
         let tap = PcmTap::new();
         let mut writer = tap.writer(7, 100, 1);
-        for _ in 0..799 {
+        for _ in 0..299 {
             writer.push(0.25);
         }
         drop(writer);
         tokio::time::sleep(Duration::from_millis(20)).await;
-        assert!(tap.capture_wav(6, Path::new("unused.wav"), 8.0).is_err());
-        assert!(tap.capture_wav(7, Path::new("unused.wav"), 8.0).is_err());
+        assert!(tap.capture_wav(6, Path::new("unused.wav"), 3.0).is_err());
+        assert!(tap.capture_wav(7, Path::new("unused.wav"), 3.0).is_err());
+        assert_eq!(tap.available_seconds(6), 0.0);
+        assert!((tap.available_seconds(7) - 2.99).abs() < 0.001);
+    }
+
+    #[test]
+    fn progressive_capture_requires_requested_audio_not_only_minimum() {
+        let ring = VecDeque::from(vec![0.25; 300]);
+        assert_eq!(
+            capture_snapshot(3.0, 100, 1, &ring).unwrap().samples.len(),
+            300
+        );
+        assert!(capture_snapshot(6.0, 100, 1, &ring).is_err());
+        assert!(capture_snapshot(12.0, 100, 1, &ring).is_err());
     }
 
     #[tokio::test]

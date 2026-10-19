@@ -152,6 +152,8 @@ jobs:
       - run: npm ci
       - name: Check installed-smoke path handling
         run: python3 scripts/release/test_smoke_installed.py
+      - name: Check installed WebView audio smoke protocol
+        run: node --test scripts/release/webview-audio-protocol.test.mjs
       - name: Check pinned media source-build contract
         run: python3 scripts/release/test-media-build-contract.py
       - name: Restore verified prepared tool runtimes

@@ -7,7 +7,13 @@ vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-cli
 import SpotifyArtist from "./SpotifyArtist.svelte";
 import { providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
 
+beforeEach(() => {
+  globalThis.ResizeObserver = class {observe() {} unobserve() {} disconnect() {}} as unknown as typeof ResizeObserver;
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {configurable: true, value: function(this: HTMLDialogElement) {this.setAttribute("open", "");}});
+});
+
 let destroy: (() => void) | undefined;
+let activeInstance: {captureNavigationSnapshot:(key:string)=>string;restoreNavigationSnapshot:(key:string)=>Promise<void>};
 beforeEach(() => {
   providerNavigationSnapshots.clear();
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
@@ -24,6 +30,7 @@ const track = (id: string, title: string) => ({ id, title, artist: "Fixture Arti
 function render(call: (command: string, args: Record<string, unknown>) => Promise<unknown>, onPlay?: (track: unknown, list: unknown[], index: number) => void, artistId = "artist-id", extra: Record<string, unknown> = {}) {
   const target = document.createElement("div"); document.body.append(target);
   const instance = mount(SpotifyArtist, { target, props: { artistId, call, onPlay, ...extra } });
+  activeInstance = instance;
   destroy = () => unmount(instance);
   return target;
 }
@@ -95,10 +102,11 @@ describe("SpotifyArtist pagination", () => {
     });
     const target = render(call, undefined, id, { onSaveToLibrary: save }); await settle();
     const albums = [...target.querySelectorAll<HTMLButtonElement>("button.album")];
+    activeInstance.captureNavigationSnapshot("before-saving-album");
     albums[0]!.click(); await settle();
     target.querySelector<HTMLButtonElement>('[aria-label="Save album to library"]')!.click(); await settle();
     expect(save).toHaveBeenCalledOnce();
-    [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Back to releases")!.click(); await settle();
+    await activeInstance.restoreNavigationSnapshot("before-saving-album"); await settle();
     [...target.querySelectorAll<HTMLButtonElement>("button.album")].find(button => button.textContent?.includes("Save Two"))!.click(); await settle();
     expect(target.querySelector('[role="status"]')?.textContent ?? "").not.toContain("Saved album");
     saving.resolve(); await settle();
@@ -305,9 +313,10 @@ describe("SpotifyArtist pagination", () => {
     const target = render(call, undefined, id); await settle();
     await vi.waitFor(() => expect(call.mock.calls.some(([command]) => command === "browse_remote_artist_tracks")).toBe(true));
     const staleRequestId = call.mock.calls.find(([command]) => command === "browse_remote_artist_tracks")?.[1]?.requestId;
+    activeInstance.captureNavigationSnapshot("before-cancelled-top-tracks");
     target.querySelector<HTMLButtonElement>("button.album")!.click(); await settle();
     expect(call.mock.calls.some(([command, args]) => command === "cancel_remote_read" && args?.requestId === staleRequestId)).toBe(true);
-    [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Back to releases")!.click(); await settle();
+    await activeInstance.restoreNavigationSnapshot("before-cancelled-top-tracks"); await settle();
     await vi.waitFor(() => expect(topCall).toBe(2));
     late.resolve({ provider: "spotify", artistId: id, tracks: [track("stale", "Stale track")], total: 1 });
     await settle();
@@ -408,7 +417,7 @@ describe("SpotifyArtist pagination", () => {
     expect(target.querySelectorAll(".shared-track-list > li:not(.virtual-spacer)")).toHaveLength(4);
     expect(target.textContent).toContain("One duplicate");
     expect(target.textContent).toContain("Two duplicate");
-    expect(target.querySelector("button")?.textContent).toContain("Back");
+    expect([...target.querySelectorAll("button")].some(button => /^(← Back|Back to releases)/.test(button.textContent ?? ""))).toBe(false);
   });
   it("deduplicates overlapping album occurrences and plays the selected index after sorting", async () => {
     const occurrence = (title: string, position: number) => ({
@@ -495,8 +504,8 @@ describe("SpotifyArtist playback row actions", () => {
       throw new Error(`Unexpected command ${command}`);
     });
     const onPlay = vi.fn(), onPlaylist = vi.fn(), onNext = vi.fn(), onQueue = vi.fn();
-    const onFavorite = vi.fn(), onDownload = vi.fn(), onArtist = vi.fn(), onContext = vi.fn();
-    const target = render(call, onPlay, id, { onPlaylist, onNext, onQueue, onFavorite, onDownload, onArtist, onContext });
+    const onFavorite = vi.fn(), onDownload = vi.fn(), onArtist = vi.fn();
+    const target = render(call, onPlay, id, { onPlaylist, onNext, onQueue, onFavorite, onDownload, onArtist });
     await settle();
     target.querySelector<HTMLButtonElement>("button.album")!.click();
     await settle();
@@ -505,15 +514,15 @@ describe("SpotifyArtist playback row actions", () => {
     row.querySelector<HTMLButtonElement>('.track-title[aria-label="Play Playback action song"]')!.click();
     row.querySelector<HTMLButtonElement>('.icon-action.favorite[aria-label="Add Playback action song to favorites"]')!.click();
     row.querySelector<HTMLButtonElement>('.icon-action[aria-label="Download Playback action song"]')!.click();
-    row.querySelector<HTMLButtonElement>('.more summary')!.click();
-    const actions = [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")];
+    row.querySelector<HTMLButtonElement>('.more-trigger')!.click(); await settle();
+    const actions = [...target.querySelectorAll<HTMLButtonElement>(".track-menu button")];
     actions.find(button => button.textContent?.includes("Play next"))!.click();
-    row.querySelector<HTMLButtonElement>('.more summary')!.click();
-    [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent?.includes("Add to queue"))!.click();
-    row.querySelector<HTMLButtonElement>('.more summary')!.click();
-    [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent?.includes("Add to playlist"))!.click();
-    row.querySelector<HTMLButtonElement>('.more summary')!.click();
-    [...row.querySelectorAll<HTMLButtonElement>(".more-menu button")].find(button => button.textContent?.includes("Open artist"))!.click();
+    row.querySelector<HTMLButtonElement>('.more-trigger')!.click(); await settle();
+    [...target.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent?.includes("Add to queue"))!.click();
+    row.querySelector<HTMLButtonElement>('.more-trigger')!.click(); await settle();
+    [...target.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent?.includes("Add to playlist"))!.click();
+    row.querySelector<HTMLButtonElement>('.more-trigger')!.click(); await settle();
+    [...target.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent?.includes("Open artist"))!.click();
     row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
 
     expect(onPlay).toHaveBeenCalledWith(song, [song], 0);
@@ -523,7 +532,7 @@ describe("SpotifyArtist playback row actions", () => {
     expect(onQueue).toHaveBeenCalledWith(song);
     expect(onPlaylist).toHaveBeenCalledWith(song);
     expect(onArtist).toHaveBeenCalledWith(song);
-    expect(onContext).toHaveBeenCalledWith(song, expect.any(MouseEvent));
+    await settle(); expect(target.querySelector(".track-menu")).not.toBeNull();
   });
 });
 

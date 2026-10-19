@@ -1,0 +1,27 @@
+{
+  "track": {
+    "id": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+    "provider": "spotify",
+    "providerId": "6ULjjAbwB2BoTZthQKv1Q2",
+    "sourceUrl": "https://open.spotify.com/track/6ULjjAbwB2BoTZthQKv1Q2",
+    "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+    "artist": "Kacey Musgraves, Billy Strings",
+    "album": "Middle of Nowhere",
+    "durationSeconds": 219.357,
+    "version": null,
+    "favorite": false
+  },
+  "extractor": {
+    "id": "qND7vxsWE2Y",
+    "title": "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Official Lyric Video)",
+    "track": null,
+    "artist": null,
+    "artists": null,
+    "album": null,
+    "duration": 219,
+    "uploader": "★ 𝑲𝒂𝒄𝒆𝒚 𝑴𝒖𝒔𝒈𝒓𝒂𝒗𝒆𝒔 ★",
+    "channel": "★ 𝑲𝒂𝒄𝒆𝒚 𝑴𝒖𝒔𝒈𝒓𝒂𝒗𝒆𝒔 ★",
+    "channel_id": "UCosnVpvQYMR58p8A8tBY-dw",
+    "channel_is_verified": true
+  }
+}

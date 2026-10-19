@@ -30,7 +30,9 @@ pub(crate) async fn run_private_auth_refresh(
     timeout: Duration,
 ) -> Result<(SecretToken, Instant, u64, bool), String> {
     let request = SensitiveRequest(request);
-    let mut child = TokioCommand::new(node)
+    let mut command = TokioCommand::new(node);
+    super::super::tools::configure_no_console_tokio(&mut command);
+    let mut child = command
         .arg(worker)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

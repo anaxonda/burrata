@@ -233,6 +233,7 @@ fn registry(browser: Browser, manifest: &Path, remove: bool) -> Result<(), Strin
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
     let mut cmd = Command::new(system_root.join("System32/reg.exe"));
+    crate::tools::configure_no_console(&mut cmd);
     if remove {
         cmd.args(["delete", key, "/f"]);
     } else {

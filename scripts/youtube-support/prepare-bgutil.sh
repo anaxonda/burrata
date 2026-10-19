@@ -50,6 +50,9 @@ cp -a "$SERVER/build" "$STAGE/server/build"
 cp -a "$SERVER/node_modules" "$STAGE/server/node_modules"
 cp "$SERVER/package.json" "$SERVER/package-lock.json" "$STAGE/server/"
 cp -a "$PLUGIN_SOURCE" "$STAGE/plugin/yt_dlp_plugins"
+# Maintained integration is separate from the immutable upstream plugin tree.
+mkdir -p "$STAGE/burrata/yt_dlp_plugins/extractor"
+cp "$ROOT/scripts/youtube-support/burrata_gate.py" "$STAGE/burrata/yt_dlp_plugins/extractor/"
 [[ -f "$TMP/source/LICENSE" ]] || { echo "Pinned BgUtils source has no top-level LICENSE" >&2; exit 1; }
 cp "$TMP/source/LICENSE" "$STAGE/LICENSE"
 while IFS= read -r -d '' license; do

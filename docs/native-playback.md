@@ -42,7 +42,7 @@ Compare native playback resource use and packaging impact with the pre-change ba
 
 ## Release status
 
-The release remains on hold for public distribution until clean-machine native playback qualification is complete on macOS, Windows, and Linux, including device removal and sleep/wake. The updated logo is prepared for the next build. Publishing or promoting a public release is outside this qualification document.
+Promotion of native playback to the default remains on hold until clean-machine qualification is complete on macOS, Windows, and Linux, including device removal and sleep/wake. Public v0.1.3 uses WebView playback by default; its publication does not qualify the optional native engine. Publishing a new release is outside this qualification document.
 
 ## Local Linux evidence — 2026-10-14
 
@@ -54,7 +54,7 @@ Single observed starts were approximately 50–160 ms for downloaded tracks, 1.2
 
 YouTube returned intermittent preflight HTTP 403 responses during repeated tests. Resolution now permits one uncached alternate-format retry for the exact same video; it does not change a pinned recording. Catalog searches retain their bounded matching-provider fallback. CDN refusal must remain visible if fresh recovery fails.
 
-Still required: clean packaged installs, macOS/Windows builds and physical playback, the full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless audio-output measurements. Native playback remains gated and public releases remain on hold.
+Still required: clean packaged installs, macOS/Windows builds and physical playback, the full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless audio-output measurements. Native playback remains gated; these checks concern native-engine promotion, not the already published WebView-default v0.1.3 release.
 
 Responsive UI checks used Chrome at 960px and 800px, with the right player pane open and closed. The shared radio component stays within its pane, its history scrolls, and list actions remain visible. Main-library virtualized rows remain 60px high while titles wrap. At desktop half-width (960px), opening the player pane retains the resizable sidebar. Below 901px the sidebar uses the compact rail; both information and queue panes have resize controls where space permits. Selecting the already-current station is navigation only.
 

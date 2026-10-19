@@ -16,6 +16,122 @@ use std::{
 };
 use tokio::sync::watch;
 
+pub(crate) const SOURCE_NO_RESULTS: &str = "No audio results were returned by the available providers. Open the catalog source or choose another source.";
+pub(crate) const SOURCE_IDENTITY_REJECTED: &str = "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.";
+pub(crate) const SOURCE_MISSING_DURATION: &str = "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.";
+
+/// Preserve meaningful failure evidence across providers. Provider APIs still
+/// return strings; fixed resolver outcomes are classified before inspecting any
+/// free-form error so recording metadata cannot imply a network/cancel category.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ResolutionFailureKind {
+    NoResults,
+    IdentityRejected,
+    SourceOrSearch,
+    Retryable,
+    Deadline,
+    Cancelled,
+}
+
+#[derive(Debug)]
+struct ResolutionFailure {
+    kind: ResolutionFailureKind,
+    message: String,
+}
+impl ResolutionFailure {
+    fn new(message: String) -> Self {
+        let lower = message.to_ascii_lowercase();
+        let kind = if message == "Cancelled" {
+            ResolutionFailureKind::Cancelled
+        } else if message == SOURCE_NO_RESULTS
+            || lower.starts_with("no playable audio match was found")
+        {
+            ResolutionFailureKind::NoResults
+        } else if [
+            SOURCE_IDENTITY_REJECTED,
+            SOURCE_MISSING_DURATION,
+            "The resolved audio source identity does not match this recording",
+        ]
+        .contains(&message.as_str())
+        {
+            ResolutionFailureKind::IdentityRejected
+        } else if ["deadline", "timed out", "timeout", "budget"]
+            .iter()
+            .any(|marker| lower.contains(marker))
+        {
+            ResolutionFailureKind::Deadline
+        } else if [
+            "network",
+            "connection",
+            "temporarily unavailable",
+            "rate limit",
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "http status 429",
+            "http status 500",
+            "http status 502",
+            "http status 503",
+            "http status 504",
+        ]
+        .iter()
+        .any(|marker| lower.contains(marker))
+        {
+            ResolutionFailureKind::Retryable
+        } else {
+            ResolutionFailureKind::SourceOrSearch
+        };
+        Self { kind, message }
+    }
+    fn preferred(self, other: Self) -> Self {
+        // Stable provider order breaks equal-category ties, never completion
+        // timing. A later empty search cannot erase a source/network failure.
+        if other.kind > self.kind {
+            other
+        } else {
+            self
+        }
+    }
+}
+fn merge_resolution_errors(preferred: String, fallback: String) -> String {
+    ResolutionFailure::new(preferred)
+        .preferred(ResolutionFailure::new(fallback))
+        .message
+}
+#[derive(Default)]
+struct SerialResolutionFailures {
+    had_results: bool,
+    failure: Option<ResolutionFailure>,
+}
+impl SerialResolutionFailures {
+    fn record(&mut self, error: String) {
+        let error = ResolutionFailure::new(error);
+        self.failure = Some(match self.failure.take() {
+            Some(prior) => prior.preferred(error),
+            None => error,
+        });
+    }
+    fn finish(self, missing_duration: bool) -> String {
+        if let Some(error) = self.failure {
+            if error.kind > ResolutionFailureKind::NoResults {
+                return error.message;
+            }
+        }
+        if self.had_results {
+            if missing_duration {
+                SOURCE_MISSING_DURATION
+            } else {
+                SOURCE_IDENTITY_REJECTED
+            }
+        } else {
+            SOURCE_NO_RESULTS
+        }
+        .to_owned()
+    }
+}
+
 /// Absolute monotonic deadline shared by every phase of one playback lookup.
 /// Clones preserve the same instant; they never restart the startup budget.
 #[derive(Clone, Copy, Debug)]
@@ -49,7 +165,7 @@ impl PlaybackDeadline {
 /// up to minutes when several providers fail in sequence.
 pub const PLAYBACK_RESOLUTION_DEADLINE: Duration = Duration::from_secs(20);
 const PLAYBACK_DEADLINE_MESSAGE: &str =
-    "Audio lookup exceeded the 20-second playback deadline; try again or choose a source";
+    "Audio lookup exceeded the playback startup deadline; try again or choose a source";
 
 fn normalize_resolver_deadline<T>(
     result: Result<T, String>,
@@ -82,6 +198,7 @@ pub(crate) struct SourceTrace {
     webview_generation: Option<u64>,
     shared_lookup_id: Option<uuid::Uuid>,
     event_provider: Option<&'static str>,
+    extraction_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     #[cfg(test)]
     test_sink: Option<Arc<dyn Fn(Value) + Send + Sync>>,
 }
@@ -109,6 +226,7 @@ impl SourceTrace {
             webview_generation,
             shared_lookup_id: None,
             event_provider: None,
+            extraction_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(test)]
             test_sink: None,
         }
@@ -126,6 +244,18 @@ impl SourceTrace {
             _ => None,
         };
         self
+    }
+
+    /// Clones share one request-wide budget, including parallel providers and
+    /// fresh retries. Reusing already extracted metadata does not spend it.
+    pub(crate) fn try_spend_extraction(&self) -> bool {
+        self.extraction_attempts
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |used| (used < 2).then_some(used + 1),
+            )
+            .is_ok()
     }
 
     pub(crate) fn is_enabled(&self) -> bool {
@@ -480,7 +610,7 @@ pub(crate) async fn resolve_with_trace_context_excluding(
     webview_generation: Option<u64>,
     failed: &[FailedPlaybackCandidate],
 ) -> Result<ResolvedSource, String> {
-    let deadline = PlaybackDeadline::after(PLAYBACK_RESOLUTION_DEADLINE);
+    let deadline = PlaybackDeadline::after(store.settings()?.playback_startup_timeout());
     within_shared_deadline(
         deadline,
         Box::pin(resolve_with_trace_context_excluding_until(
@@ -597,11 +727,12 @@ pub(crate) async fn resolve_candidate_fresh_until(
                 return Err("The stalled playback candidate identity is invalid".into());
             }
             let pinned = source_resolution_is_pinned(track, explicitly_pinned, &settings, true);
-            let aliases = if pinned {
+            let mut aliases = if pinned {
                 crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
             } else {
                 crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
             };
+            include_candidate_aliases(&mut aliases,track,&candidate,None);
             if !pinned
                 && !evaluate_candidate_gate_with_proofs(
                     track,
@@ -614,13 +745,14 @@ pub(crate) async fn resolve_candidate_fresh_until(
             {
                 return Err("The stalled playback candidate no longer passes recording identity checks".into());
             }
-            let audio = acquisition.resolve_preview_audio_fresh_traced_cancelled(
-                &candidate, &settings, cancel.clone(), true, trace.clone(), deadline,
+            let audio = acquisition.extract_playback_audio_fresh_or_prepared_traced(
+                &candidate, &settings, cancel.clone(), true, trace.clone(), deadline, None,
             ).await?;
             if *cancel.borrow() { return Err("Cancelled".into()); }
             if !fresh_candidate_audio_identity_matches(track, &candidate, &audio) {
                 return Err("The refreshed audio source did not resolve to the same provider recording".into());
             }
+            include_candidate_aliases(&mut aliases,track,&candidate,Some(&audio));
             let requires_identity_check = candidate.provider == "bandcamp" || !pinned;
             if !accept_resolved_identity_with_aliases_and_proofs(
                 track,
@@ -633,6 +765,9 @@ pub(crate) async fn resolve_candidate_fresh_until(
             ) {
                 return Err("The refreshed audio source identity does not match this recording".into());
             }
+            let audio = acquisition.validate_playback_audio_traced(
+                &candidate, audio, cancel.clone(), trace.clone(), deadline,
+            ).await?;
             let duration = audio.duration_seconds.or(candidate.duration_seconds)
                 .filter(|value| value.is_finite() && *value >= 0.);
             Ok(ResolvedSource {
@@ -787,6 +922,80 @@ fn without_stale_local_asset(incoming: &Track) -> Track {
     prepared
 }
 
+#[derive(Default)]
+struct AliasResolutionPass {
+    retry: bool,
+    rejected: std::sync::Mutex<Vec<Candidate>>,
+    attempts: std::sync::Mutex<std::collections::HashMap<String, usize>>,
+    spare_queries: std::sync::Mutex<std::collections::HashMap<String, bool>>,
+    empty_search: std::sync::atomic::AtomicBool,
+}
+impl AliasResolutionPass {
+    fn remember(&self, candidate: &Candidate) {
+        if self.retry {
+            return;
+        }
+        if let Ok(mut rows) = self.rejected.lock() {
+            if rows.len() < 200
+                && !rows
+                    .iter()
+                    .any(|row| row.provider == candidate.provider && row.id == candidate.id)
+            {
+                rows.push(candidate.clone());
+            }
+        }
+    }
+    fn attempted(&self, provider: &str) {
+        if let Ok(mut counts) = self.attempts.lock() {
+            *counts.entry(provider.to_owned()).or_default() += 1;
+        }
+    }
+    fn used(&self, provider: &str) -> usize {
+        self.attempts
+            .lock()
+            .ok()
+            .and_then(|counts| counts.get(provider).copied())
+            .unwrap_or(0)
+    }
+    fn total_used(&self) -> usize {
+        self.attempts
+            .lock()
+            .map(|counts| counts.values().sum())
+            .unwrap_or(usize::MAX)
+    }
+    fn has_remaining_alias_attempt(&self, limit: usize) -> bool {
+        if limit == 1 && self.total_used() >= 1 {
+            return false;
+        }
+        let candidates = self
+            .rejected
+            .lock()
+            .map(|rows| rows.iter().any(|row| self.used(&row.provider) < limit))
+            .unwrap_or(false);
+        let spare = self
+            .spare_queries
+            .lock()
+            .map(|queries| {
+                queries
+                    .iter()
+                    .any(|(provider, spare)| *spare && self.used(provider) < limit)
+            })
+            .unwrap_or(false);
+        candidates || spare
+    }
+    fn collected(&self, provider: &str) -> Vec<Candidate> {
+        self.rejected
+            .lock()
+            .map(|rows| {
+                rows.iter()
+                    .filter(|row| row.provider == provider)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
 async fn resolve_inner_prepared(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -798,6 +1007,119 @@ async fn resolve_inner_prepared(
     failed: &[FailedPlaybackCandidate],
     deadline: PlaybackDeadline,
     attempt_limit: usize,
+) -> Result<ResolvedSource, String> {
+    let mut pass = AliasResolutionPass::default();
+    let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
+    let result = resolve_inner_prepared_ordinary(
+        store,
+        acquisition,
+        track,
+        selected,
+        cancel.clone(),
+        settings.clone(),
+        trace,
+        failed,
+        deadline,
+        attempt_limit,
+        &pass,
+    )
+    .await;
+    if result.is_ok()
+        || pinned
+        || !crate::artist_alias_lookup::enabled()
+        || *cancel.borrow()
+        || deadline.remaining().is_zero()
+        || !pass.has_remaining_alias_attempt(attempt_limit)
+    {
+        trace.event(
+            "alias_lookup_skipped",
+            &track.provider,
+            json!({"reason":if result.is_ok(){"ordinary_resolution_succeeded"}else{"ineligible"}}),
+        );
+        return result;
+    }
+    let plausible = pass
+        .rejected
+        .lock()
+        .map(|rows| !rows.is_empty())
+        .unwrap_or(false)
+        || (pass.empty_search.load(std::sync::atomic::Ordering::Relaxed)
+            && ((track.provider == "spotify"
+                && track.source_url
+                    == format!("https://open.spotify.com/track/{}", track.provider_id))
+                || (track.provider == "catalog"
+                    && matches!(
+                        track.provenance["catalogProvider"].as_str(),
+                        Some("musicbrainz" | "discogs")
+                    ))
+                || (matches!(track.provider.as_str(), "beatport" | "traxsource" | "local")
+                    && track.isrc.is_some())));
+    if !plausible {
+        trace.event(
+            "alias_lookup_skipped",
+            &track.provider,
+            json!({"reason":"no_artist_identity_block"}),
+        );
+        return result;
+    }
+    match crate::artist_alias_lookup::lookup(acquisition, track, cancel.clone(), deadline, trace)
+        .await
+    {
+        Err(_) if *cancel.borrow() => return Err("Cancelled".into()),
+        Err(_) if deadline.remaining().is_zero() => return Err(PLAYBACK_DEADLINE_MESSAGE.into()),
+        Err(_) => return result,
+        Ok(()) => {}
+    }
+    let context =
+        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
+    if !context.has_verified_credit_sets() {
+        let identity_error = if track.duration_seconds.is_none() {
+            SOURCE_MISSING_DURATION
+        } else {
+            SOURCE_IDENTITY_REJECTED
+        };
+        return Err(merge_resolution_errors(
+            result.err().unwrap_or_else(|| SOURCE_NO_RESULTS.into()),
+            identity_error.into(),
+        ));
+    }
+    pass.retry = true;
+    let started = Instant::now();
+    let retried = resolve_serial(
+        store,
+        acquisition,
+        track,
+        None,
+        cancel,
+        settings,
+        trace,
+        failed,
+        deadline,
+        attempt_limit,
+        &pass,
+    )
+    .await;
+    trace.event("alias_candidate_recheck",&track.provider,json!({"durationMs":started.elapsed().as_secs_f64()*1000.0,"accepted":retried.is_ok(),"count":pass.rejected.lock().map(|rows|rows.len()).unwrap_or(0)}));
+    retried.map_err(|error| {
+        merge_resolution_errors(
+            result.err().unwrap_or_else(|| SOURCE_NO_RESULTS.into()),
+            error,
+        )
+    })
+}
+
+async fn resolve_inner_prepared_ordinary(
+    store: &Store,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    selected: Option<Candidate>,
+    cancel: watch::Receiver<bool>,
+    settings: Settings,
+    trace: &SourceTrace,
+    failed: &[FailedPlaybackCandidate],
+    deadline: PlaybackDeadline,
+    attempt_limit: usize,
+    alias_pass: &AliasResolutionPass,
 ) -> Result<ResolvedSource, String> {
     let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
     let primary = match settings.preferred_streaming_source.as_str() {
@@ -822,6 +1144,7 @@ async fn resolve_inner_prepared(
             failed,
             deadline,
             attempt_limit,
+            alias_pass,
         )
         .await;
     }
@@ -839,6 +1162,7 @@ async fn resolve_inner_prepared(
             failed,
             deadline,
             attempt_limit,
+            alias_pass,
         )
         .await;
     }
@@ -849,8 +1173,8 @@ async fn resolve_inner_prepared(
         biased;
         _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
         result = prefer_with_grace(
-            Box::pin(resolve_serial(store, acquisition, track, None, child.clone(), preferred, trace, failed, deadline, attempt_limit)),
-            Box::pin(resolve_serial(store, acquisition, track, None, child, fallback, trace, failed, deadline, attempt_limit)),
+            Box::pin(resolve_serial(store, acquisition, track, None, child.clone(), preferred, trace, failed, deadline, attempt_limit, alias_pass)),
+            Box::pin(resolve_serial(store, acquisition, track, None, child, fallback, trace, failed, deadline, attempt_limit, alias_pass)),
             Duration::from_millis(settings.streaming_fallback_delay_ms.into()),
         ) => result,
     };
@@ -858,7 +1182,7 @@ async fn resolve_inner_prepared(
     match result {
         Ok(source) => Ok(source),
         Err(error) if *cancel.borrow() || fallbacks.len() < 2 => Err(error),
-        Err(_) => {
+        Err(prior_error) => {
             let mut remaining = settings;
             remaining.preferred_streaming_source = fallbacks[1].clone();
             remaining.streaming_fallback_sources = fallbacks[2..].to_vec();
@@ -873,8 +1197,10 @@ async fn resolve_inner_prepared(
                 failed,
                 deadline,
                 attempt_limit,
+                alias_pass,
             )
             .await
+            .map_err(|error| merge_resolution_errors(prior_error, error))
         }
     }
 }
@@ -908,10 +1234,10 @@ async fn prefer_with_grace<T>(
         biased;
         result = &mut preferred => match result {
             Ok(value) => Ok(value),
-            Err(_) => fallback.await,
+            Err(preferred_error) => fallback.await.map_err(|fallback_error| merge_resolution_errors(preferred_error, fallback_error)),
         },
         result = &mut fallback => match result {
-            Err(_) => preferred.await,
+            Err(fallback_error) => preferred.await.map_err(|preferred_error| merge_resolution_errors(preferred_error, fallback_error)),
             Ok(value) => tokio::select! {
                 biased;
                 result = &mut preferred => result.or(Ok(value)),
@@ -932,6 +1258,7 @@ async fn resolve_serial(
     failed: &[FailedPlaybackCandidate],
     deadline: PlaybackDeadline,
     attempt_limit: usize,
+    alias_pass: &AliasResolutionPass,
 ) -> Result<ResolvedSource, String> {
     if *cancel.borrow() {
         return Err("Cancelled".into());
@@ -1012,16 +1339,14 @@ async fn resolve_serial(
         || (track.provenance["sourceKind"].as_str() == Some("audioSearch")
             && !overrides_import_url(track, &settings))
         || linked.is_some();
-    let verified_artist_aliases = if pinned {
+    let cache_started = Instant::now();
+    let mut verified_artist_aliases = if pinned {
         crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
     } else {
         crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
     };
-    let alternate_search_artists = verified_artist_aliases
-        .tracks()
-        .iter()
-        .map(|variant| variant.artist.clone())
-        .collect::<Vec<_>>();
+    trace.event("alias_cache_lookup_end", &track.provider, json!({"durationMs":cache_started.elapsed().as_secs_f64()*1000.0,"aliases":verified_artist_aliases.tracks().len(),"verifiedCreditSets":verified_artist_aliases.has_verified_credit_sets()}));
+    let alternate_search_artists = verified_artist_aliases.search_artist_candidates();
     let mut candidates = Vec::new();
     if let Some(candidate) = selected.or(linked) {
         candidates.push(candidate);
@@ -1049,18 +1374,10 @@ async fn resolve_serial(
         ));
     }
 
-    let match_explanation = if track.duration_seconds.is_none() {
-        "Saved recording duration is missing; no source provided enough verified identity evidence for automatic playback."
-    } else {
-        "No available source matched the requested recording and version."
+    let mut failures = SerialResolutionFailures {
+        had_results: !candidates.is_empty(),
+        ..Default::default()
     };
-    let mut last_error = format!(
-        "No playable audio match was found for {} — {}{}. {} Open the catalog source or choose another source",
-        track.artist.trim(),
-        track.title.trim(),
-        track.version.as_deref().filter(|version|!version.trim().is_empty()).map(|version|format!(" ({})",version.trim())).unwrap_or_default(),
-        match_explanation
-    );
     let mut tried_linked = false;
     let mut transient_retry_attempted = false;
     let mapping_fingerprint = if pinned {
@@ -1069,7 +1386,11 @@ async fn resolve_serial(
         recording_identity_fingerprint(track)
     };
     let global_attempt_cap = attempt_limit == 1;
-    let mut total_candidate_attempts = 0usize;
+    let mut total_candidate_attempts = if alias_pass.retry {
+        alias_pass.total_used()
+    } else {
+        0
+    };
     for provider in providers {
         if global_attempt_cap && total_candidate_attempts >= attempt_limit {
             break;
@@ -1082,7 +1403,7 @@ async fn resolve_serial(
             if let Err(error) =
                 crate::monochrome::Client::new().and_then(|client| client.check_cooldown())
             {
-                last_error = error;
+                failures.record(error);
                 trace.event("provider_cooldown", &provider, json!({"rateLimited":true}));
                 continue;
             }
@@ -1091,9 +1412,116 @@ async fn resolve_serial(
             return Err("Cancelled".into());
         }
         let mut attempted_mapping_id: Option<String> = None;
-        let mut provider_attempt_count = 0usize;
+        let mut provider_attempt_count = if alias_pass.retry {
+            alias_pass.used(&provider)
+        } else {
+            0
+        };
+        if alias_pass.retry {
+            let collected = alias_pass.collected(&provider);
+            for candidate in &collected {
+                include_candidate_aliases(&mut verified_artist_aliases, track, candidate, None);
+            }
+            let mut ranked = collected
+                .into_iter()
+                .filter_map(|candidate| {
+                    let path = evaluate_candidate_gate_with_proofs(
+                        track,
+                        verified_artist_aliases.tracks(),
+                        verified_artist_aliases.isrc_enriched(),
+                        verified_artist_aliases.verified_recording_isrc(),
+                        &candidate,
+                    );
+                    path.accepted().then_some((candidate, path))
+                })
+                .collect::<Vec<_>>();
+            ranked.sort_by_key(|(_, path)| path.evidence_priority());
+            candidates = eligible_after_webview_failure(
+                ranked.into_iter().map(|(candidate, _)| candidate),
+                failed,
+                None,
+                remaining_candidate_attempts(
+                    attempt_limit,
+                    total_candidate_attempts,
+                    global_attempt_cap,
+                    provider_attempt_count,
+                ),
+            );
+        }
+        if alias_pass.retry
+            && candidates.is_empty()
+            && provider_attempt_count < attempt_limit
+            && alias_pass
+                .spare_queries
+                .lock()
+                .ok()
+                .and_then(|mut queries| queries.remove(&provider))
+                .unwrap_or(false)
+        {
+            if let Some(alternate) = alternate_search_artists.iter().find(|artist| {
+                crate::matching::normalize(artist) != crate::matching::normalize(&track.artist)
+            }) {
+                let mut query_track = track.clone();
+                query_track.artist = alternate.clone();
+                trace.event(
+                    "alias_search_start",
+                    &provider,
+                    json!({"remainingQuerySlots":1}),
+                );
+                match acquisition
+                    .prefetch_playback_candidates_cancelled_traced(
+                        &query_track,
+                        &[],
+                        std::slice::from_ref(&provider),
+                        &settings,
+                        cancel.clone(),
+                        deadline,
+                        trace.clone().with_event_provider(&provider),
+                    )
+                    .await
+                {
+                    Ok(found) => {
+                        for candidate in &found {
+                            include_candidate_aliases(
+                                &mut verified_artist_aliases,
+                                track,
+                                candidate,
+                                None,
+                            );
+                        }
+                        candidates = eligible_after_webview_failure(
+                            found.into_iter().filter(|candidate| {
+                                evaluate_candidate_gate_with_proofs(
+                                    track,
+                                    verified_artist_aliases.tracks(),
+                                    verified_artist_aliases.isrc_enriched(),
+                                    verified_artist_aliases.verified_recording_isrc(),
+                                    candidate,
+                                )
+                                .accepted()
+                            }),
+                            failed,
+                            None,
+                            remaining_candidate_attempts(
+                                attempt_limit,
+                                total_candidate_attempts,
+                                global_attempt_cap,
+                                provider_attempt_count,
+                            ),
+                        );
+                    }
+                    Err(error) if *cancel.borrow() || error == "Cancelled" => {
+                        return Err("Cancelled".into())
+                    }
+                    Err(error) => {
+                        failures.record(error);
+                    }
+                }
+            }
+        }
         if candidates.is_empty()
             && !pinned
+            && !alias_pass.retry
             && (!global_attempt_cap || total_candidate_attempts < attempt_limit)
         {
             if let Some(fingerprint) = mapping_fingerprint.as_ref() {
@@ -1105,13 +1533,18 @@ async fn resolve_serial(
                         attempted_mapping_id = Some(candidate.id.clone());
                         provider_attempt_count = 1;
                         total_candidate_attempts += 1;
+                        alias_pass.attempted(&provider);
+                        include_candidate_aliases(
+                            &mut verified_artist_aliases,
+                            track,
+                            &candidate,
+                            None,
+                        );
                         match try_verified_candidate(
                             store,
                             acquisition,
                             track,
-                            verified_artist_aliases.tracks(),
-                            verified_artist_aliases.isrc_enriched(),
-                            verified_artist_aliases.verified_recording_isrc(),
+                            &verified_artist_aliases,
                             candidate.clone(),
                             &settings,
                             cancel.clone(),
@@ -1140,7 +1573,7 @@ async fn resolve_serial(
                                     &provider,
                                     mapping.provider_id.as_str(),
                                 );
-                                last_error = error;
+                                failures.record(error);
                             }
                             Err(error) => {
                                 trace.event(
@@ -1150,7 +1583,7 @@ async fn resolve_serial(
                                 );
                                 // Preserve the mapping on transient failures while allowing
                                 // normal source fallback within this provider to proceed.
-                                last_error = error;
+                                failures.record(error);
                             }
                         }
                     } else if remembered_candidate(track, &mapping).is_none() {
@@ -1166,6 +1599,7 @@ async fn resolve_serial(
         }
         if candidates.is_empty()
             && !pinned
+            && !alias_pass.retry
             && (!global_attempt_cap || total_candidate_attempts < attempt_limit)
         {
             trace.event("search_start", &provider, json!({}));
@@ -1187,7 +1621,7 @@ async fn resolve_serial(
                 }
                 Err(error) => {
                     trace.event("search_end", &provider, json!({"ok":false}));
-                    last_error = error;
+                    failures.record(error);
                     continue;
                 }
             };
@@ -1196,26 +1630,57 @@ async fn resolve_serial(
                 &provider,
                 json!({"ok":true,"found":found.len()}),
             );
+            failures.had_results |= !found.is_empty();
+            if found.is_empty() {
+                alias_pass
+                    .empty_search
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            let spare = !(provider == "youtube" && track.duration_seconds.is_none())
+                && alternate_search_artists.is_empty()
+                && track
+                    .version
+                    .as_deref()
+                    .is_none_or(|version| version.trim().is_empty());
+            if let Ok(mut queries) = alias_pass.spare_queries.lock() {
+                queries.insert(provider.clone(), spare);
+            }
+
+            for candidate in &found {
+                include_candidate_aliases(&mut verified_artist_aliases, track, candidate, None);
+            }
             let mut gate_evidence = CandidateGateEvidence::new_if_trace_enabled(&trace);
-            let gate_filtered = found.into_iter().filter(|candidate| {
-                let path = evaluate_candidate_gate_with_proofs(
-                    track,
-                    verified_artist_aliases.tracks(),
-                    verified_artist_aliases.isrc_enriched(),
-                    verified_artist_aliases.verified_recording_isrc(),
-                    candidate,
-                );
-                if let Some(evidence) = gate_evidence.as_mut() {
-                    evidence.observe_with_proofs(
+            let mut gate_filtered = found
+                .into_iter()
+                .filter_map(|candidate| {
+                    let path = evaluate_candidate_gate_with_proofs(
                         track,
                         verified_artist_aliases.tracks(),
                         verified_artist_aliases.isrc_enriched(),
-                        candidate,
-                        path,
+                        verified_artist_aliases.verified_recording_isrc(),
+                        &candidate,
                     );
-                }
-                path.accepted()
-            });
+                    if let Some(evidence) = gate_evidence.as_mut() {
+                        evidence.observe_with_proofs(
+                            track,
+                            verified_artist_aliases.tracks(),
+                            verified_artist_aliases.isrc_enriched(),
+                            &candidate,
+                            path,
+                        );
+                    }
+                    if !path.accepted() && plausible_artist_alias_block(track, &candidate) {
+                        alias_pass.remember(&candidate);
+                    }
+                    path.accepted().then_some((candidate, path))
+                })
+                .collect::<Vec<_>>();
+            // Evaluate every collected row before spending either extraction
+            // slot. Early provisional matches must not hide a later candidate
+            // that already satisfies recording identity and catalog duration.
+            gate_filtered.sort_by_key(|(_, path)| path.evidence_priority());
+            let gate_filtered = gate_filtered.into_iter().map(|(candidate, _)| candidate);
+
             candidates.extend(eligible_after_webview_failure(
                 gate_filtered,
                 failed,
@@ -1270,12 +1735,16 @@ async fn resolve_serial(
             &provider,
             json!({"eligible":attempt_count}),
         );
+        failures.had_results |= !candidates.is_empty();
         for (attempt, mut candidate) in candidates.drain(..).enumerate() {
-            if global_attempt_cap && total_candidate_attempts >= attempt_limit {
+            if provider_attempt_count >= attempt_limit
+                || (global_attempt_cap && total_candidate_attempts >= attempt_limit)
+            {
                 break;
             }
             total_candidate_attempts += 1;
             provider_attempt_count += 1;
+            alias_pass.attempted(&provider);
             if *cancel.borrow() {
                 return Err("Cancelled".into());
             }
@@ -1295,23 +1764,29 @@ async fn resolve_serial(
                 &provider,
                 json!({"attempt":attempt+1}),
             );
-            match acquisition
-                .resolve_preview_audio_traced(
+            let prepared_alternate = std::sync::Arc::new(std::sync::Mutex::new(None));
+            let resolved = async {
+                let audio = acquisition
+                .extract_playback_audio_traced_preparing_alternate(
                     &candidate,
                     &settings,
                     cancel.clone(),
                     trace.clone(),
                     deadline,
+                    Some(prepared_alternate.clone()),
                 )
-                .await
-            {
-                Ok(audio) => {
-                    trace.event(
-                        "extract_and_validate_end",
-                        &provider,
-                        json!({"attempt":attempt+1,"ok":true}),
+                .await?;
+                    if pinned && matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
+                        && !fresh_candidate_audio_identity_matches(track, &candidate, &audio) {
+                        return Err("The resolved audio source did not retain the pinned provider recording".to_owned());
+                    }
+                    include_candidate_aliases(
+                        &mut verified_artist_aliases,
+                        track,
+                        &candidate,
+                        Some(&audio),
                     );
-                    let identity_ok = accept_resolved_identity_with_aliases_and_proofs(
+                    let proof = verify_resolved_identity_with_aliases_and_proofs(
                         track,
                         verified_artist_aliases.tracks(),
                         verified_artist_aliases.isrc_enriched(),
@@ -1320,6 +1795,7 @@ async fn resolve_serial(
                         &audio,
                         requires_identity_check,
                     );
+                    let identity_ok = proof.is_some();
                     trace.event("full_identity_check", &provider, json!({"ok":identity_ok,
                         "providerIdMatches":audio.resolved_provider_id.as_deref().is_some_and(|id|candidate.id.split_once(':').map(|(_,value)|value)==Some(id)),
                         "resolvedTitlePresent":audio.resolved_title.as_ref().is_some_and(|title|!title.is_empty()),
@@ -1327,24 +1803,37 @@ async fn resolve_serial(
                         "topicUploader":candidate.uploader.as_ref().is_some_and(|value|value.trim_end().ends_with("- Topic")),
                         "requestedVersion":track.version.as_ref().is_some_and(|value|!value.trim().is_empty())}));
                     if !identity_ok {
-                        last_error =
-                            "The resolved audio source identity does not match this recording"
-                                .into();
-                        continue;
+                        let mut fresh = candidate.clone();
+                        if let Some(metadata) = &audio.source_metadata {
+                            fresh.source_metadata = Some(metadata.clone());
+                        }
+                        if let Some(title) = &audio.resolved_title {
+                            fresh.title = title.clone();
+                        }
+                        fresh.duration_seconds = audio.duration_seconds.or(fresh.duration_seconds);
+                        if plausible_artist_alias_block(track, &fresh) {
+                            alias_pass.remember(&fresh);
+                        }
+                        return Err("The resolved audio source identity does not match this recording".to_owned());
                     }
+                    let audio = acquisition.validate_playback_audio_traced(
+                        &candidate, audio, cancel.clone(), trace.clone(), deadline,
+                    ).await?;
+                    Ok::<_, String>((audio, proof))
+            }.await;
+            trace.event(
+                "extract_and_validate_end",
+                &provider,
+                json!({"attempt":attempt+1,"ok":resolved.is_ok()}),
+            );
+            match resolved {
+                Ok((audio, proof)) => {
                     remember_verified_source(
                         store,
                         track,
                         &candidate,
                         &audio,
-                        !pinned
-                            && playback_recording_matches_with_proofs(
-                                track,
-                                verified_artist_aliases.tracks(),
-                                verified_artist_aliases.isrc_enriched(),
-                                verified_artist_aliases.verified_recording_isrc(),
-                                &candidate,
-                            ),
+                        proof.as_ref().filter(|_| !pinned),
                         mapping_fingerprint.as_deref(),
                     );
                     let duration = audio
@@ -1375,25 +1864,49 @@ async fn resolve_serial(
                     if candidate.provider != "bandcamp"
                         && attempt_limit > 1
                         && !transient_retry_attempted
+                        && provider_attempt_count < attempt_limit
                         && should_retry_same_candidate(&error) =>
                 {
                     transient_retry_attempted = true;
+                    alias_pass.attempted(&provider);
+                    provider_attempt_count += 1;
+                    total_candidate_attempts += 1;
                     if *cancel.borrow() {
                         return Err("Cancelled".into());
                     }
+                    let prepared = prepared_alternate
+                        .lock()
+                        .ok()
+                        .and_then(|mut slot| slot.take());
                     match acquisition
-                        .resolve_preview_audio_fresh_traced_cancelled(
+                        .extract_playback_audio_fresh_or_prepared_traced(
                             &candidate,
                             &settings,
                             cancel.clone(),
                             true,
                             trace.clone(),
                             deadline,
+                            prepared,
                         )
                         .await
                     {
                         Ok(audio) => {
-                            if !accept_resolved_identity_with_aliases_and_proofs(
+                            if pinned
+                                && matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
+                                && !fresh_candidate_audio_identity_matches(
+                                    track, &candidate, &audio,
+                                )
+                            {
+                                failures.record("The resolved audio source did not retain the pinned provider recording".into());
+                                continue;
+                            }
+                            include_candidate_aliases(
+                                &mut verified_artist_aliases,
+                                track,
+                                &candidate,
+                                Some(&audio),
+                            );
+                            let Some(proof) = verify_resolved_identity_with_aliases_and_proofs(
                                 track,
                                 verified_artist_aliases.tracks(),
                                 verified_artist_aliases.isrc_enriched(),
@@ -1401,23 +1914,32 @@ async fn resolve_serial(
                                 &mut candidate,
                                 &audio,
                                 requires_identity_check,
-                            ) {
-                                last_error = "The resolved audio source identity does not match this recording".into();
+                            ) else {
+                                failures.record("The resolved audio source identity does not match this recording".into());
                                 continue;
-                            }
+                            };
+                            let audio = match acquisition
+                                .validate_playback_audio_traced(
+                                    &candidate,
+                                    audio,
+                                    cancel.clone(),
+                                    trace.clone(),
+                                    deadline,
+                                )
+                                .await
+                            {
+                                Ok(audio) => audio,
+                                Err(error) => {
+                                    failures.record(error);
+                                    continue;
+                                }
+                            };
                             remember_verified_source(
                                 store,
                                 track,
                                 &candidate,
                                 &audio,
-                                !pinned
-                                    && playback_recording_matches_with_proofs(
-                                        track,
-                                        verified_artist_aliases.tracks(),
-                                        verified_artist_aliases.isrc_enriched(),
-                                        verified_artist_aliases.verified_recording_isrc(),
-                                        &candidate,
-                                    ),
+                                Some(&proof).filter(|_| !pinned),
                                 mapping_fingerprint.as_deref(),
                             );
                             let duration = audio
@@ -1445,7 +1967,7 @@ async fn resolve_serial(
                             });
                         }
                         Err(retry_error) => {
-                            last_error = retry_error;
+                            failures.record(retry_error);
                             if pinned {
                                 break;
                             }
@@ -1458,7 +1980,7 @@ async fn resolve_serial(
                         &provider,
                         json!({"attempt":attempt+1,"ok":false}),
                     );
-                    last_error = error;
+                    failures.record(error);
                 }
             }
         }
@@ -1467,7 +1989,89 @@ async fn resolve_serial(
             break;
         }
     }
-    Err(last_error)
+    Err(failures.finish(track.duration_seconds.is_none()))
+}
+
+fn candidate_artist_spellings(
+    candidate: &Candidate,
+    audio: Option<&acquisition::PreviewAudio>,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    for metadata in candidate
+        .source_metadata
+        .iter()
+        .chain(audio.and_then(|audio| audio.source_metadata.as_ref()))
+    {
+        for key in ["artist", "catalogArtist", "channel", "uploader"] {
+            if let Some(value) = metadata[key].as_str() {
+                names.push(value.trim_end().trim_end_matches(" - Topic").to_owned());
+            }
+        }
+        for key in ["artists", "artistNames"] {
+            if let Some(values) = metadata[key].as_array() {
+                let names_joined = values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if !names_joined.is_empty() {
+                    names.push(names_joined);
+                }
+            }
+        }
+    }
+    if let Some(value) = candidate.uploader.as_deref() {
+        names.push(value.trim_end().trim_end_matches(" - Topic").to_owned());
+    }
+    if let Some(artist) = crate::source_fallback::youtube_flat_artist_credit(&candidate.title) {
+        names.push(artist);
+    }
+    if let Some(artist) = audio
+        .and_then(|audio| audio.resolved_title.as_deref())
+        .and_then(crate::source_fallback::youtube_flat_artist_credit)
+    {
+        names.push(artist);
+    }
+    if let Some((artist, _)) = candidate.title.split_once(" - ") {
+        names.push(artist.to_owned());
+    }
+    if let Some((artist, _)) = audio
+        .and_then(|audio| audio.resolved_title.as_deref())
+        .and_then(|title| title.split_once(" - "))
+    {
+        names.push(artist.to_owned());
+    }
+    names.sort();
+    names.dedup();
+    names.retain(|name| !name.is_empty() && name.len() <= 4096);
+    names
+}
+fn include_candidate_aliases(
+    context: &mut crate::artist_credit_aliases::VerifiedPlaybackArtistAliases,
+    track: &Track,
+    candidate: &Candidate,
+    audio: Option<&acquisition::PreviewAudio>,
+) {
+    for artist in candidate_artist_spellings(candidate, audio) {
+        context.include_candidate_artist(track, &artist);
+    }
+}
+fn plausible_artist_alias_block(track: &Track, candidate: &Candidate) -> bool {
+    if candidate.permission == "restricted" {
+        return false;
+    }
+    candidate_artist_spellings(candidate, None)
+        .into_iter()
+        .any(|artist| {
+            if crate::matching::normalize(&artist) == crate::matching::normalize(&track.artist) {
+                return false;
+            }
+            let mut probe = track.clone();
+            probe.artist = artist;
+            crate::source_fallback::playback_recording_matches(&probe, candidate)
+                || crate::source_fallback::is_topic_playback_candidate(&probe, candidate)
+                || crate::source_fallback::is_provisional_playback_candidate(&probe, candidate)
+        })
 }
 
 fn valid_artist_alias_variant(track: &Track, variant: &Track) -> bool {
@@ -1524,6 +2128,7 @@ enum CandidateGatePath {
     RecordingVerifiedAlias,
     TopicCanonical,
     TopicVerifiedAlias,
+    MusicCatalogLocator,
     ProvisionalCanonical,
     ProvisionalVerifiedAlias,
     Rejected,
@@ -1536,6 +2141,7 @@ impl CandidateGatePath {
             Self::RecordingVerifiedAlias => "acceptedRecordingVerifiedAlias",
             Self::TopicCanonical => "acceptedTopicCanonical",
             Self::TopicVerifiedAlias => "acceptedTopicVerifiedAlias",
+            Self::MusicCatalogLocator => "acceptedMusicCatalogLocator",
             Self::ProvisionalCanonical => "acceptedProvisionalCanonical",
             Self::ProvisionalVerifiedAlias => "acceptedProvisionalVerifiedAlias",
             Self::Rejected => "rejectedAllGates",
@@ -1546,12 +2152,23 @@ impl CandidateGatePath {
         self != Self::Rejected
     }
 
+    fn evidence_priority(self) -> u8 {
+        match self {
+            Self::RecordingCanonical | Self::RecordingVerifiedAlias => 0,
+            Self::TopicCanonical | Self::TopicVerifiedAlias => 1,
+            Self::MusicCatalogLocator => 2,
+            Self::ProvisionalCanonical | Self::ProvisionalVerifiedAlias => 3,
+            Self::Rejected => 3,
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::RecordingCanonical => "recording_canonical",
             Self::RecordingVerifiedAlias => "recording_verified_alias",
             Self::TopicCanonical => "topic_canonical",
             Self::TopicVerifiedAlias => "topic_verified_alias",
+            Self::MusicCatalogLocator => "music_catalog_locator",
             Self::ProvisionalCanonical => "provisional_canonical",
             Self::ProvisionalVerifiedAlias => "provisional_verified_alias",
             Self::Rejected => "rejected",
@@ -1597,6 +2214,11 @@ fn evaluate_candidate_gate_with_proofs(
     }
     if crate::source_fallback::is_topic_playback_candidate(track, candidate) {
         return CandidateGatePath::TopicCanonical;
+    }
+    if crate::source_fallback::is_provisional_youtube_music_catalog_candidate(track, candidate)
+        && crate::source_fallback::is_provisional_playback_candidate(track, candidate)
+    {
+        return CandidateGatePath::MusicCatalogLocator;
     }
     if aliases
         .iter()
@@ -1998,30 +2620,85 @@ fn accept_resolved_identity_with_aliases_and_proofs(
     audio: &acquisition::PreviewAudio,
     required: bool,
 ) -> bool {
+    verify_resolved_identity_with_aliases_and_proofs(
+        track,
+        aliases,
+        isrc_enriched_aliases,
+        verified_recording_isrc,
+        candidate,
+        audio,
+        required,
+    )
+    .is_some()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecordingProofKind {
+    Recording,
+    VerifiedExtractor,
+    YoutubeMusicCatalog,
+    ExplicitSource,
+}
+
+/// Produced only by fresh resolved-identity verification. Persist policy rather
+/// than channel/artist evidence, which must be obtained again on every reuse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VerifiedRecordingProof {
+    kind: RecordingProofKind,
+}
+
+impl VerifiedRecordingProof {
+    fn persisted(self) -> Option<serde_json::Value> {
+        let kind = match self.kind {
+            RecordingProofKind::Recording => "recording",
+            RecordingProofKind::VerifiedExtractor => "verified_extractor",
+            RecordingProofKind::YoutubeMusicCatalog => "youtube_music_catalog",
+            RecordingProofKind::ExplicitSource => return None,
+        };
+        Some(json!({"version":1,"kind":kind}))
+    }
+
+    fn catalog_locator(value: Option<&serde_json::Value>) -> bool {
+        value.is_some_and(|value| {
+            value["version"].as_u64() == Some(1)
+                && value["kind"].as_str() == Some("youtube_music_catalog")
+        })
+    }
+}
+
+fn verify_resolved_identity_with_aliases_and_proofs(
+    track: &Track,
+    aliases: &[Track],
+    isrc_enriched_aliases: &[Track],
+    verified_recording_isrc: Option<&str>,
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+    required: bool,
+) -> Option<VerifiedRecordingProof> {
     if conflicts_with_verified_recording_isrc(candidate, verified_recording_isrc)
         || conflicts_with_verified_recording_isrc_metadata(
             audio.source_metadata.as_ref(),
             verified_recording_isrc,
         )
     {
-        return false;
+        return None;
     }
     let original = candidate.clone();
     let mut checked = original.clone();
-    if accept_resolved_identity(track, &mut checked, audio, required) {
+    if let Some(proof) = verify_resolved_identity(track, &mut checked, audio, required) {
         *candidate = checked;
-        return true;
+        return Some(proof);
     }
     for variant in aliases.iter().filter(|variant| {
         valid_artist_alias_variant_with_proof(track, variant, isrc_enriched_aliases)
     }) {
         let mut checked = original.clone();
-        if accept_resolved_identity(variant, &mut checked, audio, required) {
+        if let Some(proof) = verify_resolved_identity(variant, &mut checked, audio, required) {
             *candidate = checked;
-            return true;
+            return Some(proof);
         }
     }
-    false
+    None
 }
 
 fn accept_resolved_identity(
@@ -2030,6 +2707,19 @@ fn accept_resolved_identity(
     audio: &acquisition::PreviewAudio,
     required: bool,
 ) -> bool {
+    verify_resolved_identity(track, candidate, audio, required).is_some()
+}
+
+fn verify_resolved_identity(
+    track: &Track,
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+    required: bool,
+) -> Option<VerifiedRecordingProof> {
+    let youtube_music_catalog_locator = candidate
+        .source_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata["playbackMusicCatalogCandidate"].as_bool() == Some(true));
     let no_catalog_duration_youtube = required
         && candidate.provider == "youtube"
         && crate::matching::ephemeral_playback_identity(track)
@@ -2045,7 +2735,7 @@ fn accept_resolved_identity(
             .as_deref()
             .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
         else {
-            return false;
+            return None;
         };
         candidate.id = format!("bandcamp:{id}");
     }
@@ -2059,15 +2749,13 @@ fn accept_resolved_identity(
             let artist = crate::matching::normalize(artist);
             artist.is_empty() || artist != crate::matching::normalize(&track.artist)
         }) {
-            return false;
+            return None;
         }
     }
-    if let Some(metadata) = audio.source_metadata.as_ref() {
-        // Preserve the preexisting known-duration path: generic verified
-        // channel metadata is retained only for this missing-duration proof.
-        if metadata["channelIsVerified"].as_bool() != Some(true) || no_catalog_duration_youtube {
-            candidate.source_metadata = Some(metadata.clone());
-        }
+    // Fresh extraction replaces search/cache evidence even when it is absent.
+    // A verified channel is useful proof, never a reason to retain stale fields.
+    if extractor_provider {
+        candidate.source_metadata = audio.source_metadata.clone();
     }
     if let Some(chapters) = audio.chapters.as_ref() {
         candidate.chapters = Some(chapters.clone());
@@ -2082,53 +2770,51 @@ fn accept_resolved_identity(
         && extractor_provider
         && (!resolved_id_matches || audio.resolved_title.as_deref().is_none_or(str::is_empty))
     {
-        return false;
+        return None;
     }
     if no_catalog_duration_youtube {
         let Some(metadata) = audio.source_metadata.as_ref() else {
             // Never let uploader/channel evidence inherited from search or a
             // remembered source stand in for this extractor response.
             candidate.source_metadata = None;
-            return false;
+            return None;
         };
         if metadata["provider"].as_str() != Some("youtube")
             || metadata["channelIsVerified"].as_bool() != Some(true)
         {
-            return false;
+            return None;
         }
     }
     if extractor_provider && resolved_id_matches {
         // Remembered mappings retain recording identity, not a stale search
         // channel label. Restore the freshly extracted channel so Topic-source
         // verification behaves identically on a cache miss and a cache hit.
-        if let Some(uploader) = audio.source_metadata.as_ref().and_then(|metadata| {
-            if metadata["channelIsVerified"].as_bool() == Some(true) && !no_catalog_duration_youtube
-            {
-                return None;
-            }
-            metadata["channel"]
-                .as_str()
-                .filter(|value| !value.is_empty())
-                .or_else(|| {
-                    metadata["uploader"]
-                        .as_str()
-                        .filter(|value| !value.is_empty())
-                })
-        }) {
-            candidate.uploader = Some(uploader.to_owned());
-        }
+        candidate.uploader = audio
+            .source_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                metadata["channel"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| {
+                        metadata["uploader"]
+                            .as_str()
+                            .filter(|value| !value.is_empty())
+                    })
+            })
+            .map(str::to_owned);
         if let Some(title) = audio.resolved_title.as_ref() {
             candidate.title = title.clone();
             // Search confidence cannot override the metadata returned by the
             // extractor. Re-evaluate the actual title and duration instead.
             candidate.confidence = "review".into();
         }
-        if audio.duration_seconds.is_some() {
-            candidate.duration_seconds = audio.duration_seconds;
-        }
+        candidate.duration_seconds = audio.duration_seconds;
     }
     if !required {
-        return true;
+        return Some(VerifiedRecordingProof {
+            kind: RecordingProofKind::ExplicitSource,
+        });
     }
     let verified_integer_duration = candidate.provider == "youtube"
         && resolved_id_matches
@@ -2143,17 +2829,37 @@ fn accept_resolved_identity(
         && audio.duration_seconds.is_some_and(|duration| {
             duration.is_finite() && duration > 30.0 && duration <= 86_400.0
         });
-    if verified_missing_duration_youtube
+    let kind = if (verified_missing_duration_youtube || youtube_music_catalog_locator)
         && crate::source_fallback::playback_music_catalog_recording_matches_verified_extractor(
             track, candidate,
-        )
-    {
-        true
+        ) {
+        RecordingProofKind::YoutubeMusicCatalog
     } else if verified_integer_duration || verified_missing_duration_youtube {
-        crate::source_fallback::playback_recording_matches_verified_extractor(track, candidate)
+        if !crate::source_fallback::playback_recording_matches_verified_extractor(track, candidate)
+        {
+            return None;
+        }
+        RecordingProofKind::VerifiedExtractor
     } else {
-        crate::source_fallback::playback_recording_matches(track, candidate)
+        if !crate::source_fallback::playback_recording_matches(track, candidate) {
+            return None;
+        }
+        RecordingProofKind::Recording
+    };
+    if kind == RecordingProofKind::YoutubeMusicCatalog {
+        if let Some(metadata) = candidate
+            .source_metadata
+            .as_mut()
+            .and_then(Value::as_object_mut)
+        {
+            // Keep only the locator policy alongside fresh evidence so a same-
+            // candidate transport refresh can enter the same verification path.
+            metadata.insert("playbackMusicCatalogCandidate".into(), json!(true));
+            metadata.insert("catalogTitle".into(), json!(track.title));
+            metadata.insert("catalogArtist".into(), json!(track.artist));
+        }
     }
+    Some(VerifiedRecordingProof { kind })
 }
 
 fn recording_identity_fingerprint(track: &Track) -> Option<String> {
@@ -2232,6 +2938,10 @@ fn remembered_candidate(
         duration_seconds: track.duration_seconds,
         permission: "unknown".into(),
         confidence: "review".into(),
+        source_metadata: VerifiedRecordingProof::catalog_locator(
+            source.verification_proof.as_ref(),
+        )
+        .then(|| json!({"provider":"youtube","playbackMusicCatalogCandidate":true})),
         ..Candidate::default()
     })
 }
@@ -2241,11 +2951,14 @@ fn remember_verified_source(
     track: &Track,
     candidate: &Candidate,
     audio: &acquisition::PreviewAudio,
-    identity_accepted: bool,
+    proof: Option<&VerifiedRecordingProof>,
     fingerprint: Option<&str>,
 ) {
-    if !identity_accepted
-        || audio.resolved_title.is_none()
+    let Some(persisted_proof) = proof.and_then(|proof| proof.persisted()) else {
+        return;
+    };
+    if !audio.provider_session_current()
+        || audio.resolved_title.as_deref().is_none_or(str::is_empty)
         || candidate.id.split_once(':').map(|(_, id)| id) != audio.resolved_provider_id.as_deref()
     {
         return;
@@ -2280,12 +2993,13 @@ fn remember_verified_source(
         }
         _ => return,
     };
-    let _ = store.save_verified_playback_source(
+    let _ = store.save_verified_playback_source_with_proof(
         &track.id,
         fingerprint,
         &candidate.provider,
         provider_id,
         &permanent_url,
+        &persisted_proof,
     );
 }
 
@@ -2328,9 +3042,7 @@ async fn try_verified_candidate(
     store: &Store,
     acquisition: &AcquisitionManager,
     track: &Track,
-    aliases: &[Track],
-    isrc_enriched_aliases: &[Track],
-    verified_recording_isrc: Option<&str>,
+    context: &crate::artist_credit_aliases::VerifiedPlaybackArtistAliases,
     mut candidate: Candidate,
     settings: &Settings,
     cancel: watch::Receiver<bool>,
@@ -2339,14 +3051,26 @@ async fn try_verified_candidate(
     deadline: PlaybackDeadline,
 ) -> Result<ResolvedSource, String> {
     let audio = acquisition
-        .resolve_preview_audio_traced(&candidate, settings, cancel, trace.clone(), deadline)
+        .extract_playback_audio_traced_preparing_alternate(
+            &candidate,
+            settings,
+            cancel.clone(),
+            trace.clone(),
+            deadline,
+            None,
+        )
         .await?;
     if audio.resolved_title.as_deref().is_none_or(str::is_empty)
         || candidate.id.split_once(':').map(|(_, id)| id) != audio.resolved_provider_id.as_deref()
     {
         return Err("Resolved source identity could not be verified".into());
     }
-    let identity_ok = accept_resolved_identity_with_aliases_and_proofs(
+    let mut context = context.clone();
+    include_candidate_aliases(&mut context, track, &candidate, Some(&audio));
+    let aliases = context.tracks();
+    let isrc_enriched_aliases = context.isrc_enriched();
+    let verified_recording_isrc = context.verified_recording_isrc();
+    let proof = verify_resolved_identity_with_aliases_and_proofs(
         track,
         aliases,
         isrc_enriched_aliases,
@@ -2355,6 +3079,7 @@ async fn try_verified_candidate(
         &audio,
         true,
     );
+    let identity_ok = proof.is_some();
     trace.event("mapping_identity_check", &candidate.provider, json!({"ok":identity_ok,
         "providerIdMatches":audio.resolved_provider_id.as_deref().is_some_and(|id|candidate.id.split_once(':').map(|(_,value)|value)==Some(id)),
         "resolvedTitlePresent":audio.resolved_title.as_ref().is_some_and(|title|!title.is_empty()),
@@ -2363,18 +3088,15 @@ async fn try_verified_candidate(
     if !identity_ok {
         return Err("Verified source identity mismatch".into());
     }
+    let audio = acquisition
+        .validate_playback_audio_traced(&candidate, audio, cancel.clone(), trace.clone(), deadline)
+        .await?;
     remember_verified_source(
         store,
         track,
         &candidate,
         &audio,
-        playback_recording_matches_with_proofs(
-            track,
-            aliases,
-            isrc_enriched_aliases,
-            verified_recording_isrc,
-            &candidate,
-        ),
+        proof.as_ref(),
         Some(fingerprint),
     );
     let duration = audio
@@ -2462,6 +3184,36 @@ pub(crate) async fn recover_with_trace_context(
     native_seek_operation_id: Option<String>,
     webview_generation: Option<u64>,
 ) -> Result<ResolvedSource, String> {
+    let deadline = PlaybackDeadline::after(store.settings()?.playback_startup_timeout());
+    recover_with_trace_context_until(
+        store,
+        acquisition,
+        track,
+        candidate,
+        alternate_format,
+        cancel,
+        native_operation_id,
+        native_seek_operation_id,
+        webview_generation,
+        deadline,
+        true,
+    )
+    .await
+}
+
+pub(crate) async fn recover_with_trace_context_until(
+    store: &Store,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    candidate: &Candidate,
+    alternate_format: bool,
+    cancel: watch::Receiver<bool>,
+    native_operation_id: Option<String>,
+    native_seek_operation_id: Option<String>,
+    webview_generation: Option<u64>,
+    deadline: PlaybackDeadline,
+    strict_recording_verification: bool,
+) -> Result<ResolvedSource, String> {
     let trace = SourceTrace::new(
         native_operation_id,
         native_seek_operation_id,
@@ -2475,11 +3227,13 @@ pub(crate) async fn recover_with_trace_context(
     let result = tokio::select! {
         biased;
         _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
-        result = within_deadline(
-            PLAYBACK_RESOLUTION_DEADLINE,
-            Box::pin(recover_inner(store, acquisition, track, candidate, alternate_format, cancel, trace.clone())),
+        result = within_shared_deadline(
+            deadline,
+            Box::pin(recover_inner(store, acquisition, track, candidate, alternate_format,
+                cancel.clone(), trace.clone(), deadline, strict_recording_verification)),
         ) => result,
     };
+    let result = normalize_resolver_deadline(result, deadline, *cancel.borrow());
     trace.event("recovery_end", &candidate.provider, json!({"ok":result.is_ok(), "cancelled":result.as_ref().err().is_some_and(|e| e == "Cancelled"), "deadline":result.as_ref().err().is_some_and(|e| e == PLAYBACK_DEADLINE_MESSAGE)}));
     result
 }
@@ -2492,20 +3246,54 @@ async fn recover_inner(
     alternate_format: bool,
     cancel: watch::Receiver<bool>,
     trace: SourceTrace,
+    deadline: PlaybackDeadline,
+    strict_recording_verification: bool,
 ) -> Result<ResolvedSource, String> {
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
     let settings = store.settings()?;
+    let mut candidate = candidate.clone();
     let audio = acquisition
-        .resolve_preview_audio_fresh_traced_cancelled(
-            candidate,
+        .extract_playback_audio_fresh_or_prepared_traced(
+            &candidate,
             &settings,
-            cancel,
+            cancel.clone(),
             alternate_format,
-            trace,
-            PlaybackDeadline::after(PLAYBACK_RESOLUTION_DEADLINE),
+            trace.clone(),
+            deadline,
+            None,
         )
+        .await?;
+    if !fresh_candidate_audio_identity_matches(track, &candidate, &audio) {
+        return Err(
+            "The refreshed audio source did not resolve to the same provider recording".into(),
+        );
+    }
+    let pinned = !strict_recording_verification
+        || source_resolution_is_pinned(track, false, &settings, true);
+    let mut aliases = if pinned {
+        crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
+    } else {
+        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
+    };
+    include_candidate_aliases(&mut aliases, track, &candidate, Some(&audio));
+    let requires_identity_check = candidate.provider == "bandcamp" || !pinned;
+    if verify_resolved_identity_with_aliases_and_proofs(
+        track,
+        aliases.tracks(),
+        aliases.isrc_enriched(),
+        aliases.verified_recording_isrc(),
+        &mut candidate,
+        &audio,
+        requires_identity_check,
+    )
+    .is_none()
+    {
+        return Err("The refreshed audio source identity does not match this recording".into());
+    }
+    let audio = acquisition
+        .validate_playback_audio_traced(&candidate, audio, cancel, trace, deadline)
         .await?;
     let duration = audio
         .duration_seconds
@@ -2680,6 +3468,290 @@ mod tests {
     use super::*;
 
     #[test]
+    fn serial_resolution_distinguishes_no_rows_from_rejected_identity_and_keeps_failures() {
+        assert_eq!(
+            SerialResolutionFailures::default().finish(false),
+            SOURCE_NO_RESULTS
+        );
+        let found = || SerialResolutionFailures {
+            had_results: true,
+            ..Default::default()
+        };
+        assert_eq!(found().finish(false), SOURCE_IDENTITY_REJECTED);
+        assert_eq!(found().finish(true), SOURCE_MISSING_DURATION);
+        let mut source = found();
+        source.record("HTTP 403: source access denied".into());
+        assert_eq!(source.finish(false), "HTTP 403: source access denied");
+        let mut identity = found();
+        identity.record("The resolved audio source identity does not match this recording".into());
+        assert_eq!(
+            identity.finish(false),
+            "The resolved audio source identity does not match this recording"
+        );
+        let mut failed_search = SerialResolutionFailures::default();
+        failed_search.record("Network connection unavailable".into());
+        assert_eq!(
+            failed_search.finish(false),
+            "Network connection unavailable"
+        );
+        // Legacy interpolated recording names are categorized before words
+        // inside arbitrary metadata can imply a cancel/deadline/network error.
+        assert_eq!(
+            ResolutionFailure::new(
+                "No playable audio match was found for Network — Cancel Deadline".into()
+            )
+            .kind,
+            ResolutionFailureKind::NoResults
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_provider_failures_keep_evidence_in_both_completion_orders() {
+        for early_preferred in [true, false] {
+            for (preferred_error, fallback_error, expected) in [
+                (
+                    "HTTP 403: source access denied",
+                    SOURCE_NO_RESULTS,
+                    "HTTP 403: source access denied",
+                ),
+                (
+                    SOURCE_NO_RESULTS,
+                    "HTTP 403: source access denied",
+                    "HTTP 403: source access denied",
+                ),
+                (
+                    "Network connection unavailable",
+                    SOURCE_NO_RESULTS,
+                    "Network connection unavailable",
+                ),
+                (
+                    SOURCE_IDENTITY_REJECTED,
+                    SOURCE_NO_RESULTS,
+                    SOURCE_IDENTITY_REJECTED,
+                ),
+                (
+                    "HTTP 403: source access denied",
+                    "HTTP 404: source removed",
+                    "HTTP 403: source access denied",
+                ),
+                (
+                    PLAYBACK_DEADLINE_MESSAGE,
+                    SOURCE_NO_RESULTS,
+                    PLAYBACK_DEADLINE_MESSAGE,
+                ),
+                ("Cancelled", PLAYBACK_DEADLINE_MESSAGE, "Cancelled"),
+            ] {
+                let preferred = async move {
+                    tokio::time::sleep(Duration::from_millis(if early_preferred { 1 } else { 4 }))
+                        .await;
+                    Err::<u8, _>(preferred_error.to_owned())
+                };
+                let fallback = async move {
+                    tokio::time::sleep(Duration::from_millis(if early_preferred { 4 } else { 1 }))
+                        .await;
+                    Err::<u8, _>(fallback_error.to_owned())
+                };
+                let result = prefer_with_grace(
+                    Box::pin(preferred),
+                    Box::pin(fallback),
+                    Duration::from_millis(10),
+                )
+                .await;
+                assert_eq!(
+                    result.unwrap_err(),
+                    expected,
+                    "preferred finished first: {early_preferred}"
+                );
+            }
+        }
+        let third_provider = merge_resolution_errors(
+            merge_resolution_errors(
+                "HTTP 403: source access denied".into(),
+                SOURCE_NO_RESULTS.into(),
+            ),
+            SOURCE_NO_RESULTS.into(),
+        );
+        assert_eq!(third_provider, "HTTP 403: source access denied");
+    }
+
+    #[tokio::test]
+    async fn available_source_still_wins_over_other_provider_failure() {
+        for preferred_success in [true, false] {
+            let preferred = async move {
+                if preferred_success {
+                    Ok(17u8)
+                } else {
+                    Err("Network connection unavailable".to_owned())
+                }
+            };
+            let fallback = async move {
+                if preferred_success {
+                    Err(SOURCE_NO_RESULTS.to_owned())
+                } else {
+                    Ok(17u8)
+                }
+            };
+            assert_eq!(
+                prefer_with_grace(
+                    Box::pin(preferred),
+                    Box::pin(fallback),
+                    Duration::from_millis(10)
+                )
+                .await
+                .unwrap(),
+                17
+            );
+        }
+    }
+
+    #[test]
+    fn rank_all_collected_recordings_before_spending_two_foreground_extractions() {
+        let track = Track {
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        let make = |id: &str, title: &str, duration: f64| Candidate {
+            provider: "youtube".into(),
+            id: format!("youtube:{id}"),
+            title: title.into(),
+            duration_seconds: Some(duration),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let mut found = vec![
+            make("FRP_lYROd-I", "John Denver - Matthew", 216.0),
+            make("second00000", "John Denver - Matthew", 216.0),
+        ];
+        found.extend(
+            (0..6).map(|index| make(&format!("wrong{index:06}"), "Other Artist - Matthew", 222.0)),
+        );
+        found.push(make("ps9X-DXUFGY", "JOHN DENVER - MATTHEW.", 225.0));
+        found.push(make("another0000", "John Denver - Matthew", 224.0));
+        let mut evaluated = Vec::new();
+        let mut ranked = found
+            .into_iter()
+            .filter_map(|candidate| {
+                let path = evaluate_candidate_gate_with_proofs(&track, &[], &[], None, &candidate);
+                evaluated.push(path);
+                path.accepted().then_some((candidate, path))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(evaluated.len(), 10);
+        assert_eq!(evaluated[0], CandidateGatePath::ProvisionalCanonical);
+        assert_eq!(evaluated[8], CandidateGatePath::RecordingCanonical);
+        ranked.sort_by_key(|(_, path)| path.evidence_priority());
+        let first = eligible_after_webview_failure(
+            ranked.into_iter().map(|(candidate, _)| candidate),
+            &[],
+            None,
+            2,
+        );
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].id, "youtube:ps9X-DXUFGY");
+        assert_eq!(first[1].id, "youtube:another0000");
+        // Equally strong identities preserve provider order, rather than
+        // reordering on incidental sub-second duration differences.
+        assert_eq!(first[0].duration_seconds, Some(225.0));
+        assert_eq!(first[1].duration_seconds, Some(224.0));
+    }
+
+    #[test]
+    fn exact_music_catalog_locator_precedes_weaker_duration_provisionals() {
+        let track = Track {
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        let catalog = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:uZGRATckoBM".into(),
+            title: "Matthew".into(),
+            duration_seconds: Some(228.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogTitle":"Matthew",
+                "catalogArtist":"John Denver"
+            })),
+            ..Candidate::default()
+        };
+        let weak = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:FRP_lYROd-I".into(),
+            title: "John Denver - Matthew".into(),
+            duration_seconds: Some(216.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let mut ranked = [weak.clone(), catalog.clone()]
+            .into_iter()
+            .filter_map(|candidate| {
+                let path = evaluate_candidate_gate_with_proofs(&track, &[], &[], None, &candidate);
+                path.accepted().then_some((candidate, path))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ranked[0].1, CandidateGatePath::ProvisionalCanonical);
+        assert_eq!(ranked[1].1, CandidateGatePath::MusicCatalogLocator);
+        ranked.sort_by_key(|(_, path)| path.evidence_priority());
+        let selected = eligible_after_webview_failure(
+            ranked.into_iter().map(|(candidate, _)| candidate),
+            &[],
+            None,
+            1,
+        );
+        assert_eq!(selected[0].id, catalog.id);
+    }
+
+    #[test]
+    fn alias_research_requires_remaining_foreground_work() {
+        let pass = AliasResolutionPass::default();
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:example".into(),
+            ..Candidate::default()
+        };
+        pass.remember(&candidate);
+        assert!(pass.has_remaining_alias_attempt(2));
+        pass.attempted("youtube");
+        assert!(!pass.has_remaining_alias_attempt(1));
+        assert!(pass.has_remaining_alias_attempt(2));
+        pass.attempted("youtube");
+        assert!(!pass.has_remaining_alias_attempt(2));
+        pass.spare_queries
+            .lock()
+            .unwrap()
+            .insert("soundcloud".into(), true);
+        assert!(pass.has_remaining_alias_attempt(2));
+        assert_eq!(pass.used("youtube"), 2);
+        assert_eq!(pass.used("soundcloud"), 0);
+    }
+    #[test]
+    fn alias_research_does_not_use_inaccessible_sources_as_artist_evidence() {
+        let track = Track {
+            artist: "Requested Artist".into(),
+            title: "Song".into(),
+            duration_seconds: Some(180.0),
+            ..Track::default()
+        };
+        let inaccessible = Candidate {
+            provider: "youtube".into(),
+            title: "Different Artist - Song".into(),
+            uploader: Some("Different Artist".into()),
+            permission: "restricted".into(),
+            duration_seconds: Some(180.0),
+            ..Candidate::default()
+        };
+        assert!(!plausible_artist_alias_block(&track, &inaccessible));
+    }
+
+    #[test]
     fn fallback_candidate_attempt_limit_is_bounded_to_one_or_default_two() {
         assert_eq!(validate_candidate_attempt_limit(None), Ok(2));
         assert_eq!(validate_candidate_attempt_limit(Some(1)), Ok(1));
@@ -2724,6 +3796,7 @@ mod tests {
             resolved_provider_id: None,
             chapters: Some(vec![]),
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
         assert!(fresh_candidate_audio_identity_matches(
@@ -3238,6 +4311,7 @@ mod tests {
             resolved_provider_id: Some("recording-1".into()),
             chapters: None,
             expected_content_length: None,
+            provider_session: None,
             headers: Vec::new(),
         };
         let mut good_catalog_candidate = Candidate {
@@ -3446,6 +4520,7 @@ mod tests {
             resolved_provider_id: Some("abcdefghijk".into()),
             chapters: Some(vec![]),
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
         let mut accepted = candidate.clone();
@@ -4064,6 +5139,7 @@ mod tests {
             selected_format_id: None,
             selected_format_has_video: false,
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
 
@@ -4112,6 +5188,7 @@ mod tests {
             selected_format_id: None,
             selected_format_has_video: false,
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
         assert!(!accept_resolved_identity(
@@ -4284,6 +5361,7 @@ mod tests {
             resolved_provider_id: Some("292222166".into()),
             chapters: Some(vec![]),
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
         assert!(accept_resolved_identity(
@@ -4452,6 +5530,7 @@ mod tests {
             selected_format_id: None,
             selected_format_has_video: false,
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
         assert!(!crate::source_fallback::playback_recording_matches(
@@ -4503,6 +5582,7 @@ mod tests {
             selected_format_id: None,
             selected_format_has_video: false,
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
         assert!(accept_resolved_identity(
@@ -4570,6 +5650,7 @@ mod tests {
             selected_format_id: Some("140".into()),
             selected_format_has_video: false,
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
 
@@ -4604,6 +5685,116 @@ mod tests {
                 resolved_title: Some("Stamatis Kraounakis - Poso S' Agapo Radio Edit".into()),
                 ..make_audio(251.0)
             },
+            true
+        ));
+    }
+
+    #[test]
+    fn discogs_feature_alias_requires_exact_cache_and_fresh_extractor_identity() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../fixtures/discogs-prolific-credit-identity.json"
+        ))
+        .unwrap();
+        let track = crate::artists::parse_discogs_release_tracks(
+            &fixture["release"],
+            "38549214",
+            "https://www.discogs.com/release/38549214",
+            false,
+            None,
+        )
+        .remove(0);
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("discogs-playback.sqlite")).unwrap();
+        store
+            .set_retained_provider_cache(
+                crate::artist_credit_aliases::DISCOGS_ALIAS_RELEASE_CACHE,
+                "38549214",
+                &fixture["release"],
+            )
+            .unwrap();
+        for profile in fixture["profiles"].as_array().unwrap() {
+            store
+                .set_retained_provider_cache(
+                    crate::artist_credit_aliases::DISCOGS_ALIAS_PROFILE_CACHE,
+                    &profile["id"].as_u64().unwrap().to_string(),
+                    profile,
+                )
+                .unwrap();
+        }
+        let mut context =
+            crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, &track);
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:vqDoiUMuqQA".into(),
+            title: fixture["officialTitle"].as_str().unwrap().into(),
+            duration_seconds: Some(180.0),
+            permission: "unknown".into(),
+            confidence: "review".into(),
+            ..Candidate::default()
+        };
+        include_candidate_aliases(&mut context, &track, &candidate, None);
+        assert!(provisional_playback_matches_with_proofs(
+            &track,
+            context.tracks(),
+            context.isrc_enriched(),
+            None,
+            &candidate
+        ));
+        let audio = acquisition::PreviewAudio {
+            url: String::new(),
+            mime_type: "audio/mp4".into(),
+            codec: Some("mp4a.40.2".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(180.0),
+            source_metadata: Some(
+                json!({"provider":"youtube","channelId":"UC1234567890123456789012","channel":"Nipsey Hussle","channelIsVerified":true}),
+            ),
+            resolved_title: Some(candidate.title.clone()),
+            resolved_provider_id: Some("vqDoiUMuqQA".into()),
+            chapters: Some(vec![]),
+            selected_format_id: Some("140".into()),
+            selected_format_has_video: false,
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+        assert!(accept_resolved_identity_with_aliases(
+            &track,
+            context.tracks(),
+            &mut candidate.clone(),
+            &audio,
+            true
+        ));
+        assert!(!accept_resolved_identity_with_aliases(
+            &track,
+            &[],
+            &mut candidate.clone(),
+            &audio,
+            true
+        ));
+        let unverified = acquisition::PreviewAudio {
+            source_metadata: None,
+            ..audio.clone()
+        };
+        assert!(!accept_resolved_identity_with_aliases(
+            &track,
+            context.tracks(),
+            &mut candidate.clone(),
+            &unverified,
+            true
+        ));
+        let changed = acquisition::PreviewAudio {
+            resolved_title: Some(
+                "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Remix)"
+                    .into(),
+            ),
+            ..audio
+        };
+        assert!(!accept_resolved_identity_with_aliases(
+            &track,
+            context.tracks(),
+            &mut candidate.clone(),
+            &changed,
             true
         ));
     }
@@ -4644,6 +5835,7 @@ mod tests {
             selected_format_id: Some("140".into()),
             selected_format_has_video: false,
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
 
@@ -4798,6 +5990,7 @@ mod tests {
             selected_format_id: Some("140".into()),
             selected_format_has_video: false,
             expected_content_length: None,
+            provider_session: None,
             headers: vec![],
         };
 
@@ -4884,6 +6077,285 @@ mod tests {
         }
     }
 
+    fn matthew_catalog_verification_fixture() -> (Track, Candidate, acquisition::PreviewAudio) {
+        let track = Track {
+            id: "spotify:matthew-verification".into(),
+            provider: "spotify".into(),
+            provider_id: "matthew-verification".into(),
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:uZGRATckoBM".into(),
+            url: "https://www.youtube.com/watch?v=uZGRATckoBM".into(),
+            title: "Matthew".into(),
+            duration_seconds: Some(228.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(json!({"provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogTitle":"Matthew","catalogArtist":"John Denver"})),
+            ..Candidate::default()
+        };
+        let audio = acquisition::PreviewAudio {
+            url: "https://cdn.example.test/fresh-audio".into(),
+            mime_type: "audio/mp4".into(),
+            codec: None,
+            bitrate_kbps: None,
+            duration_seconds: Some(228.0),
+            source_metadata: Some(json!({"provider":"youtube",
+                "channelId":"UC-cnCe5zradDZlcI8YZboBg","channel":"John Denver",
+                "channelIsVerified":true,"track":"Matthew","artists":["John Denver"]})),
+            resolved_title: Some("Matthew".into()),
+            resolved_provider_id: Some("uZGRATckoBM".into()),
+            chapters: Some(vec![]),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+        (track, candidate, audio)
+    }
+
+    #[test]
+    fn accepted_catalog_proof_is_saved_and_cache_hit_requires_fresh_full_identity() {
+        let (track, mut candidate, audio) = matthew_catalog_verification_fixture();
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("catalog-proof.sqlite")).unwrap();
+        store.save_track(&track).unwrap();
+        let fingerprint = recording_identity_fingerprint(&track).unwrap();
+        let proof = verify_resolved_identity_with_aliases_and_proofs(
+            &track,
+            &[],
+            &[],
+            None,
+            &mut candidate,
+            &audio,
+            true,
+        )
+        .unwrap();
+        assert_eq!(proof.kind, RecordingProofKind::YoutubeMusicCatalog);
+        assert_eq!(
+            candidate.source_metadata.as_ref().unwrap()["channelIsVerified"],
+            true
+        );
+        assert_eq!(candidate.uploader.as_deref(), Some("John Denver"));
+        // The strict search matcher rejects this 5.574s difference. The exact
+        // accepted result, including its integer quantization policy, is saved.
+        assert!(!playback_recording_matches_with_aliases(
+            &track,
+            &[],
+            &candidate
+        ));
+        remember_verified_source(
+            &store,
+            &track,
+            &candidate,
+            &audio,
+            Some(&proof),
+            Some(&fingerprint),
+        );
+        let mapping = store
+            .verified_playback_source(&track.id, &fingerprint, "youtube")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            mapping.verification_proof.as_ref().unwrap()["kind"],
+            "youtube_music_catalog"
+        );
+        let remembered = remembered_candidate(&track, &mapping).unwrap();
+        assert!(remembered
+            .source_metadata
+            .as_ref()
+            .unwrap()
+            .get("channel")
+            .is_none());
+        let mut checked = remembered.clone();
+        let cache_proof = verify_resolved_identity_with_aliases_and_proofs(
+            &track,
+            &[],
+            &[],
+            None,
+            &mut checked,
+            &audio,
+            true,
+        )
+        .unwrap();
+        assert_eq!(cache_proof, proof);
+        assert!(evaluate_candidate_gate_with_proofs(&track, &[], &[], None, &checked).accepted());
+
+        let mut invalid_responses = Vec::new();
+        for (field, value) in [
+            ("artists", json!(["John Denver", "Wrong Guest"])),
+            ("channel", json!("Other Official")),
+            ("channelIsVerified", json!(false)),
+            ("track", json!("Matthew (Live)")),
+            ("track", json!("Matthew (Cover)")),
+        ] {
+            let mut invalid = audio.clone();
+            invalid.source_metadata.as_mut().unwrap()[field] = value;
+            invalid_responses.push(invalid);
+        }
+        let mut no_metadata = audio.clone();
+        no_metadata.source_metadata = None;
+        invalid_responses.push(no_metadata);
+        let mut no_duration = audio.clone();
+        no_duration.duration_seconds = None;
+        invalid_responses.push(no_duration);
+        let mut wrong_id = audio.clone();
+        wrong_id.resolved_provider_id = Some("wrong000000".into());
+        invalid_responses.push(wrong_id);
+        for invalid in invalid_responses {
+            // Even reusing a candidate with a previously verified channel must
+            // not let any of that evidence stand in for the current response.
+            let mut checked = candidate.clone();
+            assert!(verify_resolved_identity_with_aliases_and_proofs(
+                &track,
+                &[],
+                &[],
+                None,
+                &mut checked,
+                &invalid,
+                true,
+            )
+            .is_none());
+            let mut checked = remembered.clone();
+            assert!(verify_resolved_identity_with_aliases_and_proofs(
+                &track,
+                &[],
+                &[],
+                None,
+                &mut checked,
+                &invalid,
+                true,
+            )
+            .is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn remembered_resolution_rejects_wrong_fresh_credit_before_any_cdn_probe() {
+        use std::os::unix::fs::PermissionsExt;
+        let (track, _, _) = matthew_catalog_verification_fixture();
+        let mapping = crate::storage::VerifiedPlaybackSource {
+            provider: "youtube".into(),
+            provider_id: "uZGRATckoBM".into(),
+            permanent_url: "https://www.youtube.com/watch?v=uZGRATckoBM".into(),
+            verification_proof: Some(json!({"version":1,"kind":"youtube_music_catalog"})),
+        };
+        let candidate = remembered_candidate(&track, &mapping).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(Store::open(&directory.path().join("wrong-fresh-credit.sqlite")).unwrap());
+        let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let acquisition = AcquisitionManager::new_for_playback_test(store.clone(), connections);
+        let executable = directory.path().join("fake-yt-dlp");
+        let output = json!({"id":"uZGRATckoBM","title":"Matthew","duration":228,
+            "url":"https://rr1.googlevideo.com/videoplayback?fixture=wrong-guest",
+            "acodec":"aac","vcodec":"none","protocol":"https","ext":"m4a",
+            "channel_id":"UC-cnCe5zradDZlcI8YZboBg","channel":"John Denver",
+            "channel_is_verified":true,"track":"Matthew","artists":["John Denver","Wrong Guest"]});
+        std::fs::write(
+            &executable,
+            format!("#!/bin/sh\ncat <<'FIXTURE'\n{output}\nFIXTURE\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let settings = Settings {
+            yt_dlp_path: executable.to_string_lossy().into(),
+            ..Settings::default()
+        };
+        let events = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let sink = events.clone();
+        let trace = SourceTrace::new(None, None, None).with_test_sink(Arc::new(move |event| {
+            sink.lock().unwrap().push(event);
+        }));
+        let (_sender, cancel) = watch::channel(false);
+        let aliases = crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default();
+        let result =
+            crate::acquisition::with_playback_test_public_addresses(try_verified_candidate(
+                &store,
+                &acquisition,
+                &track,
+                &aliases,
+                candidate,
+                &settings,
+                cancel,
+                &recording_identity_fingerprint(&track).unwrap(),
+                &trace,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+            ))
+            .await;
+        assert_eq!(
+            result.err().as_deref(),
+            Some("Verified source identity mismatch")
+        );
+        let events = events.lock().unwrap();
+        assert!(events
+            .iter()
+            .any(|event| event["phase"] == "extraction_end"));
+        assert!(events
+            .iter()
+            .any(|event| event["phase"] == "mapping_identity_check"
+                && event["details"]["ok"] == false));
+        assert!(!events.iter().any(|event| matches!(
+            event["phase"].as_str(),
+            Some("dns_stream_start" | "stream_probe_start")
+        )));
+    }
+
+    #[test]
+    fn catalog_verification_accepts_fractional_duration_only_inside_strict_window() {
+        let (track, candidate, audio) = matthew_catalog_verification_fixture();
+        for (duration, accepted) in [
+            (226.75, true),
+            (227.426, true),
+            (227.75, false),
+            (228.0, true),
+            (229.0, false),
+        ] {
+            let mut candidate = candidate.clone();
+            let mut audio = audio.clone();
+            audio.duration_seconds = Some(duration);
+            assert_eq!(
+                verify_resolved_identity_with_aliases_and_proofs(
+                    &track,
+                    &[],
+                    &[],
+                    None,
+                    &mut candidate,
+                    &audio,
+                    true,
+                )
+                .is_some(),
+                accepted,
+                "duration {duration}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn parallel_provider_traces_share_two_costly_extractions_per_request() {
+        let trace = SourceTrace::new(None, None, None);
+        let mut attempts = Vec::new();
+        for provider in ["youtube", "soundcloud", "youtube", "soundcloud"] {
+            let trace = trace.clone().with_event_provider(provider);
+            attempts.push(tokio::spawn(async move { trace.try_spend_extraction() }));
+        }
+        let mut spent = 0;
+        for attempt in attempts {
+            spent += usize::from(attempt.await.unwrap());
+        }
+        assert_eq!(spent, 2);
+        assert!(!trace.try_spend_extraction());
+        assert!(SourceTrace::new(None, None, None).try_spend_extraction());
+    }
+
     #[test]
     fn remembered_sources_require_canonical_urls_and_transient_errors_do_not_invalidate() {
         let track = Track {
@@ -4894,6 +6366,7 @@ mod tests {
             provider: "youtube".into(),
             provider_id: "4-XSYttqtls".into(),
             permanent_url: "https://www.youtube.com/watch?v=4-XSYttqtls".into(),
+            verification_proof: None,
         };
         assert_eq!(
             remembered_candidate(&track, &mapping).unwrap().id,
@@ -5065,6 +6538,7 @@ mod failed_candidate_request_tests {
             provider: "youtube".into(),
             provider_id: "abcdefghijk".into(),
             permanent_url: "https://www.youtube.com/watch?v=abcdefghijk".into(),
+            verification_proof: None,
         };
         let track = Track::default();
         assert!(remembered_for_request(&track, &mapping, &failed).is_none());

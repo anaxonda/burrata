@@ -1,0 +1,31 @@
+{
+  "benchmark": "verified_alias_cache_matching_microbenchmark",
+  "build": "debug",
+  "cpuSeconds": 0.09312900000000002,
+  "measuredIterations": 20,
+  "processPeakRssKiB": 73516,
+  "scope": "local synthetic fixture: verified cache reader, late alias matching, variant and search rendering construction; excludes network, extraction, and playback",
+  "timingsMs": [
+    6.241225,
+    7.066706,
+    6.647077,
+    7.152837000000001,
+    4.357812,
+    4.127293,
+    4.527887000000001,
+    5.7956129999999995,
+    3.920677,
+    4.907662,
+    4.619195,
+    4.080978,
+    3.780832,
+    3.606004,
+    3.799721,
+    3.512314,
+    3.351284,
+    3.76506,
+    4.058133000000001,
+    6.113389000000001
+  ],
+  "warmupIterations": 3
+}

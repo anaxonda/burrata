@@ -7,7 +7,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -81,8 +81,13 @@ const RAW_AUDIO_SEARCH_CACHE_TTL: Duration = Duration::from_secs(2 * 60);
 const RAW_AUDIO_SEARCH_CACHE_MAX: usize = 64;
 const PREVIEW_SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 const PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT: usize = 10;
+const OPTIONAL_PLAYBACK_RESEARCH_MAX: Duration = Duration::from_secs(3);
+const PLAYBACK_EXTRACTION_RESERVE: Duration = Duration::from_secs(8);
 const PREVIEW_AUDIO_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const PREVIEW_AUDIO_CACHE_MAX: usize = 64;
+const PLAYBACK_EXTRACTION_PROFILE: &str = "playback-metadata-v1-managed-mweb-progressive";
+const PLAYBACK_PROFILE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+const PLAYBACK_PROFILE_COOLDOWN_MAX: usize = 256;
 const CHAPTER_SOURCE_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const CHAPTER_SOURCE_CACHE_MAX: usize = 16;
 const INSPECTION_CACHE_TTL: Duration = Duration::from_secs(90);
@@ -95,9 +100,22 @@ const PREVIEW_AUDIO_YOUTUBE_ALTERNATE_FORMAT_SELECTOR: &str = "bestaudio[ext=web
 const MAX_PREVIEW_FILE_SIZE: u64 = 16 * 1024 * 1024 * 1024;
 const PREVIEW_TAIL_PROBE_THRESHOLD: u64 = 1024 * 1024;
 
+#[derive(Debug, Clone)]
+pub(crate) struct ProviderSessionStamp {
+    epoch: Arc<AtomicU64>,
+    expected: u64,
+}
+impl ProviderSessionStamp {
+    fn is_current(&self) -> bool {
+        self.epoch.load(Ordering::SeqCst) == self.expected
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewAudio {
+    #[serde(skip)]
+    pub(crate) provider_session: Option<ProviderSessionStamp>,
     pub url: String,
     pub mime_type: String,
     pub codec: Option<String>,
@@ -128,6 +146,14 @@ pub struct PreviewAudio {
     pub expected_content_length: Option<u64>,
     #[serde(skip_serializing)]
     pub headers: Vec<(String, String)>,
+}
+
+impl PreviewAudio {
+    pub(crate) fn provider_session_current(&self) -> bool {
+        self.provider_session
+            .as_ref()
+            .is_none_or(ProviderSessionStamp::is_current)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -206,9 +232,14 @@ async fn add_youtube_support_args(
     args: &mut Vec<String>,
     provider: &str,
     settings: &Settings,
-) -> Result<bool, String> {
+    playback: Option<(
+        tokio::time::Instant,
+        watch::Receiver<bool>,
+        Option<crate::playback_sources::SourceTrace>,
+    )>,
+) -> Result<(bool, Option<crate::youtube_support::ProviderInvocation>), String> {
     if provider != "youtube" || !uses_managed_ytdlp(&settings.yt_dlp_path) {
-        return Ok(false);
+        return Ok((false, None));
     }
     if let Some(manager) = crate::youtube_support::global() {
         match managed_provider_action(
@@ -218,19 +249,25 @@ async fn add_youtube_support_args(
             ManagedProviderAction::SystemFallback => {
                 // A partial optional bundle must not block the public system
                 // yt-dlp fallback. Do not start the bundled helper at all.
-                return Ok(false);
+                return Ok((false,None));
             }
             ManagedProviderAction::Unavailable => return Err(
                 "The managed YouTube provider bundle is incomplete and no system yt-dlp is available. Repair the provider bundle or install yt-dlp.".into(),
             ),
             ManagedProviderAction::Managed => {}
         }
-        let provider_args = crate::youtube_support::yt_dlp_provider_args().await?;
-        let provider_args_installed = !provider_args.is_empty();
-        append_managed_youtube_provider_args(args, provider_args);
-        return Ok(provider_args_installed);
+        let invocation = if let Some((deadline, cancel, trace)) = playback {
+            manager
+                .playback_provider_invocation(deadline, cancel, trace)
+                .await?
+        } else {
+            manager.provider_invocation().await?
+        };
+        let installed = !invocation.args.is_empty();
+        append_managed_youtube_provider_args(args, invocation.args.clone());
+        return Ok((installed, Some(invocation)));
     }
-    Ok(false)
+    Ok((false, None))
 }
 
 fn should_force_managed_mweb(
@@ -408,7 +445,28 @@ fn is_public_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
+#[cfg(test)]
+tokio::task_local! {
+    static PLAYBACK_TEST_PUBLIC_DNS: bool;
+}
+
+/// Scope fake-extractor resolver tests to deterministic public DNS without
+/// modifying production URL validation, DNS filtering, pinning, or HTTP probes.
+#[cfg(test)]
+pub(crate) async fn with_playback_test_public_addresses<F: std::future::Future>(
+    future: F,
+) -> F::Output {
+    PLAYBACK_TEST_PUBLIC_DNS.scope(true, future).await
+}
+
 pub(crate) async fn public_addresses(url: &url::Url) -> Result<Vec<std::net::SocketAddr>, String> {
+    #[cfg(test)]
+    if PLAYBACK_TEST_PUBLIC_DNS
+        .try_with(|enabled| *enabled)
+        .unwrap_or(false)
+    {
+        return Ok(vec![std::net::SocketAddr::from(([8, 8, 8, 8], 443))]);
+    }
     let host = url.host_str().ok_or("Missing hostname")?;
     let addresses = tokio::time::timeout(
         Duration::from_secs(10),
@@ -493,7 +551,9 @@ async fn terminate(child: &mut Child) {
         }
         #[cfg(windows)]
         {
-            let _ = Command::new("taskkill")
+            let mut command = Command::new("taskkill");
+            crate::tools::configure_no_console_tokio(&mut command);
+            let _ = command
                 .args(["/F", "/T", "/PID", &pid.to_string()])
                 .output()
                 .await;
@@ -1074,6 +1134,7 @@ async fn search_provider_candidates(
         _ => return (Vec::new(), Vec::new()),
     };
     let queries = playback_search_queries(track, alternate_artist.as_deref());
+    let precision_fallback = queries.get(1).is_some_and(|query| query.starts_with('"'));
     let deadline = Instant::now() + per_provider_timeout;
     let mut candidates = Vec::new();
     let mut errors = Vec::new();
@@ -1141,7 +1202,8 @@ async fn search_provider_candidates(
         if candidates.iter().any(|candidate| {
             crate::source_fallback::playback_recording_matches(track, candidate)
                 || crate::source_fallback::is_topic_playback_candidate(track, candidate)
-                || crate::source_fallback::is_provisional_playback_candidate(track, candidate)
+                || (!precision_fallback
+                    && crate::source_fallback::is_provisional_playback_candidate(track, candidate))
         }) {
             break;
         }
@@ -1442,6 +1504,16 @@ fn playback_search_queries(track: &Track, alternate_artist: Option<&str>) -> Vec
         queries.push(alias_query);
     } else if !fallback_query.is_empty() && fallback_query != query {
         queries.push(fallback_query);
+    }
+    // When an ordinary known-duration query has no other fallback, reserve
+    // its existing second slot for a precision query. It is issued only if
+    // the first page lacks a full recording match (provisionals are weaker).
+    if queries.len() == 1 && track.duration_seconds.is_some() {
+        let artist = matching::normalize(&track.artist);
+        let title = matching::normalize(&track.title);
+        if !artist.is_empty() && !title.is_empty() {
+            queries.push(format!("\"{artist}\" \"{title}\""));
+        }
     }
     queries.truncate(2);
     queries
@@ -1852,12 +1924,16 @@ impl InspectionCache {
 struct PreviewAudioFlight {
     gate: Arc<tokio::sync::Mutex<()>>,
     trace_id: uuid::Uuid,
+    invalidated: AtomicBool,
 }
 
 #[derive(Default)]
 struct PreviewAudioCache {
-    invalidation_epoch: AtomicU64,
+    // Only a cache keyed by the exact signed URL can suppress an access denial.
+    // An extractor 403 does not prove that its client/format profile is broken.
+    cooldown_signed_stream_denials: bool,
     entries: Mutex<HashMap<String, CachedPreviewAudio>>,
+    cooldowns: Mutex<HashMap<String, (Instant, String)>>,
     in_flight: Mutex<HashMap<String, Arc<PreviewAudioFlight>>>,
 }
 
@@ -1985,10 +2061,64 @@ impl RawAudioSearchCache {
 }
 
 impl PreviewAudioCache {
+    fn for_signed_stream_access() -> Self {
+        Self {
+            cooldown_signed_stream_denials: true,
+            ..Self::default()
+        }
+    }
+
     fn invalidate(&self, key: &str) {
+        self.invalidate_matching(|entry| entry == key);
+    }
+
+    fn invalidate_matching(&self, matches: impl Fn(&str) -> bool) {
+        if let Ok(mut flights) = self.in_flight.lock() {
+            flights.retain(|key, flight| {
+                if matches(key) {
+                    flight.invalidated.store(true, Ordering::SeqCst);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
         if let Ok(mut entries) = self.entries.lock() {
-            self.invalidation_epoch.fetch_add(1, Ordering::SeqCst);
-            entries.remove(key);
+            entries.retain(|key, _| !matches(key));
+        }
+    }
+
+    fn profile_cooldown(&self, key: &str) -> Option<String> {
+        let mut cooldowns = self.cooldowns.lock().ok()?;
+        cooldowns.retain(|_, (at, _)| at.elapsed() < PLAYBACK_PROFILE_COOLDOWN);
+        cooldowns.get(key).map(|(_, error)| error.clone())
+    }
+
+    fn remember_profile_failure(&self, key: &str, error: &str) {
+        use crate::playback_failure::FailureCategory;
+        let failure = crate::playback_failure::classify(error);
+        if !failure.retryable
+            || failure.scope != crate::playback_failure::FailureScope::Source
+            || !(failure.category == FailureCategory::UnsupportedAudio
+                || (self.cooldown_signed_stream_denials
+                    && failure.category == FailureCategory::SourceAccess))
+        {
+            return;
+        }
+        if let Ok(mut cooldowns) = self.cooldowns.lock() {
+            cooldowns.retain(|_, (at, _)| at.elapsed() < PLAYBACK_PROFILE_COOLDOWN);
+            if cooldowns.len() >= PLAYBACK_PROFILE_COOLDOWN_MAX {
+                if let Some(oldest) = cooldowns
+                    .iter()
+                    .min_by_key(|(_, (at, _))| *at)
+                    .map(|(key, _)| key.clone())
+                {
+                    cooldowns.remove(&oldest);
+                }
+            }
+            // These are fixed diagnostics; never retain raw extractor output.
+            let safe_error = crate::playback_failure::safe_extractor_error(error);
+            cooldowns.insert(key.to_owned(), (Instant::now(), safe_error));
         }
     }
 
@@ -2033,6 +2163,7 @@ impl PreviewAudioCache {
                 let flight = Arc::new(PreviewAudioFlight {
                     gate: Arc::new(tokio::sync::Mutex::new(())),
                     trace_id: uuid::Uuid::new_v4(),
+                    invalidated: AtomicBool::new(false),
                 });
                 flights.insert(key.clone(), flight.clone());
                 (flight, true)
@@ -2067,6 +2198,11 @@ impl PreviewAudioCache {
             remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
             return Err("Cancelled".into());
         }
+        if flight.invalidated.load(Ordering::SeqCst) {
+            drop(guard);
+            remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+            return Err("Audio stream was invalidated during resolution".into());
+        }
         if let Some(cached) = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, v| v.cached_at.elapsed() < v.ttl);
             entries.get(&key).map(|v| v.audio.clone())
@@ -2079,7 +2215,21 @@ impl PreviewAudioCache {
             }
             drop(guard);
             remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+            if flight.invalidated.load(Ordering::SeqCst) || !cached.provider_session_current() {
+                return Err("Audio stream was invalidated during resolution".into());
+            }
             return Ok(cached);
+        }
+        if let Some(error) = self.profile_cooldown(&key) {
+            if let Some(trace) = &trace {
+                trace.event_scoped(
+                    "preview_audio_profile_cooldown",
+                    serde_json::json!({"sharedLookupId":flight.trace_id.to_string()}),
+                );
+            }
+            drop(guard);
+            remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+            return Err(error);
         }
         if let Some(trace) = &trace {
             trace.event_scoped(
@@ -2087,13 +2237,15 @@ impl PreviewAudioCache {
                 serde_json::json!({"sharedLookupId":flight.trace_id.to_string()}),
             );
         }
-        let epoch = self.invalidation_epoch.load(Ordering::SeqCst);
         let audio = match tokio::select! {
             result = resolve(flight.trace_id) => result,
             _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
         } {
             Ok(audio) => audio,
             Err(error) => {
+                if !flight.invalidated.load(Ordering::SeqCst) {
+                    self.remember_profile_failure(&key, &error);
+                }
                 if let Some(trace) = &trace {
                     trace.event_scoped("preview_audio_lookup_end", serde_json::json!({"sharedLookupId":flight.trace_id.to_string(),"ok":false,"cancelled":error == "Cancelled"}));
                 }
@@ -2108,10 +2260,15 @@ impl PreviewAudioCache {
                 serde_json::json!({"sharedLookupId":flight.trace_id.to_string(),"ok":true}),
             );
         }
+        if !audio.provider_session_current() {
+            drop(guard);
+            remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+            return Err("Audio source provider session changed during resolution".into());
+        }
         if let Ok(mut entries) = self.entries.lock() {
             // A failed URL may be invalidated while its older lookup is still running.
             // Never let that lookup restore an entry behind a fresh-stream retry.
-            if epoch == self.invalidation_epoch.load(Ordering::SeqCst) {
+            if !flight.invalidated.load(Ordering::SeqCst) {
                 entries.retain(|_, v| v.cached_at.elapsed() < v.ttl);
                 if entries.len() >= PREVIEW_AUDIO_CACHE_MAX {
                     if let Some(oldest) = entries
@@ -2134,6 +2291,9 @@ impl PreviewAudioCache {
         }
         drop(guard);
         remove_preview_flight_if_unused(&self.in_flight, &key, &flight);
+        if flight.invalidated.load(Ordering::SeqCst) || !audio.provider_session_current() {
+            return Err("Audio stream was invalidated during resolution".into());
+        }
         Ok(audio)
     }
 }
@@ -2424,6 +2584,66 @@ fn search_cache_key(
     .to_string()
 }
 
+fn optional_playback_research_budget(remaining: Duration) -> Duration {
+    remaining
+        .saturating_sub(PLAYBACK_EXTRACTION_RESERVE)
+        .min(OPTIONAL_PLAYBACK_RESEARCH_MAX)
+}
+
+/// Complete the flat search before publishing its shared cache entry. The
+/// catalog supplies locators only; normal recording/identity gates still apply.
+async fn complete_playback_candidate_search<F, Fut>(
+    track: &Track,
+    providers: &[String],
+    _alternate_artist: Option<&str>,
+    mut found: Vec<Candidate>,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    catalog: F,
+) -> Result<Vec<Candidate>, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+{
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.remaining().is_zero() {
+        return Err("Playback candidate search timed out".into());
+    }
+    let optional_budget = optional_playback_research_budget(deadline.remaining());
+    if !optional_budget.is_zero()
+        && providers.len() == 1
+        && providers[0] == "youtube"
+        && track.playback_range.is_none()
+        && !track.provenance["chapters"]
+            .as_array()
+            .is_some_and(|chapters| !chapters.is_empty())
+        && track.version.as_deref().is_none_or(|version| {
+            matches!(
+                crate::matching::normalize_version(version).as_str(),
+                "" | "original" | "original mix"
+            )
+        })
+        && !found
+            .iter()
+            .any(|candidate| crate::source_fallback::playback_recording_matches(track, candidate))
+    {
+        match tokio::select! {
+            biased;
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+            result = tokio::time::timeout(optional_budget, catalog()) => result.unwrap_or_else(|_| Err("Optional playback catalog search timed out".into())),
+        } {
+            Ok(items) => found.extend(items),
+            Err(error) if *cancel.borrow() || error == "Cancelled" => {
+                return Err("Cancelled".into())
+            }
+            Err(_) => {} // Optional research failure retains ordinary search candidates.
+        }
+    }
+    Ok(found)
+}
+
 fn playback_candidate_search_cache_key(
     track: &Track,
     provider_ids: &[String],
@@ -2448,8 +2668,18 @@ fn preview_audio_cache_key(
         settings.yt_dlp_path,
         settings.js_runtime_path,
         alternate_format,
+        PLAYBACK_EXTRACTION_PROFILE,
     ])
     .to_string()
+}
+
+fn playback_access_cache_key(candidate: &Candidate, audio: &PreviewAudio) -> String {
+    format!(
+        "{}\n{}\n{}",
+        candidate.provider,
+        candidate.url,
+        serde_json::json!([audio.url, audio.headers, audio.expected_content_length])
+    )
 }
 
 pub async fn inspect_candidate(
@@ -2515,6 +2745,10 @@ fn verified_chapter_suggestion<'a>(
     .then_some(track)
 }
 
+fn preview_operation_deadline(settings: &Settings) -> crate::playback_sources::PlaybackDeadline {
+    crate::playback_sources::PlaybackDeadline::after(settings.playback_startup_timeout())
+}
+
 async fn resolve_preview_audio_with_options(
     candidate: &Candidate,
     settings: &Settings,
@@ -2527,7 +2761,7 @@ async fn resolve_preview_audio_with_options(
         cancel,
         alternate_format,
         None,
-        crate::playback_sources::PlaybackDeadline::after(PREVIEW_SEARCH_TIMEOUT),
+        preview_operation_deadline(settings),
     )
     .await
 }
@@ -2535,10 +2769,57 @@ async fn resolve_preview_audio_with_options(
 async fn resolve_preview_audio_with_trace(
     candidate: &Candidate,
     settings: &Settings,
-    mut cancel: watch::Receiver<bool>,
+    cancel: watch::Receiver<bool>,
     alternate_format: bool,
     trace: Option<crate::playback_sources::SourceTrace>,
     deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<PreviewAudio, String> {
+    resolve_preview_audio_with_prepared_alternate(
+        candidate,
+        settings,
+        cancel,
+        alternate_format,
+        trace,
+        deadline,
+        None,
+    )
+    .await
+}
+
+async fn resolve_preview_audio_with_prepared_alternate(
+    candidate: &Candidate,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    alternate_format: bool,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    prepared: Option<Arc<Mutex<Option<PreviewAudio>>>>,
+) -> Result<PreviewAudio, String> {
+    let audio = extract_preview_audio_with_prepared_alternate(
+        candidate,
+        settings,
+        cancel.clone(),
+        alternate_format,
+        trace.clone(),
+        deadline,
+        prepared,
+    )
+    .await?;
+    if matches!(candidate.provider.as_str(), "youtube" | "soundcloud") {
+        validate_prepared_preview_audio(audio, cancel, trace, &candidate.provider, deadline).await
+    } else {
+        Ok(audio)
+    }
+}
+
+async fn extract_preview_audio_with_prepared_alternate(
+    candidate: &Candidate,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    alternate_format: bool,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    prepared: Option<Arc<Mutex<Option<PreviewAudio>>>>,
 ) -> Result<PreviewAudio, String> {
     if *cancel.borrow() {
         return Err("Cancelled".into());
@@ -2574,6 +2855,7 @@ async fn resolve_preview_audio_with_trace(
             traced_monochrome_probe(trace.clone(), cancel.clone(), || client.inspect(candidate))
                 .await?;
         return Ok(PreviewAudio {
+            provider_session: None,
             url: inspected.url,
             codec: inspected.formats.first().map(|format| format.codec.clone()),
             bitrate_kbps: inspected.formats.first().and_then(|format| format.bitrate),
@@ -2636,13 +2918,18 @@ async fn resolve_preview_audio_with_trace(
         cancel.clone(),
         deadline.instant(),
         "yt-dlp operation timed out",
-        add_youtube_support_args(&mut args, &candidate.provider, settings),
+        add_youtube_support_args(
+            &mut args,
+            &candidate.provider,
+            settings,
+            Some((deadline.instant(), cancel.clone(), trace.clone())),
+        ),
     )
     .await;
     if let Some(trace) = &trace {
         trace.event("provider_prepare_end", &candidate.provider, serde_json::json!({"durationMs":helper_started.elapsed().as_millis(), "ok":helper_result.is_ok()}));
     }
-    let managed_provider_args_installed = helper_result?;
+    let (managed_provider_args_installed, mut provider_invocation) = helper_result?;
     // The bundled provider supports token-bearing mobile web playback. Avoid
     // selecting a TV URL that does not use the available GVS token provider.
     if should_force_managed_mweb(
@@ -2664,6 +2951,12 @@ async fn resolve_preview_audio_with_trace(
         "--".into(),
         candidate.url.clone(),
     ]);
+    if trace
+        .as_ref()
+        .is_some_and(|trace| !trace.try_spend_extraction())
+    {
+        return Err("Playback extraction attempt budget exhausted".into());
+    }
     let extraction_started = Instant::now();
     if let Some(trace) = &trace {
         trace.event(
@@ -2674,29 +2967,57 @@ async fn resolve_preview_audio_with_trace(
     }
     let extraction_result =
         run_tool_until(settings, args, cancel.clone(), deadline.instant(), |_| {}).await;
+    if extraction_result.is_ok() {
+        if let Some(invocation) = provider_invocation.as_mut() {
+            invocation.complete();
+        }
+    }
+
     if let Some(trace) = &trace {
         trace.event("extraction_end", &candidate.provider, serde_json::json!({"durationMs":extraction_started.elapsed().as_millis(), "ok":extraction_result.is_ok()}));
     }
+    // Classify stderr before reducing it to a safe, fixed diagnostic. Extractor
+    // output may contain signed URLs or account material and must never escape.
     let raw = extraction_result.map_err(|error| {
         if error == "Cancelled" {
-            "Cancelled".to_string()
-        } else if error.contains("timed out") {
-            "Audio stream resolution timed out".to_string()
+            error
         } else {
-            "yt-dlp could not resolve an audio-only stream".to_string()
+            crate::playback_failure::safe_extractor_error(&error)
         }
     })?;
     let info: Value = serde_json::from_str(&raw)
         .map_err(|_| "yt-dlp returned invalid audio stream metadata".to_string())?;
     let audio = preview_audio_from_metadata(candidate, &info)?;
+    if let Some(prepared) = prepared {
+        if !alternate_format && candidate.provider == "youtube" {
+            if let Ok(mut slot) = prepared.lock() {
+                *slot = prepared_audio_alternate(candidate, &info, &audio);
+            }
+        }
+    }
+    Ok(audio)
+}
+
+async fn validate_prepared_preview_audio(
+    audio: PreviewAudio,
+    mut cancel: watch::Receiver<bool>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    provider: &str,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<PreviewAudio, String> {
+    if !audio.provider_session_current() {
+        return Err("Audio source provider session changed during resolution".into());
+    }
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.remaining().is_zero() {
+        return Err("Audio stream resolution timed out".into());
+    }
     let stream = validate_source_url(&audio.url, "direct")?;
     let dns_started = Instant::now();
     if let Some(trace) = &trace {
-        trace.event(
-            "dns_stream_start",
-            &candidate.provider,
-            serde_json::json!({}),
-        );
+        trace.event("dns_stream_start", provider, serde_json::json!({}));
     }
     let stream_addresses_result = run_playback_stage(
         cancel.clone(),
@@ -2706,7 +3027,7 @@ async fn resolve_preview_audio_with_trace(
     )
     .await;
     if let Some(trace) = &trace {
-        trace.event("dns_stream_end", &candidate.provider, serde_json::json!({"durationMs":dns_started.elapsed().as_millis(), "ok":stream_addresses_result.is_ok(), "addressCount":stream_addresses_result.as_ref().map_or(0, Vec::len)}));
+        trace.event("dns_stream_end", provider, serde_json::json!({"durationMs":dns_started.elapsed().as_millis(), "ok":stream_addresses_result.is_ok(), "addressCount":stream_addresses_result.as_ref().map_or(0, Vec::len)}));
     }
     let stream_addresses = stream_addresses_result?;
     let client = reqwest::Client::builder()
@@ -2732,12 +3053,15 @@ async fn resolve_preview_audio_with_trace(
                 audio.expected_content_length,
                 &mut cancel,
                 trace.clone(),
-                &candidate.provider,
+                provider,
             )
             .await
         },
     )
     .await?;
+    if !audio.provider_session_current() {
+        return Err("Audio source provider session changed during resolution".into());
+    }
     Ok(audio)
 }
 
@@ -2813,6 +3137,7 @@ async fn resolve_bandcamp_preview_audio(
         .await
         .map_err(|_| "Bandcamp audio resolution exceeded the playback deadline".to_owned())??;
     Ok(PreviewAudio {
+        provider_session: None,
         url: resolved.stream_url.to_string(),
         mime_type: "audio/mpeg".into(),
         codec: Some("mp3".into()),
@@ -3430,6 +3755,7 @@ fn preview_audio_from_metadata(
         .as_f64()
         .filter(|duration| duration.is_finite() && *duration > 0.0);
     Ok(PreviewAudio {
+        provider_session: None,
         url: stream_url.into(),
         mime_type,
         codec: Some(codec.to_owned()),
@@ -3457,6 +3783,68 @@ fn preview_audio_from_metadata(
             .filter(|size| *size > 0 && *size <= MAX_PREVIEW_FILE_SIZE),
         headers: preview_audio_headers(info),
     })
+}
+
+fn prepared_audio_alternate(
+    candidate: &Candidate,
+    info: &Value,
+    selected: &PreviewAudio,
+) -> Option<PreviewAudio> {
+    if candidate.provider != "youtube" {
+        return None;
+    }
+    let mut choices = info["formats"]
+        .as_array()?
+        .iter()
+        .filter(|format| {
+            format["protocol"].as_str() == Some("https")
+                && format["ext"].as_str() == Some("webm")
+                && format["vcodec"].as_str() == Some("none")
+                && format["acodec"]
+                    .as_str()
+                    .is_some_and(|codec| codec == "opus" || codec == "vorbis")
+        })
+        .collect::<Vec<_>>();
+    choices.sort_by(|left, right| {
+        let bitrate = |value: &Value| {
+            value["abr"]
+                .as_f64()
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(0.0)
+        };
+        bitrate(right).total_cmp(&bitrate(left))
+    });
+    for format in choices {
+        if format["url"].as_str() == Some(selected.url.as_str()) {
+            continue;
+        }
+        let mut merged = info.clone();
+        let target = merged.as_object_mut()?;
+        for field in [
+            "url",
+            "format_id",
+            "acodec",
+            "vcodec",
+            "ext",
+            "protocol",
+            "abr",
+            "filesize",
+        ] {
+            target.remove(field);
+            if let Some(value) = format.get(field) {
+                target.insert(field.into(), value.clone());
+            }
+        }
+        if let Some(headers) = format.get("http_headers") {
+            target.insert("http_headers".into(), headers.clone());
+        }
+        if let Ok(audio) = preview_audio_from_metadata(candidate, &merged) {
+            if !preview_audio_cache_ttl(&audio.url).is_zero() {
+                return Some(audio);
+            }
+        }
+    }
+    None
 }
 
 fn safe_extractor_format_id(value: Option<&str>) -> Option<String> {
@@ -3502,7 +3890,7 @@ fn playback_music_catalog_candidate(
     {
         return None;
     }
-    let artist = item.artist?;
+    let artist = crate::source_fallback::youtube_catalog_artist_credit(&item.title, &item.artist?);
     let candidate = Candidate {
         id: format!("youtube:{}", item.id),
         provider: "youtube".into(),
@@ -3521,8 +3909,30 @@ fn playback_music_catalog_candidate(
         ],
         ..Candidate::default()
     };
-    crate::source_fallback::is_provisional_playback_candidate(track, &candidate)
-        .then_some(candidate)
+    let mut credit_probe = track.clone();
+    credit_probe.artist = candidate
+        .source_metadata
+        .as_ref()
+        .and_then(|metadata| metadata["catalogArtist"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    // Retain a complete catalog credit as an alias locator. It still fails the
+    // canonical gate until exact provider-ID-backed alias proof is available.
+    (crate::source_fallback::is_provisional_playback_candidate(track, &candidate)
+        || (track.artist.split([',', '&']).next().is_some_and(|artist| {
+            !artist.trim().is_empty()
+                && credit_probe
+                    .artist
+                    .split([',', '&'])
+                    .next()
+                    .is_some_and(|found| {
+                        crate::matching::normalize(artist) == crate::matching::normalize(found)
+                    })
+        }) && crate::source_fallback::is_provisional_playback_candidate(
+            &credit_probe,
+            &candidate,
+        )))
+    .then_some(candidate)
 }
 
 /// Retain the narrowly useful, fresh YouTube channel identity exposed by the
@@ -3766,7 +4176,8 @@ async fn inspect_ytdlp_metadata(
     cancel: watch::Receiver<bool>,
 ) -> Result<Candidate, String> {
     let mut args = base_args(settings);
-    add_youtube_support_args(&mut args, &candidate.provider, settings).await?;
+    let (_, mut provider_invocation) =
+        add_youtube_support_args(&mut args, &candidate.provider, settings, None).await?;
     args.extend([
         "--dump-single-json".into(),
         "--no-playlist".into(),
@@ -3775,6 +4186,10 @@ async fn inspect_ytdlp_metadata(
         candidate.url.clone(),
     ]);
     let raw = run_tool(settings, args, cancel, Duration::from_secs(60), |_| {}).await?;
+    if let Some(invocation) = provider_invocation.as_mut() {
+        invocation.complete();
+    }
+
     let info: Value =
         serde_json::from_str(&raw).map_err(|e| format!("Invalid source metadata: {e}"))?;
     if info["entries"].is_array()
@@ -3872,6 +4287,7 @@ struct Inner {
     app: Option<tauri::AppHandle>,
     store: Arc<Store>,
     connections: Arc<ConnectionManager>,
+    remote_playlists: Mutex<Option<Arc<crate::remote_playlists::RemotePlaylistService>>>,
     analysis: Mutex<Option<Arc<crate::analysis::AnalysisManager>>>,
     autotag: Mutex<Option<Arc<crate::autotag::AutoTagger>>>,
     slskd_searches: Mutex<HashMap<String, SlskdSearchSession>>,
@@ -3880,6 +4296,9 @@ struct Inner {
     search_cache: CandidateSearchCache,
     raw_audio_search_cache: RawAudioSearchCache,
     preview_audio_cache: PreviewAudioCache,
+    playback_metadata_cache: PreviewAudioCache,
+    playback_access_cache: PreviewAudioCache,
+    playback_session_epochs: Mutex<HashMap<String, Arc<AtomicU64>>>,
     chapter_source_cache: Arc<ChapterSourceCache>,
     preview_search: PreviewSearchState,
     slots: Semaphore,
@@ -3909,6 +4328,12 @@ impl AcquisitionManager {
         Self::with_optional_app(Some(app), store, connections)
     }
 
+    /// Construct the production acquisition pipeline for headless diagnostics.
+    /// Uses the supplied store and connections without emitting GUI events.
+    pub fn new_for_diagnostics(store: Arc<Store>, connections: Arc<ConnectionManager>) -> Self {
+        Self::with_optional_app(None, store, connections)
+    }
+
     #[cfg(test)]
     pub(crate) fn new_for_playback_test(
         store: Arc<Store>,
@@ -3927,6 +4352,7 @@ impl AcquisitionManager {
                 app,
                 store,
                 connections,
+                remote_playlists: Mutex::new(None),
                 analysis: Mutex::new(None),
                 autotag: Mutex::new(None),
                 slskd_searches: Mutex::new(HashMap::new()),
@@ -3935,6 +4361,9 @@ impl AcquisitionManager {
                 search_cache: CandidateSearchCache::default(),
                 raw_audio_search_cache: RawAudioSearchCache::default(),
                 preview_audio_cache: PreviewAudioCache::default(),
+                playback_metadata_cache: PreviewAudioCache::default(),
+                playback_access_cache: PreviewAudioCache::for_signed_stream_access(),
+                playback_session_epochs: Mutex::new(HashMap::new()),
                 chapter_source_cache: Arc::new(ChapterSourceCache::default()),
                 preview_search: PreviewSearchState::default(),
                 slots: Semaphore::new(2),
@@ -3956,6 +4385,43 @@ impl AcquisitionManager {
             }
         }
         Ok(resumed)
+    }
+
+    pub(crate) fn alias_store(&self) -> Arc<Store> {
+        self.inner.store.clone()
+    }
+    pub fn set_remote_playlist_service(
+        &self,
+        service: Arc<crate::remote_playlists::RemotePlaylistService>,
+    ) {
+        if let Ok(mut slot) = self.inner.remote_playlists.lock() {
+            *slot = Some(service);
+        }
+    }
+    pub(crate) async fn prepare_alias_track(
+        &self,
+        track: &Track,
+        cancel: watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+        trace: &crate::playback_sources::SourceTrace,
+    ) -> Result<Track, String> {
+        let service = self
+            .inner
+            .remote_playlists
+            .lock()
+            .map_err(|_| "Alias service unavailable")?
+            .clone()
+            .ok_or("Alias service unavailable")?;
+        let started = std::time::Instant::now();
+        let result = service.prepare_alias_track(track, cancel, deadline).await;
+        trace.event(
+            "artist_alias_hydration",
+            "spotify",
+            serde_json::json!({
+            "elapsedMs":started.elapsed().as_millis(), "count":usize::from(result.is_ok()),
+            "category":if result.is_ok() {"complete"} else {"unavailable"}}),
+        );
+        result
     }
 
     pub fn set_analysis_manager(&self, analysis: Arc<crate::analysis::AnalysisManager>) {
@@ -4321,27 +4787,16 @@ impl AcquisitionManager {
         cancel: watch::Receiver<bool>,
         deadline: crate::playback_sources::PlaybackDeadline,
     ) -> Result<Vec<Candidate>, String> {
-        let search_track = track_for_playback_source_search(track);
-        // Keep this separate from the ordinary preview cache, which may
-        // contain an imported hint as its sole candidate.
-        let key =
-            playback_candidate_search_cache_key(track, provider_ids, settings, alternate_artists);
-        let alternate_artist = alternate_artists.first().cloned();
-        self.inner
-            .search_cache
-            .get_or_search_cancelled(key, cancel.clone(), || {
-                find_candidates_with_cancel_until_alias(
-                    &search_track,
-                    provider_ids,
-                    settings,
-                    cancel.clone(),
-                    PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
-                    PREVIEW_SEARCH_TIMEOUT,
-                    Some(deadline),
-                    alternate_artist,
-                )
-            })
-            .await
+        self.playback_candidates_cached(
+            track,
+            alternate_artists,
+            provider_ids,
+            settings,
+            cancel,
+            deadline,
+            None,
+        )
+        .await
     }
 
     pub(crate) async fn prefetch_playback_candidates_cancelled_traced(
@@ -4354,14 +4809,38 @@ impl AcquisitionManager {
         deadline: crate::playback_sources::PlaybackDeadline,
         trace: crate::playback_sources::SourceTrace,
     ) -> Result<Vec<Candidate>, String> {
+        self.playback_candidates_cached(
+            track,
+            alternate_artists,
+            provider_ids,
+            settings,
+            cancel,
+            deadline,
+            Some(trace),
+        )
+        .await
+    }
+
+    async fn playback_candidates_cached(
+        &self,
+        track: &Track,
+        alternate_artists: &[String],
+        provider_ids: &[String],
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        trace: Option<crate::playback_sources::SourceTrace>,
+    ) -> Result<Vec<Candidate>, String> {
         let search_track = track_for_playback_source_search(track);
+        // Warmup and foreground must cache the same complete search. Otherwise
+        // a flat-only warmup hit can suppress the foreground catalog locator.
         let key =
             playback_candidate_search_cache_key(track, provider_ids, settings, alternate_artists);
         let alternate_artist = alternate_artists.first().cloned();
         self.inner
             .search_cache
-            .get_or_search_cancelled_traced(key, cancel.clone(), trace, || async {
-                let mut found = find_candidates_with_cancel_until_alias(
+            .get_or_search_cancelled_observed(key, cancel.clone(), trace, || async {
+                let found = find_candidates_with_cancel_until_alias(
                     &search_track,
                     provider_ids,
                     settings,
@@ -4369,54 +4848,29 @@ impl AcquisitionManager {
                     PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
                     PREVIEW_SEARCH_TIMEOUT,
                     Some(deadline),
-                    alternate_artist,
+                    alternate_artist.clone(),
                 )
                 .await?;
-                // General video search can bury the artist's auto-generated
-                // recording beneath descriptive reuploads. One native music
-                // catalog query may supply a locator, never match proof.
-                if provider_ids.len() == 1
-                    && provider_ids[0] == "youtube"
-                    && search_track.duration_seconds.is_none()
-                    && search_track.playback_range.is_none()
-                    && !search_track.provenance["chapters"]
-                        .as_array()
-                        .is_some_and(|chapters| !chapters.is_empty())
-                    && search_track.version.as_deref().is_none_or(|version| {
-                        matches!(
-                            crate::matching::normalize_version(version).as_str(),
-                            "" | "original" | "original mix"
+                complete_playback_candidate_search(
+                    &search_track,
+                    provider_ids,
+                    alternate_artist.as_deref(),
+                    found,
+                    cancel.clone(),
+                    deadline,
+                    || async {
+                        let query = format!("{} {}", search_track.artist, search_track.title);
+                        let items = crate::youtube_music::search_playback_candidates(
+                            &query,
+                            10,
+                            cancel.clone(),
+                            deadline,
                         )
-                    })
-                    && !found.iter().any(|candidate| {
-                        crate::source_fallback::is_provisional_playback_candidate(
-                            &search_track,
-                            candidate,
-                        ) || crate::source_fallback::playback_recording_matches(
-                            &search_track,
-                            candidate,
-                        )
-                    })
-                {
-                    let query = format!("{} {}", search_track.artist, search_track.title);
-                    match crate::youtube_music::search_playback_candidates(
-                        &query,
-                        10,
-                        cancel.clone(),
-                        deadline,
-                    )
-                    .await
-                    {
-                        Ok(items) => {
-                            found.extend(playback_music_catalog_candidates(&search_track, items));
-                        }
-                        Err(error) if *cancel.borrow() || error == "Cancelled" => {
-                            return Err("Cancelled".into())
-                        }
-                        Err(_) => {} // Retain ordinary candidates and caller deadline.
-                    }
-                }
-                Ok(found)
+                        .await?;
+                        Ok(playback_music_catalog_candidates(&search_track, items))
+                    },
+                )
+                .await
             })
             .await
     }
@@ -4466,6 +4920,169 @@ impl AcquisitionManager {
             .await
     }
 
+    fn playback_provider_stamp(&self, provider: &str) -> Result<ProviderSessionStamp, String> {
+        // Supported provider names bound this map independently of recording count.
+        if !matches!(
+            provider,
+            "youtube" | "soundcloud" | "bandcamp" | "monochrome"
+        ) {
+            return Err("Unsupported playback provider".into());
+        }
+        let epoch = self
+            .inner
+            .playback_session_epochs
+            .lock()
+            .map_err(|_| "Provider session state lock poisoned")?
+            .entry(provider.to_owned())
+            .or_insert_with(|| Arc::new(AtomicU64::new(0)))
+            .clone();
+        let expected = epoch.load(Ordering::SeqCst);
+        Ok(ProviderSessionStamp { epoch, expected })
+    }
+
+    /// Playback must verify the full extractor identity before touching its CDN URL.
+    /// This cache is deliberately separate from the cache of access-validated audio.
+    pub(crate) async fn extract_playback_audio_traced_preparing_alternate(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        prepared: Option<Arc<Mutex<Option<PreviewAudio>>>>,
+    ) -> Result<PreviewAudio, String> {
+        let stamp = self.playback_provider_stamp(&candidate.provider)?;
+        let trace = trace.with_event_provider(&candidate.provider);
+        let key = preview_audio_cache_key(candidate, settings, false);
+        self.inner
+            .playback_metadata_cache
+            .get_or_resolve_cancelled(
+                key,
+                cancel.clone(),
+                Some(trace.clone()),
+                |worker_id| async move {
+                    let prepared_slot = prepared.clone();
+                    let mut audio = extract_preview_audio_with_prepared_alternate(
+                        candidate,
+                        settings,
+                        cancel,
+                        false,
+                        Some(trace.with_shared_lookup(worker_id)),
+                        deadline,
+                        prepared,
+                    )
+                    .await?;
+                    audio.provider_session = Some(stamp.clone());
+                    if !audio.provider_session_current() {
+                        return Err(
+                            "Audio source provider session changed during resolution".into()
+                        );
+                    }
+                    if let Some(slot) = prepared_slot {
+                        if let Ok(mut slot) = slot.lock() {
+                            if let Some(alternate) = slot.as_mut() {
+                                alternate.provider_session = Some(stamp);
+                            }
+                        }
+                    }
+                    Ok(audio)
+                },
+            )
+            .await
+    }
+
+    pub(crate) async fn extract_playback_audio_fresh_or_prepared_traced(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        alternate_format: bool,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        prepared: Option<PreviewAudio>,
+    ) -> Result<PreviewAudio, String> {
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        if let Some(audio) = prepared {
+            if !audio.provider_session_current() {
+                return Err("Audio source provider session changed during resolution".into());
+            }
+            trace.event(
+                "prepared_alternate_metadata_reused",
+                &candidate.provider,
+                serde_json::json!({"extractionReused":true}),
+            );
+            return Ok(audio);
+        }
+        let stamp = self.playback_provider_stamp(&candidate.provider)?;
+        self.invalidate_preview_audio(candidate, settings);
+        let trace = trace.with_event_provider(&candidate.provider);
+        let key = preview_audio_cache_key(candidate, settings, alternate_format);
+        self.inner
+            .playback_metadata_cache
+            .get_or_resolve_cancelled(
+                key,
+                cancel.clone(),
+                Some(trace.clone()),
+                |worker_id| async move {
+                    let mut audio = extract_preview_audio_with_prepared_alternate(
+                        candidate,
+                        settings,
+                        cancel,
+                        alternate_format,
+                        Some(trace.with_shared_lookup(worker_id)),
+                        deadline,
+                        None,
+                    )
+                    .await?;
+                    audio.provider_session = Some(stamp);
+                    if !audio.provider_session_current() {
+                        return Err(
+                            "Audio source provider session changed during resolution".into()
+                        );
+                    }
+                    Ok(audio)
+                },
+            )
+            .await
+    }
+
+    pub(crate) async fn validate_playback_audio_traced(
+        &self,
+        candidate: &Candidate,
+        audio: PreviewAudio,
+        cancel: watch::Receiver<bool>,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<PreviewAudio, String> {
+        if !audio.provider_session_current() {
+            return Err("Audio source provider session changed during resolution".into());
+        }
+        if matches!(candidate.provider.as_str(), "youtube" | "soundcloud") {
+            let key = playback_access_cache_key(candidate, &audio);
+            let probe_audio = audio.clone();
+            self.inner
+                .playback_access_cache
+                .get_or_resolve_cancelled(key, cancel.clone(), Some(trace.clone()), |worker_id| {
+                    validate_prepared_preview_audio(
+                        probe_audio,
+                        cancel,
+                        Some(trace.with_shared_lookup(worker_id)),
+                        &candidate.provider,
+                        deadline,
+                    )
+                })
+                .await?;
+        }
+        if !audio.provider_session_current() {
+            return Err("Audio source provider session changed during resolution".into());
+        }
+        // Cached access is proof for the bytes only; preserve the exact metadata
+        // whose recording identity the caller just verified.
+        Ok(audio)
+    }
+
     pub(crate) async fn resolve_preview_audio_traced(
         &self,
         candidate: &Candidate,
@@ -4473,6 +5090,21 @@ impl AcquisitionManager {
         cancel: watch::Receiver<bool>,
         trace: crate::playback_sources::SourceTrace,
         deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<PreviewAudio, String> {
+        self.resolve_preview_audio_traced_preparing_alternate(
+            candidate, settings, cancel, trace, deadline, None,
+        )
+        .await
+    }
+
+    pub(crate) async fn resolve_preview_audio_traced_preparing_alternate(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        prepared: Option<Arc<Mutex<Option<PreviewAudio>>>>,
     ) -> Result<PreviewAudio, String> {
         if candidate.provider == "bandcamp" {
             return resolve_preview_audio_with_trace(
@@ -4490,13 +5122,14 @@ impl AcquisitionManager {
         self.inner
             .preview_audio_cache
             .get_or_resolve_cancelled(key, cancel.clone(), Some(trace.clone()), |worker_id| {
-                resolve_preview_audio_with_trace(
+                resolve_preview_audio_with_prepared_alternate(
                     candidate,
                     settings,
                     cancel,
                     false,
                     Some(trace.with_shared_lookup(worker_id)),
                     deadline,
+                    prepared,
                 )
             })
             .await
@@ -4510,6 +5143,28 @@ impl AcquisitionManager {
         alternate_format: bool,
         trace: crate::playback_sources::SourceTrace,
         deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<PreviewAudio, String> {
+        self.resolve_preview_audio_fresh_or_prepared_traced(
+            candidate,
+            settings,
+            cancel,
+            alternate_format,
+            trace,
+            deadline,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn resolve_preview_audio_fresh_or_prepared_traced(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        alternate_format: bool,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        prepared: Option<PreviewAudio>,
     ) -> Result<PreviewAudio, String> {
         if candidate.provider == "bandcamp" {
             return resolve_preview_audio_with_trace(
@@ -4527,16 +5182,37 @@ impl AcquisitionManager {
         let key = preview_audio_cache_key(candidate, settings, alternate_format);
         self.inner
             .preview_audio_cache
-            .get_or_resolve_cancelled(key, cancel.clone(), Some(trace.clone()), |worker_id| {
-                resolve_preview_audio_with_trace(
-                    candidate,
-                    settings,
-                    cancel,
-                    alternate_format,
-                    Some(trace.with_shared_lookup(worker_id)),
-                    deadline,
-                )
-            })
+            .get_or_resolve_cancelled(
+                key,
+                cancel.clone(),
+                Some(trace.clone()),
+                |worker_id| async move {
+                    if let Some(audio) = prepared {
+                        trace.event(
+                            "prepared_alternate_validation_start",
+                            &candidate.provider,
+                            serde_json::json!({"extractionReused":true}),
+                        );
+                        return validate_prepared_preview_audio(
+                            audio,
+                            cancel,
+                            Some(trace.with_shared_lookup(worker_id)),
+                            &candidate.provider,
+                            deadline,
+                        )
+                        .await;
+                    }
+                    resolve_preview_audio_with_trace(
+                        candidate,
+                        settings,
+                        cancel,
+                        alternate_format,
+                        Some(trace.with_shared_lookup(worker_id)),
+                        deadline,
+                    )
+                    .await
+                },
+            )
             .await
     }
 
@@ -4567,10 +5243,50 @@ impl AcquisitionManager {
             .await
     }
 
+    /// Invalidate signed URLs and rejected extractor profiles after a provider
+    /// account/session change. In-flight callers cannot adopt pre-change results.
+    pub(crate) fn invalidate_playback_provider_session(&self, provider: &str) {
+        if let Ok(stamp) = self.playback_provider_stamp(provider) {
+            stamp.epoch.fetch_add(1, Ordering::SeqCst);
+        }
+        let is_profile = |key: &str| {
+            serde_json::from_str::<Value>(key)
+                .ok()
+                .is_some_and(|value| value[0].as_str() == Some(provider))
+        };
+        for cache in [
+            &self.inner.preview_audio_cache,
+            &self.inner.playback_metadata_cache,
+        ] {
+            cache.invalidate_matching(is_profile);
+            if let Ok(mut cooldowns) = cache.cooldowns.lock() {
+                cooldowns.retain(|key, _| !is_profile(key));
+            }
+        }
+        let access_prefix = format!("{provider}\n");
+        self.inner
+            .playback_access_cache
+            .invalidate_matching(|key| key.starts_with(&access_prefix));
+        if let Ok(mut cooldowns) = self.inner.playback_access_cache.cooldowns.lock() {
+            cooldowns.retain(|key, _| !key.starts_with(&access_prefix));
+        }
+    }
+
     /// Drop a previously validated stream URL after the playback engine reports a later
     /// transport failure. The next attempt will resolve a fresh signed URL for the same source.
     pub fn invalidate_preview_audio(&self, candidate: &Candidate, settings: &Settings) {
+        let prefix = format!("{}\n{}\n", candidate.provider, candidate.url);
+        self.inner
+            .playback_access_cache
+            .invalidate_matching(|key| key.starts_with(&prefix));
         for alternate_format in [false, true] {
+            self.inner
+                .playback_metadata_cache
+                .invalidate(&preview_audio_cache_key(
+                    candidate,
+                    settings,
+                    alternate_format,
+                ));
             self.inner
                 .preview_audio_cache
                 .invalidate(&preview_audio_cache_key(
@@ -5213,7 +5929,9 @@ impl AcquisitionManager {
                 "bestaudio".into()
             };
             let mut args = base_args(settings);
-            add_youtube_support_args(&mut args, &job.candidate.provider, settings).await?;
+            let (_, mut provider_invocation) =
+                add_youtube_support_args(&mut args, &job.candidate.provider, settings, None)
+                    .await?;
             args.extend([
                 "--no-playlist".into(),
                 "--no-simulate".into(),
@@ -5274,6 +5992,9 @@ impl AcquisitionManager {
                 },
             )
             .await?;
+            if let Some(invocation) = provider_invocation.as_mut() {
+                invocation.complete();
+            }
             let filename = raw
                 .lines()
                 .filter_map(|line| line.strip_prefix("BURRATA_FILE "))
@@ -5838,6 +6559,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn public_music_feature_locator_retains_complete_explicit_performers_without_proving_playback()
+    {
+        let raw: Value = serde_json::from_str(include_str!(
+            "../fixtures/youtube-music-reckless-performer-runs.json"
+        ))
+        .unwrap();
+        let track = Track {
+            title: "Reckless".into(),
+            artist: "Nipsey Hussle,Bino Rideaux,Static Major".into(),
+            ..Track::default()
+        };
+        let items = crate::youtube_music::parse_search_response(&raw, 10);
+        let candidates = playback_music_catalog_candidates(&track, items.clone());
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].source_metadata.as_ref().unwrap()["catalogArtist"],
+            "Nipsey Hussle, Bino Rideaux, Static Major"
+        );
+        assert!(crate::source_fallback::is_provisional_playback_candidate(
+            &track,
+            &candidates[0]
+        ));
+        assert!(
+            !crate::source_fallback::playback_music_catalog_recording_matches_verified_extractor(
+                &track,
+                &candidates[0]
+            )
+        );
+        let mut wrong = items[0].clone();
+        wrong.artist = Some("Nipsey Hussle, Wrong Artist".into());
+        let wrong_candidates = playback_music_catalog_candidates(&track, vec![wrong]);
+        assert!(wrong_candidates.iter().all(|candidate| {
+            !crate::source_fallback::is_provisional_playback_candidate(&track, candidate)
+        }));
+        let mut missing = items[0].clone();
+        missing.title = "Reckless".into();
+        assert!(playback_music_catalog_candidates(&track, vec![missing])
+            .iter()
+            .all(
+                |candidate| !crate::source_fallback::is_provisional_playback_candidate(
+                    &track, candidate
+                )
+            ));
+    }
+
+    #[test]
     fn music_catalog_locator_requires_one_distinct_exact_recording() {
         let track = Track {
             artist: "Imael Angel".into(),
@@ -6217,6 +6984,249 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn warmup_cache_includes_catalog_locator_before_foreground_hit() {
+        let cache = CandidateSearchCache::default();
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let settings = Settings::default();
+        let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20));
+        let (_tx, cancel) = idle_cancel();
+        let warmed = cache
+            .get_or_search_cancelled(key.clone(), cancel.clone(), || async {
+                complete_playback_candidate_search(
+                    &track,
+                    &providers,
+                    None,
+                    vec![Candidate {
+                        id: "youtube:unrelated".into(),
+                        title: "Unrelated video".into(),
+                        ..Candidate::default()
+                    }],
+                    cancel.clone(),
+                    deadline,
+                    || async {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(vec![Candidate {
+                            id: "youtube:catalog-locator".into(),
+                            ..Candidate::default()
+                        }])
+                    },
+                )
+                .await
+            })
+            .await
+            .unwrap();
+        assert_eq!(warmed.len(), 2);
+        let foreground = cache
+            .get_or_search_cancelled_traced(
+                key,
+                cancel,
+                crate::playback_sources::SourceTrace::new(None, None, None),
+                || async {
+                    panic!("complete warmup must satisfy foreground without a second search")
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(foreground[1].id, "youtube:catalog-locator");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn known_duration_unverified_search_results_allow_exact_catalog_fallback() {
+        let track = Track {
+            artist: "John Denver".into(),
+            title: "Matthew".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let (_tx, cancel) = idle_cancel();
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20));
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let candidates = complete_playback_candidate_search(
+            &track,
+            &providers,
+            None,
+            vec![Candidate {
+                provider: "youtube".into(),
+                id: "youtube:ordinary-search-result".into(),
+                title: "John Denver - Matthew".into(),
+                duration_seconds: Some(216.0),
+                confidence: "review".into(),
+                permission: "unknown".into(),
+                ..Candidate::default()
+            }],
+            cancel,
+            deadline,
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![Candidate {
+                    provider: "youtube".into(),
+                    id: "youtube:catalog-locator".into(),
+                    title: "Matthew".into(),
+                    duration_seconds: Some(228.0),
+                    ..Candidate::default()
+                }])
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[1].id, "youtube:catalog-locator");
+    }
+
+    #[tokio::test]
+    async fn cancelled_catalog_completion_is_not_cached_and_foreground_can_retry() {
+        let cache = CandidateSearchCache::default();
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let (tx, cancel) = watch::channel(false);
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20));
+        let result = cache
+            .get_or_search_cancelled("completion".into(), cancel.clone(), || async {
+                complete_playback_candidate_search(
+                    &track,
+                    &providers,
+                    None,
+                    vec![],
+                    cancel.clone(),
+                    deadline,
+                    || async {
+                        tx.send_replace(true);
+                        std::future::pending::<Result<Vec<Candidate>, String>>().await
+                    },
+                )
+                .await
+            })
+            .await;
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        let (_tx, fresh) = idle_cancel();
+        let result = cache
+            .get_or_search_cancelled("completion".into(), fresh, || async {
+                Ok(vec![Candidate {
+                    id: "retry".into(),
+                    ..Candidate::default()
+                }])
+            })
+            .await
+            .unwrap();
+        assert_eq!(result[0].id, "retry");
+    }
+
+    #[test]
+    fn preview_operation_deadline_uses_the_configured_startup_timeout() {
+        for (configured, expected) in [(20, 20), (30, 30), (45, 45), (0, 20)] {
+            let settings = Settings {
+                playback_startup_timeout_seconds: configured,
+                ..Settings::default()
+            };
+            let remaining = preview_operation_deadline(&settings).remaining();
+            assert!(remaining <= Duration::from_secs(expected));
+            assert!(remaining > Duration::from_secs(expected - 1));
+        }
+    }
+
+    #[test]
+    fn optional_catalog_research_leaves_time_for_extraction_and_access_checks() {
+        assert_eq!(
+            optional_playback_research_budget(Duration::from_secs(45)),
+            Duration::from_secs(3)
+        );
+        assert_eq!(
+            optional_playback_research_budget(Duration::from_secs(10)),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            optional_playback_research_budget(Duration::from_secs(8)),
+            Duration::ZERO
+        );
+        assert_eq!(
+            optional_playback_research_budget(Duration::from_secs(1)),
+            Duration::ZERO
+        );
+    }
+
+    #[tokio::test]
+    async fn optional_catalog_timeout_retains_and_caches_collected_search_rows() {
+        let cache = CandidateSearchCache::default();
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let (_tx, cancel) = idle_cancel();
+        let deadline = crate::playback_sources::PlaybackDeadline::after(
+            PLAYBACK_EXTRACTION_RESERVE + Duration::from_millis(25),
+        );
+        let result = cache
+            .get_or_search_cancelled("completion".into(), cancel.clone(), || async {
+                complete_playback_candidate_search(
+                    &track,
+                    &providers,
+                    None,
+                    vec![Candidate {
+                        id: "ordinary-search-row".into(),
+                        ..Candidate::default()
+                    }],
+                    cancel.clone(),
+                    deadline,
+                    || std::future::pending::<Result<Vec<Candidate>, String>>(),
+                )
+                .await
+            })
+            .await
+            .unwrap();
+        assert_eq!(result[0].id, "ordinary-search-row");
+        assert!(deadline.remaining() > Duration::from_secs(7));
+        let cached = cache
+            .get_or_search_cancelled("completion".into(), cancel, || async {
+                panic!("optional research timeout must retain a usable flat-search cache entry")
+            })
+            .await
+            .unwrap();
+        assert_eq!(cached[0].id, "ordinary-search-row");
+    }
+
+    #[tokio::test]
+    async fn optional_catalog_does_not_start_when_extraction_reserve_is_unavailable() {
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let (_tx, cancel) = idle_cancel();
+        let result = complete_playback_candidate_search(
+            &track,
+            &providers,
+            None,
+            vec![Candidate {
+                id: "ordinary-search-row".into(),
+                ..Candidate::default()
+            }],
+            cancel,
+            crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(1)),
+            || async { panic!("optional catalog must preserve extraction reserve") },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result[0].id, "ordinary-search-row");
+    }
+
     #[test]
     fn source_statistics_preserve_zero_and_distinguish_soundcloud_plays() {
         let youtube = candidate_from_json(
@@ -6370,6 +7380,50 @@ mod tests {
         assert_eq!(observations[8].1, "high");
         assert!(observations[8].2);
         assert!(eligible_ranks[0] <= PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT);
+    }
+
+    #[test]
+    fn known_duration_precision_fallback_uses_only_the_available_second_query_slot() {
+        let track = Track {
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        assert_eq!(
+            playback_search_queries(&track, None),
+            vec!["john denver matthew", "\"john denver\" \"matthew\""]
+        );
+        let alias = playback_search_queries(&track, Some("Verified Name"));
+        assert_eq!(alias.len(), 2);
+        assert_eq!(alias[1], "verified name matthew");
+        let missing = Track {
+            duration_seconds: None,
+            ..track.clone()
+        };
+        assert_eq!(
+            playback_search_queries(&missing, None),
+            vec!["john denver matthew"]
+        );
+        let make = |title: &str, duration| Candidate {
+            provider: "youtube".into(),
+            title: title.into(),
+            duration_seconds: Some(duration),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let early = make("John Denver - Matthew", 216.0);
+        assert!(crate::source_fallback::is_provisional_playback_candidate(
+            &track, &early
+        ));
+        assert!(!crate::source_fallback::playback_recording_matches(
+            &track, &early
+        ));
+        let precise = make("JOHN DENVER - MATTHEW.", 225.0);
+        assert!(crate::source_fallback::playback_recording_matches(
+            &track, &precise
+        ));
     }
 
     #[test]
@@ -6582,6 +7636,7 @@ mod tests {
             move |_| async move {
                 worker_release.notified().await;
                 Ok(PreviewAudio {
+                    provider_session: None,
                     url: "https://cdn.example/audio".into(),
                     mime_type: "audio/mp4".into(),
                     codec: Some("aac".into()),
@@ -6646,6 +7701,7 @@ mod tests {
                             let _ = worker_id_tx.send(worker_id);
                             worker_release.notified().await;
                             Ok(PreviewAudio {
+                                provider_session: None,
                                 url: "https://cdn.example/audio".into(),
                                 mime_type: "audio/mp4".into(),
                                 codec: Some("aac".into()),
@@ -6785,6 +7841,7 @@ mod tests {
                     move |_| async move {
                         let _ = second_started_tx.send(());
                         Ok(PreviewAudio {
+                            provider_session: None,
                             url: "https://cdn.example/second-caller-audio".into(),
                             mime_type: "audio/mp4".into(),
                             codec: Some("aac".into()),
@@ -6832,6 +7889,7 @@ mod tests {
             expected_bytes: u64,
         ) -> PreviewAudio {
             PreviewAudio {
+                provider_session: None,
                 url: url.into(),
                 mime_type: mime_type.into(),
                 codec: Some(codec.into()),
@@ -8990,6 +10048,102 @@ echo "$result"
     }
 
     #[test]
+    fn prepared_alternate_preserves_recording_identity_and_uses_its_own_format_fields() {
+        let candidate = Candidate {
+            id: "youtube:abcdefghijk".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        let info = serde_json::json!({
+            "id":"abcdefghijk", "title":"Exact Recording", "artist":"Exact Artist", "duration":139.0,
+            "url":"https://media.googlevideo.com/aac?expire=4102444800", "acodec":"mp4a.40.2", "vcodec":"none", "ext":"m4a", "protocol":"https", "format_id":"140", "filesize":123,
+            "formats":[{"url":"https://media.googlevideo.com/opus?expire=4102444800", "acodec":"opus", "vcodec":"none", "ext":"webm", "protocol":"https", "format_id":"251", "abr":128, "filesize":456, "title":"Nested spoof", "id":"other-source"}]
+        });
+        let selected = preview_audio_from_metadata(&candidate, &info).unwrap();
+        let prepared = prepared_audio_alternate(&candidate, &info, &selected).unwrap();
+        assert_eq!(
+            prepared.resolved_provider_id.as_deref(),
+            Some("abcdefghijk")
+        );
+        assert_eq!(prepared.resolved_title.as_deref(), Some("Exact Recording"));
+        assert_eq!(prepared.duration_seconds, Some(139.0));
+        assert_eq!(prepared.selected_format_id.as_deref(), Some("251"));
+        assert_eq!(prepared.expected_content_length, Some(456));
+        assert_eq!(prepared.codec.as_deref(), Some("opus"));
+        assert!(!prepared.selected_format_has_video);
+        let mut missing_size = info.clone();
+        missing_size["formats"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("filesize");
+        assert_eq!(
+            prepared_audio_alternate(&candidate, &missing_size, &selected)
+                .unwrap()
+                .expected_content_length,
+            None
+        );
+    }
+
+    #[test]
+    fn prepared_alternate_rejects_video_manifests_foreign_hosts_expiry_and_changed_identity() {
+        let candidate = Candidate {
+            id: "youtube:abcdefghijk".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        let base = serde_json::json!({"id":"abcdefghijk", "title":"Recording", "duration":139,
+            "url":"https://media.googlevideo.com/aac", "acodec":"mp4a.40.2", "vcodec":"none", "ext":"m4a", "protocol":"https", "format_id":"140",
+            "formats":[{"url":"https://media.googlevideo.com/opus", "acodec":"opus", "vcodec":"none", "ext":"webm", "protocol":"https", "format_id":"251"}]});
+        let selected = preview_audio_from_metadata(&candidate, &base).unwrap();
+        for (field, value) in [
+            ("vcodec", "avc1"),
+            ("protocol", "m3u8_native"),
+            ("url", "https://attacker.example/opus"),
+            ("url", "https://media.googlevideo.com/opus?expire=1"),
+            ("url", "http://media.googlevideo.com/opus"),
+            ("acodec", "none"),
+        ] {
+            let mut bad = base.clone();
+            bad["formats"][0][field] = serde_json::json!(value);
+            assert!(
+                prepared_audio_alternate(&candidate, &bad, &selected).is_none(),
+                "{field}: {value}"
+            );
+        }
+        let mut changed = base.clone();
+        changed["id"] = serde_json::json!("changed");
+        assert!(prepared_audio_alternate(&candidate, &changed, &selected).is_none());
+    }
+
+    #[tokio::test]
+    async fn prepared_alternate_cancel_and_deadline_stop_before_network() {
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        let audio=preview_audio_from_metadata(&candidate,&serde_json::json!({"url":"https://media.googlevideo.com/opus","acodec":"opus","vcodec":"none","ext":"webm","protocol":"https"})).unwrap();
+        let (tx, cancel) = watch::channel(false);
+        tx.send_replace(true);
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(1));
+        assert_eq!(
+            validate_prepared_preview_audio(audio.clone(), cancel, None, "youtube", deadline)
+                .await
+                .unwrap_err(),
+            "Cancelled"
+        );
+        let (_tx, cancel) = idle_cancel();
+        let expired = crate::playback_sources::PlaybackDeadline::at(
+            tokio::time::Instant::now() - Duration::from_secs(1),
+        );
+        assert_eq!(
+            validate_prepared_preview_audio(audio, cancel, None, "youtube", expired)
+                .await
+                .unwrap_err(),
+            "Audio stream resolution timed out"
+        );
+    }
+
+    #[test]
     fn alternate_preview_audio_format_prefers_webm_then_m4a_without_changing_default() {
         assert_eq!(
             preview_audio_format_selector(false, false),
@@ -9321,6 +10475,7 @@ echo "$result"
             calls.fetch_add(1, Ordering::SeqCst);
             tokio::time::sleep(Duration::from_millis(20)).await;
             Ok(PreviewAudio {
+                provider_session: None,
                 url: "https://rr5---sn.googlevideo.com/audio".into(),
                 mime_type: "audio/mp4".into(),
                 codec: None,
@@ -9358,6 +10513,7 @@ echo "$result"
         let cache = PreviewAudioCache::default();
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let audio = || PreviewAudio {
+            provider_session: None,
             url: "https://tracks.monochrome.st/track/239910648984977408".into(),
             mime_type: "audio/flac".into(),
             codec: Some("flac".into()),
@@ -9497,6 +10653,7 @@ echo "$result"
         let resolve = || async {
             calls.fetch_add(1, Ordering::SeqCst);
             Ok(PreviewAudio {
+                provider_session: None,
                 url: "https://rr5---sn.googlevideo.com/audio?expire=4102444800".into(),
                 mime_type: "audio/mp4".into(),
                 codec: None,
@@ -9535,6 +10692,7 @@ echo "$result"
     async fn invalidation_during_lookup_cannot_restore_a_stale_stream() {
         let cache = PreviewAudioCache::default();
         let audio = |url: &str| PreviewAudio {
+            provider_session: None,
             url: url.into(),
             mime_type: "audio/mp4".into(),
             codec: None,
@@ -9563,7 +10721,10 @@ echo "$result"
         }
         cache.invalidate("source");
         release.send(()).unwrap();
-        stale.await.unwrap();
+        assert_eq!(
+            stale.await.unwrap_err(),
+            "Audio stream was invalidated during resolution"
+        );
         let next = cache
             .get_or_resolve("source".into(), || async {
                 Ok(audio("https://cdn.example/fresh"))
@@ -9571,6 +10732,287 @@ echo "$result"
             .await
             .unwrap();
         assert_eq!(next.url, "https://cdn.example/fresh");
+    }
+
+    #[tokio::test]
+    async fn invalidating_one_source_does_not_discard_an_independent_source_cache() {
+        let cache = PreviewAudioCache::default();
+        let audio = preview_audio_from_metadata(
+            &Candidate {
+                provider: "youtube".into(),
+                ..Candidate::default()
+            },
+            &serde_json::json!({
+                "url":"https://rr1.googlevideo.com/videoplayback", "acodec":"aac",
+                "vcodec":"none", "protocol":"https", "ext":"m4a"
+            }),
+        )
+        .unwrap();
+        cache
+            .get_or_resolve("independent-source".into(), || async {
+                cache.invalidate("failed-source");
+                Ok(audio)
+            })
+            .await
+            .unwrap();
+        cache
+            .get_or_resolve("independent-source".into(), || async {
+                panic!("source invalidation must not poison an independent caller/cache entry")
+            })
+            .await
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn provider_reset_fences_inflight_metadata_and_prepared_audio_before_access() {
+        let output = serde_json::json!({
+            "id":"sessiontest", "title":"Artist - Recording", "duration":180,
+            "url":"https://rr1.googlevideo.com/videoplayback?token=private-primary",
+            "acodec":"aac", "vcodec":"none", "protocol":"https", "ext":"m4a",
+            "formats":[{"url":"https://rr1.googlevideo.com/videoplayback?token=private-alternate",
+                "acodec":"opus", "vcodec":"none", "protocol":"https", "ext":"webm"}]
+        });
+        let (_tools, settings) = fake_tool(&format!("printf '%s\n' '{}'", output));
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("provider-reset.sqlite")).unwrap());
+        let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let manager = AcquisitionManager::new_for_playback_test(store, connections);
+        let candidate = Candidate {
+            id: "youtube:sessiontest".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=sessiontest".into(),
+            ..Candidate::default()
+        };
+        let reset_manager = manager.clone();
+        let reset_trace = crate::playback_sources::SourceTrace::new(None, None, None)
+            .with_test_sink(Arc::new(move |event| {
+                if event["phase"] == "extraction_end" {
+                    reset_manager.invalidate_playback_provider_session("youtube");
+                }
+            }));
+        let (_tx, cancel) = idle_cancel();
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(10));
+        let reset_during_extraction = with_playback_test_public_addresses(
+            manager.extract_playback_audio_traced_preparing_alternate(
+                &candidate,
+                &settings,
+                cancel.clone(),
+                reset_trace,
+                deadline,
+                None,
+            ),
+        )
+        .await;
+        assert!(reset_during_extraction
+            .unwrap_err()
+            .contains("session changed"));
+
+        let prepared = Arc::new(Mutex::new(None));
+        let trace = crate::playback_sources::SourceTrace::new(None, None, None);
+        let audio = with_playback_test_public_addresses(
+            manager.extract_playback_audio_traced_preparing_alternate(
+                &candidate,
+                &settings,
+                cancel.clone(),
+                trace.clone(),
+                deadline,
+                Some(prepared.clone()),
+            ),
+        )
+        .await
+        .unwrap();
+        let alternate = prepared.lock().unwrap().take().unwrap();
+        assert!(audio.provider_session_current() && alternate.provider_session_current());
+        let profile = preview_audio_cache_key(&candidate, &settings, false);
+        manager
+            .inner
+            .playback_metadata_cache
+            .remember_profile_failure(&profile, "Audio source format is unavailable");
+        assert!(manager
+            .inner
+            .playback_metadata_cache
+            .profile_cooldown(&profile)
+            .is_some());
+        manager.invalidate_playback_provider_session("youtube");
+        assert!(manager
+            .inner
+            .playback_metadata_cache
+            .profile_cooldown(&profile)
+            .is_none());
+        assert!(!audio.provider_session_current() && !alternate.provider_session_current());
+        let phases = Arc::new(Mutex::new(Vec::new()));
+        let observed = phases.clone();
+        let trace = trace.with_test_sink(Arc::new(move |event| {
+            observed
+                .lock()
+                .unwrap()
+                .push(event["phase"].as_str().unwrap().to_owned());
+        }));
+        assert!(manager
+            .validate_playback_audio_traced(
+                &candidate,
+                audio,
+                cancel.clone(),
+                trace.clone(),
+                deadline
+            )
+            .await
+            .unwrap_err()
+            .contains("session changed"));
+        assert!(manager
+            .extract_playback_audio_fresh_or_prepared_traced(
+                &candidate,
+                &settings,
+                cancel,
+                true,
+                trace,
+                deadline,
+                Some(alternate)
+            )
+            .await
+            .unwrap_err()
+            .contains("session changed"));
+        assert!(
+            phases.lock().unwrap().is_empty(),
+            "a reset must fence before any CDN DNS/probe"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn denied_signed_url_does_not_block_fresh_extraction_of_the_same_format() {
+        let metadata = serde_json::json!({
+            "id":"refreshsame", "title":"Artist - Recording", "duration":180,
+            "url":"https://rr1.googlevideo.com/videoplayback?token=fresh",
+            "acodec":"aac", "vcodec":"none", "protocol":"https", "ext":"m4a"
+        });
+        let (_tools, settings) = fake_tool(&format!("printf '%s\n' '{}'", metadata));
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("fresh-url.sqlite")).unwrap());
+        let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let manager = AcquisitionManager::new_for_playback_test(store, connections);
+        let candidate = Candidate {
+            id: "youtube:refreshsame".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=refreshsame".into(),
+            ..Candidate::default()
+        };
+        let mut expired_metadata = metadata.clone();
+        expired_metadata["url"] = "https://rr1.googlevideo.com/videoplayback?token=expired".into();
+        let expired_audio = preview_audio_from_metadata(&candidate, &expired_metadata).unwrap();
+        let expired_key = playback_access_cache_key(&candidate, &expired_audio);
+        let denied = "Audio source access was denied (HTTP 403)";
+        manager
+            .inner
+            .playback_access_cache
+            .get_or_resolve(expired_key.clone(), || async { Err(denied.into()) })
+            .await
+            .unwrap_err();
+        assert!(manager
+            .inner
+            .playback_access_cache
+            .profile_cooldown(&expired_key)
+            .is_some());
+        let profile = preview_audio_cache_key(&candidate, &settings, false);
+        manager
+            .inner
+            .playback_metadata_cache
+            .remember_profile_failure(&profile, denied);
+        assert!(
+            manager
+                .inner
+                .playback_metadata_cache
+                .profile_cooldown(&profile)
+                .is_none(),
+            "an extractor denial does not prove a client/format failure"
+        );
+
+        let (_tx, cancel) = idle_cancel();
+        let trace = crate::playback_sources::SourceTrace::new(None, None, None);
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(10));
+        let fresh = with_playback_test_public_addresses(
+            manager.extract_playback_audio_fresh_or_prepared_traced(
+                &candidate, &settings, cancel, false, trace, deadline, None,
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(fresh.url, metadata["url"].as_str().unwrap());
+        let fresh_key = playback_access_cache_key(&candidate, &fresh);
+        assert_ne!(expired_key, fresh_key);
+        assert!(manager
+            .inner
+            .playback_access_cache
+            .profile_cooldown(&fresh_key)
+            .is_none());
+        // Exercise the access-cache boundary with a successful fresh probe result;
+        // strict HTTP/range/real-byte probing is covered by the probe tests below.
+        let accepted = manager
+            .inner
+            .playback_access_cache
+            .get_or_resolve(fresh_key, || async { Ok(fresh) })
+            .await
+            .unwrap();
+        assert_eq!(accepted.url, metadata["url"].as_str().unwrap());
+    }
+
+    #[tokio::test]
+    async fn failed_playback_profile_cooldown_is_bounded_and_leaves_alternates_eligible() {
+        let cache = PreviewAudioCache::default();
+        let denied = "Audio source format is unavailable; refresh or choose another source";
+        assert!(cache
+            .get_or_resolve("candidate:default".into(), || async { Err(denied.into()) })
+            .await
+            .is_err());
+        let repeated = cache
+            .get_or_resolve("candidate:default".into(), || async {
+                panic!("a rejected client/format profile must cool down")
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(
+            crate::playback_failure::classify(&repeated).category,
+            crate::playback_failure::FailureCategory::UnsupportedAudio
+        );
+        let alternate = cache
+            .get_or_resolve("candidate:alternate".into(), || async {
+                Err("alternate profile was attempted".into())
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(alternate, "alternate profile was attempted");
+        for index in 0..(PLAYBACK_PROFILE_COOLDOWN_MAX + 10) {
+            cache.remember_profile_failure(&format!("profile:{index}"), denied);
+        }
+        assert_eq!(
+            cache.cooldowns.lock().unwrap().len(),
+            PLAYBACK_PROFILE_COOLDOWN_MAX
+        );
+        cache.cooldowns.lock().unwrap().insert(
+            "expired".into(),
+            (Instant::now() - PLAYBACK_PROFILE_COOLDOWN, denied.into()),
+        );
+        assert!(cache.profile_cooldown("expired").is_none());
+    }
+
+    #[tokio::test]
+    async fn transient_network_and_cancellation_never_cool_down_a_playback_profile() {
+        let cache = PreviewAudioCache::default();
+        for message in [
+            "Cancelled",
+            "Audio source network connection failed",
+            "Audio source extraction timed out",
+            "Audio source access was denied (HTTP 403)",
+            "Audio source access was denied; refresh or choose another source",
+            "The resolved audio source identity does not match this recording",
+        ] {
+            let first = cache
+                .get_or_resolve("candidate".into(), || async { Err(message.into()) })
+                .await;
+            assert_eq!(first.unwrap_err(), message);
+            assert!(cache.profile_cooldown("candidate").is_none());
+        }
     }
 
     #[test]
@@ -9794,6 +11236,7 @@ echo "$result"
                     move |_| async move {
                         let _ = waiter_resolver_tx.send(());
                         Ok(PreviewAudio {
+                            provider_session: None,
                             url: "https://cdn.example/takeover-audio".into(),
                             mime_type: "audio/mp4".into(),
                             codec: Some("aac".into()),

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resolve-radio-station-playback-url"
+description = "Enables the resolve_radio_station_playback_url command without any pre-configured scope."
+commands.allow = ["resolve_radio_station_playback_url"]
+
+[[permission]]
+identifier = "deny-resolve-radio-station-playback-url"
+description = "Denies the resolve_radio_station_playback_url command without any pre-configured scope."
+commands.deny = ["resolve_radio_station_playback_url"]

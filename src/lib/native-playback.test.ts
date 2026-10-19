@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { NativePlaybackBridge } from "./native-playback";
+import { NativePlaybackBridge, nativeSnapshotFailure } from "./native-playback";
 import type { NativePlaybackSnapshot, Track } from "./types";
 
 const track: Track = { id:"a", provider:"local", providerId:"a", sourceUrl:"file:///a", artist:"Artist", title:"Track", favorite:false, provenance:{} };
@@ -114,5 +114,27 @@ describe("NativePlaybackBridge", () => {
     await expect(bridge.initialize(()=>{},()=>{})).rejects.toThrow("event connection failed");
     expect(stopState).toHaveBeenCalledOnce();
     expect(bridge.snapshot).toBeNull();
+  });
+});
+
+
+describe("native typed failure compatibility", () => {
+  it("prefers typed detail over legacy text and ignores stale failures outside failed status", () => {
+    const failure = {category:"network", stage:"transport", scope:"global", retryable:true} as const;
+    const current = {...snapshot(12), status:"failed" as const, playerMessage:"Private video", failure};
+    expect(nativeSnapshotFailure(current)).toBe(failure);
+    expect(nativeSnapshotFailure({...current, status:"playing"})).toBeNull();
+    expect(nativeSnapshotFailure({...current, failure:undefined})).toMatchObject({category:"source_private", scope:"recording", retryable:false});
+  });
+  it("retains normalized failure detail through queue-omitted bridge updates", async () => {
+    const bridge = new NativePlaybackBridge(vi.fn() as never, vi.fn() as never);
+    bridge.acceptSnapshot({...snapshot(2), queueRevision:1});
+    const failure = {category:"source_access", stage:"extraction", scope:"source", retryable:true, httpStatus:403} as const;
+    const {queue:omitted, ...failed} = {...snapshot(3), queueRevision:1, status:"failed" as const, failure};
+    expect(bridge.acceptSnapshot(failed)).toBe(true);
+    expect(bridge.snapshot?.failure).toBe(failure);
+    const {queue:alsoOmitted, ...playing} = {...snapshot(4), queueRevision:1};
+    bridge.acceptSnapshot(playing);
+    expect(bridge.snapshot?.failure).toBeNull();
   });
 });

@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-18",
+  "platform": "linux",
+  "build": "debug",
+  "native": {
+    "passed": 1146,
+    "failed": 0,
+    "ignored": 23
+  },
+  "frontend": {
+    "files": 85,
+    "passed": 1028,
+    "failed": 0,
+    "sharedMenus": "track, playlist/station, queue and chapters",
+    "durationFilterPortal": "open-state integration tests passed"
+  },
+  "mcpHost": {
+    "passed": 12
+  },
+  "aliasReport": {
+    "passed": 5
+  },
+  "nativeDecoderContract": "passed",
+  "svelteCheck": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "historyNavigation": {
+    "beforeMs": 11500,
+    "afterMs": 4120,
+    "timeoutMs": 10000
+  },
+  "limits": [
+    "Live recognition ground truth and statistical playback qualification are separate.",
+    "Release/macOS/Windows measurements not run in this checkpoint."
+  ]
+}

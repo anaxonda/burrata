@@ -74,6 +74,36 @@ describe("TrackMenu", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("offers an exact Go to album navigation action when the parent supplies a catalog target", async () => {
+    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    const onGoToAlbum = vi.fn(), onClose = vi.fn(), noop = vi.fn();
+    const instance = mount(TrackMenu, { target: document.body, props: {
+      track: { ...track, album: "Selected edition" }, onGoToAlbum, onClose, onNext: noop, onQueue: noop,
+      onPlaylist: noop, onFavorite: noop, onDownload: noop, onDetails: noop, onSelect: noop,
+    } as never });
+    destroy = () => unmount(instance); await tick();
+    const albumAction = [...document.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent?.trim() === "Go to album")!;
+    expect(albumAction).toBeTruthy();
+    albumAction.click(); await tick();
+    expect(onGoToAlbum).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("labels album navigation unavailable when a track has no exact identity", async () => {
+    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    const instance = mount(TrackMenu, { target: document.body, props: {
+      track: { ...track, album: "Unlinked album" }, onGoToAlbumUnavailable: true,
+      onClose: vi.fn(), onNext: vi.fn(), onQueue: vi.fn(), onPlaylist: vi.fn(), onFavorite: vi.fn(), onDownload: vi.fn(), onDetails: vi.fn(), onSelect: vi.fn(),
+    } as never });
+    destroy = () => unmount(instance); await tick();
+    const unavailable = [...document.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent?.trim() === "Go to album")!;
+    expect(unavailable.disabled).toBe(true);
+    expect(unavailable.title).toContain("Album link unavailable for this track");
+    expect(unavailable.getAttribute("aria-label")).toContain("Album link unavailable for this track");
+  });
+
   it("closes on Escape without bubbling app shortcuts", async () => {
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
@@ -174,4 +204,25 @@ it("opens the exact ranged source once from its in-button icon or keyboard activ
  expect(icon).toBeTruthy();expect(icon.getAttribute('aria-hidden')).toBe('true');expect(button.getAttribute('aria-label')).toBe('Open Song on Beatport');expect(row.querySelectorAll('button')).toHaveLength(1);
  icon.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));await tick();expect(opener).toHaveBeenCalledExactlyOnceWith(sourceTrack,sourceTrack.sourceUrl);expect(onClose).toHaveBeenCalledTimes(1);
  button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:0}));await tick();expect(opener).toHaveBeenCalledTimes(2);expect(opener).toHaveBeenLastCalledWith(sourceTrack,sourceTrack.sourceUrl);expect(onClose).toHaveBeenCalledTimes(2);expect(JSON.stringify(sourceTrack)).toBe(before);
+});
+
+it("offers available standalone actions without inventing callbacks and navigates enabled actions with arrows", async () => {
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+  const onArtist = vi.fn(), onClose = vi.fn();
+  const instance = mount(TrackMenu, { target: document.body, props: { track, onArtist, onClose, onGoToAlbumUnavailable: true } });
+  destroy = () => unmount(instance); await tick();
+  const menu = document.querySelector<HTMLDialogElement>(".action-menu.track-menu")!;
+  const artist = [...menu.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Open artist")!;
+  for (const button of menu.querySelectorAll<HTMLButtonElement>("button")) button.getClientRects = () => { const rects = [new DOMRect(0, 0, 1, 1)]; return Object.assign(rects, { item: (index: number) => rects[index] ?? null }); };
+  expect(menu.textContent).not.toContain("Play next");
+  expect(menu.textContent).not.toContain("Add to playlist");
+  menu.querySelector<HTMLButtonElement>("header button")!.focus();
+  const arrow = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
+  menu.dispatchEvent(arrow);
+  expect(arrow.defaultPrevented).toBe(true);
+  expect(document.activeElement).toBe(artist);
+  artist.click(); await tick();
+  expect(onArtist).toHaveBeenCalledOnce();
+  expect(onClose).toHaveBeenCalledOnce();
 });

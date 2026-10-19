@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
 import shutil
 import signal
 import math
+import plistlib
+import sqlite3
 import struct
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 
 TARGETS = {
@@ -22,6 +26,7 @@ TARGETS = {
     "win32": "x86_64-pc-windows-msvc",
 }
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+SCHEMA = ROOT / "src-tauri" / "src" / "schema.sql"
 
 
 class SmokeFailure(RuntimeError):
@@ -33,6 +38,35 @@ class SmokeFailure(RuntimeError):
 def canonical_temp_root(path: pathlib.Path) -> pathlib.Path:
     """Return a canonical temp root before launching Tauri from it."""
     return path.resolve(strict=True)
+
+
+def macos_transport_security_check(app_bundle: pathlib.Path) -> dict[str, str]:
+    """Verify the installed bundle grants HTTP only to the loopback host."""
+    info_plist = app_bundle / "Contents" / "Info.plist"
+    try:
+        with info_plist.open("rb") as stream:
+            info = plistlib.load(stream)
+    except (OSError, plistlib.InvalidFileException) as error:
+        raise SmokeFailure("macOS ATS", "installed app Info.plist is unreadable") from error
+
+    ats = info.get("NSAppTransportSecurity")
+    if not isinstance(ats, dict):
+        raise SmokeFailure("macOS ATS", "installed app has no ATS configuration")
+    domains = ats.get("NSExceptionDomains")
+    if not isinstance(domains, dict) or set(domains) != {"127.0.0.1"}:
+        raise SmokeFailure("macOS ATS", "ATS exceptions are not limited to 127.0.0.1")
+    exception = domains["127.0.0.1"]
+    if not isinstance(exception, dict) or exception.get("NSExceptionAllowsInsecureHTTPLoads") is not True:
+        raise SmokeFailure("macOS ATS", "127.0.0.1 HTTP exception is missing")
+    broad_exemptions = {
+        "NSAllowsArbitraryLoads",
+        "NSAllowsArbitraryLoadsForMedia",
+        "NSAllowsArbitraryLoadsInWebContent",
+        "NSAllowsLocalNetworking",
+    }
+    if broad_exemptions.intersection(ats):
+        raise SmokeFailure("macOS ATS", "broad ATS transport exemption is present")
+    return {"loopbackHttpException": "127.0.0.1", "broadExemptions": "absent"}
 
 
 def run(args: list[str | os.PathLike[str]], *, timeout: int = 60,
@@ -278,6 +312,185 @@ def bundled_media_checks(resource_root: pathlib.Path, target: str, env: dict[str
     }
 
 
+def build_webview_audio_fixture(resource_root: pathlib.Path, target: str,
+                                env: dict[str, str], temp: pathlib.Path,
+                                app_data: pathlib.Path) -> dict[str, str | float]:
+    """Generate and register a short AAC asset for installed WebView playback."""
+    ext = ".exe" if sys.platform == "win32" else ""
+    tools = resource_root / "tools" / target
+    ffmpeg = tools / ("ffmpeg" + ext)
+    ffprobe = tools / ("ffprobe" + ext)
+    if not ffmpeg.is_file() or not ffprobe.is_file():
+        raise SmokeFailure("WebView audio setup", "packaged AAC encoder or probe is missing")
+    fixture_dir = temp / "webview-audio-fixture"
+    fixture_dir.mkdir()
+    audio = fixture_dir / "installed-smoke.m4a"
+    run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=4:sample_rate=44100", "-ac", "2",
+         "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", audio],
+        timeout=30, env=env)
+    probed = run([ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries",
+                  "stream=codec_name:format=duration", "-of", "json", audio],
+                 timeout=15, env=env)
+    try:
+        info = json.loads(probed.stdout.decode("utf-8"))
+        codec = info["streams"][0]["codec_name"]
+        duration = float(info["format"]["duration"])
+    except (ValueError, KeyError, IndexError, TypeError) as error:
+        raise SmokeFailure("WebView audio setup", "packaged ffprobe returned invalid AAC fixture metadata") from error
+    if codec != "aac":
+        raise SmokeFailure("WebView audio setup", "packaged FFmpeg did not encode AAC")
+    fixture = register_webview_audio_fixture(app_data, audio, duration, temp)
+    return {"trackId": fixture["trackId"], "codec": codec, "mimeType": "audio/mp4", "durationSeconds": fixture["durationSeconds"],
+            "registered": "isolated local asset"}
+
+
+def register_webview_audio_fixture(app_data: pathlib.Path, audio_path: pathlib.Path,
+                                   duration_seconds: float, temp_root: pathlib.Path) -> dict[str, str | float]:
+    """Register one generated AAC file in the smoke-owned, isolated app database."""
+    root = temp_root.resolve(strict=True)
+    path = audio_path.resolve(strict=True)
+    if not path.is_relative_to(root) or path.suffix.lower() != ".m4a" or not path.is_file():
+        raise SmokeFailure("WebView audio setup", "AAC fixture must be a temporary smoke-owned M4A file")
+    if not math.isfinite(duration_seconds) or not 3.5 <= duration_seconds <= 5.0:
+        raise SmokeFailure("WebView audio setup", "generated AAC fixture duration is outside the smoke bound")
+
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    track_id = f"local:{digest}"
+    asset_id = str(uuid.uuid4())
+    title = "Burrata Installed WebView Audio Fixture"
+    artist = "Burrata Test"
+    track = {
+        "id": track_id, "provider": "local", "providerId": digest,
+        "sourceUrl": f"local:{digest}", "artist": artist, "title": title,
+        "version": "Smoke AAC", "album": "Installed WebView Smoke",
+        "albumArtist": None, "recordingDate": None, "trackNumber": None,
+        "trackTotal": None, "discNumber": None, "discTotal": None,
+        "remixers": [], "label": None, "genre": None, "normalizedGenre": None,
+        "durationSeconds": duration_seconds, "bpm": None, "key": None,
+        "releaseDate": None, "artworkUrl": None, "isrc": None,
+        "catalogNumber": None, "rank": None, "previewUrl": None,
+        "favorite": False, "disposition": None, "localPath": str(path),
+        "localAvailability": "available", "assetId": asset_id,
+        "provenance": {"codec": "aac", "synthetic": True},
+    }
+    asset = {
+        "id": asset_id, "recordingId": track_id, "path": str(path), "hash": digest,
+        "sourceCodec": "aac", "finalCodec": "aac", "sourceBitrate": None,
+        "finalBitrate": None, "sampleRate": 44100, "channels": 2,
+        "bitDepth": None, "durationSeconds": duration_seconds,
+        "sizeBytes": path.stat().st_size, "bitrateOrigin": "format",
+        "processing": "existing-local-file", "track": track,
+    }
+    database = app_data / "burrata.sqlite"
+    if database.exists():
+        raise SmokeFailure("WebView audio setup", "smoke app database already exists")
+    app_data.mkdir(parents=True, exist_ok=True)
+    try:
+        with sqlite3.connect(database) as connection:
+            connection.executescript(SCHEMA.read_text(encoding="utf-8"))
+            with connection:
+                connection.execute("INSERT INTO works(id,title,artist) VALUES(?,?,?)",
+                                   (f"work:{track_id}", title, artist))
+                connection.execute("INSERT INTO recordings(id,work_id,version) VALUES(?,?,?)",
+                                   (track_id, f"work:{track_id}", track["version"]))
+                connection.execute(
+                    "INSERT INTO catalog_listings(id,provider,provider_id,recording_id,source_url,metadata,updated_at) VALUES(?,?,?,?,?,?,?)",
+                    (track_id, "local", digest, track_id, track["sourceUrl"],
+                     json.dumps(track, separators=(",", ":")), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+                )
+                connection.execute(
+                    "INSERT INTO local_assets(id,recording_id,path,hash,payload) VALUES(?,?,?,?,?)",
+                    (asset_id, track_id, str(path), digest, json.dumps(asset, separators=(",", ":"))),
+                )
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+            if integrity != "ok":
+                raise SmokeFailure("WebView audio setup", "seeded smoke database failed integrity check")
+    except (OSError, sqlite3.Error) as error:
+        raise SmokeFailure("WebView audio setup", "could not register the local AAC fixture") from error
+    return {"trackId": track_id, "durationSeconds": duration_seconds, "codec": "aac", "mimeType": "audio/mp4"}
+
+
+def webview_audio_failure_category(error_code: int | None) -> str | None:
+    if error_code is None:
+        return None
+    return {1: "load_aborted", 2: "source_failure", 3: "decode_failure", 4: "unsupported_media"}.get(
+        error_code, "unknown_media_failure")
+
+
+def assess_webview_audio_progress(track_id: str, first: dict, second: dict) -> dict[str, float | str]:
+    samples = (first, second)
+    for sample in samples:
+        if sample.get("engine") != "webview" or sample.get("applicable") is not True:
+            raise SmokeFailure("WebView audio", "installed app did not expose WebView media inspection")
+        if sample.get("trackId") != track_id or sample.get("queueTrackId") != track_id:
+            raise SmokeFailure("WebView audio", "playback sample did not belong to the smoke fixture")
+        if sample.get("playbackStatus") != "playing" or sample.get("queueTotal") != 1:
+            raise SmokeFailure("WebView audio", "isolated playback queue was not the single playing fixture")
+        if not isinstance(sample.get("entryId"), str) or not sample["entryId"]:
+            raise SmokeFailure("WebView audio", "playback queue entry identity was missing")
+        if sample.get("previewKind") != "local":
+            raise SmokeFailure("WebView audio", "fixture did not use the registered local-audio route")
+        media = sample.get("media")
+        if not isinstance(media, dict) or media.get("present") is not True:
+            raise SmokeFailure("WebView audio", "WebView audio element was not present")
+        category = webview_audio_failure_category(media.get("errorCode"))
+        if category:
+            raise SmokeFailure("WebView audio", f"media element reported {category}")
+        if media.get("sourceStable") is not True or media.get("paused") is not False:
+            raise SmokeFailure("WebView audio", "audio source was unstable or playback was paused")
+        if not isinstance(media.get("readyState"), (int, float)) or media["readyState"] < 2:
+            raise SmokeFailure("WebView audio", "audio element did not reach a playable ready state")
+        if not isinstance(media.get("duration"), (int, float)) or not 3.5 <= media["duration"] <= 5.0:
+            raise SmokeFailure("WebView audio", "audio element reported an invalid fixture duration")
+        if not isinstance(media.get("currentTime"), (int, float)) or not math.isfinite(media["currentTime"]):
+            raise SmokeFailure("WebView audio", "audio element clock was unavailable")
+    if first["entryId"] != second["entryId"] or first.get("sourceGeneration") != second.get("sourceGeneration"):
+        raise SmokeFailure("WebView audio", "playback identity changed between media samples")
+    advance = second["media"]["currentTime"] - first["media"]["currentTime"]
+    if advance < 0.5:
+        raise SmokeFailure("WebView audio", "WebView audio clock did not advance by 0.5 seconds")
+    return {"engine": "webview", "previewKind": "local", "clockAdvanceSeconds": round(advance, 3)}
+
+
+def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
+                          discovery: pathlib.Path, env: dict[str, str],
+                          track_id: str) -> dict:
+    node = shutil.which("node")
+    ext = ".exe" if sys.platform == "win32" else ""
+    mcp = resource_root / "tools" / target / ("burrata-mcp" + ext)
+    if not node or not mcp.is_file():
+        raise SmokeFailure("WebView audio", "installed MCP launcher or Node.js is unavailable")
+    result = run([node, ROOT / "scripts/release/check-installed-webview-audio.mjs",
+                  mcp, discovery, track_id], timeout=30, env=env, check=False)
+    try:
+        payload = json.loads(result.stdout.decode().strip().splitlines()[-1])
+        if payload.get("status") != "sampled":
+            category = payload.get("failureCategory")
+            messages = {
+                "source_failure": "loopback audio source could not be loaded",
+                "unsupported_media": "WebView does not support the generated AAC asset",
+                "decode_failure": "WebView failed to decode the generated AAC asset",
+                "mcp_failure": "installed MCP playback check failed",
+                "unsupported_smoke_tools": "installed MCP is missing a required smoke tool",
+                "smoke_permissions_unavailable": "isolated smoke MCP permissions are unavailable",
+                "webview_engine_unavailable": "installed app did not expose applicable WebView media",
+                "wrong_playback_track": "installed WebView played a different track",
+                "audio_not_ready": "WebView media did not become ready before the deadline",
+                "audio_state_not_playing": "WebView media was not playing during the second sample",
+            }
+            detail = messages.get(category, "installed WebView audio check did not complete")
+            if category in messages:
+                detail = f"{detail} (category={category})"
+            raise SmokeFailure("WebView audio", detail)
+        if result.returncode != 0:
+            raise SmokeFailure("WebView audio", "installed MCP playback checker exited unsuccessfully")
+        samples = payload
+        return assess_webview_audio_progress(track_id, samples["first"], samples["second"])
+    except (ValueError, IndexError, KeyError, TypeError) as error:
+        raise SmokeFailure("WebView audio", "installed MCP returned invalid audio evidence") from error
+
+
 def native_host_check(resource_root: pathlib.Path, target: str,
                       env: dict[str, str]) -> dict[str, str]:
     ext = ".exe" if sys.platform == "win32" else ""
@@ -456,15 +669,26 @@ def main() -> int:
         evidence["checks"]["installer"] = "installed"
         evidence["installedLocation"] = pathlib.Path(installed_path).name if sys.platform != "linux" else installed_path
 
+        if sys.platform == "darwin":
+            evidence["checks"]["transportSecurity"] = macos_transport_security_check(app)
+
         target = TARGETS[sys.platform]
         evidence["checks"]["packagedTools"] = bundled_tool_checks(resource_root, target, env)
         evidence["checks"]["mediaFixtures"] = bundled_media_checks(resource_root, target, env, temp)
+        audio_fixture = build_webview_audio_fixture(resource_root, target, env, temp, app_data)
+        evidence["checks"]["webviewAudioFixture"] = {
+            key: value for key, value in audio_fixture.items() if key != "trackId"
+        }
+        env["BURRATA_PLAYBACK_ENGINE"] = "webview"
         app_process = launch_app(app, env, temp)
         discovery = app_data / "automation.json"
         wait_for_app(app_process, discovery, temp / "installed-app.stderr.log")
         evidence["checks"]["guiStartup"] = "automation discovery published"
         evidence["checks"]["nativeHost"] = native_host_check(resource_root, target, env)
         evidence["checks"]["mcp"] = run_mcp_status(resource_root, target, discovery, env)
+        evidence["checks"]["webviewAudio"] = run_mcp_webview_audio(
+            resource_root, target, discovery, env, str(audio_fixture["trackId"])
+        )
         evidence["status"] = "passed"
         print(json.dumps({"status": evidence["status"], "platform": sys.platform,
                           "checks": evidence["checks"]}, separators=(",", ":")))

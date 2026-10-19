@@ -107,6 +107,7 @@ unsafe extern "C" {
 /// not contain a sufficiently regular beat pattern.
 pub async fn detect_bpm(path: &Path, settings: &Settings) -> Result<Option<BpmAnalysis>, String> {
     let mut command = Command::new(crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"));
+    crate::tools::configure_no_console_tokio(&mut command);
     command
         .kill_on_drop(true)
         .stdin(Stdio::null())
@@ -208,6 +209,7 @@ pub async fn detect_bpm(path: &Path, settings: &Settings) -> Result<Option<BpmAn
 /// unknown instead of being written as a guessed key.
 pub async fn detect_key(path: &Path, settings: &Settings) -> Result<Option<KeyAnalysis>, String> {
     let mut command = Command::new(crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"));
+    crate::tools::configure_no_console_tokio(&mut command);
     command
         .kill_on_drop(true)
         .stdin(Stdio::null())
@@ -637,6 +639,7 @@ pub async fn verify_lossless_fallback(path: &Path, settings: &Settings) -> Resul
 
 async fn probe(path: &Path, settings: &Settings) -> Result<MediaInfo, String> {
     let mut command = Command::new(crate::tools::executable(&settings.ffprobe_path, "ffprobe"));
+    crate::tools::configure_no_console_tokio(&mut command);
     command
         .kill_on_drop(true)
         .args([
@@ -1673,6 +1676,7 @@ async fn transcode(
     mp3: bool,
 ) -> Result<(), String> {
     let mut command = Command::new(crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"));
+    crate::tools::configure_no_console_tokio(&mut command);
     command
         .kill_on_drop(true)
         .args(["-nostdin", "-v", "error", "-n", "-i"])
@@ -1836,7 +1840,9 @@ pub async fn split_chapter(
         .map_err(|e| format!("Cannot create chapter staging directory: {e}"))?;
     let target = directory.join(format!("chapter-{index}.{}", extension));
     let duration = chapter.end_seconds - chapter.start_seconds;
-    let output = Command::new(crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"))
+    let mut command = Command::new(crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"));
+    crate::tools::configure_no_console_tokio(&mut command);
+    let output = command
         .kill_on_drop(true)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

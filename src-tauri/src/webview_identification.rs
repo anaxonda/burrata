@@ -294,6 +294,7 @@ impl WebViewIdentification {
         }
         let (identified, note) = recognized;
         let result_title = identified.as_ref().map(|m| m.title.clone());
+        let artwork_url = identified.as_ref().and_then(|m| m.artwork_url.clone());
         let result_artist = identified.map(|m| m.artist);
         let note = note.unwrap_or_else(|| {
             if result_title.is_some() {
@@ -306,6 +307,7 @@ impl WebViewIdentification {
             track_id: track_id.to_owned(),
             title: result_title,
             artist: result_artist,
+            artwork_url,
             note,
         })
     }
@@ -350,6 +352,7 @@ async fn extract_wav(
     path: PathBuf,
 ) -> Result<PathBuf, String> {
     let mut command = tokio::process::Command::new(source.ffmpeg);
+    crate::tools::configure_no_console_tokio(&mut command);
     command
         .arg("-nostdin")
         .arg("-hide_banner")

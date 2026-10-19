@@ -31,6 +31,7 @@ fn reserve_fixture_source(
             base_position: Arc::new(AtomicU64::new(0f64.to_bits())),
             initial_position: 0.,
             started: false,
+            activated: false,
             cancelled,
             tap_writer: crate::pcm_tap::PcmTap::new().writer(1, 44_100, 2),
             events,

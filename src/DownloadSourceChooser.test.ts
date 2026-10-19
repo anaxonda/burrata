@@ -72,10 +72,17 @@ describe("DownloadSourceChooser", () => {
     const instance = mount(DownloadSourceChooser, { target, props: { candidates, onSelect: vi.fn() } });
     destroy = () => unmount(instance);
     await tick();
-    const minimum = target.querySelector<HTMLInputElement>('[aria-label="Minimum source duration"]')!;
+    const filters = target.querySelector<HTMLButtonElement>(".filter-toggle")!;
+    expect(filters.getAttribute("aria-expanded")).toBe("false");
+    expect(target.querySelector('[aria-label="Minimum source duration"]')?.parentElement?.parentElement?.hasAttribute("hidden")).toBe(true);
+    filters.click(); await tick();
+    const minimum = document.body.querySelector<HTMLInputElement>('[aria-label="Minimum source duration"]')!;
     minimum.value = "2:00"; minimum.dispatchEvent(new Event("input", { bubbles: true })); await tick();
     expect(target.querySelectorAll("button.candidate")).toHaveLength(1);
     expect(target.querySelector("button.candidate")?.textContent).toContain("source long");
+    filters.click(); await tick();
+    expect(minimum.value).toBe("2:00");
+    expect(filters.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("shows local file facts and marks the active file instead of offering it again", async () => {

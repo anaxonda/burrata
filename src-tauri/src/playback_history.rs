@@ -943,7 +943,7 @@ mod tests {
             title: "Sodade".into(),
             album: Some("Miss Perfumado".into()),
             year: Some("1992".into()),
-            artwork_url: None,
+            artwork_url: Some("https://is1-ssl.mzstatic.com/recognized-cover.jpg".into()),
             source_url: station.stream_url.clone(),
             observed_at: Some("2026-10-14T10:00:00Z".into()),
             metadata_confidence: "station-reported metadata".into(),
@@ -1001,6 +1001,7 @@ mod tests {
         assert_eq!(items[0].played_at, "2026-10-14T10:07:00+00:00");
         assert_eq!(items[0].track.id, items[1].track.id);
         assert_eq!(items[0].track.source_url, "");
+        assert_eq!(items[0].track.artwork_url, metadata.artwork_url);
         assert_eq!(items[0].track.provenance["radioStationName"], "Example FM");
         assert_eq!(
             items[0].track.provenance["radioObservedAt"],

@@ -42,6 +42,8 @@ jobs:
       - run: npm ci
       - name: Check installed-smoke path handling
         run: python scripts/release/test_smoke_installed.py
+      - name: Check installed WebView audio smoke protocol
+        run: node --test scripts/release/webview-audio-protocol.test.mjs
       - name: Resolve the source run commit
         id: source
         shell: bash

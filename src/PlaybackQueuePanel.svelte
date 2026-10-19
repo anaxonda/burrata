@@ -1,9 +1,10 @@
 <script lang="ts">
   import { planQueueSelectionMove } from "./lib/playback-queue";
   import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
-  import { positionContextMenu } from "./lib/menu-geometry";
+  import ActionMenu from "./ActionMenu.svelte";
+  import type { MenuAnchorRect } from "./lib/menu-geometry";
   import MenuIcon from "./MenuIcon.svelte";
-import { onMount, tick, untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import type { Chapter, Track } from "./lib/types";
   import { activeChapter, chapterRelativePosition } from "./lib/chapters";
   import type { PlaybackRange, RangedTrack } from "./lib/chapters";
@@ -173,76 +174,44 @@ import { onMount, tick, untrack } from "svelte";
   }
   let radioHistoryExpanded = $state(false);
   let openMoreMenu: HTMLDetailsElement | null = null;
-  function closeOpenMenu(returnFocus = false) {
-    const active = openMoreMenu?.open ? openMoreMenu : document.querySelector<HTMLDetailsElement>("details.queue-more[open]");
-    if (active) {
-      active.open = false;
-      if (returnFocus) active.querySelector<HTMLElement>("summary")?.focus();
-    }
+  let activeMenuKey = $state<string | null>(null);
+  let menuAnchor = $state<MenuAnchorRect | null>(null);
+  let menuPlayerHeight = $state(90);
+  function closeOpenMenu() {
+    if (openMoreMenu) openMoreMenu.open = false;
     openMoreMenu = null;
+    activeMenuKey = null;
   }
-  function dismissMenuOutside(event: PointerEvent) {
-    const active = openMoreMenu?.open ? openMoreMenu : document.querySelector<HTMLDetailsElement>("details.queue-more[open]");
-    if (active && event.target instanceof Node && !active.contains(event.target)) closeOpenMenu();
+  function toggleMoreMenu(event: MouseEvent, key: string) {
+    event.preventDefault();
+    const summary = event.currentTarget as HTMLElement;
+    const details = summary.closest("details");
+    if (!details) return;
+    const wasOpen = activeMenuKey === key;
+    closeOpenMenu();
+    if (wasOpen) return;
+    summary.focus();
+    const computedPlayerHeight = Number.parseFloat(getComputedStyle(summary).getPropertyValue("--player-height"));
+    menuPlayerHeight = Number.isFinite(computedPlayerHeight) ? computedPlayerHeight : 90;
+    const rect = summary.getBoundingClientRect();
+    menuAnchor = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    details.open = true;
+    openMoreMenu = details;
+    activeMenuKey = key;
   }
-  function dismissMenuEscape(event: KeyboardEvent) {
-    if (event.key === "Escape" && (openMoreMenu?.open || document.querySelector("details.queue-more[open]"))) {
-      event.preventDefault();
-      closeOpenMenu(true);
-    }
-  }
-  function dismissMenuOnScroll(event: Event) {
-    if (openMoreMenu && event.target instanceof Node && openMoreMenu.contains(event.target)) return;
+  function runMenuAction(_event: MouseEvent, action: () => unknown) {
+    void action();
     closeOpenMenu();
   }
-  onMount(() => {
-    window.addEventListener("pointerdown", dismissMenuOutside);
-    window.addEventListener("keydown", dismissMenuEscape);
-    window.addEventListener("scroll", dismissMenuOnScroll, true);
-    const dismissMenuOnResize = () => closeOpenMenu();
-    window.addEventListener("resize", dismissMenuOnResize);
-    return () => {
-      window.removeEventListener("pointerdown", dismissMenuOutside);
-      window.removeEventListener("keydown", dismissMenuEscape);
-      window.removeEventListener("scroll", dismissMenuOnScroll, true);
-      window.removeEventListener("resize", dismissMenuOnResize);
-    };
+  let menuRows: Track[] | null = null;
+  let menuRevision: number | undefined;
+  $effect(() => {
+    const rows = tracks;
+    const revision = queueRevision;
+    if (menuRows !== null && (rows !== menuRows || revision !== menuRevision)) untrack(closeOpenMenu);
+    menuRows = rows;
+    menuRevision = revision;
   });
-  function positionMoreMenu(event: Event) {
-    const details = event.currentTarget as HTMLDetailsElement;
-    const menu = details.querySelector<HTMLElement>(".queue-more-menu");
-    if (!menu) return;
-    if (!details.open) {
-      menu.style.removeProperty("left");
-      menu.style.removeProperty("top");
-      if (openMoreMenu === details) openMoreMenu = null;
-      return;
-    }
-    document.querySelectorAll<HTMLDetailsElement>("details.queue-more[open]").forEach((other) => {
-      if (other !== details) other.open = false;
-    });
-    openMoreMenu = details;
-    const anchor = details.querySelector("summary")?.getBoundingClientRect();
-    if (!anchor) return;
-    const box = menu.getBoundingClientRect();
-    const computedPlayerHeight = Number.parseFloat(getComputedStyle(menu).getPropertyValue("--player-height"));
-    const playerHeight = Number.isFinite(computedPlayerHeight) ? computedPlayerHeight : 90;
-    const { left, top } = positionContextMenu(
-      anchor,
-      { width: box.width || menu.scrollWidth || 200, height: menu.scrollHeight || box.height || 240 },
-      { width: window.innerWidth, height: window.innerHeight },
-      playerHeight,
-    );
-    menu.style.position = "fixed";
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
-  }
-  function runMenuAction(event: MouseEvent, action: () => unknown) {
-    void action();
-    const details = (event.currentTarget as HTMLElement).closest("details");
-    if (openMoreMenu === details) openMoreMenu = null;
-    details?.removeAttribute("open");
-  }
   function toggleChapters(track: Track) {
     expanded = { ...expanded, [track.id]: !expanded[track.id] };
   }
@@ -296,7 +265,7 @@ import { onMount, tick, untrack } from "svelte";
               <span class="track-copy"><strong>{track.title}{track.version ? " (" + track.version + ")" : ""}</strong><small>{track.artist || "Unknown artist"}{track.album ? " · " + track.album : ""}</small></span>
               {#if duration!==null}<span class="track-duration">{time(duration)}</span>{/if}
             </button>
-            <details class="queue-more" ontoggle={positionMoreMenu}><summary aria-label={"More actions for " + track.title} title="More actions">⋯</summary><div class="queue-more-menu">
+            <details class="queue-more"><summary onclick={event => toggleMoreMenu(event, `queue:${index}`)} aria-label={"More actions for " + track.title} aria-haspopup="menu" aria-expanded={activeMenuKey === `queue:${index}`} title="More actions">⋯</summary>{#if activeMenuKey === `queue:${index}`}<ActionMenu anchorRect={menuAnchor} playerHeight={menuPlayerHeight} label={"Actions for " + track.title} title={track.title} role="menu" class="queue-more-menu" onClose={closeOpenMenu}>
               {#if onAddToPlaylist}<button class="primary-action" onclick={(event) => runMenuAction(event, () => onAddToPlaylist?.(track, index))}><MenuIcon name="plus"/><span>Add to playlist</span></button>{/if}
               <button class="menu-section" disabled={index === 0} onclick={(event) => runMenuAction(event, () => moveSelection([index], index - 1))}><MenuIcon name="arrow-up"/><span>Move up</span></button>
               <button disabled={index === tracks.length - 1} onclick={(event) => runMenuAction(event, () => moveSelection([index], index + 1))}><MenuIcon name="arrow-down"/><span>Move down</span></button>
@@ -306,7 +275,7 @@ import { onMount, tick, untrack } from "svelte";
                 {#if onAppendChapters}<button onclick={(event) => runMenuAction(event, () => onAppendChapters?.(track, trackChapters))}><MenuIcon name="queue"/><span>Append chapters</span></button>{/if}
                 {#if onQueueAllChapters}<button onclick={(event) => runMenuAction(event, () => onQueueAllChapters?.(track, trackChapters))}><MenuIcon name="queue"/><span>Queue all chapters</span></button>{/if}
               {:else if onInspectChapters && !track.playbackRange && ["youtube","soundcloud"].includes(track.provider)}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onInspectChapters?.(track))}><MenuIcon name="search"/><span>Check for chapters</span></button>{/if}
-            </div></details>
+            </ActionMenu>{/if}</details>
           </article>
           {#if trackChapters.length && expanded[track.id]}
             <div class="chapter-children" aria-label={"Chapters for " + track.title}>
@@ -318,12 +287,12 @@ import { onMount, tick, untrack } from "svelte";
                   <button class="chapter-child-play" class:active={chapterCurrent} aria-label={"Play chapter " + chapter.title} onclick={() => onPlayChapter?.(track, chapter, index)}>
                     <span>{time(chapter.startTime)}</span><strong>{chapter.title}</strong><span>{time(chapter.endTime - chapter.startTime)}</span>
                   </button>
-                  <details class="queue-more chapter-more" ontoggle={positionMoreMenu}><summary aria-label={"More actions for chapter " + chapter.title} title="Chapter actions">⋯</summary><div class="queue-more-menu">
+                  <details class="queue-more chapter-more"><summary onclick={event => toggleMoreMenu(event, `child:${index}:${chapter.id}`)} aria-label={"More actions for chapter " + chapter.title} aria-haspopup="menu" aria-expanded={activeMenuKey === `child:${index}:${chapter.id}`} title="Chapter actions">⋯</summary>{#if activeMenuKey === `child:${index}:${chapter.id}`}<ActionMenu anchorRect={menuAnchor} playerHeight={menuPlayerHeight} label={"Actions for chapter " + chapter.title} title={chapter.title} role="menu" class="queue-more-menu" onClose={closeOpenMenu}>
                     {#if onAddChapterToPlaylist}<button class="primary-action" onclick={(event) => runMenuAction(event, () => onAddChapterToPlaylist?.(track, chapter, index))}><MenuIcon name="plus"/><span>Add chapter to playlist</span></button>{/if}
                     {#if onQueueChapter}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onQueueChapter?.(track, chapter, index))}><MenuIcon name="queue"/><span>Queue chapter</span></button>{/if}
                     {#if onDownloadChapter}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onDownloadChapter?.(track, chapter, index))}><MenuIcon name="download"/><span>Download chapter</span></button>{/if}
                     {#if onInfoChapter}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onInfoChapter?.(track, chapter, index))}><MenuIcon name="search"/><span>Search for more info</span></button>{/if}
-                  </div></details>
+                  </ActionMenu>{/if}</details>
                 </div>
               {/each}
             </div>
@@ -372,12 +341,12 @@ import { onMount, tick, untrack } from "svelte";
         {#each chapters as chapter (chapter.id)}
           <div class="chapter-row"><button class="chapter-play" class:active={currentChapter?.id === chapter.id} class:paused={currentChapter?.id === chapter.id && paused} class:buffering={currentChapter?.id === chapter.id && buffering} aria-label={currentChapter?.id === chapter.id ? `${buffering ? "Buffering" : paused ? "Paused" : "Playing"} chapter ${chapter.title}` : "Seek to chapter " + chapter.title} aria-current={currentChapter?.id === chapter.id ? "time" : undefined} aria-busy={currentChapter?.id === chapter.id && buffering ? "true" : undefined} onclick={() => onSeek(chapter.startTime)}>
             <span>{time(chapter.startTime)}</span><strong>{chapter.title}</strong><span class="chapter-play-icon" aria-hidden="true">{currentChapter?.id === chapter.id ? buffering ? "…" : paused ? "Ⅱ" : "♫" : "▶"}</span>
-          </button><details class="queue-more chapter-more" ontoggle={positionMoreMenu}><summary aria-label={"More actions for chapter " + chapter.title} title="Chapter actions">⋯</summary><div class="queue-more-menu">
+          </button><details class="queue-more chapter-more"><summary onclick={event => toggleMoreMenu(event, `current:${chapter.id}`)} aria-label={"More actions for chapter " + chapter.title} aria-haspopup="menu" aria-expanded={activeMenuKey === `current:${chapter.id}`} title="Chapter actions">⋯</summary>{#if activeMenuKey === `current:${chapter.id}`}<ActionMenu anchorRect={menuAnchor} playerHeight={menuPlayerHeight} label={"Actions for chapter " + chapter.title} title={chapter.title} role="menu" class="queue-more-menu" onClose={closeOpenMenu}>
             {#if onAddChapterToPlaylist}<button class="primary-action" onclick={(event) => runMenuAction(event, () => onAddChapterToPlaylist?.(tracks[currentIndex]!, chapter, currentIndex))}><MenuIcon name="plus"/><span>Add chapter to playlist</span></button>{/if}
             {#if onQueueChapter}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onQueueChapter?.(tracks[currentIndex]!, chapter, currentIndex))}><MenuIcon name="queue"/><span>Queue chapter</span></button>{/if}
             {#if onDownloadChapter}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onDownloadChapter?.(tracks[currentIndex]!, chapter, currentIndex))}><MenuIcon name="download"/><span>Download chapter</span></button>{/if}
             {#if onInfoChapter}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onInfoChapter?.(tracks[currentIndex]!, chapter, currentIndex))}><MenuIcon name="search"/><span>Search for more info</span></button>{/if}
-          </div></details></div>
+          </ActionMenu>{/if}</details></div>
         {/each}
       </section>
     {/if}
@@ -467,17 +436,7 @@ import { onMount, tick, untrack } from "svelte";
   .queue-more summary,.radio-more { display:grid;place-items:center;list-style:none;width:40px;height:40px;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:23px;cursor:pointer;touch-action:manipulation; }
   .queue-more summary::-webkit-details-marker { display:none; }
   .queue-more summary:hover,.radio-more:hover { color:var(--accent);background:var(--raised); }
-  .queue-more summary:focus-visible,.radio-more:focus-visible,.queue-more-menu button:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
-  .queue-more-menu { position:fixed;z-index:90;top:8px;left:8px;right:auto;display:flex;flex-direction:column;box-sizing:border-box;width:max-content;min-width:176px;max-width:min(260px,calc(100vw - 16px));max-height:calc(100dvh - var(--player-height,90px) - 16px);overflow:auto;padding:5px;border:1px solid var(--line);border-radius:9px;background:var(--surface);box-shadow:0 10px 30px #0008; }
-  .queue-more-menu button { display:flex;align-items:center;gap:10px;justify-content:flex-start;flex:0 0 auto;width:100%;min-width:0;min-height:36px;padding:5px 9px;border:0;border-radius:5px;background:transparent;color:var(--text);font:inherit;font-size:13px;line-height:1.35;text-align:left;white-space:normal;overflow-wrap:anywhere;touch-action:manipulation; }
-  .queue-more-menu button span { min-width:0; }
-  .queue-more-menu :global(svg[aria-hidden="true"]) { display:block;flex:0 0 20px;color:var(--muted); }
-  .queue-more-menu button.menu-section { margin-top:5px;padding-top:7px;border-top:1px solid var(--line);border-top-left-radius:0;border-top-right-radius:0; }
-  .queue-more-menu button.primary-action { margin:3px 0;background:color-mix(in srgb,var(--accent) 18%,var(--surface));font-weight:650; }
-  .queue-more-menu button.primary-action:hover { background:color-mix(in srgb,var(--accent) 28%,var(--surface)); }
-  .queue-more-menu button.primary-action :global(svg[aria-hidden="true"]) { color:var(--accent); }
-  .queue-more-menu button:hover { background:var(--raised); }
-  .queue-more-menu button:disabled { opacity:.45; }
+  .queue-more summary:focus-visible,.radio-more:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
   .chapter-children { margin: -2px 4px 6px 42px; padding: 4px 6px 6px; border-left: 1px solid var(--line); }
   .chapter-child { display: flex; align-items: center; gap: 3px; }
   .chapter-child-play { display: grid; flex: 1; grid-template-columns: 35px minmax(0,1fr) 35px; align-items: center; gap: 7px; padding: 6px 4px; background: transparent; color: var(--muted); text-align: left; }
@@ -534,13 +493,5 @@ import { onMount, tick, untrack } from "svelte";
   .queue-list article.queue-selected { outline:1px solid var(--accent); outline-offset:-1px; }
   .queue-drag-select { flex:0 0 24px; width:24px; min-width:24px; box-sizing:border-box; cursor:grab; padding:4px 2px; touch-action:none; }
 
-  @media (min-width:601px) {
-    .queue-more-menu { padding:5px;border-radius:6px;border-color:var(--context-menu-border,var(--line));background:var(--context-menu-surface,var(--surface));color:var(--context-menu-text,var(--text));box-shadow:0 8px 28px #0007; }
-    .queue-more-menu button { min-height:32px;gap:10px;padding:4px 8px;border-radius:3px;color:var(--context-menu-text,var(--text));line-height:1.3; }
-    .queue-more-menu button:hover { background:var(--context-menu-hover,var(--raised)); }
-    .queue-more-menu button.primary-action { margin:1px 0;background:var(--context-menu-primary,var(--raised));font-weight:600; }
-    .queue-more-menu button.primary-action:hover { background:var(--context-menu-hover,var(--raised)); }
-    .queue-more-menu :global(svg[aria-hidden="true"]) { width:18px;height:18px;flex-basis:18px;color:var(--context-menu-muted,var(--muted)); }
-    .queue-more-menu button.menu-section { margin-top:4px;padding-top:7px;border-top-color:var(--context-menu-border,var(--line)); }
-  }
+
 </style>

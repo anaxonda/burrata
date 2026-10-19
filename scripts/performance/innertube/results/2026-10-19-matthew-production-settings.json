@@ -1,0 +1,7 @@
+{
+  "resources": "/home/loki/projects/burrata/src-tauri/resources",
+  "preferredStreamingSource": "youtube",
+  "streamingFallbackEnabled": false,
+  "streamingFallbackSources": [],
+  "playbackStartupTimeoutSeconds": 20
+}

@@ -30,6 +30,91 @@ static SONGREC_GATE: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new()
 static RECOGNITION_STATE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, RecognitionState>>> =
     std::sync::OnceLock::new();
 
+#[derive(Default)]
+struct PlayedRadioEvidence {
+    last_station_pair: Option<(String, String)>,
+    rejected_station_pair: Option<(String, String)>,
+    audio: Option<(RadioTrackMetadata, Instant)>,
+}
+static PLAYED_RADIO_EVIDENCE: std::sync::OnceLock<
+    std::sync::Mutex<HashMap<(String, u64), PlayedRadioEvidence>>,
+> = std::sync::OnceLock::new();
+fn played_radio_evidence() -> &'static std::sync::Mutex<HashMap<(String, u64), PlayedRadioEvidence>>
+{
+    PLAYED_RADIO_EVIDENCE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+fn metadata_pair(track: &RadioTrackMetadata) -> (String, String) {
+    (
+        track.artist.trim().to_lowercase(),
+        track.title.trim().to_lowercase(),
+    )
+}
+/// Only callers that verified the capture's active playback generation publish
+/// audible fingerprint evidence. It never crosses a station/source generation.
+pub fn record_played_radio_identification(
+    station_id: &str,
+    generation: u64,
+    identified: Option<&RadioTrackMetadata>,
+) {
+    let Some(identified) = identified.filter(|track| valid_history_track(track)) else {
+        return;
+    };
+    let mut states = played_radio_evidence()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let state = states.entry((station_id.into(), generation)).or_default();
+    if let Some(pair) = &state.last_station_pair {
+        if *pair != metadata_pair(identified) {
+            state.rejected_station_pair = Some(pair.clone());
+        }
+    }
+    state.audio = Some((identified.clone(), Instant::now()));
+}
+/// A repeated, contradicted station tag cannot overwrite a newer audible match.
+/// A changed station tag is considered fresh again; expired audio is not shown
+/// indefinitely and instead allows another bounded fingerprint cycle.
+pub fn reconcile_played_radio_metadata(
+    station_id: &str,
+    generation: u64,
+    reported: Option<RadioTrackMetadata>,
+) -> Option<RadioTrackMetadata> {
+    let mut states = played_radio_evidence()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if states.len() >= 128 && !states.contains_key(&(station_id.into(), generation)) {
+        states.clear();
+    }
+    let state = states.entry((station_id.into(), generation)).or_default();
+    if let Some(reported) = &reported {
+        let pair = metadata_pair(reported);
+        // Recognition can win the race against the first station poll. Treat
+        // that first conflicting tag like a previously observed stale tag.
+        if state.last_station_pair.is_none()
+            && state.audio.as_ref().is_some_and(|(audio, at)| {
+                at.elapsed() <= Duration::from_secs(45) && metadata_pair(audio) != pair
+            })
+        {
+            state.rejected_station_pair = Some(pair.clone());
+        }
+        if state
+            .rejected_station_pair
+            .as_ref()
+            .is_some_and(|rejected| *rejected != pair)
+        {
+            state.rejected_station_pair = None;
+        }
+        state.last_station_pair = Some(pair.clone());
+        if state.rejected_station_pair.as_ref() != Some(&pair) {
+            return Some(reported.clone());
+        }
+    }
+    state
+        .audio
+        .as_ref()
+        .filter(|(_, at)| at.elapsed() <= Duration::from_secs(45))
+        .map(|(track, _)| track.clone())
+}
+
 #[derive(Clone)]
 struct RecognitionState {
     attempted_at: Instant,
@@ -47,6 +132,7 @@ enum RecognitionPolicy {
 enum RecognitionMode {
     Automatic,
     Manual,
+    LiveAutomatic,
 }
 
 fn recognition_policy_for(
@@ -58,6 +144,16 @@ fn recognition_policy_for(
         return RecognitionPolicy::Capture;
     };
     match mode {
+        RecognitionMode::LiveAutomatic => {
+            if state.in_flight {
+                return RecognitionPolicy::Skip(
+                    "Song recognition is already running for this station.",
+                );
+            }
+            if now.saturating_duration_since(state.attempted_at) < Duration::from_secs(30) {
+                return RecognitionPolicy::Skip("Song recognition will retry after its cooldown.");
+            }
+        }
         RecognitionMode::Automatic => {
             if let Some((track, expires_at)) = &state.cached {
                 if *expires_at > now {
@@ -450,8 +546,11 @@ async fn fetch_icy_track(station: &RadioStation) -> Result<Option<RadioTrackMeta
         };
         let take = (target - body.len()).min(chunk.len());
         body.extend_from_slice(&chunk[..take]);
-        if body.len() >= MAX_ICY_BYTES + 1 {
-            break;
+        if body.len() > interval {
+            let block_length = usize::from(body[interval]) * 16;
+            if body.len() >= interval + 1 + block_length {
+                break;
+            }
         }
     }
     if body.len() <= interval {
@@ -473,9 +572,6 @@ async fn fetch_icy_track(station: &RadioStation) -> Result<Option<RadioTrackMeta
 }
 
 fn is_station_branding_title(station: &RadioStation, metadata: &RadioTrackMetadata) -> bool {
-    if !metadata.artist.trim().is_empty() {
-        return false;
-    }
     let normalize = |value: &str| {
         value
             .chars()
@@ -485,7 +581,9 @@ fn is_station_branding_title(station: &RadioStation, metadata: &RadioTrackMetada
     };
     let station_name = normalize(&station.name);
     let title = normalize(&metadata.title);
-    station_name.chars().count() >= 4 && title.contains(&station_name)
+    let artist = normalize(&metadata.artist);
+    station_name.chars().count() >= 4
+        && (artist == station_name || (artist.is_empty() && title.contains(&station_name)))
 }
 
 fn parse_icy_stream_title(block: &str) -> Option<String> {
@@ -669,6 +767,7 @@ async fn recognize_station_track_uncached(
     let wav = env::temp_dir().join(format!("burrata-radio-{}.wav", uuid::Uuid::new_v4()));
     let mut capture =
         tokio::process::Command::new(tools::executable(&settings.ffmpeg_path, "ffmpeg"));
+    tools::configure_no_console_tokio(&mut capture);
     capture
         .args(["-nostdin", "-v", "error", "-y", "-i"])
         .arg(&station.stream_url)
@@ -764,15 +863,19 @@ async fn run_songrec_cancellable(
     gate: &Mutex<()>,
     deadline: Duration,
 ) -> Result<Vec<u8>, String> {
+    let expires = tokio::time::Instant::now() + deadline;
     let _permit = tokio::select! {
         biased;
         _ = recognition_cancelled(&mut cancel) => return Err("Audio identification was cancelled".into()),
-        permit = gate.lock() => permit,
+        permit = tokio::time::timeout_at(expires, gate.lock()) => permit
+            .map_err(|_| "SongRec was busy for too long".to_owned())?,
     };
     if *cancel.borrow() {
         return Err("Audio identification was cancelled".into());
     }
-    let mut child = tokio::process::Command::new(songrec)
+    let mut child = tokio::process::Command::new(songrec);
+    tools::configure_no_console_tokio(&mut child);
+    let mut child = child
         .arg("recognize")
         .arg("--json")
         .arg(wav)
@@ -799,7 +902,7 @@ async fn run_songrec_cancellable(
     let result = tokio::select! {
         biased;
         _ = recognition_cancelled(&mut cancel) => Err("Audio identification was cancelled".to_owned()),
-        result = tokio::time::timeout(deadline, work) => match result {
+        result = tokio::time::timeout_at(expires, work) => match result {
             Ok(Ok((status, bytes))) if status.success() => Ok(bytes),
             Ok(_) => Err("SongRec could not recognize this audio excerpt.".to_owned()),
             Err(_) => Err("SongRec did not return a recognition result in time.".to_owned()),
@@ -847,20 +950,92 @@ where
     .await
 }
 
-async fn run_songrec(songrec: &Path, wav: &Path) -> Result<Vec<u8>, String> {
-    let output = tokio::time::timeout(
-        Duration::from_secs(45),
-        tokio::process::Command::new(songrec)
-            .arg("recognize")
-            .arg("--json")
-            .arg(wav)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .output(),
+/// One bounded live-audio cycle. Unlike metadata prewarming, a playing stream
+/// never reuses a ninety-second-old fingerprint result as its current song.
+/// Clean no-match responses grow the sample; provider/process errors stop retries.
+pub async fn recognize_played_samples_progressively<F, Fut>(
+    station: &RadioStation,
+    cancel: watch::Receiver<bool>,
+    capture: F,
+) -> Result<(Option<RadioTrackMetadata>, Option<String>), String>
+where
+    F: FnMut(f64) -> Fut,
+    Fut: Future<Output = Result<std::path::PathBuf, String>>,
+{
+    recognize_played_samples_progressively_with_mode(
+        station,
+        RecognitionMode::LiveAutomatic,
+        cancel,
+        capture,
     )
-    .await;
+    .await
+}
+
+/// Manual requests bypass automatic cooldowns while retaining serial bounded attempts.
+pub async fn recognize_played_samples_progressively_manual<F, Fut>(
+    station: &RadioStation,
+    cancel: watch::Receiver<bool>,
+    capture: F,
+) -> Result<(Option<RadioTrackMetadata>, Option<String>), String>
+where
+    F: FnMut(f64) -> Fut,
+    Fut: Future<Output = Result<std::path::PathBuf, String>>,
+{
+    recognize_played_samples_progressively_with_mode(
+        station,
+        RecognitionMode::Manual,
+        cancel,
+        capture,
+    )
+    .await
+}
+
+async fn recognize_played_samples_progressively_with_mode<F, Fut>(
+    station: &RadioStation,
+    mode: RecognitionMode,
+    cancel: watch::Receiver<bool>,
+    mut capture: F,
+) -> Result<(Option<RadioTrackMetadata>, Option<String>), String>
+where
+    F: FnMut(f64) -> Fut,
+    Fut: Future<Output = Result<std::path::PathBuf, String>>,
+{
+    recognize_station_track_with(station, mode, || async move {
+        for (index, seconds) in crate::pcm_tap::RECOGNITION_CAPTURE_WINDOWS.into_iter().enumerate() {
+            if *cancel.borrow() { return Err("Audio identification was cancelled".into()); }
+            // SongRec defaults to ten seconds between its live requests. Keep
+            // retries similarly bounded rather than hammering the service.
+            if index > 0 {
+                let mut retry_cancel = cancel.clone();
+                tokio::select! {
+                    _ = recognition_cancelled(&mut retry_cancel) => return Err("Audio identification was cancelled".into()),
+                    _ = tokio::time::sleep(Duration::from_secs(10)) => {},
+                }
+            }
+            let Some(songrec) = find_executable(&["songrec", "SongRec"]) else {
+                return Err("SongRec is not installed".into());
+            };
+            let path = capture(seconds).await?;
+            let gate = SONGREC_GATE.get_or_init(|| Mutex::new(()));
+            let output = run_songrec_cancellable(&songrec, &path, cancel.clone(), gate, Duration::from_secs(12)).await?;
+            if let Some(track) = parse_songrec_output(station, output)? { return Ok(Some(track)); }
+        }
+        Ok(None)
+    }).await
+}
+
+async fn run_songrec(songrec: &Path, wav: &Path) -> Result<Vec<u8>, String> {
+    let mut command = tokio::process::Command::new(songrec);
+    tools::configure_no_console_tokio(&mut command);
+    let command = command
+        .arg("recognize")
+        .arg("--json")
+        .arg(wav)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(45), command.output()).await;
     let Ok(Ok(output)) = output else {
         return Err("SongRec did not return a recognition result in time.".into());
     };
@@ -903,11 +1078,31 @@ fn parse_songrec_output(
         title,
         album: None,
         year: None,
-        artwork_url: None,
+        artwork_url: ["coverart", "coverarthq"]
+            .into_iter()
+            .find_map(|key| safe_recognition_artwork_url(track["images"][key].as_str())),
         source_url: station.source_url.clone(),
         observed_at: Some(chrono::Utc::now().to_rfc3339()),
         metadata_confidence: "SongRec audio-fingerprint result; catalog identity unverified".into(),
     }))
+}
+
+/// Preserve only bounded network image URLs supplied by recognition itself.
+pub(crate) fn safe_recognition_artwork_url(value: Option<&str>) -> Option<String> {
+    let value = value?;
+    if value.is_empty()
+        || value.len() > 4096
+        || value.chars().any(char::is_control)
+        || value.trim() != value
+    {
+        return None;
+    }
+    let url = reqwest::Url::parse(value).ok()?;
+    (matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none())
+    .then(|| value.to_owned())
 }
 
 fn clean_songrec_field(value: Option<&str>) -> Option<String> {
@@ -1053,6 +1248,21 @@ mod tests {
 
     use super::*;
 
+    #[tokio::test]
+    async fn manual_progressive_cancel_stops_before_pcm_capture_or_provider_request() {
+        let mut station = station();
+        station.id = format!("cancel-progressive-{}", uuid::Uuid::new_v4());
+        let (_sender, cancelled) = watch::channel(true);
+        let result =
+            recognize_played_samples_progressively_manual(&station, cancelled, |_seconds| async {
+                panic!("cancelled identification must not capture or contact the provider");
+                #[allow(unreachable_code)]
+                Ok::<std::path::PathBuf, String>(std::path::PathBuf::new())
+            })
+            .await;
+        assert!(result.unwrap_err().contains("cancelled"));
+    }
+
     fn station() -> RadioStation {
         RadioStation {
             id: "test-station".into(),
@@ -1149,6 +1359,165 @@ mod tests {
         assert_eq!(track.artist, "Artist");
         assert_eq!(track.title, "Song");
         assert!(track.observed_at.is_some());
+    }
+
+    #[test]
+    fn nova_branding_as_artist_is_not_a_song() {
+        let mut nova = station();
+        nova.name = "Radio Nova".into();
+        assert!(is_station_branding_title(
+            &nova,
+            &icy_track_metadata(&nova, "Radio Nova - Le Grand Mix")
+        ));
+        assert!(!is_station_branding_title(
+            &nova,
+            &icy_track_metadata(&nova, "Cassius - I <3 U So")
+        ));
+    }
+
+    #[test]
+    fn songrec_cover_art_is_preserved_without_guessing_or_local_urls() {
+        let station = station();
+        let cover = "https://is1-ssl.mzstatic.com/image/thumb/Music/cover/400x400cc.jpg";
+        let parse = |images: Value| {
+            parse_songrec_output(
+                &station,
+                serde_json::to_vec(&serde_json::json!({"track":{
+                    "title":"Song", "subtitle":"Artist", "images":images
+                }}))
+                .unwrap(),
+            )
+            .unwrap()
+            .unwrap()
+        };
+        let recognized =
+            parse(serde_json::json!({"coverart":cover,"coverarthq":"https://cdn.example/hq.jpg"}));
+        assert_eq!(recognized.artwork_url.as_deref(), Some(cover));
+        assert_eq!(
+            crate::playback_history::radio_song_track(&station, &recognized)
+                .artwork_url
+                .as_deref(),
+            Some(cover)
+        );
+        assert_eq!(
+            parse(serde_json::json!({"coverarthq":cover}))
+                .artwork_url
+                .as_deref(),
+            Some(cover)
+        );
+        for invalid in [
+            "file:///tmp/private.jpg",
+            "data:image/png;base64,AAA",
+            "javascript:alert(1)",
+            "https://user:secret@example.com/image",
+            "https://",
+            "https://example.com/\nimage",
+        ] {
+            assert_eq!(
+                parse(serde_json::json!({"coverart":invalid})).artwork_url,
+                None
+            );
+        }
+        assert_eq!(
+            parse(serde_json::json!({"coverart":"x".repeat(4097)})).artwork_url,
+            None
+        );
+        assert_eq!(
+            parse(serde_json::json!({"background":cover})).artwork_url,
+            None
+        );
+        assert_eq!(parse(Value::Null).artwork_url, None);
+    }
+
+    #[test]
+    fn first_station_poll_after_audio_identification_cannot_revive_conflicting_tag() {
+        let mut station = station();
+        station.id = format!("first-poll-{}", uuid::Uuid::new_v4());
+        let identified = icy_track_metadata(&station, "Artist - Heard Song");
+        let stale = icy_track_metadata(&station, "Cassius - I <3 U So");
+        record_played_radio_identification(&station.id, 1, Some(&identified));
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 1, Some(stale.clone())),
+            Some(identified)
+        );
+        played_radio_evidence()
+            .lock()
+            .unwrap()
+            .get_mut(&(station.id.clone(), 1))
+            .unwrap()
+            .audio
+            .as_mut()
+            .unwrap()
+            .1 = Instant::now() - Duration::from_secs(46);
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 1, Some(stale)),
+            None
+        );
+        let changed = icy_track_metadata(&station, "New Artist - Next Song");
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 1, Some(changed.clone())),
+            Some(changed)
+        );
+    }
+
+    #[test]
+    fn repeated_station_tag_cannot_replace_new_audible_match() {
+        let mut station = station();
+        station.id = format!("reconcile-{}", uuid::Uuid::new_v4());
+        let stale = icy_track_metadata(&station, "Cassius - I <3 U So");
+        let identified = icy_track_metadata(&station, "Otis Redding & Carla Thomas - Tramp");
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 1, Some(stale.clone())),
+            Some(stale.clone())
+        );
+        record_played_radio_identification(&station.id, 1, Some(&identified));
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 1, Some(stale.clone())),
+            Some(identified)
+        );
+        // Once the audible proof expires, return no current song rather than
+        // reviving the quarantined Cassius tag.
+        played_radio_evidence()
+            .lock()
+            .unwrap()
+            .get_mut(&(station.id.clone(), 1))
+            .unwrap()
+            .audio
+            .as_mut()
+            .unwrap()
+            .1 = Instant::now() - Duration::from_secs(46);
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 1, Some(stale.clone())),
+            None
+        );
+        // A new playback generation has no old proof or quarantine.
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 2, Some(stale.clone())),
+            Some(stale)
+        );
+        // A changed station report is fresh evidence and is not suppressed.
+        let fresh = icy_track_metadata(&station, "New Artist - New Song");
+        assert_eq!(
+            reconcile_played_radio_metadata(&station.id, 1, Some(fresh.clone())),
+            Some(fresh)
+        );
+    }
+
+    #[test]
+    fn live_automatic_recognition_does_not_reuse_previous_song_cache() {
+        let now = Instant::now();
+        let cached = RecognitionState {
+            attempted_at: now - Duration::from_secs(31),
+            in_flight: false,
+            cached: Some((
+                icy_track_metadata(&station(), "Artist - Old Song"),
+                now + Duration::from_secs(90),
+            )),
+        };
+        assert!(matches!(
+            recognition_policy_for(Some(&cached), now, RecognitionMode::LiveAutomatic),
+            RecognitionPolicy::Capture
+        ));
     }
 
     #[test]

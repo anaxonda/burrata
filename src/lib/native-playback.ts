@@ -1,6 +1,13 @@
 import type { NativePlaybackSnapshot, Track, Candidate } from "./types";
+import { classifyPlaybackFailure, type PlaybackFailure } from "./playback-failure";
 
 import type { TrackSortField, SortDirection } from "./track-sort";
+
+/** Typed native details win; older backends retain the string fallback. */
+export function nativeSnapshotFailure(snapshot: Pick<NativePlaybackSnapshot, "status" | "playerMessage" | "failure"> | null | undefined): PlaybackFailure | null {
+  if (!snapshot || snapshot.status !== "failed") return null;
+  return snapshot.failure ?? classifyPlaybackFailure(snapshot.playerMessage);
+}
 
 export interface PlaybackOperationTrace { operationId: string; clientStartedAtMs: number }
 export function playbackOperationTrace(): PlaybackOperationTrace {
@@ -98,6 +105,7 @@ export class NativePlaybackBridge {
   }
 
   acceptSnapshot(snapshot: NativeStateEvent): boolean {
+    snapshot = {...snapshot, failure:nativeSnapshotFailure(snapshot)};
     if (this.snapshot && snapshot.revision < this.snapshot.revision) return false;
     if (!Array.isArray(snapshot.queue)) {
       if (!this.snapshot || snapshot.queueRevision !== undefined && snapshot.queueRevision !== this.snapshot.queueRevision) {

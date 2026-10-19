@@ -1,6 +1,8 @@
 //! Native desktop audio output. The device stream is created and controlled on one
 //! dedicated thread because CPAL streams are intentionally not `Send` on all hosts.
 
+#[path = "native_http.rs"]
+mod native_http;
 #[path = "native_storage_fault.rs"]
 pub(crate) mod storage_fault;
 
@@ -525,6 +527,9 @@ struct DecoderSession {
     active_cancel: std::sync::Mutex<std::sync::Weak<AtomicBool>>,
     cancel_download: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     startup_deadline: std::sync::Mutex<Option<Instant>>,
+    // A queued decoder may fail before its occurrence becomes active. The
+    // output worker, never the mixer callback, delivers this retained failure.
+    retained_failure: std::sync::Mutex<Option<String>>,
 }
 impl DecoderSession {
     fn bind(&self, cancel: &Arc<AtomicBool>) {
@@ -705,6 +710,7 @@ struct Playback {
     decoder_diagnostics: Option<DecoderDiagnostics>,
     source_sample_rate: u32,
     source_channels: u16,
+    live_metadata: Option<ActiveMetadata>,
     paused: bool,
 }
 
@@ -720,6 +726,14 @@ struct Activation {
     duration: Option<f64>,
     decoder_diagnostics: Option<DecoderDiagnostics>,
     decode_failed: Arc<AtomicBool>,
+    live_metadata: ActiveMetadata,
+}
+
+struct ActiveMetadata {
+    rate: Arc<std::sync::atomic::AtomicU32>,
+    channels: Arc<std::sync::atomic::AtomicU32>,
+    duration: Arc<AtomicU64>,
+    decoder: Arc<std::sync::Mutex<Option<DecoderDiagnostics>>>,
 }
 
 struct Reconnect {
@@ -1072,11 +1086,33 @@ fn run_worker(
             }
         }
         if let Some(current) = player.as_mut() {
+            if let Some(event) = take_active_decode_failure(
+                current.generation,
+                &current.decoder_session,
+                &current.cancel,
+            ) {
+                let _ = events.send(event);
+            }
             let is_buffering = current.buffering.load(Ordering::Relaxed);
             if is_buffering && !current.buffering_reported {
                 let _ = events.send(buffering_event(current));
                 current.buffering_reported = true;
             } else if !is_buffering && current.buffering_reported {
+                if let Some(metadata) = &current.live_metadata {
+                    current.source_sample_rate = metadata.rate.load(Ordering::Acquire);
+                    current.source_channels = metadata
+                        .channels
+                        .load(Ordering::Acquire)
+                        .clamp(1, u16::MAX as u32)
+                        as u16;
+                    let duration = f64::from_bits(metadata.duration.load(Ordering::Acquire));
+                    current.source_duration = duration.is_finite().then_some(duration);
+                    current.decoder_diagnostics = metadata
+                        .decoder
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                }
                 let _ = events.send(OutputEvent::Started {
                     generation: current.active_generation.load(Ordering::Relaxed),
                     duration: current.source_duration,
@@ -1158,6 +1194,25 @@ fn active_storage_failure_event(
         .map(|fault| OutputEvent::LocalStorageFailed { generation, fault })
 }
 
+fn take_active_decode_failure(
+    generation: u64,
+    session: &DecoderSession,
+    cancelled: &AtomicBool,
+) -> Option<OutputEvent> {
+    if cancelled.load(Ordering::Acquire) || session.storage_faults.get().is_some() {
+        return None;
+    }
+    session
+        .retained_failure
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .map(|message| OutputEvent::Failed {
+            generation,
+            message,
+        })
+}
+
 fn decode_failure_event(
     generation: u64,
     message: String,
@@ -1230,6 +1285,7 @@ fn apply_activation(current: &mut Playback, activation: Activation) {
     current.decoder_diagnostics = activation.decoder_diagnostics;
     current.source_sample_rate = activation.sample_rate;
     current.source_channels = activation.channels;
+    current.live_metadata = Some(activation.live_metadata);
     if current
         .preload_cancel
         .as_ref()
@@ -1403,6 +1459,7 @@ fn start_playback_with_reserve_policy(
         base_position: base_position_bits.clone(),
         initial_position: base_position,
         started: false,
+        activated: false,
         cancelled: cancel.clone(),
         source: source.clone(),
         end,
@@ -1443,6 +1500,7 @@ fn start_playback_with_reserve_policy(
         decoder_diagnostics: None,
         source_sample_rate: 44_100,
         source_channels: 2,
+        live_metadata: None,
         paused,
     }
 }
@@ -1475,10 +1533,9 @@ fn append_source(
     let worker_session = decoder_session.clone();
     let queue_source = source.clone();
     let failed = decode_failed.clone();
-    let (cc, src, ev, dur, decoder_info, rate_writer, channels_writer) = (
+    let (cc, src, dur, decoder_info, rate_writer, channels_writer) = (
         cancel.clone(),
         source,
-        events.clone(),
         duration_bits.clone(),
         decoder_diagnostics.clone(),
         rate.clone(),
@@ -1486,9 +1543,14 @@ fn append_source(
     );
     let decode_cancelled = cc.clone();
     let storage_faults = worker_session.storage_faults.clone();
-    thread::Builder::new()
+    let failure_session = decoder_session.clone();
+    // Keep the channel connected until the retained error/failed flag is
+    // published. Otherwise a zero-PCM failure can race source activation.
+    let producer_lifetime = tx.clone();
+    let spawned = thread::Builder::new()
         .name("burrata-audio-preload".into())
         .spawn(move || {
+            let _producer_lifetime = producer_lifetime;
             if let Err(message) = decode_with_session_and_diagnostics(
                 src,
                 position,
@@ -1505,23 +1567,27 @@ fn append_source(
                 worker_session,
             ) {
                 if !decode_cancelled.load(Ordering::Relaxed) {
+                    if storage_faults.get().is_none() {
+                        *failure_session
+                            .retained_failure
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = Some(message);
+                    }
                     if !failed.swap(true, Ordering::AcqRel) {
-                        if storage_faults.get().is_none() {
-                            if let Some(event) = decode_failure_event(
-                                generation,
-                                message,
-                                &storage_faults,
-                                &decode_cancelled,
-                            ) {
-                                let _ = ev.send(event);
-                            }
-                        }
-                        // Local faults stay with the queued reader until selection/activation.
+                        // All preload faults stay with the queued reader until
+                        // selection/activation, not just local storage faults.
                     }
                 }
             }
-        })
-        .ok();
+        });
+    if let Err(error) = spawned {
+        *decoder_session
+            .retained_failure
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) =
+            Some(format!("Could not start the next-track decoder: {error}"));
+        decode_failed.store(true, Ordering::Release);
+    }
     player.append(QueuedSamples {
         reserve: None,
         reserve_diagnostics: None,
@@ -1536,6 +1602,7 @@ fn append_source(
         base_position,
         initial_position: position,
         started: false,
+        activated: false,
         cancelled: cancel.clone(),
         tap_writer: tap.writer(generation, output_rate, output_channels),
         events,
@@ -1567,6 +1634,7 @@ struct QueuedSamples {
     base_position: Arc<AtomicU64>,
     initial_position: f64,
     started: bool,
+    activated: bool,
     cancelled: Arc<AtomicBool>,
     tap_writer: crate::pcm_tap::PcmTapWriter,
     events: UnboundedSender<OutputEvent>,
@@ -1588,6 +1656,11 @@ impl Iterator for QueuedSamples {
             self.exhausted = true;
             return None;
         }
+        // Selection is the mixer reaching this occurrence, not first PCM. This
+        // transfers ownership of a buffering preload so its startup is bounded.
+        if !self.activated && self.active_generation.load(Ordering::Acquire) != self.generation {
+            self.activate();
+        }
         if let Some(reserve) = self.reserve.as_mut() {
             if !reserve.ready {
                 match reserve.fill(&self.rx, &self.decode_failed) {
@@ -1600,7 +1673,7 @@ impl Iterator for QueuedSamples {
                         return Some(0.0);
                     }
                     ReserveFill::Failed => {
-                        if self.decoder_session.storage_faults.get().is_some() && !self.started {
+                        if self.decode_failed.load(Ordering::Acquire) && !self.activated {
                             self.activate();
                         }
                         self.exhausted = true;
@@ -1663,7 +1736,7 @@ impl Iterator for QueuedSamples {
                 Some(0.0)
             }
             Err(std_mpsc::TryRecvError::Disconnected) => {
-                if !self.started && self.decoder_session.storage_faults.get().is_some() {
+                if !self.activated && self.decode_failed.load(Ordering::Acquire) {
                     // The mixer has reached this occurrence, but no PCM was produced.
                     // Activate ownership only; never publish Started/first-audio for this case.
                     self.activate();
@@ -1691,7 +1764,7 @@ impl QueuedSamples {
         self.base_position
             .store(self.initial_position.to_bits(), Ordering::Relaxed);
         self.samples_played.store(0, Ordering::Relaxed);
-        self.started = true;
+        self.activated = true;
         let _ = self.activation_tx.send(Activation {
             decoder_session: self.decoder_session.clone(),
             generation: self.generation,
@@ -1710,10 +1783,19 @@ impl QueuedSamples {
             },
             decoder_diagnostics: self.start_diagnostics(),
             decode_failed: self.decode_failed.clone(),
+            live_metadata: ActiveMetadata {
+                rate: self.source_rate.clone(),
+                channels: self.source_channels.clone(),
+                duration: self.duration_bits.clone(),
+                decoder: self.decoder_diagnostics.clone(),
+            },
         });
     }
     fn begin_track(&mut self) {
-        self.activate();
+        if !self.activated {
+            self.activate();
+        }
+        self.started = true;
         let duration = f64::from_bits(self.duration_bits.load(Ordering::Relaxed));
         let _ = self.events.send(OutputEvent::Started {
             generation: self.generation,
@@ -1967,7 +2049,7 @@ fn decode_with_session_and_diagnostics(
                     let client = builder.build().map_err(|e| e.to_string())?;
                     let uri =
                         stream_reqwest::Url::parse(uri.as_str()).map_err(|e| e.to_string())?;
-                    let stream = HttpStream::new(client, uri)
+                    let stream = HttpStream::new(native_http::NativeHttpClient::new(client), uri)
                         .await
                         .map_err(|e| e.to_string())?;
                     let content_type = stream
@@ -2194,13 +2276,37 @@ fn decode_with_session_and_diagnostics(
             .unwrap_or_else(|e| e.into_inner()) = Some(diagnostics.clone());
         *diagnostics_out.lock().unwrap_or_else(|e| e.into_inner()) = Some(diagnostics);
     }
-    if (reused || position > 0.0) && decoder.try_seek(Duration::from_secs_f64(position)).is_err() {
+    let seek_error = if reused || position > 0.0 {
+        decoder.try_seek(Duration::from_secs_f64(position)).err()
+    } else {
+        None
+    };
+    if let Some(seek_error) = seek_error {
         if cancelled.load(Ordering::Relaxed) {
             return Ok(());
         }
         if session.storage_faults.get().is_some() {
             return Err("Local playback storage failed".into());
         }
+        let seek_reason = seek_error
+            .to_string()
+            .split_whitespace()
+            .map(|part| {
+                if part.contains("http://")
+                    || part.contains("https://")
+                    || part.contains("file://")
+                    || part.trim_start_matches(['(', '\"', '\'']).starts_with('/')
+                {
+                    "[source]"
+                } else {
+                    part
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(250)
+            .collect::<String>();
         *cached = None;
         drop(cached);
         prepare_ffmpeg_fallback_diagnostics(
@@ -2225,7 +2331,7 @@ fn decode_with_session_and_diagnostics(
             Instant::now(),
         )
         .map_err(|error| {
-            format!("decoder could not seek to {position:.3}s; ffmpeg fallback failed: {error}")
+            format!("decoder could not seek to {position:.3}s ({seek_reason}); ffmpeg fallback failed: {error}")
         });
     }
     duration_out.store(duration.unwrap_or(f64::NAN).to_bits(), Ordering::Relaxed);
@@ -2337,8 +2443,27 @@ fn decode_with_session_and_diagnostics(
     Ok(())
 }
 
+fn is_finite_remote_aac_mp4(source: &AudioSource) -> bool {
+    (source.input.starts_with("https://") || source.input.starts_with("http://"))
+        && source.decoder_hint.as_ref().is_some_and(|hint| {
+            !hint.has_video
+                && hint.mime_type.as_deref() == Some("audio/mp4")
+                && hint
+                    .duration_seconds
+                    .is_some_and(|duration| duration.is_finite() && duration > 0.)
+                && hint.content_length.is_some_and(|length| length > 0)
+                && hint
+                    .codec
+                    .as_deref()
+                    .is_some_and(|codec| codec == "aac" || codec.starts_with("mp4a.40."))
+        })
+}
+
 fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
+    // Symphonia scans every MP4 atom before starting a seekable stream. For
+    // verified finite remote AAC, use the existing incremental FFmpeg path.
     source.input.to_ascii_lowercase().contains(".m3u8")
+        || is_finite_remote_aac_mp4(source)
         || source
             .decoder_hint
             .as_ref()
@@ -2349,6 +2474,7 @@ fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
 struct FfmpegChildReaper {
     child: Arc<std::sync::Mutex<std::process::Child>>,
     watcher_done: Arc<AtomicBool>,
+    stderr: Option<JoinHandle<String>>,
 }
 impl Drop for FfmpegChildReaper {
     fn drop(&mut self) {
@@ -2357,6 +2483,10 @@ impl Drop for FfmpegChildReaper {
         if !matches!(child.try_wait(), Ok(Some(_))) {
             let _ = child.kill();
             let _ = child.wait();
+        }
+        drop(child);
+        if let Some(stderr) = self.stderr.take() {
+            let _ = stderr.join();
         }
     }
 }
@@ -2421,6 +2551,7 @@ fn decode_ffmpeg_with_diagnostics(
 ) -> Result<(), String> {
     use std::process::{Command, Stdio};
     let mut command = Command::new(&source.ffmpeg);
+    crate::tools::configure_no_console(&mut command);
     command.args([
         "-nostdin",
         "-hide_banner",
@@ -2429,6 +2560,11 @@ fn decode_ffmpeg_with_diagnostics(
         "-rw_timeout",
         "5000000",
     ]);
+    // A finite AAC transport must not turn a truncated response into clean EOF.
+    // FFmpeg otherwise permits some demux/read errors and can exit successfully.
+    if is_finite_remote_aac_mp4(&source) {
+        command.arg("-xerror");
+    }
     if position > 0.0 {
         command.arg("-ss").arg(position.to_string());
     }
@@ -2458,15 +2594,45 @@ fn decode_ffmpeg_with_diagnostics(
         .arg(output_channels.to_string())
         .arg("pipe:1")
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .stdin(Stdio::null())
         .spawn()
         .map_err(|e| format!("could not start ffmpeg ({:?}): {e}", source.ffmpeg))?;
     let child = Arc::new(std::sync::Mutex::new(child));
     let watcher_done = Arc::new(AtomicBool::new(false));
-    let _reap = FfmpegChildReaper {
+    let stderr = child
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .stderr
+        .take();
+    let stderr = stderr.and_then(|mut pipe| {
+        thread::Builder::new()
+            .name("burrata-decoder-diagnostics".into())
+            .spawn(move || {
+                let mut tail = VecDeque::with_capacity(8192);
+                let mut bytes = [0; 1024];
+                while let Ok(count) = pipe.read(&mut bytes) {
+                    if count == 0 {
+                        break;
+                    }
+                    for byte in &bytes[..count] {
+                        if tail.len() == 8192 {
+                            tail.pop_front();
+                        }
+                        tail.push_back(*byte);
+                    }
+                }
+                crate::playback::safe_failure_text(
+                    &String::from_utf8_lossy(&tail.into_iter().collect::<Vec<_>>()),
+                    512,
+                )
+            })
+            .ok()
+    });
+    let mut _reap = FfmpegChildReaper {
         child: child.clone(),
         watcher_done: watcher_done.clone(),
+        stderr,
     };
     let mut stdout = child
         .lock()
@@ -2597,7 +2763,12 @@ fn decode_ffmpeg_with_diagnostics(
         .wait()
         .map_err(|e| e.to_string())?;
     if !cancelled.load(Ordering::Relaxed) && !status.success() {
-        return Err(format!("ffmpeg exited with status {status}"));
+        let diagnostic = _reap
+            .stderr
+            .take()
+            .and_then(|worker| worker.join().ok())
+            .unwrap_or_default();
+        return Err(format!("ffmpeg exited with status {status}: {diagnostic}"));
     }
     Ok(())
 }
@@ -2728,6 +2899,7 @@ mod tests {
             base_position: Arc::new(AtomicU64::new(0f64.to_bits())),
             initial_position: 0.,
             started: false,
+            activated: false,
             cancelled: Arc::new(AtomicBool::new(false)),
             tap_writer: crate::pcm_tap::PcmTap::new().writer(2, 48_000, 1),
             events,
@@ -3916,7 +4088,7 @@ mod tests {
     }
 
     #[test]
-    fn only_verified_muxed_mp4_preview_sources_force_ffmpeg() {
+    fn only_verified_muxed_or_finite_remote_aac_mp4_sources_force_ffmpeg() {
         let source = AudioSource {
             input: "https://cdn.example/stream".into(),
             ffmpeg: "ffmpeg".into(),
@@ -3933,11 +4105,226 @@ mod tests {
 
         let mut audio_only = source.clone();
         audio_only.decoder_hint.as_mut().unwrap().has_video = false;
-        assert!(!should_use_ffmpeg_for_source(&audio_only));
+        assert!(should_use_ffmpeg_for_source(&audio_only));
+        audio_only.decoder_hint.as_mut().unwrap().codec = Some("mp4a.40.2".into());
+        assert!(should_use_ffmpeg_for_source(&audio_only));
+        for change in 0..6 {
+            let mut unsupported = audio_only.clone();
+            match change {
+                0 => unsupported.input = "/local/file.m4a".into(),
+                1 => unsupported.decoder_hint.as_mut().unwrap().codec = None,
+                2 => unsupported.decoder_hint.as_mut().unwrap().codec = Some("alac".into()),
+                3 => unsupported.decoder_hint.as_mut().unwrap().duration_seconds = None,
+                4 => unsupported.decoder_hint.as_mut().unwrap().duration_seconds = Some(f64::NAN),
+                _ => unsupported.decoder_hint.as_mut().unwrap().content_length = None,
+            }
+            assert!(!should_use_ffmpeg_for_source(&unsupported));
+        }
 
         let mut non_mp4_video = source;
         non_mp4_video.decoder_hint.as_mut().unwrap().mime_type = Some("audio/webm".into());
         assert!(!should_use_ffmpeg_for_source(&non_mp4_video));
+    }
+
+    struct AacHttpFixture {
+        source: AudioSource,
+        requests: Arc<AtomicU64>,
+        stop: Arc<AtomicBool>,
+        worker: Option<thread::JoinHandle<()>>,
+    }
+    impl Drop for AacHttpFixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            self.worker.take().unwrap().join().unwrap();
+        }
+    }
+    fn aac_http_fixture(mode: u8) -> AacHttpFixture {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let bytes = include_bytes!("../tests/fixtures/aac-startup-fixture.m4a");
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        let requests = Arc::new(AtomicU64::new(0));
+        let worker_requests = requests.clone();
+        let worker = thread::spawn(move || {
+            let mut clients = Vec::new();
+            while !worker_stop.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let stop = worker_stop.clone();
+                        let requests = worker_requests.clone();
+                        clients.push(thread::spawn(move || {
+                            stream.set_nonblocking(false).unwrap();
+                            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                            stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+                            let mut request=Vec::new(); let mut byte=[0u8;1];
+                            while !request.ends_with(b"\r\n\r\n") { if stream.read_exact(&mut byte).is_err() { return; } request.push(byte[0]); }
+                            requests.fetch_add(1,Ordering::Relaxed);
+                            let text=String::from_utf8_lossy(&request).to_ascii_lowercase();
+                            if mode==1 || !text.contains("x-fixture: exact-token") {
+                                let _=stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); return;
+                            }
+                            let offset=text.lines().find_map(|line|line.strip_prefix("range: bytes="))
+                                .and_then(|range|range.split('-').next()).and_then(|value|value.parse::<usize>().ok()).unwrap_or(0);
+                            if offset>=bytes.len(){return;}
+                            if write!(stream,"HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nAccept-Ranges: bytes\r\nContent-Type: audio/mp4\r\nConnection: close\r\n\r\n",bytes.len()-offset,offset,bytes.len()-1,bytes.len()).is_err(){return;}
+                            let end=if mode==2 { bytes.len()/2 } else if mode==3 { 1024 } else { bytes.len() };
+                            if offset<end { let _=stream.write_all(&bytes[offset..end]); }
+                            if mode==3 { while !stop.load(Ordering::Relaxed){thread::sleep(Duration::from_millis(5));} }
+                        }));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(1))
+                    }
+                    Err(error) => panic!("AAC fixture accept: {error}"),
+                }
+            }
+            for client in clients {
+                client.join().unwrap();
+            }
+        });
+        AacHttpFixture {
+            source: AudioSource {
+                input: format!("http://{address}/audio.m4a"),
+                ffmpeg: "ffmpeg".into(),
+                headers: vec![("X-Fixture".into(), "exact-token".into())],
+                decoder_hint: Some(AudioSourceDecoderHint {
+                    mime_type: Some("audio/mp4".into()),
+                    codec: Some("mp4a.40.2".into()),
+                    duration_seconds: Some(4.),
+                    content_length: Some(bytes.len() as u64),
+                    has_video: false,
+                }),
+            },
+            requests,
+            stop,
+            worker: Some(worker),
+        }
+    }
+
+    #[test]
+    fn finite_remote_aac_preserves_tones_repeated_seeks_and_chapter_end() {
+        let fixture = aac_http_fixture(0);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("reference.m4a");
+        std::fs::write(
+            &path,
+            include_bytes!("../tests/fixtures/aac-startup-fixture.m4a"),
+        )
+        .unwrap();
+        let reference = AudioSource {
+            input: path.to_string_lossy().into(),
+            ffmpeg: "unused".into(),
+            headers: vec![],
+            decoder_hint: None,
+        };
+        assert!(!should_use_ffmpeg_for_source(&reference));
+        assert!(should_use_ffmpeg_for_source(&fixture.source));
+        for (position, expected_hz) in [
+            (0.2, 440.),
+            (2.2, 1320.),
+            (1.2, 880.),
+            (0.2, 440.),
+            (3.7, 1320.),
+        ] {
+            let actual = decode_window(
+                fixture.source.clone(),
+                Arc::new(DecoderSession::default()),
+                position,
+                position + 0.2,
+                Arc::new(AtomicBool::new(false)),
+            );
+            let baseline = decode_window(
+                reference.clone(),
+                Arc::new(DecoderSession::default()),
+                position,
+                position + 0.2,
+                Arc::new(AtomicBool::new(false)),
+            );
+            assert!(
+                (actual.len() as i64 - baseline.len() as i64).abs() <= 512,
+                "AAC sample-count parity"
+            );
+            assert!(
+                (actual.len() as i64 - 9600).abs() <= 512,
+                "chapter endpoint bounds"
+            );
+            let hz = actual
+                .windows(2)
+                .filter(|pair| pair[0] <= 0. && pair[1] > 0.)
+                .count() as f64
+                / (actual.len() as f64 / 48000.);
+            assert!(
+                (hz - expected_hz).abs() < 30.,
+                "seek returned wrong tone: {hz}"
+            );
+        }
+        assert!(fixture.requests.load(Ordering::Relaxed) >= 5);
+    }
+
+    #[test]
+    fn finite_remote_aac_stalled_input_cancels_and_reaps_without_pcm() {
+        let fixture = aac_http_fixture(3);
+        let source = fixture.source.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = cancelled.clone();
+        let (tx, _rx) = std_mpsc::sync_channel(16);
+        let (done, finished) = std_mpsc::channel();
+        let worker = thread::spawn(move || {
+            let result = decode_to_blocks(
+                source,
+                0.,
+                Some(1.),
+                48000,
+                1,
+                tx,
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                worker_cancelled,
+            );
+            let _ = done.send(result);
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while fixture.requests.load(Ordering::Relaxed) == 0 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(fixture.requests.load(Ordering::Relaxed) > 0);
+        cancelled.store(true, Ordering::Relaxed);
+        finished
+            .recv_timeout(Duration::from_secs(2))
+            .expect("cancelled FFmpeg must stop promptly")
+            .unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn finite_remote_aac_rejects_inaccessible_and_truncated_input() {
+        for mode in [1, 2] {
+            let fixture = aac_http_fixture(mode);
+            let source = fixture.source.clone();
+            let (tx, rx) = std_mpsc::sync_channel(128);
+            let result = decode_to_blocks(
+                source,
+                0.,
+                None,
+                48000,
+                1,
+                tx,
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                Arc::new(AtomicBool::new(false)),
+            );
+            let _samples = rx.into_iter().flatten().count();
+            assert!(
+                result.is_err(),
+                "inaccessible/truncated AAC must not be treated as clean EOF (mode {mode})"
+            );
+        }
     }
 
     #[test]
@@ -4631,14 +5018,20 @@ mod tests {
         let bytes = Arc::new(wav);
         let stop = Arc::new(AtomicBool::new(false));
         let ranged = Arc::new(AtomicBool::new(false));
-        let (server_stop, server_ranged) = (stop.clone(), ranged.clone());
+        let bounded_range = Arc::new(AtomicBool::new(false));
+        let (server_stop, server_ranged, server_bounded_range) =
+            (stop.clone(), ranged.clone(), bounded_range.clone());
         let worker = thread::spawn(move || {
             let mut clients = Vec::new();
             while !server_stop.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        let (bytes, stop, ranged) =
-                            (bytes.clone(), server_stop.clone(), server_ranged.clone());
+                        let (bytes, stop, ranged, bounded_range) = (
+                            bytes.clone(),
+                            server_stop.clone(),
+                            server_ranged.clone(),
+                            server_bounded_range.clone(),
+                        );
                         clients.push(thread::spawn(move || {
                             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
                             stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
@@ -4649,17 +5042,33 @@ mod tests {
                                 request.push(byte[0]);
                             }
                             let text = String::from_utf8_lossy(&request).to_ascii_lowercase();
-                            let start = text.lines().find_map(|line| line.strip_prefix("range: bytes="))
-                                .and_then(|range| range.split('-').next()).and_then(|start| start.parse::<usize>().ok());
+                            let range = text.lines().find_map(|line| line.strip_prefix("range: bytes="));
+                            let (start, requested_end) = match range {
+                                Some(range) => {
+                                    let Some((start, end)) = range.split_once('-') else { return; };
+                                    let Ok(start) = start.parse::<usize>() else { return; };
+                                    let end = if end.is_empty() { None } else {
+                                        let Ok(end) = end.parse::<usize>() else { return; };
+                                        Some(end)
+                                    };
+                                    (Some(start), end)
+                                }
+                                None => (None, None),
+                            };
                             let offset = start.unwrap_or(0);
                             if offset >= bytes.len() { return; }
+                            let end = requested_end.unwrap_or(bytes.len()-1).min(bytes.len()-1);
+                            if end < offset { return; }
                             if offset > 0 { ranged.store(true, Ordering::Relaxed); }
+                            if requested_end.is_some_and(|end| end < bytes.len()-1) {
+                                bounded_range.store(true, Ordering::Relaxed);
+                            }
                             let status = if start.is_some() { "206 Partial Content" } else { "200 OK" };
-                            if write!(stream, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nContent-Type: audio/wav\r\nConnection: close\r\n", bytes.len()-offset).is_err() { return; }
-                            if start.is_some() && write!(stream, "Content-Range: bytes {}-{}/{}\r\n", offset, bytes.len()-1, bytes.len()).is_err() { return; }
+                            if write!(stream, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nContent-Type: audio/wav\r\nConnection: close\r\n", end-offset+1).is_err() { return; }
+                            if start.is_some() && write!(stream, "Content-Range: bytes {}-{}/{}\r\n", offset, end, bytes.len()).is_err() { return; }
                             if stream.write_all(b"\r\n").is_err() { return; }
                             let began = Instant::now();
-                            for (index, chunk) in bytes[offset..].chunks(8192).enumerate() {
+                            for (index, chunk) in bytes[offset..=end].chunks(8192).enumerate() {
                                 if stop.load(Ordering::Relaxed) { break; }
                                 // Force the first far seek to request bytes not downloaded yet.
                                 while offset == 0 && index >= 8 && !ranged.load(Ordering::Relaxed)
@@ -4706,6 +5115,10 @@ mod tests {
             ranged.load(Ordering::Relaxed),
             "far seek must exercise a real range request"
         );
+        assert!(
+            bounded_range.load(Ordering::Relaxed),
+            "backward seek must exercise a bounded range request"
+        );
         cancel.store(true, Ordering::Relaxed);
     }
 
@@ -4740,6 +5153,7 @@ mod tests {
         drop(FfmpegChildReaper {
             child: child.clone(),
             watcher_done: done.clone(),
+            stderr: None,
         });
         assert!(done.load(Ordering::Relaxed));
         #[cfg(target_os = "linux")]
@@ -4769,6 +5183,266 @@ mod tests {
     #[cfg(not(target_os = "linux"))]
     fn decoder_child_cpu_ms() -> Option<f64> {
         None
+    }
+
+    /// Explicit isolated live reproduction: production resolver and decoder,
+    /// without a device, mixer, GUI, or the normal application's Store/queue.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires exact BURRATA_LIVE_TRACK_FIXTURE and BURRATA_LIVE_TRACK_OUTPUT; public network"]
+    async fn live_reported_track_resolver_and_decode() {
+        let fixture = std::env::var("BURRATA_LIVE_TRACK_FIXTURE")
+            .expect("explicit exact Track fixture required");
+        let output =
+            std::env::var("BURRATA_LIVE_TRACK_OUTPUT").expect("explicit report path required");
+        let track: crate::models::Track =
+            serde_json::from_slice(&std::fs::read(fixture).unwrap()).unwrap();
+        assert!(
+            track.local_path.is_none(),
+            "live catalog fixture must not reference normal local files"
+        );
+        let isolated = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::Store::open(&isolated.path().join("isolated.sqlite")).unwrap());
+        store
+            .save_settings(&crate::models::Settings::default())
+            .unwrap();
+        store.save_track(&track).unwrap();
+        let resources = std::env::var_os("BURRATA_LIVE_RESOURCES")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources"));
+        crate::tools::initialize(resources.clone());
+        let yt = crate::tools::bundled_executable("yt-dlp").expect("packaged yt-dlp required");
+        let node = crate::tools::bundled_executable("node").expect("packaged Node required");
+        let manager = crate::youtube_support::YouTubeSupportManager::new(
+            isolated.path().join("youtube-support"),
+            yt,
+            Some(node),
+            Some(resources.join("youtube-support/bgutil/server/build/main.js")),
+            Some(resources.join("youtube-support/bgutil/plugin")),
+        );
+        crate::youtube_support::initialize_global(manager.clone()).unwrap();
+        let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let acquisition = crate::acquisition::AcquisitionManager::new_for_playback_test(
+            store.clone(),
+            connections,
+        );
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        let started = Instant::now();
+        let result =
+            crate::playback_sources::resolve(&store, &acquisition, &track, None, cancel).await;
+        let resolve_ms = started.elapsed().as_secs_f64() * 1000.;
+        let mut report = serde_json::json!({"schemaVersion":1,"workload":"isolated_reported_track_resolver_and_decoder","platform":std::env::consts::OS,"build":if cfg!(debug_assertions){"debug"}else{"release"},"resolverBudgetMs":20000,"resolveMs":resolve_ms,"resolved":result.is_ok(),"scope":"production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation"});
+        let alias_context =
+            crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, &track);
+        report["aliasProofState"] = serde_json::json!({
+            "hasVerifiedCreditSets":alias_context.has_verified_credit_sets(),
+            "materializedAliasCount":alias_context.tracks().len(),
+            "scope":"isolated store populated only by production resolver evidence discovery"
+        });
+        fn category(error: &str) -> &'static str {
+            let error = error.to_ascii_lowercase();
+            if error.contains("deadline") || error.contains("budget") || error.contains("timed out")
+            {
+                "deadline_or_network_timeout"
+            } else if error.contains("match") || error.contains("identity") {
+                "recording_identity_unverified"
+            } else if error.contains("runtime")
+                || error.contains("executable")
+                || error.contains("spawn")
+            {
+                "tool_runtime"
+            } else {
+                "source_unavailable"
+            }
+        }
+        let success = match result {
+            Err(error) => {
+                report["failureStage"] = serde_json::json!("resolver");
+                report["failureCategory"] = serde_json::json!(category(&error));
+                false
+            }
+            Ok(resolved) => {
+                report["sourceProvider"] = serde_json::json!(resolved
+                    .candidate
+                    .as_ref()
+                    .map(|candidate| candidate.provider.as_str()));
+                if let Some(candidate) = &resolved.candidate {
+                    let metadata = candidate.source_metadata.as_ref();
+                    // Public recording fields only: never include source URLs,
+                    // headers, credentials, extractor payloads, or signed URLs.
+                    report["resolvedRecordingIdentity"] = serde_json::json!({
+                        "provider":candidate.provider,"providerId":candidate.id,
+                        "title":candidate.title,"durationSeconds":candidate.duration_seconds,
+                        "channelId":metadata.and_then(|value| value["channelId"].as_str()),
+                        "channel":metadata.and_then(|value| value["channel"].as_str()),
+                        "channelIsVerified":metadata.and_then(|value| value["channelIsVerified"].as_bool()),
+                        "track":metadata.and_then(|value| value["track"].as_str()),
+                        "artists":metadata.and_then(|value| value["artists"].as_array())
+                            .map(|values| values.iter().filter_map(serde_json::Value::as_str).take(16).collect::<Vec<_>>()),
+                        "hasTopicDescriptionCredit":metadata.and_then(|value| value["descriptionCreditLine"].as_str()).is_some(),
+                    });
+                }
+                let source = resolved.source;
+                report["sourceHint"] = serde_json::json!(source.decoder_hint.as_ref().map(|hint| serde_json::json!({"mimeType":hint.mime_type,"codec":hint.codec,"hasVideo":hint.has_video,"contentLength":hint.content_length})));
+                let decoded = tokio::task::spawn_blocking(move || {
+                    let decode_started = Instant::now();
+                    let cancelled = Arc::new(AtomicBool::new(false));
+                    let worker_cancelled = cancelled.clone();
+                    let diagnostics = Arc::new(std::sync::Mutex::new(None));
+                    let worker_diagnostics = diagnostics.clone();
+                    let session = Arc::new(DecoderSession::default());
+                    session.bind(&cancelled);
+                    let (tx, rx) = std_mpsc::sync_channel(16);
+                    let worker = thread::spawn(move || {
+                        decode_with_session_and_diagnostics(
+                            source,
+                            0.,
+                            Some(5.),
+                            48_000,
+                            2,
+                            tx,
+                            Arc::new(AtomicU64::new(0)),
+                            Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                            Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                            Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                            Some(worker_diagnostics),
+                            worker_cancelled,
+                            session,
+                        )
+                    });
+                    let deadline = Instant::now() + Duration::from_secs(20);
+                    let mut first_pcm_ms = None;
+                    let mut samples = 0usize;
+                    while samples < 5 * 48_000 * 2 {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            break;
+                        }
+                        match rx.recv_timeout(remaining) {
+                            Ok(block) => {
+                                if !block.is_empty() && first_pcm_ms.is_none() {
+                                    first_pcm_ms =
+                                        Some(decode_started.elapsed().as_secs_f64() * 1000.);
+                                }
+                                samples += block.len();
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    cancelled.store(true, Ordering::Relaxed);
+                    drop(rx);
+                    let decoder_result = worker.join().expect("decoder worker panicked");
+                    let diagnostics = diagnostics.lock().unwrap().clone();
+                    (
+                        first_pcm_ms,
+                        samples,
+                        decode_started.elapsed().as_secs_f64() * 1000.,
+                        decoder_result,
+                        diagnostics,
+                    )
+                })
+                .await
+                .unwrap();
+                report["decoderDiagnostics"] = serde_json::json!(decoded.4);
+                report["firstPcmAfterResolveMs"] = serde_json::json!(decoded.0);
+                report["decodedInterleavedSamples"] = serde_json::json!(decoded.1);
+                report["decodedSeconds"] = serde_json::json!(decoded.1 as f64 / 96_000.);
+                report["decodeWallMs"] = serde_json::json!(decoded.2);
+                report["firstPcmFromRequestMs"] =
+                    serde_json::json!(decoded.0.map(|first| first + resolve_ms));
+                let ok = decoded.1 >= 5 * 48_000 * 2;
+                if !ok {
+                    report["failureStage"] = serde_json::json!("decoder");
+                    report["failureCategory"] = serde_json::json!(decoded
+                        .3
+                        .as_ref()
+                        .err()
+                        .map_or("insufficient_pcm", |error| category(error)));
+                }
+                ok
+            }
+        };
+        report["ok"] = serde_json::json!(success);
+        report["totalMs"] = serde_json::json!(started.elapsed().as_secs_f64() * 1000.);
+        let _ = manager.shutdown_for_exit().await;
+        std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+        println!("{}", report);
+        assert!(
+            success,
+            "reported-track attempt failed; bounded redacted outcome retained"
+        );
+    }
+
+    /// Local attribution only: whether a 16KiB readable WAV prefix can produce
+    /// PCM before the server releases the rest of the body after 300ms.
+    #[test]
+    #[ignore = "explicit loopback prefetch attribution benchmark"]
+    fn paced_reader_startup_attribution() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let wav = pcm_wav(48_000, 2, 2);
+        let (release, first_pcm) = std_mpsc::channel();
+        let server = thread::spawn(move || {
+            let mut stream = accept_loopback(&listener, Duration::from_secs(3)).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: audio/wav\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",wav.len()).unwrap();
+            stream.write_all(&wav[..16 * 1024]).unwrap();
+            stream.flush().unwrap();
+            let before_remaining = first_pcm.recv_timeout(Duration::from_millis(300)).is_ok();
+            let _ = stream.write_all(&wav[16 * 1024..]);
+            before_remaining
+        });
+        let source = AudioSource {
+            input: format!("http://{address}/fixture.wav"),
+            ffmpeg: "ffmpeg".into(),
+            headers: vec![],
+            decoder_hint: None,
+        };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = cancelled.clone();
+        let diagnostics = Arc::new(std::sync::Mutex::new(None));
+        let worker_diagnostics = diagnostics.clone();
+        let session = Arc::new(DecoderSession::default());
+        session.bind(&cancelled);
+        let (tx, rx) = std_mpsc::sync_channel(16);
+        let started = Instant::now();
+        let worker = thread::spawn(move || {
+            decode_with_session_and_diagnostics(
+                source,
+                0.,
+                Some(1.),
+                48_000,
+                2,
+                tx,
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                Some(worker_diagnostics),
+                worker_cancelled,
+                session,
+            )
+        });
+        let first = rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("bounded first PCM");
+        let first_ms = started.elapsed().as_secs_f64() * 1000.;
+        let _ = release.send(());
+        let count = first.len() + rx.into_iter().map(|block| block.len()).sum::<usize>();
+        worker.join().unwrap().unwrap();
+        let before_remaining = server.join().unwrap();
+        assert!(count >= 48_000 * 2, "one second decoded PCM");
+        println!(
+            "{}",
+            serde_json::json!({"workload":"paced_reader_startup_attribution","initialBodyBytes":16*1024,"bodyReleaseWaitMs":300,"firstPcmBeforeRemainingBody":before_remaining,"firstPcmMs":first_ms,"decodedSamples":count,"decoderDiagnostics":diagnostics.lock().unwrap().clone()})
+        );
     }
 
     /// Decoder benchmark only: excludes resolver, mixer, device and GUI latency.
@@ -4810,9 +5484,21 @@ mod tests {
                 );
             }
         } else {
-            // Prime the retained decoder; initial load is not a seek.
             std::env::remove_var("BURRATA_FORCE_FFMPEG");
-            decode_excerpt(source.clone(), retained.clone(), 0., cancel.clone());
+            for _ in 0..3 {
+                decode_excerpt(
+                    source.clone(),
+                    Arc::new(DecoderSession::default()),
+                    duration * 0.5,
+                    cancel.clone(),
+                );
+                decode_excerpt(
+                    source.clone(),
+                    retained.clone(),
+                    duration * 0.5,
+                    cancel.clone(),
+                );
+            }
         }
         for iteration in 0..20 {
             for fraction in [0.01, 0.5, 0.95] {
@@ -5005,3 +5691,7 @@ mod seek_queue_tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "native_preload_tests.rs"]
+mod reliability_tests;

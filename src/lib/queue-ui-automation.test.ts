@@ -6,7 +6,8 @@ import {afterEach,expect,it,vi} from 'vitest';
 vi.mock('svelte',async()=>await import('../../node_modules/svelte/src/index-client.js'));
 import Panel from '../PlaybackQueuePanel.svelte';import {dispatchQueueUi,validQueueUiAction,queueUiMoves} from './queue-ui-automation';
 const track={id:'same',provider:'library',providerId:'same',sourceUrl:'',title:'Private fixture title',artist:'Private artist',favorite:false,provenance:{}};
-let cleanup=()=>{};afterEach(()=>{cleanup();document.body.innerHTML='';vi.unstubAllGlobals();});
+const originalShowModal=Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype,'showModal');
+let cleanup=()=>{};afterEach(()=>{cleanup();document.body.innerHTML='';vi.unstubAllGlobals();if(originalShowModal)Object.defineProperty(HTMLDialogElement.prototype,'showModal',originalShowModal);else Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');});
 async function render(onMove=vi.fn(async()=>{}),signal?:AbortSignal,onInteractionMove?: (from:number,to:number)=>Promise<void>){const target=document.createElement('div');document.body.append(target);const onPlay=vi.fn();const component=mount(Panel,{target,props:{tracks:[track,track,{...track,id:'third'},{...track,id:'fourth'}],currentIndex:1,paused:true,position:10,repeatMode:'off',shuffleEnabled:false,onClose:vi.fn(),onPlay,onMove,onRemove:vi.fn(),onSeek:vi.fn(),onToggleShuffle:vi.fn(),onCycleRepeat:vi.fn(),interactionSignal:signal,onInteractionMove} as never});cleanup=()=>{void unmount(component);};await tick();target.querySelector<HTMLElement>('.playback-queue-panel')!.getBoundingClientRect=()=>({width:340,height:400,left:0,top:0,right:340,bottom:400,x:0,y:0,toJSON(){return {};}});return {onPlay,onMove};}
 const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve();await tick();};
 it('strict finite input and actual modifier-selection handlers without playback',async()=>{
@@ -47,9 +48,12 @@ it('advances only own acknowledged revisions and records cancellation partial st
 });
 
 it('attributes synthetic movement separately from ordinary overflow movement',async()=>{
+ vi.stubGlobal('ResizeObserver',class {observe(){}unobserve(){}disconnect(){}});
+ Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(this:HTMLDialogElement){this.setAttribute('open','');}});
  const ordinary=vi.fn(async()=>{}),owned=vi.fn(async()=>{});await render(ordinary,new AbortController().signal,owned);
  await dispatchQueueUi(document,{action:'arrow',index:1,direction:'up'},new AbortController().signal,()=>true);
  expect(owned).toHaveBeenCalledExactlyOnceWith(1,0);expect(ordinary).not.toHaveBeenCalled();
+ document.querySelector<HTMLElement>('.queue-list > article:nth-child(2) summary')!.click();await settle();
  const button=[...document.querySelectorAll<HTMLButtonElement>('.queue-list > article:nth-child(2) button')].find(b=>b.textContent?.trim()==='Move up');
  expect(button).toBeTruthy();button!.click();await settle();expect(ordinary).toHaveBeenCalledExactlyOnceWith(1,0);expect(owned).toHaveBeenCalledTimes(1);
 });

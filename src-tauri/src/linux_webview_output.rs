@@ -11,6 +11,7 @@ use std::{
 use tokio::{io::AsyncReadExt, process::Command, sync::watch, time::Instant};
 
 const RATE: u32 = 48_000;
+#[cfg(test)]
 const BYTES: usize = RATE as usize * 2 * 8;
 
 /// Private test seam only: Tauri commands never accept executable paths or
@@ -23,6 +24,7 @@ struct CaptureTools {
     recheck_interval: Duration,
     read_timeout: Duration,
     startup_timeout: Duration,
+    capture_seconds: usize,
 }
 
 impl CaptureTools {
@@ -34,6 +36,7 @@ impl CaptureTools {
             recheck_interval: Duration::from_millis(500),
             read_timeout: Duration::from_millis(750),
             startup_timeout: Duration::from_secs(2),
+            capture_seconds: 8,
         }
     }
 
@@ -306,6 +309,24 @@ pub async fn capture_wav(
     capture_wav_cancellable(root_pid, max_capture, status, current, cancellation).await
 }
 
+/// Capture a bounded caller-selected excerpt of the owned audible output.
+pub async fn capture_wav_seconds_cancellable(
+    root_pid: u32,
+    max_capture: Duration,
+    seconds: usize,
+    status: impl Fn() -> ViewAudio,
+    current: impl Fn() -> bool,
+    cancellation: watch::Receiver<bool>,
+) -> Result<Vec<u8>, String> {
+    if !(3..=12).contains(&seconds) {
+        return Err("Audio capture must contain three to twelve seconds".into());
+    }
+    let mut tools = CaptureTools::system();
+    tools.capture_seconds = seconds;
+    capture_wav_with_tools_cancellable(root_pid, max_capture, status, current, cancellation, tools)
+        .await
+}
+
 pub async fn capture_wav_cancellable(
     root_pid: u32,
     max_capture: Duration,
@@ -347,7 +368,9 @@ async fn capture_wav_with_tools_cancellable(
     if max_capture.is_zero() {
         return Err("Audio identification exceeded its 60-second limit".into());
     }
-    let deadline = Instant::now() + max_capture.min(Duration::from_secs(12));
+    let capture_bytes = RATE as usize * 2 * tools.capture_seconds;
+    let deadline =
+        Instant::now() + max_capture.min(Duration::from_secs(tools.capture_seconds as u64 + 4));
     if *cancellation.borrow() {
         return Err("Audio identification was cancelled".into());
     }
@@ -396,10 +419,10 @@ async fn capture_wav_with_tools_cancellable(
     // Pulse may buffer before its first packet. Keep checking ownership while
     // allowing bounded recorder startup; all exits explicitly reap this child.
     let startup_deadline = Instant::now() + tools.startup_timeout;
-    let mut pcm = Vec::with_capacity(BYTES);
+    let mut pcm = Vec::with_capacity(capture_bytes);
     let mut scratch = vec![0u8; 24000];
     let mut next = Instant::now() + tools.recheck_interval;
-    while pcm.len() < BYTES {
+    while pcm.len() < capture_bytes {
         if *cancellation.borrow() {
             kill_and_reap(&mut child).await;
             return Err("Audio identification was cancelled".into());
@@ -444,7 +467,7 @@ async fn capture_wav_with_tools_cancellable(
             next = Instant::now() + tools.recheck_interval;
         }
 
-        let n = (BYTES - pcm.len()).min(scratch.len());
+        let n = (capture_bytes - pcm.len()).min(scratch.len());
         let deadline_remaining = deadline.saturating_duration_since(Instant::now());
         let startup_remaining = startup_deadline.saturating_duration_since(Instant::now());
         let mut read_timeout = tools.read_timeout.min(deadline_remaining);
@@ -568,6 +591,7 @@ mod tests {
             std::fs::set_permissions(path, permissions).unwrap();
         }
         CaptureTools {
+            capture_seconds: 8,
             pactl,
             parec,
             env: vec![
@@ -754,6 +778,30 @@ mod tests {
         assert!(one_stream(&unrouted, &p)
             .unwrap_err()
             .contains("not reached an audio output"));
+    }
+
+    #[tokio::test]
+    async fn selected_output_can_capture_three_seconds_without_waiting_for_eight() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut webkit, webkit_pid) = owned_webkit_child().await;
+        let mut tools = fake_tools(dir.path(), webkit_pid, "pcm");
+        tools.capture_seconds = 3;
+        let wav = capture_wav_with_tools(
+            std::process::id(),
+            Duration::from_secs(3),
+            || ViewAudio {
+                main: true,
+                others: 0,
+                known: true,
+            },
+            || true,
+            tools,
+        )
+        .await
+        .unwrap();
+        assert_eq!(wav.len(), 44 + RATE as usize * 2 * 3);
+        crate::webview_radio_pcm::validate_wav(&wav).unwrap();
+        kill_and_reap(&mut webkit).await;
     }
 
     #[tokio::test]

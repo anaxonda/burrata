@@ -1,0 +1,28 @@
+{
+  "build": "debug",
+  "decodeWallMs": 9272.988256,
+  "decodedInterleavedSamples": 480000,
+  "decodedSeconds": 5.0,
+  "firstPcmAfterResolveMs": 9018.165864,
+  "firstPcmFromRequestMs": 20943.388447,
+  "ok": true,
+  "platform": "linux",
+  "resolveMs": 11925.222583,
+  "resolved": true,
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "sourceProvider": "youtube",
+  "totalMs": 21198.388482,
+  "workload": "isolated_reported_track_resolver_and_decoder",
+  "fixtureOrigin": {
+    "provider": "musicbrainz",
+    "recordingId": "43d497e7-7da4-4101-88c7-83e1ff677bb6",
+    "title": "Victory Lap",
+    "artist": "Pengus",
+    "durationSeconds": 260,
+    "limitation": "Exact public recording; original reported application source ID unavailable."
+  },
+  "wholeAppStartupDeadlineQualified": false,
+  "note": "Resolver and decoder have separate test bounds. First PCM exceeded20 seconds overall; this is not a GUI deadline pass or physical audibility test."
+}

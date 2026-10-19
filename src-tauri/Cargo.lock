@@ -457,7 +457,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burrata"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "async-trait",
  "axum",
@@ -4847,8 +4847,6 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "stream-download"
 version = "0.24.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3838c412a6dbb469e857b5148043dbb54d01dce49cace8d46709b795cc7697a3"
 dependencies = [
  "bytes",
  "educe",

@@ -218,10 +218,18 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
                 .iter()
                 .flat_map(|c| flex_runs(c).iter())
                 .collect::<Vec<_>>();
-            let artist = semantic_runs
+            let mut artist_names = Vec::new();
+            for run in semantic_runs
                 .iter()
-                .find(|r| run_page_type(r) == Some("MUSIC_PAGE_TYPE_ARTIST"))
-                .and_then(|r| run_label(r));
+                .filter(|r| run_page_type(r) == Some("MUSIC_PAGE_TYPE_ARTIST"))
+            {
+                if let Some(name) = run_label(run) {
+                    if !artist_names.contains(&name) {
+                        artist_names.push(name);
+                    }
+                }
+            }
+            let artist = (!artist_names.is_empty()).then(|| artist_names.join(", "));
             let album = semantic_runs
                 .iter()
                 .find(|r| run_page_type(r) == Some("MUSIC_PAGE_TYPE_ALBUM"))
@@ -471,7 +479,9 @@ pub async fn search_page(
     // search cursor through this API, so only the Innertube path can continue.
     let mut warnings =
         vec!["YouTube Music community search was unavailable; used yt-dlp search fallback".into()];
-    let output = Command::new(yt_dlp)
+    let mut command = Command::new(yt_dlp);
+    crate::tools::configure_no_console_tokio(&mut command);
+    let output = command
         .args([
             "--ignore-config",
             "--no-plugin-dirs",
@@ -584,9 +594,11 @@ pub async fn inspect_url_with_runtime(
         _ => "deno",
     };
     let runtime_path = crate::tools::executable(js_runtime, runtime_kind);
+    let mut command = Command::new(crate::tools::executable(yt_dlp, "yt-dlp"));
+    crate::tools::configure_no_console_tokio(&mut command);
     let output = tokio::time::timeout(
         Duration::from_secs(20),
-        Command::new(crate::tools::executable(yt_dlp, "yt-dlp"))
+        command
             .args([
                 "--ignore-config",
                 "--no-plugin-dirs",
@@ -829,6 +841,25 @@ mod tests {
             .unwrap_err();
             assert!(error.contains("invalid") || error.contains("limit"));
         }
+    }
+
+    #[test]
+    fn public_music_collaboration_retains_every_semantic_artist_run() {
+        let raw: Value = serde_json::from_str(include_str!(
+            "../fixtures/youtube-music-reckless-performer-runs.json"
+        ))
+        .unwrap();
+        let items = parse_search_response(&raw, 10);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "FXIvaktRqZg");
+        assert_eq!(
+            items[0].artist.as_deref(),
+            Some("Nipsey Hussle, Bino Rideaux")
+        );
+        assert_eq!(items[0].title, "Reckless (feat. Static Major)");
+        assert_eq!(items[0].album.as_deref(), Some("Reckless"));
+        assert_eq!(items[0].duration_seconds, Some(139.0));
+        assert!(!items[0].artist.as_ref().unwrap().contains("plays"));
     }
 
     #[test]

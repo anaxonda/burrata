@@ -1,0 +1,68 @@
+{
+  "sourceUrls": [
+    "https://api.discogs.com/releases/38549214",
+    "https://api.discogs.com/artists/737282"
+  ],
+  "release": {
+    "id": 38549214,
+    "title": "Prolific",
+    "artists": [
+      {
+        "id": 1195171,
+        "name": "Nipsey Hussle",
+        "join": ","
+      },
+      {
+        "id": 4908344,
+        "name": "Bino Rideaux",
+        "join": ""
+      }
+    ],
+    "tracklist": [
+      {
+        "position": "2",
+        "type_": "track",
+        "title": "Sacrifices",
+        "duration": "",
+        "artists": [
+          {
+            "id": 1195171,
+            "name": "Nipsey Hussle",
+            "join": ","
+          },
+          {
+            "id": 4908344,
+            "name": "Bino Rideaux",
+            "join": ","
+          },
+          {
+            "id": 737282,
+            "name": "James Fauntleroy II",
+            "join": ""
+          }
+        ]
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "id": 1195171,
+      "name": "Nipsey Hussle",
+      "namevariations": []
+    },
+    {
+      "id": 4908344,
+      "name": "Bino Rideaux",
+      "namevariations": []
+    },
+    {
+      "id": 737282,
+      "name": "James Fauntleroy II",
+      "namevariations": [
+        "James Fauntleroy"
+      ]
+    }
+  ],
+  "officialTitle": "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Official Audio)",
+  "officialUrl": "https://www.youtube.com/watch?v=vqDoiUMuqQA"
+}

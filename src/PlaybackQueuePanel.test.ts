@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // @ts-expect-error Exercise Svelte's browser runtime in jsdom.
 import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error Match the browser runtime used by the direct import above.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import PlaybackQueuePanel from "./PlaybackQueuePanel.svelte";
@@ -10,8 +10,19 @@ import type { Track } from "./lib/types";
 const track: Track = { id: "queue-1", provider: "library", providerId: "queue-1", sourceUrl: "https://example.test/track", artist: "Queue Artist", title: "Queued Track", favorite: false, provenance: {} };
 const radioTrack: Track = { id: "radio-1", provider: "radio", providerId: "radio-1", sourceUrl: "https://example.test/live", artist: "Radio Artist", title: "Known On Air Song", favorite: false, provenance: {} };
 const heardTrack: Track = { ...radioTrack, id: "heard-1", title: "Previously Heard Song" };
+const originalResizeObserver = globalThis.ResizeObserver;
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+beforeEach(() => {
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+});
 let cleanup: (() => void) | undefined;
-afterEach(() => { cleanup?.(); cleanup = undefined; document.body.innerHTML = ""; });
+afterEach(() => {
+  cleanup?.(); cleanup = undefined; document.body.innerHTML = "";
+  globalThis.ResizeObserver = originalResizeObserver;
+  if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+});
 
 function render(props: Record<string, unknown> = {}) {
   const target = document.createElement("div"); document.body.append(target);
@@ -29,12 +40,12 @@ describe("PlaybackQueuePanel", () => {
     const target = render();
     const details = target.querySelector<HTMLDetailsElement>("details.queue-more")!;
     const summary = details.querySelector<HTMLElement>("summary")!;
-    summary.click();
+    summary.click(); await tick();
     await tick();
     const action = details.querySelector<HTMLButtonElement>(".queue-more-menu button")!;
     action.focus();
     const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
-    window.dispatchEvent(escape);
+    action.dispatchEvent(escape);
     await tick();
     expect(escape.defaultPrevented).toBe(true);
     expect(details.open).toBe(false);
@@ -44,7 +55,7 @@ describe("PlaybackQueuePanel", () => {
   it("closes the overflow menu on resize without moving focus to its trigger", async () => {
     const target = render();
     const details = target.querySelector<HTMLDetailsElement>("details.queue-more")!;
-    details.querySelector<HTMLElement>("summary")!.click();
+    details.querySelector<HTMLElement>("summary")!.click(); await tick();
     await tick();
     expect(details.open).toBe(true);
     const sentinel = document.createElement("button"); sentinel.textContent = "Resize focus sentinel"; document.body.append(sentinel); sentinel.focus();
@@ -54,20 +65,42 @@ describe("PlaybackQueuePanel", () => {
     expect(document.activeElement).toBe(sentinel);
   });
 
-  it("labels the panel as the queue and provides info for queued tracks", () => {
+  it("uses the shared action frame and keyboard navigation without enabling current-track removal", async () => {
+    const target = render({ tracks: [track, { ...track, id: "next", title: "Next" }, { ...track, id: "last", title: "Last" }], currentIndex: 1 });
+    const summary=target.querySelectorAll<HTMLElement>(".queue-list article summary")[1]!;
+    summary.click(); await tick();
+    const menu=target.querySelector<HTMLDialogElement>("dialog.action-menu.queue-more-menu")!;
+    expect(menu.getAttribute("role")).toBe("menu");
+    expect(menu.getAttribute("aria-label")).toBe("Actions for Next");
+    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    const actions=[...menu.querySelectorAll<HTMLButtonElement>(":scope > button")];
+    const remove=actions.find(button=>button.textContent?.trim()==="Remove from queue")!;
+    expect(remove.disabled).toBe(true);
+    for(const action of actions) Object.defineProperty(action,"getClientRects",{value:()=>[{width:100,height:32}]});
+    menu.dispatchEvent(new KeyboardEvent("keydown",{key:"Home",bubbles:true,cancelable:true}));
+    expect(document.activeElement?.textContent?.trim()).toBe("Move up");
+    menu.dispatchEvent(new KeyboardEvent("keydown",{key:"End",bubbles:true,cancelable:true}));
+    expect(document.activeElement?.textContent?.trim()).toBe("Move down");
+    menu.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));await tick();
+    expect(target.querySelector("dialog.action-menu")).toBeNull();
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(summary);
+  });
+
+  it("labels the panel as the queue and provides info for queued tracks", async () => {
     const onInfoTrack = vi.fn();
     const target = render({ onInfoTrack });
     expect(target.querySelector(".queue-header h2")?.textContent).toContain("Queue");
     expect(target.querySelector(".queue-header h2")?.textContent).not.toContain("Up next");
     const more = target.querySelector<HTMLElement>('[aria-label="More actions for Queued Track"]')!;
-    more.click();
+    more.click(); await tick();
     const infoAction = [...target.querySelectorAll<HTMLButtonElement>('.queue-more-menu button')].find(button => button.textContent?.trim() === "Track information")!;
     expect(infoAction.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     infoAction.click();
     expect(onInfoTrack).toHaveBeenCalledWith(track);
   });
 
-  it("adds the chosen queue occurrence to a playlist without losing its chapter range", () => {
+  it("adds the chosen queue occurrence to a playlist without losing its chapter range", async () => {
     const firstRange = { parentTrackId: track.id, chapterId: "chapter-1", sourceUrl: track.sourceUrl, startTime: 0, endTime: 60, parentTitle: track.title };
     const secondRange = { ...firstRange, chapterId: "chapter-2", startTime: 60, endTime: 120 };
     const firstOccurrence = { ...track, playbackRange: firstRange };
@@ -78,7 +111,7 @@ describe("PlaybackQueuePanel", () => {
     const target = render({ tracks: [firstOccurrence, secondOccurrence], currentIndex: 0, onAddToPlaylist, onRemove, onPlay });
 
     const menus = target.querySelectorAll<HTMLDetailsElement>('.queue-list article details.queue-more');
-    menus[1]!.querySelector<HTMLDetailsElement>("summary")!.click();
+    menus[1]!.querySelector<HTMLDetailsElement>("summary")!.click(); await tick();
     const addAction = [...menus[1]!.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Add to playlist")!;
     expect(addAction.classList.contains("primary-action")).toBe(true);
     expect(addAction.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
@@ -98,12 +131,12 @@ describe("PlaybackQueuePanel", () => {
     const chapter = { id: "song-1", title: "Artist — Song", startTime: 60, endTime: 180, confidence: "review" } as const;
     const onAddChapterToPlaylist = vi.fn();
     const target = render({ tracks: [parent, parent], currentIndex: 1, chaptersByTrack: { [parent.id]: [chapter] }, onAddChapterToPlaylist });
-    target.querySelector<HTMLElement>('[aria-label="More actions for Long Set"]')!.click();
+    target.querySelector<HTMLElement>('[aria-label="More actions for Long Set"]')!.click(); await tick();
     [...target.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Show chapters")!.click();
     await tick();
     const childActions = target.querySelectorAll<HTMLDetailsElement>('.chapter-children details.queue-more');
     expect(childActions).toHaveLength(2);
-    childActions[1]!.querySelector("summary")!.click();
+    childActions[1]!.querySelector("summary")!.click(); await tick();
     const add = [...childActions[1]!.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Add chapter to playlist")!;
     expect(add.classList.contains("primary-action")).toBe(true);
     expect(add.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
@@ -136,13 +169,13 @@ describe("PlaybackQueuePanel", () => {
     expect(onContextRadioTrack).toHaveBeenNthCalledWith(2, radioTrack);
   });
 
-  it("disables identify while recognition is running", () => {
+  it("disables identify while recognition is running", async () => {
     const target = render({ radioNowPlaying: radioTrack, radioRecognizing: true, onIdentifyRadio: vi.fn() });
     expect(target.querySelector<HTMLButtonElement>(".identify")?.disabled).toBe(true);
   });
 
 
-  it("identifies active non-radio audio from the expanded queue and disables while busy", () => {
+  it("identifies active non-radio audio from the expanded queue and disables while busy", async () => {
     const onIdentifyCurrent = vi.fn();
     const target = render({ onIdentifyCurrent, identifyingCurrentAudio: false });
     const identify = target.querySelector<HTMLButtonElement>('[aria-label="Identify currently playing audio"]');
@@ -157,12 +190,12 @@ describe("PlaybackQueuePanel", () => {
     expect(busyIdentify?.textContent).toContain("Identifying");
   });
 
-  it("does not show the generic identify action unless current audio is eligible", () => {
+  it("does not show the generic identify action unless current audio is eligible", async () => {
     const target = render();
     expect(target.querySelector('[aria-label="Identify currently playing audio"]')).toBeNull();
   });
 
-  it("keeps the queue row usable when artist and duration metadata are absent", () => {
+  it("keeps the queue row usable when artist and duration metadata are absent", async () => {
     const target = render({ tracks: [{ ...track, artist: "", durationSeconds: undefined }] });
     expect(target.querySelector(".track-copy small")?.textContent).toBe("Unknown artist");
     expect(target.querySelector(".track-duration")).toBeNull();
@@ -172,16 +205,16 @@ describe("PlaybackQueuePanel", () => {
     expect(target.querySelector(".queue-controls")).toBeNull();
   });
 
-  it("moves and removes queued tracks from the overflow menu", () => {
+  it("moves and removes queued tracks from the overflow menu", async () => {
     const onMove = vi.fn(), onRemove = vi.fn();
     const target = render({ tracks: [track, { ...track, id: "queue-2", title: "Next Track" }], currentIndex: 0, onMove, onRemove });
     const more = target.querySelector<HTMLElement>('[aria-label="More actions for Next Track"]')!;
-    more.click();
+    more.click(); await tick();
     const menu = more.closest("details")!.querySelector(".queue-more-menu")!;
     const buttons = [...menu.querySelectorAll<HTMLButtonElement>("button")];
     buttons.find(button => button.textContent === "Move up")!.click();
     expect(onMove).toHaveBeenCalledWith(1, 0);
-    more.click();
+    more.click(); await tick();
     more.closest("details")!.querySelector<HTMLButtonElement>('.queue-more-menu button[title="Remove from queue"]')!.click();
     expect(onRemove).toHaveBeenCalledWith(1);
   });
@@ -204,7 +237,7 @@ describe("PlaybackQueuePanel", () => {
     expect(onSortUpcoming).toHaveBeenCalledWith("artist", "desc");
   });
 
-  it("hides upcoming sorting when only one track remains after the current occurrence", () => {
+  it("hides upcoming sorting when only one track remains after the current occurrence", async () => {
     const target = render({
       tracks: [track, { ...track, id: "queue-2", title: "Final Upcoming Track" }],
       currentIndex: 0,
@@ -224,7 +257,7 @@ describe("PlaybackQueuePanel", () => {
       chapters: [chapter], position: 20, activePlaybackTrack, buffering: true,
     });
     const firstMenu = target.querySelector<HTMLElement>(".queue-list article summary")!;
-    firstMenu.click();
+    firstMenu.click(); await tick();
     [...firstMenu.closest("article")!.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent === "Show chapters")?.click();
     await tick();
     const queueRows = [...target.querySelectorAll<HTMLElement>(".queue-list article")];
@@ -246,13 +279,13 @@ describe("PlaybackQueuePanel", () => {
       chapterRangesByTrack: { [duplicate.id]: { [chapter.id]: { ...range, sourceUrl: "https://other.test/audio" } } },
       activePlaybackTrack, buffering: true,
     });
-    wrongSource.querySelector<HTMLElement>(".queue-list article summary")?.click();
+    wrongSource.querySelector<HTMLElement>(".queue-list article summary")?.click(); await tick();
     [...wrongSource.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent === "Show chapters")?.click();
     await tick();
     expect(wrongSource.querySelector(".chapter-child")?.classList.contains("current")).toBe(false);
   });
 
-  it("uses native excerpt position as an absolute source position for current-chapter selection", () => {
+  it("uses native excerpt position as an absolute source position for current-chapter selection", async () => {
     const chapter = { id: "native-candidate-chapter", title: "Middle section", startTime: 110, endTime: 130, confidence: "high" };
     const playbackRange = { parentTrackId: track.id, chapterId: chapter.id, sourceUrl: "https://source.test/audio", startTime: 100, endTime: 160, parentTitle: track.title };
     const rangedTrack = { ...track, id: `chapter:${track.id}:${chapter.id}`, playbackRange };
@@ -266,7 +299,7 @@ describe("PlaybackQueuePanel", () => {
     expect(chapterButton.textContent).toContain("♫");
   });
 
-  it("keeps paused state tied to the selected queue occurrence", () => {
+  it("keeps paused state tied to the selected queue occurrence", async () => {
     const target = render({ tracks: [track, { ...track, id: "queue-2" }], currentIndex: 1, paused: true });
     const rows = [...target.querySelectorAll<HTMLElement>(".queue-list article")];
     expect(rows.map(row => row.classList.contains("paused"))).toEqual([false, true]);
@@ -275,7 +308,7 @@ describe("PlaybackQueuePanel", () => {
     expect(rows[1].querySelector(".track-select")?.getAttribute("aria-label")).toBe("Paused Queued Track");
   });
 
-  it("keeps chapter rows to play and More, with queue, download, and info in the menu", () => {
+  it("keeps chapter rows to play and More, with queue, download, and info in the menu", async () => {
     const chapter = { id: "chapter-1", title: "First Chapter", startTime: 0, endTime: 120, confidence: "high" };
     const onQueueChapter = vi.fn(), onDownloadChapter = vi.fn(), onInfoChapter = vi.fn();
     const target = render({
@@ -285,8 +318,8 @@ describe("PlaybackQueuePanel", () => {
     expect(row.querySelectorAll(":scope > button")).toHaveLength(1);
     const more = row.querySelector<HTMLElement>("summary")!;
     expect(more.getAttribute("aria-label")).toBe("More actions for chapter First Chapter");
-    more.click();
-    more.closest("details")!.querySelector<HTMLButtonElement>('.queue-more-menu button')!.click();
+    more.click(); await tick();
+    [...more.closest("details")!.querySelectorAll<HTMLButtonElement>('.queue-more-menu button')].find(button => button.textContent?.trim() === "Queue chapter")!.click();
     expect(onQueueChapter).toHaveBeenCalledWith(track, chapter, 0);
   });
 });
@@ -380,6 +413,7 @@ it("stops a normal selected-block move on stale or missing native acknowledgemen
 });
 it("uses captured native revision for overflow moves and surfaces an external stale rejection",async()=>{
  const onMove=vi.fn().mockRejectedValue(new Error('Queue revision changed before reorder'));const target=render({tracks:[track,track],queueRevision:10,onMove});await tick();
+ target.querySelector<HTMLElement>('.queue-list article:nth-child(2) summary')!.click();await tick();
  const buttons=target.querySelectorAll<HTMLButtonElement>('.queue-list article:nth-child(2) .queue-more-menu button');[...buttons].find(button=>button.textContent?.trim()==='Move up')!.click();for(let i=0;i<12;i++)await Promise.resolve();await tick();
  expect(onMove).toHaveBeenCalledExactlyOnceWith(1,0,10);expect(target.querySelector('[role="alert"]')?.textContent).toContain('Could not finish');
 });

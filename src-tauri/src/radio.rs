@@ -12,13 +12,21 @@ use std::future::Future;
 use std::net::IpAddr;
 use std::time::Duration;
 
+#[path = "radio_artwork.rs"]
+mod radio_artwork;
+pub use radio_artwork::resolve_station_artwork;
+
 #[path = "radio_metadata.rs"]
 mod radio_metadata;
 pub use radio_metadata::{
     get_station_details, identify_radio_station, poll_radio_station,
     recognize_captured_sample_cancellable, recognize_captured_sample_uncached,
-    recognize_played_sample, recognize_played_sample_with_capture, RadioStationDetails,
+    recognize_played_sample, recognize_played_sample_with_capture,
+    recognize_played_samples_progressively, recognize_played_samples_progressively_manual,
+    reconcile_played_radio_metadata, record_played_radio_identification, RadioStationDetails,
 };
+
+pub(crate) use radio_metadata::safe_recognition_artwork_url;
 
 const RADIO_PARADISE_SOURCE_URL: &str = "https://radioparadise.com/listen/stream-links";
 const RADIO_PARADISE_API_URL: &str = "https://api.radioparadise.com/api/now_playing";
@@ -759,6 +767,204 @@ fn validate_stream_url(value: &str) -> Result<url::Url, String> {
         return Err("Stream URL must use HTTP or HTTPS without embedded credentials".into());
     }
     Ok(url)
+}
+
+/// Header-verified transport for the exact saved station (including its redirects).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedStationPlayback {
+    pub url: String,
+    pub mime_type: Option<String>,
+    pub codec: Option<String>,
+}
+
+pub async fn resolve_station_playback_url(
+    station_id: String,
+    store: &Store,
+) -> Result<String, String> {
+    let (_sender, cancel) = tokio::sync::watch::channel(false);
+    resolve_station_playback_until(
+        station_id,
+        store,
+        tokio::time::Instant::now() + Duration::from_secs(8),
+        cancel,
+    )
+    .await
+    .map(|resolved| resolved.url)
+}
+
+pub async fn resolve_station_playback_until(
+    station_id: String,
+    store: &Store,
+    deadline: tokio::time::Instant,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+) -> Result<ResolvedStationPlayback, String> {
+    // An already-expired Tokio timer can require a scheduler turn before it is
+    // observed. Do not start DNS/probing or report a source failure in that gap.
+    if *cancel.borrow() {
+        return Err("Radio playback was cancelled".into());
+    }
+    if tokio::time::Instant::now() >= deadline {
+        return Err("Radio stream lookup exceeded playback deadline".into());
+    }
+    let station = get_radio_stations_saved(store)?
+        .into_iter()
+        .find(|station| station.id == station_id)
+        .ok_or("Radio station no longer exists")?;
+    let original = validate_stream_url(&station.stream_url)?;
+    let work = async {
+        // Never reuse a stale signed redirect target: DNS, the redirect chain
+        // and MIME are revalidated for each startup.
+        let mut candidates = Vec::new();
+        if let Some(secure) = secure_stream_candidate(&original) {
+            candidates.push(secure);
+        }
+        candidates.push(original.clone());
+        let mut last_error = "Radio stream is unavailable".to_owned();
+        for candidate in candidates {
+            if tokio::time::Instant::now() >= deadline {
+                return Err("Radio stream lookup exceeded playback deadline".into());
+            }
+            let attempt_deadline =
+                deadline.min(tokio::time::Instant::now() + Duration::from_secs(4));
+            match tokio::time::timeout_at(
+                attempt_deadline,
+                probe_station_transport(candidate, None),
+            )
+            .await
+            {
+                Ok(Ok(mut resolved)) => {
+                    if resolved.codec.is_none() {
+                        resolved.codec = station.codec.clone();
+                    }
+                    return Ok(resolved);
+                }
+                Ok(Err(error)) => last_error = error,
+                Err(_) => last_error = "Radio stream header lookup timed out".into(),
+            }
+        }
+        Err(last_error)
+    };
+    tokio::select! {
+        biased;
+        _ = async { loop { if *cancel.borrow() { break; } if cancel.changed().await.is_err() { std::future::pending::<()>().await; } } } => Err("Radio playback was cancelled".into()),
+        _ = tokio::time::sleep_until(deadline) => Err("Radio stream lookup exceeded playback deadline".into()),
+        result = work => result,
+    }
+}
+
+async fn probe_station_transport(
+    mut current: url::Url,
+    _test_addresses: Option<&[std::net::SocketAddr]>,
+) -> Result<ResolvedStationPlayback, String> {
+    let mut seen = HashSet::new();
+    for hop in 0..=5 {
+        current = validate_stream_url(current.as_str())?;
+        current.set_fragment(None);
+        if !seen.insert(current.to_string()) {
+            return Err("Radio stream redirect loop".into());
+        }
+        let mut addresses = match _test_addresses {
+            #[cfg(test)]
+            Some(addresses) if current.host_str() == Some("radio-fixture.test") => {
+                addresses.to_vec()
+            }
+            _ => crate::acquisition::public_addresses(&current).await?,
+        };
+        let port = current
+            .port_or_known_default()
+            .ok_or("Radio stream has no port")?;
+        for address in &mut addresses {
+            address.set_port(port);
+        }
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(3))
+            .resolve_to_addrs(
+                current.host_str().ok_or("Radio stream has no host")?,
+                &addresses,
+            )
+            .build()
+            .map_err(|e| format!("Could not prepare radio transport: {e}"))?;
+        let response = client
+            .get(current.clone())
+            .header("Icy-MetaData", "0")
+            .send()
+            .await
+            .map_err(|e| format!("Radio stream header request failed: {e}"))?;
+        if response.status().is_redirection() {
+            if hop == 5 {
+                return Err("Radio stream exceeded redirect limit".into());
+            }
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|h| h.to_str().ok())
+                .ok_or("Radio redirect has no valid destination")?;
+            current = current
+                .join(location)
+                .map_err(|_| "Radio redirect destination is invalid")?;
+            // Each request is new: cookies, authorization and upstream response headers
+            // are never forwarded across redirects, even on the same host.
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(format!(
+                "Radio stream returned HTTP {}",
+                response.status().as_u16()
+            ));
+        }
+        let mime = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or_default()
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if !radio_audio_content_type(&mime) {
+            return Err("Radio stream did not return an audio or HLS content type".into());
+        }
+        let codec = match mime.as_str() {
+            "audio/mpeg" | "audio/mp3" => Some("MP3"),
+            "audio/aac" | "audio/aacp" => Some("AAC"),
+            "audio/flac" | "audio/x-flac" => Some("FLAC"),
+            "audio/ogg" | "application/ogg" => Some("OGG"),
+            "audio/opus" => Some("OPUS"),
+            _ => None,
+        }
+        .map(str::to_owned);
+        return Ok(ResolvedStationPlayback {
+            url: current.to_string(),
+            mime_type: Some(mime),
+            codec,
+        });
+    }
+    Err("Radio stream exceeded redirect limit".into())
+}
+fn secure_stream_candidate(original: &url::Url) -> Option<url::Url> {
+    if original.scheme() != "http" || original.port().is_some() {
+        return None;
+    }
+    let mut candidate = original.clone();
+    candidate.set_scheme("https").ok()?;
+    Some(candidate)
+}
+fn radio_audio_content_type(value: &str) -> bool {
+    let mime = value
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    mime.starts_with("audio/")
+        || matches!(
+            mime.as_str(),
+            "application/ogg" | "application/vnd.apple.mpegurl" | "application/x-mpegurl"
+        )
 }
 
 fn is_uuid(value: &str) -> bool {
@@ -1509,5 +1715,144 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error, "Unknown radio station");
+    }
+}
+
+#[cfg(test)]
+mod secure_radio_transport_tests {
+    use super::*;
+    #[test]
+    fn upgrade_preserves_exact_mount_and_query_without_rewriting_custom_ports() {
+        let source = url::Url::parse("http://stream.example/live.mp3?mount=one").unwrap();
+        assert_eq!(
+            secure_stream_candidate(&source).unwrap().as_str(),
+            "https://stream.example/live.mp3?mount=one"
+        );
+        assert!(secure_stream_candidate(
+            &url::Url::parse("https://stream.example/live.mp3").unwrap()
+        )
+        .is_none());
+        assert!(secure_stream_candidate(
+            &url::Url::parse("http://stream.example:8000/live.mp3").unwrap()
+        )
+        .is_none());
+    }
+    async fn fixture() -> (url::Url, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut bytes = [0u8; 4096];
+                    let size = stream.read(&mut bytes).await.unwrap();
+                    let request = String::from_utf8_lossy(&bytes[..size]);
+                    let path = request.split_whitespace().nth(1).unwrap_or_default();
+                    let response = match path {
+                        "/redirect" => "HTTP/1.1 302 Found\r\nLocation: /audio?mount=one\r\nContent-Length: 0\r\n\r\n",
+                        "/loop" => "HTTP/1.1 302 Found\r\nLocation: /loop\r\nContent-Length: 0\r\n\r\n",
+                        "/private" => "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1/private\r\nContent-Length: 0\r\n\r\n",
+                        "/credentials" => "HTTP/1.1 302 Found\r\nLocation: http://user:secret@radio-fixture.test/audio\r\nContent-Length: 0\r\n\r\n",
+                        "/bad" => "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n",
+                        "/slow" => { tokio::time::sleep(Duration::from_secs(2)).await; "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n\r\n" },
+                        _ => "HTTP/1.1 200 OK\r\nContent-Type: audio/aac\r\nTransfer-Encoding: chunked\r\n\r\n",
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    // Never complete a live body: resolving transport must only inspect headers.
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                });
+            }
+        });
+        (
+            url::Url::parse(&format!("http://radio-fixture.test:{port}/redirect")).unwrap(),
+            task,
+        )
+    }
+    #[tokio::test]
+    async fn saved_redirect_resolution_verifies_audio_headers_without_consuming_live_body() {
+        let (url, server) = fixture().await;
+        let address = [format!("127.0.0.1:{}", url.port().unwrap())
+            .parse()
+            .unwrap()];
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            probe_station_transport(url.clone(), Some(&address)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.url, url.join("/audio?mount=one").unwrap().as_str());
+        assert_eq!(result.mime_type.as_deref(), Some("audio/aac"));
+        assert_eq!(result.codec.as_deref(), Some("AAC"));
+        for (path, expected) in [
+            ("/loop", "loop"),
+            ("/private", "nonpublic"),
+            ("/credentials", "credentials"),
+            ("/bad", "content type"),
+        ] {
+            let error = probe_station_transport(url.join(path).unwrap(), Some(&address))
+                .await
+                .unwrap_err();
+            assert!(error.contains(expected), "{path}: {error}");
+        }
+        assert!(tokio::time::timeout(
+            Duration::from_millis(20),
+            probe_station_transport(url.join("/slow").unwrap(), Some(&address))
+        )
+        .await
+        .is_err());
+        server.abort();
+    }
+    #[tokio::test]
+    async fn cancellation_and_deadline_do_not_rewrite_saved_station_or_trust_old_cache() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("radio.sqlite")).unwrap();
+        let stations = json!([{"id":"custom:transport","name":"Transport fixture","streamUrl":"http://127.0.0.1/private","sourceUrl":"https://radio.example","provider":"custom","isCustom":true}]);
+        store
+            .set_json_preference(SAVED_RADIO_STATIONS_KEY, &stations)
+            .unwrap();
+        store.set_provider_cache("radio.secure-playback-transport.v1", "custom:transport", &json!({"original":"http://127.0.0.1/private","playback":"https://127.0.0.1/private"}), 86400).unwrap();
+        let (_sender, cancel) = tokio::sync::watch::channel(true);
+        let error = resolve_station_playback_until(
+            "custom:transport".into(),
+            &store,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            cancel,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("cancelled"));
+        let (_sender, cancel) = tokio::sync::watch::channel(false);
+        let error = resolve_station_playback_until(
+            "custom:transport".into(),
+            &store,
+            tokio::time::Instant::now() - Duration::from_millis(1),
+            cancel,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("deadline"), "{error}");
+        assert_eq!(
+            store
+                .get_json_preference(SAVED_RADIO_STATIONS_KEY)
+                .unwrap()
+                .unwrap(),
+            stations
+        );
+        let error = resolve_station_playback_url("custom:transport".into(), &store)
+            .await
+            .unwrap_err();
+        assert!(error.contains("nonpublic"), "{error}");
+    }
+    #[test]
+    fn successful_html_and_playlist_pages_are_not_audio_transport_proof() {
+        assert!(radio_audio_content_type("audio/mpeg"));
+        assert!(radio_audio_content_type("audio/aac; charset=binary"));
+        assert!(radio_audio_content_type("application/vnd.apple.mpegurl"));
+        assert!(!radio_audio_content_type("text/html"));
+        assert!(!radio_audio_content_type("text/plain"));
+        assert!(!radio_audio_content_type("application/json"));
+        assert!(!radio_audio_content_type(""));
     }
 }

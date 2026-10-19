@@ -1,0 +1,217 @@
+{
+  "samples": [
+    {
+      "sample": 1,
+      "resolved": true,
+      "resolveMs": 12316.690343999999,
+      "firstPcmFromRequestMs": 12538.963956999998,
+      "decodeWallMs": 424.97172900000004,
+      "phases": [
+        {
+          "phase": "search_end",
+          "elapsedMs": 3232,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "provider_prepare_start",
+          "elapsedMs": 3245,
+          "details": {}
+        },
+        {
+          "phase": "provider_prepare_end",
+          "elapsedMs": 3246,
+          "details": {
+            "durationMs": 0,
+            "ok": true
+          }
+        },
+        {
+          "phase": "extraction_start",
+          "elapsedMs": 3246,
+          "details": {}
+        },
+        {
+          "phase": "search_end",
+          "elapsedMs": 5171,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "provider_helper_ready_end",
+          "elapsedMs": 5785,
+          "details": {
+            "durationMs": 2538,
+            "ok": true
+          }
+        },
+        {
+          "phase": "extraction_end",
+          "elapsedMs": 12029,
+          "details": {
+            "durationMs": 8783,
+            "ok": true
+          }
+        },
+        {
+          "phase": "resolution_end",
+          "elapsedMs": 12315,
+          "details": {
+            "cancelled": false,
+            "deadline": false,
+            "ok": true
+          }
+        }
+      ],
+      "rateLimited": false
+    },
+    {
+      "sample": 2,
+      "resolved": true,
+      "resolveMs": 12673.422787,
+      "firstPcmFromRequestMs": 12803.357549999999,
+      "decodeWallMs": 273.779147,
+      "phases": [
+        {
+          "phase": "search_end",
+          "elapsedMs": 2844,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "provider_prepare_start",
+          "elapsedMs": 2855,
+          "details": {}
+        },
+        {
+          "phase": "provider_prepare_end",
+          "elapsedMs": 2856,
+          "details": {
+            "durationMs": 0,
+            "ok": true
+          }
+        },
+        {
+          "phase": "extraction_start",
+          "elapsedMs": 2856,
+          "details": {}
+        },
+        {
+          "phase": "search_end",
+          "elapsedMs": 4401,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "provider_helper_ready_end",
+          "elapsedMs": 5396,
+          "details": {
+            "durationMs": 2539,
+            "ok": true
+          }
+        },
+        {
+          "phase": "extraction_end",
+          "elapsedMs": 12386,
+          "details": {
+            "durationMs": 9530,
+            "ok": true
+          }
+        },
+        {
+          "phase": "resolution_end",
+          "elapsedMs": 12672,
+          "details": {
+            "cancelled": false,
+            "deadline": false,
+            "ok": true
+          }
+        }
+      ],
+      "rateLimited": false
+    },
+    {
+      "sample": 3,
+      "resolved": true,
+      "resolveMs": 12049.490426,
+      "firstPcmFromRequestMs": 12169.653349,
+      "decodeWallMs": 313.06962,
+      "phases": [
+        {
+          "phase": "search_end",
+          "elapsedMs": 3252,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "provider_prepare_start",
+          "elapsedMs": 3263,
+          "details": {}
+        },
+        {
+          "phase": "provider_prepare_end",
+          "elapsedMs": 3264,
+          "details": {
+            "durationMs": 0,
+            "ok": true
+          }
+        },
+        {
+          "phase": "extraction_start",
+          "elapsedMs": 3264,
+          "details": {}
+        },
+        {
+          "phase": "search_end",
+          "elapsedMs": 4534,
+          "details": {
+            "found": 10,
+            "ok": true
+          }
+        },
+        {
+          "phase": "provider_helper_ready_end",
+          "elapsedMs": 5545,
+          "details": {
+            "durationMs": 2281,
+            "ok": true
+          }
+        },
+        {
+          "phase": "extraction_end",
+          "elapsedMs": 11849,
+          "details": {
+            "durationMs": 8585,
+            "ok": true
+          }
+        },
+        {
+          "phase": "resolution_end",
+          "elapsedMs": 12049,
+          "details": {
+            "cancelled": false,
+            "deadline": false,
+            "ok": true
+          }
+        }
+      ],
+      "rateLimited": false
+    }
+  ],
+  "medianResolveMs": 12316.690343999999,
+  "medianFirstPcmMs": 12538.963956999998,
+  "helpersAfter": [],
+  "scope": "Linux isolated actual production resolver and five seconds PCM; no device or GUI; no direct Mac verification",
+  "comparisonLimit": "No paired old production engine run in this qualification; cannot attribute live total delta to broker alone",
+  "restrictedDnsAttempts": "retained separately currentbroker-sandbox-1..3, excluded from provider outcomes"
+}

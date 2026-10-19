@@ -1,0 +1,189 @@
+{
+  "schema": "burrata.provider-prewarm-ab/v1",
+  "qualification": false,
+  "exploratory": true,
+  "warmups": 0,
+  "pairs": 3,
+  "binarySha256": "ca9235d8940274da34a6cb512d321552e63b9b4f93bbbbef5169a1129a683cd7",
+  "scope": "production catalog resolver plus five-second FFmpeg PCM; foreground helper prewarm only; no acoustic or device qualification",
+  "limitations": [
+    "No p95 or release performance claim from three observations per path.",
+    "Cold means new Store/acquisition context and stopped owned provider; OS cache is retained.",
+    "Different selected provider/video IDs or failures are excluded from matched latency deltas but retained."
+  ],
+  "attempts": [
+    {
+      "pair": 1,
+      "mode": "baseline",
+      "exitCode": 0,
+      "ok": true,
+      "identity": {
+        "provider": "youtube",
+        "providerId": "youtube:uZGRATckoBM"
+      },
+      "firstPcmFromRequestMs": 16192.353286,
+      "resolveMs": 15574.849500999999,
+      "failure": null,
+      "providerPrewarm": null,
+      "providerShutdownOk": true,
+      "stageMetrics": {
+        "searchMs": 7803,
+        "extractionMs": 7237,
+        "helperReadyWaitMs": 3057,
+        "streamProbeSpanMs": 502,
+        "probeDeniedResponses": 0
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "prewarm",
+      "exitCode": 0,
+      "ok": true,
+      "identity": {
+        "provider": "youtube",
+        "providerId": "youtube:ps9X-DXUFGY"
+      },
+      "firstPcmFromRequestMs": 13482.559407,
+      "resolveMs": 13245.188446,
+      "failure": null,
+      "providerPrewarm": {
+        "completed": true,
+        "ok": true,
+        "readyAfterMs": 2289.408149
+      },
+      "providerShutdownOk": true,
+      "stageMetrics": {
+        "searchMs": 3092,
+        "extractionMs": 9835,
+        "helperReadyWaitMs": 2,
+        "streamProbeSpanMs": 285,
+        "probeDeniedResponses": 0
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "prewarm",
+      "exitCode": 0,
+      "ok": true,
+      "identity": {
+        "provider": "youtube",
+        "providerId": "youtube:ps9X-DXUFGY"
+      },
+      "firstPcmFromRequestMs": 16536.540038000003,
+      "resolveMs": 16430.648969,
+      "failure": null,
+      "providerPrewarm": {
+        "completed": true,
+        "ok": true,
+        "readyAfterMs": 2538.821863
+      },
+      "providerShutdownOk": true,
+      "stageMetrics": {
+        "searchMs": 6815,
+        "extractionMs": 9394,
+        "helperReadyWaitMs": 4,
+        "streamProbeSpanMs": 163,
+        "probeDeniedResponses": 0
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "baseline",
+      "exitCode": 0,
+      "ok": true,
+      "identity": {
+        "provider": "youtube",
+        "providerId": "youtube:ps9X-DXUFGY"
+      },
+      "firstPcmFromRequestMs": 12716.919963,
+      "resolveMs": 12351.898776,
+      "failure": null,
+      "providerPrewarm": null,
+      "providerShutdownOk": true,
+      "stageMetrics": {
+        "searchMs": 3901,
+        "extractionMs": 7957,
+        "helperReadyWaitMs": 3046,
+        "streamProbeSpanMs": 443,
+        "probeDeniedResponses": 0
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "baseline",
+      "exitCode": 0,
+      "ok": true,
+      "identity": {
+        "provider": "youtube",
+        "providerId": "youtube:ps9X-DXUFGY"
+      },
+      "firstPcmFromRequestMs": 15863.878126000001,
+      "resolveMs": 15651.865142,
+      "failure": null,
+      "providerPrewarm": null,
+      "providerShutdownOk": true,
+      "stageMetrics": {
+        "searchMs": 6914,
+        "extractionMs": 8512,
+        "helperReadyWaitMs": 3040,
+        "streamProbeSpanMs": 160,
+        "probeDeniedResponses": 0
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "prewarm",
+      "exitCode": 0,
+      "ok": true,
+      "identity": {
+        "provider": "youtube",
+        "providerId": "youtube:ps9X-DXUFGY"
+      },
+      "firstPcmFromRequestMs": 13592.757484999998,
+      "resolveMs": 13179.020387999999,
+      "failure": null,
+      "providerPrewarm": {
+        "completed": true,
+        "ok": true,
+        "readyAfterMs": 2540.268987
+      },
+      "providerShutdownOk": true,
+      "stageMetrics": {
+        "searchMs": 3249,
+        "extractionMs": 9437,
+        "helperReadyWaitMs": 2,
+        "streamProbeSpanMs": 455,
+        "probeDeniedResponses": 0
+      }
+    }
+  ],
+  "comparison": {
+    "pairs": [
+      {
+        "pair": 1,
+        "sameProviderVideoId": false,
+        "matched": false
+      },
+      {
+        "pair": 2,
+        "sameProviderVideoId": true,
+        "matched": true,
+        "firstPcmFromRequestMsSaved": -3819.6200750000025,
+        "resolveMsSaved": -4078.7501930000017
+      },
+      {
+        "pair": 3,
+        "sameProviderVideoId": true,
+        "matched": true,
+        "firstPcmFromRequestMsSaved": 2271.120641000003,
+        "resolveMsSaved": 2472.8447540000016
+      }
+    ],
+    "matchedPairs": 2,
+    "medianFirstPcmMsSaved": -774.2497169999997,
+    "meanFirstPcmMsSaved": -774.2497169999997,
+    "p95": null,
+    "p95UnavailableReason": "exploratory three-per-path sample; no 20-repetition qualification"
+  },
+  "runCompleted": true
+}

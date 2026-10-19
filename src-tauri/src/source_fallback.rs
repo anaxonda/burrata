@@ -83,7 +83,7 @@ fn clean_title(raw: &str) -> String {
 /// Canonicalize common artist-credit joiners. Catalog services vary between
 /// `&`, `and`, and `feat.` when they flatten a multi-artist credit, while the
 /// order and the credited names still identify the same act.
-fn normalize_artist_credit(raw: &str) -> String {
+pub(crate) fn normalize_artist_credit(raw: &str) -> String {
     let normalized = raw
         .to_lowercase()
         .replace('&', " and ")
@@ -92,38 +92,128 @@ fn normalize_artist_credit(raw: &str) -> String {
     normalized
         .split_whitespace()
         .map(|word| match word {
-            "feat" | "featuring" => "and",
+            "feat" | "featuring" | "ft" => "and",
             other => other,
         })
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-/// Exact artist/title matching for the deliberately narrow no-catalog-duration
-/// YouTube path. Only presentation suffixes are removed from the title; artist
-/// joiners are normalized in the artist segment alone.
+/// Feature decorations are artist credits, not recording versions. Only a final
+/// bracket containing an explicit feature marker is recognized; all other title
+/// text (including remix/live/edit qualifiers) remains part of recording identity.
+fn split_feature_credit(raw: &str) -> (&str, Option<&str>) {
+    let value = raw.trim();
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        if !value.ends_with(close) {
+            continue;
+        }
+        let Some(start) = value.rfind(open) else {
+            continue;
+        };
+        let inner = value[start + 1..value.len() - 1].trim();
+        let lower = inner.to_ascii_lowercase();
+        for marker in ["feat. ", "feat ", "featuring ", "ft. ", "ft "] {
+            if lower.starts_with(marker) {
+                let artist = inner[marker.len()..].trim();
+                if !artist.is_empty() {
+                    return (value[..start].trim(), Some(artist));
+                }
+            }
+        }
+    }
+    (value, None)
+}
+
+fn clean_youtube_presentation(raw: &str) -> &str {
+    let value = raw.trim();
+    let lower = value.to_ascii_lowercase();
+    for suffix in [
+        " (official audio)",
+        " [official audio]",
+        " (official lyric video)",
+        " [official lyric video]",
+        " (official visualizer)",
+        " [official visualizer]",
+        " (visualizer)",
+        " [visualizer]",
+    ] {
+        if lower.ends_with(suffix) {
+            return value[..value.len() - suffix.len()].trim();
+        }
+    }
+    value
+}
+
+pub(crate) fn youtube_flat_artist_credit(raw_title: &str) -> Option<String> {
+    let title = clean_youtube_presentation(raw_title);
+    for separator in [" - ", " – ", " — ", " | "] {
+        if let Some((artist, title)) = title.split_once(separator) {
+            let (artist, artist_feature) = split_feature_credit(artist);
+            let (_, title_feature) = split_feature_credit(title);
+            let mut credit = artist.to_owned();
+            for feature in [artist_feature, title_feature].into_iter().flatten() {
+                credit.push_str(", ");
+                credit.push_str(feature);
+            }
+            return Some(credit);
+        }
+    }
+    None
+}
+
+/// Music catalog rows often list only the main acts in artist links and put
+/// guest performers in the explicit title feature decoration. Both fields are
+/// needed to retain the full credit; this function never supplies absent names.
+pub(crate) fn youtube_catalog_artist_credit(raw_title: &str, artists: &str) -> String {
+    let (_, feature) = split_feature_credit(clean_youtube_presentation(raw_title));
+    let Some(feature) = feature else {
+        return artists.to_owned();
+    };
+    let normalized_feature = normalize_artist_credit(feature);
+    let full = format!(" and {} and ", normalize_artist_credit(artists));
+    if !normalized_feature.is_empty() && full.contains(&format!(" and {normalized_feature} and ")) {
+        artists.to_owned()
+    } else {
+        format!("{artists}, {feature}")
+    }
+}
+
+/// Exact base title plus complete performer credits. A feature suffix may only
+/// disappear when every named feature is independently present in that full
+/// artist credit. No prefix/primary-artist matching or fuzzy aliases are used.
+pub(crate) fn youtube_catalog_title_matches(track: &Track, raw: &str, artists: &str) -> bool {
+    let (expected, expected_features) = split_feature_credit(&track.title);
+    let (actual, actual_features) = split_feature_credit(clean_youtube_presentation(raw));
+    if crate::matching::normalize(expected).is_empty()
+        || crate::matching::normalize(expected) != crate::matching::normalize(actual)
+        || normalize_artist_credit(&youtube_catalog_artist_credit(raw, artists))
+            != normalize_artist_credit(&track.artist)
+    {
+        return false;
+    }
+    let full = format!(
+        " and {} and ",
+        normalize_artist_credit(&youtube_catalog_artist_credit(raw, artists))
+    );
+    [expected_features, actual_features]
+        .into_iter()
+        .flatten()
+        .all(|feature| {
+            let feature = normalize_artist_credit(feature);
+            !feature.is_empty() && full.contains(&format!(" and {feature} and "))
+        })
+}
+
 fn exact_flat_youtube_identity_title(track: &Track, raw_title: &str) -> bool {
-    let expected_title = crate::matching::normalize(&track.title);
-    if expected_title.is_empty() {
+    let Some(artist) = youtube_flat_artist_credit(raw_title) else {
         return false;
-    }
-    let expected_artist = normalize_artist_credit(&track.artist);
-    if expected_artist.is_empty() {
-        return false;
-    }
+    };
+    let raw_title = clean_youtube_presentation(raw_title);
     [" - ", " – ", " — ", " | "]
         .iter()
         .filter_map(|separator| raw_title.split_once(separator))
-        .any(|(artist, title)| {
-            let mut actual_title = crate::matching::normalize(title);
-            for suffix in [" official visualizer", " visualizer"] {
-                if let Some(cleaned) = actual_title.strip_suffix(suffix) {
-                    actual_title = cleaned.trim().to_owned();
-                    break;
-                }
-            }
-            normalize_artist_credit(artist) == expected_artist && actual_title == expected_title
-        })
+        .any(|(_, title)| youtube_catalog_title_matches(track, title, &artist))
 }
 
 fn flat_chapterless_track(track: &Track, candidate: &Candidate) -> bool {
@@ -188,12 +278,7 @@ fn verified_channel_matches_saved_artist(track: &Track, candidate: &Candidate) -
     }
     let normalized_channel = normalize_artist_credit(channel);
     let full_artist = normalize_artist_credit(&track.artist);
-    let first_artist = track
-        .artist
-        .split([',', '&'])
-        .next()
-        .map(normalize_artist_credit)
-        .unwrap_or_default();
+    let first_artist = full_artist.split(" and ").next().unwrap_or_default();
     !normalized_channel.is_empty()
         && (normalized_channel == full_artist || normalized_channel == first_artist)
 }
@@ -254,11 +339,16 @@ pub(crate) fn is_provisional_youtube_music_catalog_candidate(
     };
     metadata["provider"].as_str() == Some("youtube")
         && metadata["playbackMusicCatalogCandidate"].as_bool() == Some(true)
-        && crate::matching::normalize(metadata["catalogTitle"].as_str().unwrap_or_default())
-            == normalized_title
-        && crate::matching::normalize(&candidate.title) == normalized_title
-        && explicit_credit_parts(metadata["catalogArtist"].as_str().unwrap_or_default())
-            == explicit_credit_parts(&track.artist)
+        && youtube_catalog_title_matches(
+            track,
+            metadata["catalogTitle"].as_str().unwrap_or_default(),
+            metadata["catalogArtist"].as_str().unwrap_or_default(),
+        )
+        && youtube_catalog_title_matches(
+            track,
+            &candidate.title,
+            metadata["catalogArtist"].as_str().unwrap_or_default(),
+        )
         && !explicit_credit_parts(&track.artist).is_empty()
 }
 
@@ -271,8 +361,7 @@ pub(crate) fn playback_music_catalog_recording_matches_verified_extractor(
     candidate: &Candidate,
 ) -> bool {
     let normalized_title = crate::matching::normalize(&track.title);
-    if track.duration_seconds.is_some()
-        || candidate.provider != "youtube"
+    if candidate.provider != "youtube"
         || candidate.permission == "restricted"
         || candidate.confidence == "low"
         || explicit_candidate_version_conflict(candidate)
@@ -282,17 +371,33 @@ pub(crate) fn playback_music_catalog_recording_matches_verified_extractor(
             .duration_seconds
             .is_some_and(|duration| duration.is_finite() && duration > 30.0 && duration <= 86_400.0)
         || normalized_title.is_empty()
-        || crate::matching::normalize(&candidate.title) != normalized_title
         || !verified_channel_matches_saved_artist(track, candidate)
     {
         return false;
     }
+    if let Some(expected) = track.duration_seconds {
+        let Some(actual) = candidate.duration_seconds else {
+            return false;
+        };
+        if !expected.is_finite()
+            || expected <= 0.0
+            || !playback_duration_matches(expected, actual, true)
+        {
+            return false;
+        }
+    }
     let Some(metadata) = candidate.source_metadata.as_ref() else {
         return false;
     };
-    if metadata["provider"].as_str() != Some("youtube")
-        || crate::matching::normalize(metadata["track"].as_str().unwrap_or_default())
-            != normalized_title
+    if metadata["provider"].as_str() != Some("youtube") {
+        return false;
+    }
+    if !youtube_catalog_title_matches(track, &candidate.title, &track.artist)
+        || !youtube_catalog_title_matches(
+            track,
+            metadata["track"].as_str().unwrap_or_default(),
+            &track.artist,
+        )
     {
         return false;
     }
@@ -316,8 +421,11 @@ pub(crate) fn playback_music_catalog_recording_matches_verified_extractor(
             observed.push(normalized);
         }
     }
-    let expected = explicit_credit_parts(&track.artist);
-    !expected.is_empty() && observed == expected
+    !observed.is_empty()
+        && normalize_artist_credit(&youtube_catalog_artist_credit(
+            metadata["track"].as_str().unwrap_or_default(),
+            &observed.join(", "),
+        )) == normalize_artist_credit(&track.artist)
 }
 
 fn monochrome_catalog_artist_credit_matches(track_artist: &str, candidate: &Candidate) -> bool {
@@ -559,6 +667,38 @@ pub(crate) fn playback_recording_matches_verified_extractor(
     playback_recording_matches_with_rounding(track, candidate, true)
 }
 
+/// A complete artist/title prefix with explicit feature-credit normalization
+/// and the existing bounded catalog duration is sufficient for known-duration
+/// YouTube playback. Uploader display names are not recording artist aliases.
+fn known_duration_youtube_complete_credit_matches(
+    track: &Track,
+    candidate: &Candidate,
+    allow_integer_rounding: bool,
+) -> bool {
+    if candidate.provider != "youtube"
+        || candidate.permission == "restricted"
+        || candidate.confidence == "low"
+        || explicit_candidate_version_conflict(candidate)
+        || candidate
+            .reasons
+            .iter()
+            .any(|reason| reason.to_ascii_lowercase().contains("version conflicts"))
+        || !original_or_unversioned(track)
+        || !flat_chapterless_track(track, candidate)
+        || !exact_flat_youtube_identity_title(track, &candidate.title)
+    {
+        return false;
+    }
+    let Some((expected, actual)) = track.duration_seconds.zip(candidate.duration_seconds) else {
+        return false;
+    };
+    expected.is_finite()
+        && expected > 0.0
+        && actual.is_finite()
+        && actual > 30.0
+        && playback_duration_matches(expected, actual, allow_integer_rounding)
+}
+
 fn playback_recording_matches_with_rounding(
     track: &Track,
     candidate: &Candidate,
@@ -573,6 +713,9 @@ fn playback_recording_matches_with_rounding(
         return true;
     }
     if topic_original_playback_matches(track, candidate) {
+        return true;
+    }
+    if known_duration_youtube_complete_credit_matches(track, candidate, allow_integer_rounding) {
         return true;
     }
     if candidate.permission == "restricted"
@@ -648,6 +791,27 @@ pub fn is_provisional_playback_candidate(track: &Track, candidate: &Candidate) -
                     && exact_flat_youtube_identity_title(track, &candidate.title)));
     }
 
+    // A single exact YouTube Music catalog locator may be extracted for
+    // verification when its integer catalog duration is within the existing
+    // six-second quantization allowance. The locator alone never authorizes
+    // playback; fresh extractor identity is checked after preparation.
+    if is_provisional_youtube_music_catalog_candidate(track, candidate)
+        && track
+            .duration_seconds
+            .zip(candidate.duration_seconds)
+            .is_some_and(|(expected, actual)| {
+                expected.is_finite()
+                    && expected > 0.0
+                    && actual.fract().abs() < f64::EPSILON
+                    && playback_duration_matches(expected, actual, true)
+            })
+    {
+        return true;
+    }
+
+    if known_duration_youtube_complete_credit_matches(track, candidate, false) {
+        return true;
+    }
     let artist = crate::matching::normalize(&track.artist);
     let title = crate::matching::normalize(&track.title);
     if artist.is_empty() || title.is_empty() {
@@ -821,6 +985,203 @@ pub fn requires_lossless(job: &DownloadJob) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn known_catalog_feature_title_matches_complete_lyric_video_credit_and_bounded_duration() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../fixtures/youtube-feature-lyric-known-duration.json"
+        ))
+        .unwrap();
+        let track: Track = serde_json::from_value(fixture["track"].clone()).unwrap();
+        let make = |title: &str, duration: f64| Candidate {
+            provider: "youtube".into(),
+            id: "youtube:qND7vxsWE2Y".into(),
+            title: title.into(),
+            duration_seconds: Some(duration),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let original = fixture["extractor"]["title"].as_str().unwrap();
+        let good = make(original, 219.0);
+        assert!(is_provisional_playback_candidate(&track, &good));
+        assert!(playback_recording_matches_verified_extractor(&track, &good));
+        for wrong in ["Kacey Musgraves - Everybody Wants To Be A Cowboy (Official Lyric Video)",
+            "Kacey Musgraves, Wrong Guest - Everybody Wants To Be A Cowboy (Official Lyric Video)",
+            "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Live)",
+            "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Remix)",
+            "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Official Music Video)",
+            "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Preview)"] {
+            assert!(!playback_recording_matches_verified_extractor(&track,&make(wrong,219.0)),"{wrong}");
+        }
+        assert!(!playback_recording_matches_verified_extractor(
+            &track,
+            &make(original, 180.0)
+        ));
+        let mut requested_remix = track.clone();
+        requested_remix.version = Some("Remix".into());
+        assert!(!playback_recording_matches_verified_extractor(
+            &requested_remix,
+            &good
+        ));
+        assert_eq!(
+            track.title,
+            "Everybody Wants To Be A Cowboy (feat. Billy Strings)"
+        );
+    }
+
+    #[test]
+    fn missing_duration_feature_decorations_require_complete_verified_performer_identity() {
+        let track = Track {
+            title: "Reckless".into(),
+            artist: "Nipsey Hussle,Bino Rideaux,Static Major".into(),
+            ..Track::default()
+        };
+        let make = |title: &str| Candidate {
+            provider: "youtube".into(),
+            id: "youtube:abcdefghijk".into(),
+            title: title.into(),
+            duration_seconds: Some(180.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(
+                serde_json::json!({"provider":"youtube", "channelId":"UC1234567890123456789012", "channel":"Nipsey Hussle", "channelIsVerified":true}),
+            ),
+            ..Candidate::default()
+        };
+        let good =
+            make("Nipsey Hussle and Bino Rideaux (feat. Static Major) - Reckless (Official Audio)");
+        assert!(is_provisional_playback_candidate(&track, &good));
+        assert!(playback_recording_matches_verified_extractor(&track, &good));
+        for title in [
+            "Nipsey Hussle and Bino Rideaux - Reckless (Official Audio)",
+            "Nipsey Hussle and Bino Rideaux (feat. Wrong Guest) - Reckless (Official Audio)",
+            "Nipsey Hussle and Bino Rideaux (feat. Static Major) - Reckless (Remix)",
+            "Nipsey Hussle and Bino Rideaux (feat. Static Major) - Reckless (Live)",
+            "Nipsey Hussle and Bino Rideaux (feat. Static Major) - Reckless (Preview)",
+        ] {
+            assert!(
+                !playback_recording_matches_verified_extractor(&track, &make(title)),
+                "{title}"
+            );
+        }
+        let mut unverified = good.clone();
+        unverified.source_metadata.as_mut().unwrap()["channelIsVerified"] =
+            serde_json::json!(false);
+        assert!(!playback_recording_matches_verified_extractor(
+            &track,
+            &unverified
+        ));
+        let mut preview = good.clone();
+        preview.duration_seconds = Some(30.0);
+        assert!(!playback_recording_matches_verified_extractor(
+            &track, &preview
+        ));
+        let mut version = track.clone();
+        version.version = Some("Remix".into());
+        assert!(!playback_recording_matches_verified_extractor(
+            &version, &good
+        ));
+    }
+
+    #[test]
+    fn music_catalog_feature_title_requires_complete_fresh_joint_performer_evidence() {
+        let track = Track {
+            title: "Sacrifices".into(),
+            artist: "Nipsey Hussle, Bino Rideaux, James Fauntleroy".into(),
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:Ln1vb0eLVUU".into(),
+            title: "Sacrifices (feat. James Fauntleroy)".into(),
+            duration_seconds: Some(180.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(
+                serde_json::json!({"provider":"youtube","channelId":"UC1234567890123456789012","channel":"Nipsey Hussle","channelIsVerified":true,"track":"Sacrifices (feat. James Fauntleroy)","artists":["Nipsey Hussle","Bino Rideaux","James Fauntleroy"]}),
+            ),
+            ..Candidate::default()
+        };
+        assert!(playback_music_catalog_recording_matches_verified_extractor(
+            &track, &candidate
+        ));
+        candidate.source_metadata.as_mut().unwrap()["artists"] =
+            serde_json::json!(["Nipsey Hussle", "Bino Rideaux"]);
+        assert!(playback_music_catalog_recording_matches_verified_extractor(
+            &track, &candidate
+        ));
+        candidate.source_metadata.as_mut().unwrap()["track"] = serde_json::json!("Sacrifices");
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &candidate));
+        candidate.source_metadata.as_mut().unwrap()["track"] =
+            serde_json::json!("Sacrifices (feat. James Fauntleroy)");
+        candidate.source_metadata.as_mut().unwrap()["artists"] =
+            serde_json::json!(["Nipsey Hussle"]);
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &candidate));
+        candidate.source_metadata.as_mut().unwrap()["artists"] =
+            serde_json::json!(["Nipsey Hussle", "Bino Rideaux", "Wrong Guest"]);
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &candidate));
+        candidate.source_metadata.as_mut().unwrap()["artists"] =
+            serde_json::json!(["Nipsey Hussle", "Bino Rideaux", "James Fauntleroy"]);
+        let mut roman = track.clone();
+        roman.artist.push_str(" II");
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&roman, &candidate));
+    }
+
+    #[test]
+    fn known_duration_music_locator_requires_fresh_exact_identity_and_bounded_duration() {
+        let track = Track {
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:uZGRATckoBM".into(),
+            title: "Matthew".into(),
+            duration_seconds: Some(228.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "channelId":"UC-cnCe5zradDZlcI8YZboBg",
+                "channel":"John Denver",
+                "channelIsVerified":true,
+                "track":"Matthew",
+                "artists":["John Denver"]
+            })),
+            ..Candidate::default()
+        };
+        assert!(playback_music_catalog_recording_matches_verified_extractor(
+            &track, &candidate
+        ));
+        assert!(is_provisional_playback_candidate(
+            &track,
+            &Candidate {
+                source_metadata: Some(serde_json::json!({
+                    "provider":"youtube",
+                    "playbackMusicCatalogCandidate":true,
+                    "catalogTitle":"Matthew",
+                    "catalogArtist":"John Denver"
+                })),
+                ..candidate.clone()
+            }
+        ));
+
+        candidate.duration_seconds = Some(226.75);
+        assert!(playback_music_catalog_recording_matches_verified_extractor(
+            &track, &candidate
+        ));
+        candidate.duration_seconds = Some(227.75);
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &candidate));
+        candidate.duration_seconds = Some(229.0);
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &candidate));
+        candidate.duration_seconds = Some(228.0);
+        candidate.source_metadata.as_mut().unwrap()["artists"] =
+            serde_json::json!(["John Denver", "Wrong Artist"]);
+        assert!(!playback_music_catalog_recording_matches_verified_extractor(&track, &candidate));
+    }
+
     #[test]
     fn configured_order_is_bounded_and_disabled_means_none() {
         let list = vec![

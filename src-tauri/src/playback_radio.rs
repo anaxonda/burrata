@@ -46,13 +46,14 @@ pub fn spawn(
         let mut transitions = MetadataTransitions::default();
         let mut live_history: Vec<Value> = Vec::new();
         let mut audible_since: Option<Instant> = None;
+        let mut validation = StationMetadataValidation::default();
 
         loop {
             if cancelled(&cancel) || events.is_closed() {
                 break;
             }
             if !*audible.borrow() {
-                // Require a fresh eight seconds of continuous output after a
+                // Require a fresh three seconds of continuous output after a
                 // pause/buffer gap before PCM can be sampled again.
                 audible_since = None;
                 tokio::select! {
@@ -90,10 +91,15 @@ pub fn spawn(
                 continue;
             }
 
-            let mut metadata = result.ok().and_then(|response| response.now_playing);
+            let reported = result.ok().and_then(|response| response.now_playing);
+            let mut metadata =
+                radio::reconcile_played_radio_metadata(&station.id, generation, reported);
+            let station_tag_needs_validation =
+                validation.observe(metadata.as_ref(), Instant::now());
             let needs_pcm_identification = metadata
                 .as_ref()
-                .map_or(true, |item| item.artist.trim().is_empty());
+                .map_or(true, |item| item.artist.trim().is_empty())
+                || station_tag_needs_validation;
             if needs_pcm_identification && should_recognize && pcm_window_ready(audible_since) {
                 let station_reported = metadata.clone();
                 let path = std::env::temp_dir()
@@ -102,20 +108,46 @@ pub fn spawn(
                 let capture_tap = tap.clone();
                 let capture_path = path.clone();
                 let capture_cleanup = _cleanup.clone();
-                let recognition = radio::recognize_played_sample_with_capture(
+                let capture_cancel = cancel.clone();
+                let recognition = radio::recognize_played_samples_progressively(
                     &station,
-                    false,
-                    move || async move {
-                        let capture_path_for_worker = capture_path.clone();
-                        tokio::task::spawn_blocking(move || {
-                            // The worker clone owns cleanup if this async future
-                            // is cancelled while capture_wav is still writing.
-                            let _cleanup = capture_cleanup;
-                            capture_tap.capture_wav(generation, &capture_path_for_worker, 12.0)
-                        })
-                        .await
-                        .map_err(|error| format!("PCM capture worker stopped: {error}"))??;
-                        Ok(capture_path)
+                    cancel.clone(),
+                    move |seconds| {
+                        let capture_path = capture_path.clone();
+                        let capture_cleanup = capture_cleanup.clone();
+                        let capture_tap = capture_tap.clone();
+                        let mut capture_cancel = capture_cancel.clone();
+                        async move {
+                            let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+                            while capture_tap.available_seconds(generation) < seconds {
+                                if *capture_cancel.borrow() {
+                                    return Err("Audio identification was cancelled".into());
+                                }
+                                if tokio::time::Instant::now() >= deadline {
+                                    return Err(
+                                        "Not enough current audible PCM for identification".into(),
+                                    );
+                                }
+                                tokio::select! {
+                                    _ = capture_cancel.changed() => return Err("Audio identification was cancelled".into()),
+                                    _ = tokio::time::sleep(Duration::from_millis(25)) => {},
+                                }
+                            }
+                            let capture_path_for_worker = capture_path.clone();
+                            tokio::task::spawn_blocking(move || {
+                                // The worker clone owns cleanup if this async future
+                                // is cancelled while capture_wav is still writing.
+                                let _cleanup = capture_cleanup;
+                                capture_tap.capture_wav(
+                                    generation,
+                                    &capture_path_for_worker,
+                                    seconds,
+                                )
+                            })
+                            .await
+                            .map_err(|error| format!("PCM capture worker stopped: {error}"))??;
+                            Ok(capture_path)
+                        }
                     },
                 );
                 let recognized = tokio::select! {
@@ -133,10 +165,34 @@ pub fn spawn(
                 if cancelled(&cancel) || !*audible.borrow() || events.is_closed() {
                     continue;
                 }
-                metadata = recognized
-                    .ok()
-                    .and_then(|(track, _note)| track)
-                    .or(station_reported);
+                validation.attempted(Instant::now());
+                let category = match &recognized {
+                    Ok((Some(_), _)) => "audio_match",
+                    Ok((None, _)) => "no_match_or_cooldown",
+                    Err(_) => "unavailable",
+                };
+                eprintln!(
+                    "burrata_radio_identification {}",
+                    json!({"generation":generation,
+                    "reason":if station_tag_needs_validation {"unchanged_station_tag"} else {"missing_or_quarantined_metadata"},
+                    "category":category})
+                );
+                let identified = recognized.ok().and_then(|(track, _note)| track);
+                radio::record_played_radio_identification(
+                    &station.id,
+                    generation,
+                    identified.as_ref(),
+                );
+                metadata = identified.or(station_reported);
+            }
+            // A manual identification may have completed while this poll was
+            // in flight. Reconcile again before stale station tags reach history.
+            if metadata
+                .as_ref()
+                .is_some_and(|track| !track.metadata_confidence.contains("SongRec"))
+            {
+                metadata =
+                    radio::reconcile_played_radio_metadata(&station.id, generation, metadata);
             }
             if let Some(occurrence) = transitions.observe(metadata.as_ref()) {
                 if let Some(item) = metadata.as_ref() {
@@ -200,7 +256,7 @@ pub fn spawn(
                 biased;
                 changed = cancel.changed() => if changed.is_err() || *cancel.borrow() { break; },
                 changed = audible.changed() => if changed.is_err() { break; },
-                _ = tokio::time::sleep(POLL_INTERVAL) => {},
+                _ = tokio::time::sleep(next_poll_delay(audible_since, needs_pcm_identification && should_recognize)) => {},
             }
         }
     });
@@ -211,7 +267,47 @@ fn cancelled(cancel: &watch::Receiver<bool>) -> bool {
 }
 
 fn pcm_window_ready(audible_since: Instant) -> bool {
-    audible_since.elapsed() >= Duration::from_secs(8)
+    audible_since.elapsed() >= Duration::from_secs(3)
+}
+
+fn next_poll_delay(audible_since: Instant, needs_recognition: bool) -> Duration {
+    let ready_after = Duration::from_secs(3);
+    if needs_recognition && audible_since.elapsed() < ready_after {
+        ready_after.saturating_sub(audible_since.elapsed())
+    } else {
+        POLL_INTERVAL
+    }
+}
+
+#[derive(Default)]
+struct StationMetadataValidation {
+    pair: Option<(String, String)>,
+    checked_at: Option<Instant>,
+    attempted_once: bool,
+}
+impl StationMetadataValidation {
+    fn observe(&mut self, metadata: Option<&RadioTrackMetadata>, now: Instant) -> bool {
+        let pair = metadata.map(|track| {
+            (
+                track.artist.trim().to_lowercase(),
+                track.title.trim().to_lowercase(),
+            )
+        });
+        if self.pair != pair {
+            self.pair = pair;
+            self.checked_at = Some(now);
+            return !self.attempted_once;
+        }
+        !self.attempted_once
+            || (self.pair.is_some()
+                && self
+                    .checked_at
+                    .is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(90)))
+    }
+    fn attempted(&mut self, now: Instant) {
+        self.attempted_once = true;
+        self.checked_at = Some(now);
+    }
 }
 
 struct TemporaryPcmFile(std::path::PathBuf);
@@ -325,9 +421,27 @@ mod tests {
     }
 
     #[test]
-    fn pcm_capture_waits_for_eight_seconds_of_continuous_audible_output() {
+    fn unchanged_station_tags_get_bounded_periodic_audio_validation() {
+        let now = Instant::now();
+        let song = track("Cassius", "I <3 U So");
+        let mut validation = StationMetadataValidation::default();
+        assert!(validation.observe(Some(&song), now));
+        assert!(validation.observe(Some(&song), now + Duration::from_secs(3)));
+        validation.attempted(now);
+        assert!(!validation.observe(Some(&song), now + Duration::from_secs(89)));
+        assert!(validation.observe(Some(&song), now + Duration::from_secs(90)));
+        validation.attempted(now + Duration::from_secs(91));
+        assert!(!validation.observe(Some(&song), now + Duration::from_secs(120)));
+        assert!(!validation.observe(
+            Some(&track("Other", "Next")),
+            now + Duration::from_secs(180)
+        ));
+    }
+
+    #[test]
+    fn pcm_capture_waits_for_three_seconds_of_continuous_audible_output() {
         let now = Instant::now();
         assert!(!pcm_window_ready(now));
-        assert!(pcm_window_ready(now - Duration::from_secs(8)));
+        assert!(pcm_window_ready(now - Duration::from_secs(3)));
     }
 }

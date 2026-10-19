@@ -712,6 +712,8 @@ impl ManagedProviderSession {
             return Err("YouTube session handoff was cancelled".into());
         }
         self.persist_native_youtube_session(&session)?;
+        // A fresh handoff can replace credentials for the same channel identity.
+        self.invalidate_playback_session("youtube");
         self.record_account("youtube", &account_id)?;
         let mut state = self
             .state
@@ -1972,7 +1974,9 @@ async fn run_worker_process(
     stop_cancel: Arc<AtomicBool>,
     timeout: Duration,
 ) -> Result<Value, String> {
-    let mut child = TokioCommand::new(node)
+    let mut command = TokioCommand::new(node);
+    tools::configure_no_console_tokio(&mut command);
+    let mut child = command
         .arg(worker)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2342,7 +2346,9 @@ async fn run_worker_process_typed(
     {
         return Err(NativeWorkerFailure::cancelled());
     }
-    let mut child = TokioCommand::new(node)
+    let mut command = TokioCommand::new(node);
+    tools::configure_no_console_tokio(&mut command);
+    let mut child = command
         .arg(worker)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -3926,21 +3932,26 @@ impl ProviderTransport for ManagedProviderSession {
             {
                 // Serialize the status transition against login/stop generation changes. Do
                 // not mark a cancelled or older channel's failure as the active session.
+                let mut reconnect_changed = false;
                 if let Ok(_control) = self.native_control.lock() {
                     if native_runtime_open(&self.native_shutdown)
                         && self.native_generation.load(Ordering::SeqCst) == generation
                     {
                         if let Ok(mut state) = self.state.lock() {
-                            if mark_youtube_reconnect_required(
+                            reconnect_changed = mark_youtube_reconnect_required(
                                 &mut state.persisted,
                                 &expected_account,
                                 self.native_generation.load(Ordering::SeqCst),
                                 generation,
-                            ) {
+                            );
+                            if reconnect_changed {
                                 let _ = persist_session(&self.data_dir, &state.persisted);
                             }
                         }
                     }
+                }
+                if reconnect_changed {
+                    self.invalidate_playback_session("youtube");
                 }
             }
             let result = result?;
@@ -4070,13 +4081,22 @@ impl ManagedProviderSession {
         Err("Managed browser companion did not connect. In its profile, enable app-driven imports in the extension popup and retry.".into())
     }
 
+    fn invalidate_playback_session(&self, provider: &str) {
+        // AppState is installed after session construction. No callback retains
+        // the application or session, and ordinary healthy status reads do nothing.
+        if let Some(state) = self.app.try_state::<crate::AppState>() {
+            crate::invalidate_managed_playback_sources(&state, &[provider]);
+        }
+    }
+
     fn record_account(&self, provider: &str, account_id: &str) -> Result<(), String> {
         let mut state = self
             .state
             .lock()
             .map_err(|_| "Managed browser session is unavailable")?;
         let current = state.persisted.accounts.get(provider);
-        if current.map(|value| value.account_id.as_str()) != Some(account_id) {
+        let changed = current.map(|value| value.account_id.as_str()) != Some(account_id);
+        let persisted = if changed {
             self.verification_intent_accounts.invalidate(provider)?;
             if provider == "spotify" {
                 self.spotify_auth_cache.invalidate_now();
@@ -4089,10 +4109,16 @@ impl ManagedProviderSession {
                     revision,
                 },
             );
-            persist_session(&self.data_dir, &state.persisted)?;
-        }
+            persist_session(&self.data_dir, &state.persisted)
+        } else {
+            Ok(())
+        };
         state.last_activity = Instant::now();
-        Ok(())
+        drop(state);
+        if changed {
+            self.invalidate_playback_session(provider);
+        }
+        persisted
     }
 }
 

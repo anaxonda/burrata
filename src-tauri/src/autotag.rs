@@ -850,6 +850,7 @@ impl AutoTagger {
             .map_err(|e| e.to_string())?;
         let mut command =
             tokio::process::Command::new(crate::tools::executable("fpcalc", "fpcalc"));
+        crate::tools::configure_no_console_tokio(&mut command);
         command
             .args(["-json", "-length", "120", path])
             .stdin(Stdio::null())
@@ -1540,6 +1541,7 @@ async fn songrec_excerpt(
 ) -> Result<Option<(String, String)>, String> {
     let wav = env::temp_dir().join(format!("burrata-autotag-{}.wav", uuid::Uuid::new_v4()));
     let mut ffmpeg = tokio::process::Command::new(crate::tools::executable(ffmpeg_path, "ffmpeg"));
+    crate::tools::configure_no_console_tokio(&mut ffmpeg);
     ffmpeg
         .args(["-nostdin", "-v", "error", "-y", "-ss"])
         .arg(format!("{start:.3}"))
@@ -1562,6 +1564,7 @@ async fn songrec_excerpt(
         "SongRec"
     };
     let mut command = tokio::process::Command::new(crate::tools::executable(binary, binary));
+    crate::tools::configure_no_console_tokio(&mut command);
     command
         .arg("audio-file-to-recognized-song")
         .arg(&wav)

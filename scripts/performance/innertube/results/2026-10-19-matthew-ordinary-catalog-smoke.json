@@ -1,0 +1,118 @@
+{
+  "architecture": "x86_64",
+  "attempts": [
+    {
+      "accountingScope": "main helper CPU and reaped child CPU; persistent BgUtils CPU not yet reaped is excluded per attempt; lifetime RSS maxima are not additive",
+      "budgetMs": 20000,
+      "decoder": {
+        "decodeWallMs": 447.55982900000004,
+        "decodedAudioMs": 5000.0,
+        "decodedFrames": 240000,
+        "failure": null,
+        "firstPcmAfterResolveMs": 305.206503,
+        "ok": true,
+        "scope": "FFmpeg decoder only; no native mixer, audio device or GUI",
+        "stage": "decode"
+      },
+      "explicitVideoIdInvariant": null,
+      "firstPcmFromRequestMs": 13922.660308999999,
+      "helperCpuMs": 108.83200000000001,
+      "helperMaxRssBytes": 61718528,
+      "iteration": 0,
+      "ok": true,
+      "positionSeconds": 0.0,
+      "reapedChildCpuMs": 6351.445,
+      "reapedChildMaxRssBytes": 355647488,
+      "resolveMs": 13617.453806,
+      "resolved": true,
+      "resolvedRecordingIdentity": {
+        "artists": null,
+        "channel": null,
+        "channelId": null,
+        "confidence": "review",
+        "durationSeconds": 225.0,
+        "official": false,
+        "provider": "youtube",
+        "providerId": "youtube:ps9X-DXUFGY",
+        "title": "JOHN DENVER - MATTHEW.",
+        "track": null,
+        "uploader": null
+      },
+      "scenario": "cold",
+      "wallMs": 14065.310201999999,
+      "warmup": false
+    }
+  ],
+  "build": "debug",
+  "coldScope": "new disposable Store/AcquisitionManager and stopped BgUtils helper; OS and packaged tool caches are not flushed",
+  "commandBudgetScope": "one shared absolute budget for resolver and five seconds PCM decode",
+  "environmentIsolation": "process-only disposable XDG cache/config/data roots; HOME unchanged; all connection credentials session-only and empty",
+  "expectedVideoId": null,
+  "fullRunHelperCpuMs": 130.14499999999998,
+  "fullRunHelperMaxRssBytes": 61718528,
+  "fullRunReapedChildMaxRssBytes": 355647488,
+  "identityScope": "production resolver evidence gate; explicit video ID invariant only when supplied; no acoustic verification",
+  "inputHashes": {
+    "exampleSourceSha256": "b644888d93d469084d6ebf19320bb93b939f9774ff5e78b51035709f8e3499d5",
+    "publicSettingsSha256": "7896f253d6efb7369700ec4225e482d6306f65a68b1e8422e08904d5c70379c2",
+    "trackSha256": "15facfb48e917ba50c133632fd115e3308c4c8c88eda9d71b9bcb73bef1efa96"
+  },
+  "platform": "linux",
+  "providerShutdownOk": true,
+  "qualification": false,
+  "reapedChildrenIncludingProviderCpuMs": 8863.058,
+  "repetitions": 1,
+  "requestedRecordingIdentity": {
+    "artist": "John Denver",
+    "durationSeconds": 222.426,
+    "id": "spotify:1Ua153c9hxARpugkSb1VPh",
+    "provider": "spotify",
+    "providerId": "1Ua153c9hxARpugkSb1VPh",
+    "title": "Matthew"
+  },
+  "resolverBudgetMs": 20000,
+  "resourceAccountingNote": "full-run reaped child CPU includes stopped BgUtils helpers, extractor runtimes and FFmpeg; lifetime maxRSS is a maximum rather than a simultaneous sum",
+  "runPassed": true,
+  "schema": "burrata.production-resolver-diagnostic/v1",
+  "scope": "production resolver and FFmpeg five-second PCM only; no mixer, audio device, GUI, normal profile or credentials",
+  "smoke": true,
+  "streamingPolicy": {
+    "fallbackEnabled": false,
+    "fallbackSources": [],
+    "preferred": "youtube"
+  },
+  "summary": [
+    {
+      "attempts": 1,
+      "firstPcmFromRequestMs": {
+        "median": 13922.660308999999,
+        "p95": 13922.660308999999,
+        "worst": 13922.660308999999
+      },
+      "helperCpuMs": {
+        "median": 108.83200000000001,
+        "p95": 108.83200000000001,
+        "worst": 108.83200000000001
+      },
+      "reapedChildCpuMs": {
+        "median": 6351.445,
+        "p95": 6351.445,
+        "worst": 6351.445
+      },
+      "resolveMs": {
+        "median": 13617.453806,
+        "p95": 13617.453806,
+        "worst": 13617.453806
+      },
+      "scenario": "cold",
+      "successes": 1,
+      "wallMs": {
+        "median": 14065.310201999999,
+        "p95": 14065.310201999999,
+        "worst": 14065.310201999999
+      }
+    }
+  ],
+  "warmupsPerScenario": 0,
+  "wrongMatches": []
+}

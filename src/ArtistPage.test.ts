@@ -528,7 +528,7 @@ describe("ArtistPage", () => {
     await settle();
     const filter = target.querySelector<HTMLInputElement>('[aria-label="Filter loaded release tracks"]')!;
     filter.value = "Second"; filter.dispatchEvent(new Event("input", { bubbles: true })); await settle();
-    expect(target.querySelector(".release-track-controls span")?.textContent).toContain("1 of 3 loaded tracks");
+    expect(target.querySelector(".release-track-controls > span")?.textContent).toContain("1 of 3 loaded tracks");
     expect(target.querySelector(".expanded-tracks")?.textContent).toContain("Second");
     expect(target.querySelector(".expanded-tracks")?.textContent).not.toContain("First");
     target.querySelector<HTMLButtonElement>('[aria-label="Save album Save Record to library"]')!.click();

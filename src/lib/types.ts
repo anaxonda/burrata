@@ -1,3 +1,5 @@
+import type { PlaybackFailure } from "./playback-failure";
+
 export interface Track {
   id: string;
   provider: string;
@@ -61,6 +63,7 @@ export interface CandidatePreviewStatus {
   sessionId: string; sourceId: string; provider: string; paused: boolean; position: number; duration: number; canSeek: boolean; canVolume: boolean; error?: string | null; closed?: boolean;
 }
 export interface Preview {
+  sourceTransport?: string;
   sourceHeaderPolicy?: {headerCount:number;authorization:boolean;cookie:boolean;referer:boolean;origin:boolean;userAgent:boolean;other:boolean};
   sourceGeneration?: number;
   audioCodec?:string; audioBitrateKbps?:number; audioMimeType?:string;
@@ -74,6 +77,7 @@ export interface Preview {
   isExcerpt: boolean;
 }
 export interface NativePlaybackSnapshot {
+  failure?: PlaybackFailure | null;
   engine: "native" | "webview";
   revision: number;
   naturalQueueEnd?: boolean;
@@ -119,7 +123,7 @@ export interface PlaybackTrackFailure extends NativePlaybackFailure {
   operationId: string | null;
   entryId: string;
   outcome: "skipped" | "queue_exhausted";
-  category: "no_playable_match" | "source_identity_mismatch" | "unsupported_audio_stream" | "failed_with_reason";
+  category: "no_playable_match" | "no_audio_results" | "recording_identity_unverified" | "source_identity_mismatch" | "unsupported_audio_stream" | "failed_with_reason";
   version?: string | null;
 }
 export interface AudioFormat {
@@ -203,6 +207,7 @@ export interface Settings {
   pauseOnSourceOpen?: boolean;
   sourceOpenAtPosition?: boolean;
   previewDelayMs: number;
+  playbackStartupTimeoutSeconds?: 20 | 30 | 45;
   theme: string;
   ytDlpPath: string;
   ffmpegPath: string;

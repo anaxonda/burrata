@@ -111,7 +111,7 @@ let configuredSourceOpenAtPosition = false;
 let identifyPlayingTrackResult: { trackId: string; title?: string | null; artist?: string | null; note?: string } = { trackId: savedTrack.id, title: "Saved Recording", artist: "Visible Artist" };
 let holdNativeIdentify = false;
 let finishNativeIdentify: ((value: typeof identifyPlayingTrackResult) => void) | undefined;
-let webviewIdentifyResult: { trackId: string; title?: string | null; artist?: string | null; note?: string } = { trackId: savedTrack.id, title: "Identified Recording", artist: "Identified Artist" };
+let webviewIdentifyResult: { trackId: string; title?: string | null; artist?: string | null; artworkUrl?: string | null; note?: string } = { trackId: savedTrack.id, title: "Identified Recording", artist: "Identified Artist" };
 let holdWebviewIdentify = false;
 let finishWebviewIdentify: ((value: typeof webviewIdentifyResult) => void) | undefined;
 let holdRadioIdentify = false;
@@ -148,7 +148,7 @@ let chapterResults: Candidate["chapters"] = null;
 let downloadJobs: DownloadJob[] = [];
 let sidebarLayoutState: { sections: { id: string; name: string }[]; assignments: Record<string, string>; names?: Record<string, string> } = { sections: [], assignments: {} };
 let sidebarLayoutSaves: typeof sidebarLayoutState[] = [];
-type MockRadioStation = { id: string; name: string; streamUrl: string; sourceUrl: string; provider?: string; description?: string; homepageUrl?: string; faviconUrl?: string; isCustom?: boolean };
+type MockRadioStation = { codec?: string; id: string; name: string; streamUrl: string; sourceUrl: string; provider?: string; description?: string; homepageUrl?: string; faviconUrl?: string; isCustom?: boolean };
 let radioStationState: MockRadioStation[] = [];
 let radioNowPlayingState: { stationId: string; artist: string; title: string; album?: string | null; year?: string | null; sourceUrl: string; metadataConfidence: string; observedAt?: string | null; artworkUrl?: string | null } | null = null;
 let remoteBindingState: {bindingId: string; provider: string; collectionId: string; sourceCollectionId: string; url: string; canEdit: boolean; ownerName?: string; ownerId?: string}[] = [];
@@ -265,8 +265,8 @@ async function saveSidebarRename(name: string) {
   await settle();
 }
 async function trackActions(trackTitle = "Saved Recording"): Promise<HTMLDialogElement> {
-  const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes(trackTitle));
-  const button = row?.querySelector<HTMLButtonElement>(`[aria-label="Actions for ${trackTitle}"]`);
+  const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes(trackTitle));
+  const button = row?.querySelector<HTMLButtonElement>(".more-trigger");
   if (!button) throw new Error(`Could not find actions for ${trackTitle}`);
   button.click();
   await settle();
@@ -353,7 +353,12 @@ beforeEach(() => {
     return setIntervalReal(callback, timeout, ...args);
   }) as typeof setInterval);
   mocks.listen.mockResolvedValue(() => {});
-  mocks.captureRadioPcm.mockImplementation(async (_audio: HTMLAudioElement, _current: () => boolean, _signal: AbortSignal, progress: (seconds: number) => void) => { progress(8); return "captured-wav-base64"; });
+  mocks.captureRadioPcm.mockImplementation(async (_audio: HTMLAudioElement, _current: () => boolean, _signal: AbortSignal, progress: (seconds: number) => void, options?: { onSample: (wav: string, seconds: number) => Promise<boolean> }) => {
+    const wav = "captured-wav-base64";
+    progress(options ? 3 : 8);
+    if (options?.onSample) await options.onSample(wav, 3);
+    return wav;
+  });
   mocks.isDesktop = true;
   eventHandlers.clear();
   failNextCollectionLoad = false;
@@ -526,6 +531,8 @@ beforeEach(() => {
         return sidebarLayoutState;
       }
       case "get_radio_stations": return radioStationState;
+      case "resolve_radio_station_playback_url": return radioStationState.find(station=>station.id===args?.stationId)?.streamUrl;
+      case "resolve_radio_station_artwork": return null;
       case "get_mpv_status": return { available: mpvStatusAvailable };
       case "open_in_mpv": return undefined;
       case "identify_webview_playing_pcm": return args?.stationId
@@ -1210,7 +1217,7 @@ describe("saved recording navigation", () => {
     unmountApp = () => { void unmount(instance); };
     await settle();
     expect(document.querySelector("h1")?.textContent).toBe("Library");
-    expect(document.querySelector("tbody")?.textContent).toContain("Saved Recording");
+    expect(document.querySelector(".shared-track-list")?.textContent).toContain("Saved Recording");
     expect(mocks.call).not.toHaveBeenCalledWith("load_browser_import", { id: "snapshot-new" });
     expect(document.querySelector('[role="alert"]')).toBeNull();
   });
@@ -1516,7 +1523,7 @@ describe("saved recording navigation", () => {
     savedChartTracks = [secondTrack];
     eventHandlers.get("automation-library-changed")?.({event:"automation-library-changed",id:7,payload:{}});
     await settle();
-    const rows = [...document.querySelectorAll("tbody tr")].map(row=>row.textContent?.trim()).filter(Boolean);
+    const rows = [...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent?.trim()).filter(Boolean);
     expect(refreshPrefixes).toBeGreaterThanOrEqual(2);
     expect(rows.join(" ")).toContain("Another Recording");
     expect(rows.join(" ")).not.toContain("Saved Recording");
@@ -1535,7 +1542,7 @@ describe("saved recording navigation", () => {
     sort.value = "title";
     sort.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
-    expect([...document.querySelectorAll("tbody tr")].map(row=>row.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("Another Recording"),expect.stringContaining("Saved Recording")]));
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("Another Recording"),expect.stringContaining("Saved Recording")]));
     mocks.call.mockClear();
     const updated={...secondTrack,title:"Aardvark Recording"};
     savedChartTracks=[savedTrack,updated];
@@ -1543,7 +1550,7 @@ describe("saved recording navigation", () => {
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("list_track_prefix",expect.objectContaining({view:"library",query:"recording",sortField:"title",direction:"asc",limit:2}));
     expect(mocks.call.mock.calls.some(([name])=>name==="list_tracks")).toBe(false);
-    expect([...document.querySelectorAll("tbody tr")].map(row=>row.textContent?.trim()).filter(Boolean)[0]).toContain("Aardvark Recording");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent?.trim()).filter(Boolean)[0]).toContain("Aardvark Recording");
     mocks.call.mockClear();
     eventHandlers.get("playlist-sync")?.({event:"playlist-sync",id:2,payload:{ok:true}});
     await settle();
@@ -1574,8 +1581,8 @@ describe("saved recording navigation", () => {
     await settle();
     finishPrefix?.({rows:[{listingId:savedTrack.id,playlistPosition:null},{listingId:secondTrack.id,playlistPosition:null}],total:2,limit:2});
     await settle();
-    expect([...document.querySelectorAll("tbody tr")].map(row=>row.textContent?.trim()).filter(Boolean).join(" ")).toContain("Another Recording");
-    expect([...document.querySelectorAll("tbody tr")].map(row=>row.textContent?.trim()).filter(Boolean).join(" ")).not.toContain("Saved Recording");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent?.trim()).filter(Boolean).join(" ")).toContain("Another Recording");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent?.trim()).filter(Boolean).join(" ")).not.toContain("Saved Recording");
   });
 
   it("carries earlier dirty tracks into a coalesced newer library refresh", async () => {
@@ -1606,7 +1613,7 @@ describe("saved recording navigation", () => {
     await settle();
     finishFirst?.({rows:[{listingId:savedTrack.id,playlistPosition:null},{listingId:secondTrack.id,playlistPosition:null}],total:2,limit:2});
     await settle();
-    const visible=[...document.querySelectorAll("tbody tr")].map(row=>row.textContent?.trim()).filter(Boolean);
+    const visible=[...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent?.trim()).filter(Boolean);
     expect(prefixCalls).toBe(2);
     expect(visible[0]).toContain("Aardvark Recording");
     expect(visible[1]).toContain("Zebra Recording");
@@ -1638,7 +1645,7 @@ describe("saved recording navigation", () => {
     finishPage?.({tracks:[longTracks[200]],total:201,offset:200,limit:200});
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("list_track_prefix",expect.objectContaining({view:"library",sortField:"title",limit:201}));
-    expect([...document.querySelectorAll("tbody tr")].map(row=>row.textContent?.trim()).filter(Boolean)[0]).toContain("0000 Updated Track");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent?.trim()).filter(Boolean)[0]).toContain("0000 Updated Track");
     expect([...document.querySelectorAll<HTMLButtonElement>("button")].some(button=>button.textContent?.trim()==="Load more tracks")).toBe(false);
     expect(mocks.call.mock.calls.some(([name])=>name==="list_tracks")).toBe(false);
   });
@@ -1753,8 +1760,8 @@ describe("saved recording navigation", () => {
     await settle();
 
     expect(bpmRequests).toBe(1);
-    expect([...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "").join(" ")).toContain("Needle prior A");
-    expect([...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "").join(" ")).toContain("Needle prior B");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "").join(" ")).toContain("Needle prior A");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "").join(" ")).toContain("Needle prior B");
     expect(document.body.textContent).toContain("Preparing results… Showing the previous view.");
     const loadMore = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Preparing sort…"));
     expect(loadMore?.disabled).toBe(true);
@@ -1764,7 +1771,7 @@ describe("saved recording navigation", () => {
     await settle();
     expect(bpmRequests).toBe(2);
     expect(lastCallOf("list_tracks_page")).toEqual(["list_tracks_page", expect.objectContaining({ view:"library",query:"needle",sortField:"bpm",limit:200,offset:0 })]);
-    const visible = [...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "").join(" ");
+    const visible = [...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "").join(" ");
     expect(visible).toContain("Needle low BPM");
     expect(visible).toContain("Needle high BPM");
     expect(visible.indexOf("Needle low BPM")).toBeLessThan(visible.indexOf("Needle high BPM"));
@@ -1808,7 +1815,7 @@ describe("saved recording navigation", () => {
     filter.value="other";filter.dispatchEvent(new Event("input",{bubbles:true}));await settle();
     finishOldReady!({tracks:[{...savedTrack,id:"stale-bpm",title:"Stale needle BPM",bpm:100}],total:1,offset:0,limit:200,sortAvailabilityPending:false,sortAvailability:{sourceOrder:true,title:true,artist:true,album:true,duration:true,releaseDate:true,dateAdded:true,bpm:true,key:true,plays:true,views:true}});
     await settle();
-    const visible=[...document.querySelectorAll("tbody tr")].map(row=>row.textContent??"").join(" ");
+    const visible=[...document.querySelectorAll(".shared-track-list > li")].map(row=>row.textContent??"").join(" ");
     expect(visible).toContain("Other filter result");
     expect(visible).not.toContain("Stale needle BPM");
     expect(lastCallOf("list_tracks_page")).toEqual(["list_tracks_page",expect.objectContaining({view:"library",query:"other",limit:200,offset:0})]);
@@ -1874,10 +1881,10 @@ describe("saved recording navigation", () => {
     finishOtherAvailability!({ tracks: [{ ...savedTrack, id: "must-not-replace-rows", title: "Metadata response row" }], total: 999, offset: 0, limit: 1, sortAvailabilityPending: false, sortAvailability: availability({ bpm: false, plays: true }) });
     await settle();
     expect(sort.querySelector<HTMLOptionElement>('option[value="bpm"]')?.disabled).toBe(true);
-    expect([...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "").join(" ")).toContain("Other One");
-    expect([...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "").join(" ")).toContain("Other Two");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "").join(" ")).toContain("Other One");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "").join(" ")).toContain("Other Two");
     expect(document.body.textContent).not.toContain("Metadata response row");
-    expect(document.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(document.querySelectorAll(".shared-track-list > li")).toHaveLength(2);
     expect(table.scrollTop).toBe(48);
     expect([...document.querySelectorAll<HTMLButtonElement>("button")].some(button => button.textContent?.trim() === "Load more tracks")).toBe(true);
     [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Load more tracks")!.click();
@@ -1916,15 +1923,15 @@ describe("saved recording navigation", () => {
 
     [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Load more tracks")!.click();
     await settle();
-    expect(document.querySelectorAll("tbody tr")).toHaveLength(3);
+    expect(document.querySelectorAll(".shared-track-list > li")).toHaveLength(3);
     const table = document.querySelector<HTMLDivElement>(".track-scroll")!;
     table.scrollTop = 34;
     finishAvailability!({ tracks: [], total: 0, offset: 0, limit: 1, sortAvailabilityPending: false, sortAvailability: availability });
     await settle();
 
     expect(sort.querySelector<HTMLOptionElement>('option[value="bpm"]')?.disabled).toBe(true);
-    expect([...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "").join(" ")).toContain("Pending Page 3");
-    expect(document.querySelectorAll("tbody tr")).toHaveLength(3);
+    expect([...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "").join(" ")).toContain("Pending Page 3");
+    expect(document.querySelectorAll(".shared-track-list > li")).toHaveLength(3);
     expect(table.scrollTop).toBe(34);
     expect([...document.querySelectorAll<HTMLButtonElement>("button")].some(button => button.textContent?.trim() === "Load more tracks")).toBe(false);
   });
@@ -2094,14 +2101,14 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const rows = [...document.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.spacer)")];
+    const rows = [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li:not(.virtual-spacer)")];
     expect(rows).toHaveLength(3);
     rows[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     const previews = mocks.call.mock.calls.filter(([command]) => command === "resolve_preview").length;
     rows[2].dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
     await settle();
-    expect([...document.querySelectorAll("tbody tr:not(.spacer).selected")]).toHaveLength(3);
+    expect([...document.querySelectorAll(".shared-track-list > li:not(.virtual-spacer).selected")]).toHaveLength(3);
     expect([...document.querySelectorAll<HTMLButtonElement>(".table-tools button")].some(button => button.textContent?.trim() === "Merge 3")).toBe(true);
     rows[1].dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
     await settle();
@@ -2118,7 +2125,28 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    expect([...document.querySelectorAll("tbody tr:not(.spacer) .row-number")].map((node) => node.textContent?.trim())).toEqual(["1", "2", "3"]);
+    expect([...document.querySelectorAll(".shared-track-list > li:not(.virtual-spacer) .track-position")].map((node) => node.textContent?.trim())).toEqual(["1", "2", "3"]);
+  });
+
+  it("scrolls the selected shared row into view during keyboard navigation", async () => {
+    savedChartTracks = [savedTrack, secondTrack];
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    try {
+      document.querySelector<HTMLElement>(".shared-track-list > li")!.click();
+      await settle();
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      await settle();
+      expect(document.querySelector(".shared-track-list > li.selected")?.textContent).toContain(secondTrack.title);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+      else delete (HTMLElement.prototype as unknown as { scrollIntoView?: () => void }).scrollIntoView;
+    }
   });
 
   it("opens the row context menu without playing or changing the selected recording", async () => {
@@ -2128,7 +2156,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const rows = [...document.querySelectorAll("tbody tr:not(.spacer)")];
+    const rows = [...document.querySelectorAll(".shared-track-list > li:not(.virtual-spacer)")];
     rows[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     const startCount = mocks.call.mock.calls.filter(([command]) => command === "resolve_preview").length;
@@ -2149,13 +2177,13 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const rows = [...document.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.spacer)")];
-    const menuButton = rows[1].querySelector<HTMLButtonElement>(`.row-more[aria-label="Actions for ${secondTrack.title}"]`)!;
+    const rows = [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li:not(.virtual-spacer)")];
+    const menuButton = rows[1].querySelector<HTMLButtonElement>(".more-trigger")!;
     vi.spyOn(menuButton, "getBoundingClientRect").mockReturnValue({
       x: 444, y: 260, left: 444, top: 260, right: 472, bottom: 288, width: 28, height: 28,
       toJSON: () => ({}),
     } as DOMRect);
-    const selectedBefore = [...document.querySelectorAll("tbody tr.selected")];
+    const selectedBefore = [...document.querySelectorAll(".shared-track-list > li.selected")];
     const previewCount = mocks.call.mock.calls.filter(([command]) => command === "resolve_preview").length;
     const playCount = vi.mocked(HTMLMediaElement.prototype.play).mock.calls.length;
     menuButton.click();
@@ -2164,7 +2192,7 @@ describe("saved recording navigation", () => {
     expect(menu).not.toBeNull();
     expect(menu.style.left).toBe("472px");
     expect(menu.style.top).toBe("288px");
-    expect([...document.querySelectorAll("tbody tr.selected")]).toEqual(selectedBefore);
+    expect([...document.querySelectorAll(".shared-track-list > li.selected")]).toEqual(selectedBefore);
     expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_preview")).toHaveLength(previewCount);
     expect(vi.mocked(HTMLMediaElement.prototype.play).mock.calls).toHaveLength(playCount);
   });
@@ -2194,7 +2222,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("remove_from_collection", {
       collectionId: "collection-full", trackIds: [collectionTrack.id],
     });
-    expect(document.querySelector("tbody")?.textContent).not.toContain("Existing Collection Member");
+    expect(document.querySelector(".shared-track-list")?.textContent).not.toContain("Existing Collection Member");
   });
 
   it("removes one recording directly from its active playlist only", async () => {
@@ -2207,7 +2235,7 @@ describe("saved recording navigation", () => {
     await chooseTrackAction("Remove from playlist", "Existing Collection Member");
     expect(mocks.call).toHaveBeenCalledWith("remove_from_collection", { collectionId: "collection-full", trackIds: [collectionTrack.id] });
     expect(mocks.call.mock.calls.filter(([command]) => command === "remove_from_collection")).toHaveLength(1);
-    expect(document.querySelector("tbody")?.textContent).not.toContain("Existing Collection Member");
+    expect(document.querySelector(".shared-track-list")?.textContent).not.toContain("Existing Collection Member");
     expect(collectionCard("Empty Collection")).not.toBeNull();
     expect(mocks.call).toHaveBeenCalledWith("list_track_prefix", expect.objectContaining({view:"collections",collectionId:"collection-full",limit:1}));
     expect(mocks.call.mock.calls.some(([command]) => command === "list_tracks")).toBe(false);
@@ -2233,7 +2261,7 @@ describe("saved recording navigation", () => {
     filter.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
     mocks.call.mockClear();
-    const selectedRow = [...document.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.spacer)")]
+    const selectedRow = [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li:not(.virtual-spacer)")]
       .find(row => row.textContent?.includes("Aardvark Recording"))!;
     selectedRow.click();
     await settle();
@@ -2243,7 +2271,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("move_playlist_entry", {collectionId:"collection-full",from:2,to:1});
     expect(mocks.call).toHaveBeenCalledWith("list_track_prefix", expect.objectContaining({view:"collections",collectionId:"collection-full",query:"Aardvark",sortField:"title",limit:1}));
     expect(mocks.call.mock.calls.some(([command]) => command === "list_tracks")).toBe(false);
-    expect(document.querySelector("tbody")?.textContent).toContain("Aardvark Recording");
+    expect(document.querySelector(".shared-track-list")?.textContent).toContain("Aardvark Recording");
   });
 
   it("deletes and restores a playlist by stable ID without changing queued or playing audio", async () => {
@@ -2254,7 +2282,7 @@ describe("saved recording navigation", () => {
     unmountApp = () => { void unmount(instance); };
     await settle();
     collectionCard().click(); await settle();
-    [...document.querySelectorAll("tbody tr")].find((row) => row.textContent?.includes("Existing Collection Member"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((row) => row.textContent?.includes("Existing Collection Member"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     await chooseTrackAction("Add to queue", "Existing Collection Member");
@@ -2295,7 +2323,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((row) => row.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((row) => row.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     await chooseTrackAction("Add to queue", "Another Recording");
@@ -2333,7 +2361,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     await chooseTrackAction("Select for batch actions");
@@ -2357,7 +2385,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     const resolveCalls = () => mocks.call.mock.calls.filter(([command]) => command === "resolve_preview").length;
@@ -2384,7 +2412,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
     expect(row.textContent).toContain("124≈");
     expect(row.querySelector(".track-title")?.getAttribute("title")).toContain("Estimated from audio");
     row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -2412,7 +2440,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
     row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     const resolveCount = () => mocks.call.mock.calls.filter(([command]) => command === "resolve_preview").length;
@@ -2438,7 +2466,7 @@ describe("saved recording navigation", () => {
     } };
     eventHandlers.get("library-updated")?.({ event: "library-updated", id: 3, payload: analyzed });
     await settle();
-    const updatedRow = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!;
+    const updatedRow = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
     expect(updatedRow.textContent).toContain("124≈");
     expect(updatedRow.textContent).toContain("Am");
     expect(updatedRow.textContent).toContain("124");
@@ -2494,7 +2522,7 @@ describe("saved recording navigation", () => {
     collectionCard("Empty Collection").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(document.body.textContent).toContain("Existing Collection Member");
-    expect(document.querySelector("tbody")?.textContent).not.toContain("Event Import");
+    expect(document.querySelector(".shared-track-list")?.textContent).not.toContain("Event Import");
   });
 
   it("does not restore saved Charts over a view chosen while startup requests are pending", async () => {
@@ -2511,7 +2539,7 @@ describe("saved recording navigation", () => {
     await settle();
 
     expect(document.querySelector("h1")?.textContent).toBe("Library");
-    expect(document.querySelector("tbody")?.textContent).toContain("Saved Recording");
+    expect(document.querySelector(".shared-track-list")?.textContent).toContain("Saved Recording");
     expect(document.querySelector('[role="alert"]')).toBeNull();
     expect(mocks.call).not.toHaveBeenCalledWith("load_browser_import", { id: "snapshot-new" });
   });
@@ -2898,11 +2926,15 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("Route Album");
     expect(document.body.textContent).toContain("Route Artist Song");
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("Route Artist");
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
     expect(document.querySelector(".search-panel")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click(); await settle();
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("Route Artist");
     document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click(); await settle();
     expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("Route Album");
     expect(document.body.textContent).toContain("Route Artist Song");
-    [...document.querySelectorAll<HTMLButtonElement>(".spotify-artist button")].find(button => button.textContent?.includes("Back to releases"))!.click(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
     expect((document.querySelector(".spotify-artist .hero img") as HTMLImageElement)?.src).toBe(searchArtwork);
     const directNavigationId = "navigate-same-artist-without-search-artwork";
     eventHandlers.get("automation-ui-navigation")?.({ event: "automation-ui-navigation", id: 75,
@@ -2913,6 +2945,79 @@ describe("saved recording navigation", () => {
       requestId: directNavigationId, destination: artistId, status: "complete",
     });
     expect(remoteCalls()).toBe(callsBeforeBack);
+  });
+
+  it("opens the exact Spotify album identity from a track context menu and restores the prior route", async () => {
+    const albumId = "aaaaaaaaaaaaaaaaaaaaaa", trackId = "bbbbbbbbbbbbbbbbbbbbbb";
+    const album = { id: albumId, title: "Exact Album Edition", url: `https://open.spotify.com/album/${albumId}`, artists: ["Exact Artist"] };
+    const track: Track = { ...savedTrack, id: `spotify:track:${trackId}`, provider: "spotify", providerId: trackId, sourceUrl: `https://open.spotify.com/track/${trackId}`, album: album.title, title: "Exact Album Song", provenance: { recordingContext: { albumId, albumUri: `spotify:album:${albumId}` } } };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_managed_provider_session_status") return { accountRevisions: { spotify: 14 }, spotifyAccountId: "fixture-account" };
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "spotify", name: "Spotify", kinds: ["track", "album"], enabled: true },
+      ];
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("spotify")) return {
+        sourceId: "spotify", complete: true, results: [{ id: trackId, kind: "track", sourceId: "spotify", title: track.title, track }],
+      };
+      if (command === "browse_remote_album_tracks") return { provider: "spotify", accountId: "fixture-account", album, tracks: [{ ...track, id: "album-occurrence", provenance: { albumId, albumPosition: 0 } }], total: 1, complete: true };
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
+    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
+    picker.value = "spotify"; picker.dispatchEvent(new Event("change", { bubbles: true }));
+    const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    query.value = track.title; query.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
+    const row = [...document.querySelectorAll<HTMLElement>(".result-row")].find(item => item.textContent?.includes(track.title))!;
+    row.querySelector<HTMLElement>(".track-list-viewport li")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 360, clientY: 220 })); await settle();
+    const goToAlbum = [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button => button.textContent?.trim() === "Go to album")!;
+    expect(goToAlbum).toBeTruthy(); goToAlbum.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("browse_remote_album_tracks", expect.objectContaining({ albumId, cursor: null }));
+    expect(mocks.call.mock.calls.some(([command]) => command === "browse_remote_artist")).toBe(false);
+    expect(document.querySelector(".spotify-artist")?.getAttribute("aria-label")).toBe("Spotify album");
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe(album.title);
+    expect(document.body.textContent).toContain(track.title);
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
+    expect(document.querySelector(".search-panel")).not.toBeNull();
+  });
+
+  it("opens the exact MusicBrainz release version from a track context menu", async () => {
+    const releaseId = "12345678-1234-4234-8234-123456789abc", artistId = "abcdefab-1234-4234-8234-123456789abc";
+    const track: Track = { ...savedTrack, id: "mb-edition-track", provider: "catalog", providerId: "mb-recording", sourceUrl: `https://musicbrainz.org/release/${releaseId}`, album: "Selected Release Edition", title: "Release Track", provenance: {
+      catalogProvider: "musicbrainz", releaseId, artistCredits: [{ name: "Exact Credited Artist", role: "artist credit", artist: { provider: "musicbrainz", id: artistId } }],
+    } };
+    const albumTrack = { ...track, id: "mb-release-row-1", title: "Release Track", provenance: { catalogProvider: "musicbrainz", releaseId } };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "musicbrainz", name: "MusicBrainz", kinds: ["track", "album"], enabled: true },
+      ];
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("musicbrainz")) return {
+        sourceId: "musicbrainz", complete: true, results: [{ id: track.id, kind: "track", sourceId: "musicbrainz", title: track.title, track }],
+      };
+      if (command === "get_release_tracks") return [albumTrack];
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
+    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
+    picker.value = "musicbrainz"; picker.dispatchEvent(new Event("change", { bubbles: true }));
+    const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    query.value = track.title; query.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
+    const row = [...document.querySelectorAll<HTMLElement>(".result-row")].find(item => item.textContent?.includes(track.title))!;
+    row.querySelector<HTMLElement>(".track-list-viewport li")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 360, clientY: 220 })); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button => button.textContent?.trim() === "Go to album")!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_release_tracks", expect.objectContaining({
+      release: expect.objectContaining({ release: { provider: "musicbrainz", id: releaseId }, title: "Selected Release Edition" }),
+      artist: { provider: "musicbrainz", id: artistId },
+    }));
+    expect(document.querySelector(".release-view h1")?.textContent).toBe("Selected Release Edition");
+    expect(document.body.textContent).toContain("Release Track");
   });
 
   it("opens a Spotify track's exact single-artist credit at Spotify and preserves the search route", async () => {
@@ -2932,7 +3037,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("browse_remote_artist", expect.objectContaining({ artistId, cursor: null }));
     expect(document.querySelector(".spotify-artist")).not.toBeNull();
     expect(mocks.call.mock.calls.some(([command]) => command === "search_artists")).toBe(false);
-    document.querySelector<HTMLButtonElement>(".spotify-artist .back")!.click(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
     expect(document.querySelector('[aria-label="Search music"]')).not.toBeNull();
   });
 
@@ -2988,7 +3093,7 @@ describe("saved recording navigation", () => {
     document.querySelector<HTMLButtonElement>(".compact-track .artist-link")!.click(); await settle();
     expect(document.querySelector('[aria-label="Choose Spotify artist"]')).toBeNull();
     expect(mocks.call).toHaveBeenCalledWith("browse_remote_artist", expect.objectContaining({ artistId, cursor: null }));
-    document.querySelector<HTMLButtonElement>(".spotify-artist .back")!.click(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
 
     current = incomplete;
     [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Tracks")!.click(); await settle();
@@ -3291,7 +3396,7 @@ describe("saved recording navigation", () => {
     filter.value = "Blue Record";
     filter.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
-    let rows = [...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "");
+    let rows = [...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "");
     expect(rows).toHaveLength(2);
     expect(rows.join(" ")).toContain("Short Song");
     expect(rows.join(" ")).toContain("Long Song");
@@ -3301,11 +3406,39 @@ describe("saved recording navigation", () => {
     minimum.value = "2:00";
     minimum.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
-    rows = [...document.querySelectorAll("tbody tr")].map(row => row.textContent ?? "");
+    rows = [...document.querySelectorAll(".shared-track-list > li")].map(row => row.textContent ?? "");
     expect(rows).toHaveLength(1);
     expect(rows.join(" ")).toContain("Long Song");
     expect(rows.join(" ")).not.toContain("Short Song");
     expect(rows.join(" ")).not.toContain("Other Song");
+  });
+
+  it("keeps duration bounds collapsed in download and chart toolbars until Filters is opened", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const handler = eventHandlers.get("automation-ui-navigation")!;
+    const go = async (requestId: string, target: unknown) => {
+      handler({ event: "automation-ui-navigation", id: 1, payload: { requestId, target } });
+      await settle(); await settle();
+    };
+    for (const [requestId, view, label] of [["downloads-duration", "downloads", "Download minimum duration"], ["charts-duration", "charts", "Minimum duration"]] as const) {
+      await go(requestId, { kind: "view", view });
+      const filters = document.querySelector<HTMLButtonElement>(".duration-filter .filter-toggle")!;
+      const minimum = document.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+      const fields = minimum.parentElement?.parentElement as HTMLDivElement;
+      expect(filters.getAttribute("aria-expanded")).toBe("false");
+      expect(fields.hidden).toBe(true);
+      filters.click(); await settle();
+      expect(fields.hidden).toBe(false);
+      minimum.value = "2:00";
+      minimum.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+      filters.click(); await settle();
+      expect(fields.hidden).toBe(true);
+      expect(minimum.value).toBe("2:00");
+      expect(filters.textContent).toContain("1");
+    }
   });
 
   it("keeps the playback queue stable through navigation and advances on ended", async () => {
@@ -3435,6 +3568,7 @@ describe("saved recording navigation", () => {
     [...document.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Show chapters")!.click();
     await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="More actions for chapter Chapter Artist — Natural Song"]')!.click();
+    await settle();
     const beforePlaybackCalls = mocks.call.mock.calls.filter(([command]) => ["playback_command", "resolve_candidate_audio", "play_tracks"].includes(String(command))).length;
     [...document.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Add chapter to playlist")!.click();
     await settle();
@@ -3473,6 +3607,7 @@ describe("saved recording navigation", () => {
     document.querySelector<HTMLElement>('[aria-label="More actions for Long Set"]')!.click(); await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Show chapters")!.click(); await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="More actions for chapter Chapter Artist — Natural Song"]')!.click();
+    await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Add chapter to playlist")!.click();
     await settle();
     expect(finishRegistration).toBeTypeOf("function");
@@ -3706,6 +3841,28 @@ describe("saved recording navigation", () => {
     await go("back-to-downloads", {kind:"history",historyDirection:"back"});
     expect(document.querySelector('[aria-label="Sort download jobs"]')).not.toBeNull();
     expect(document.querySelector("main h1")?.textContent).not.toBe("Search");
+  });
+
+  it("opens Playback settings through finite category navigation and exposes the startup timeout", async () => {
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    eventHandlers.get("automation-ui-navigation")!({event:"automation-ui-navigation",id:1,payload:{
+      requestId:"navigate-playback-settings",target:{kind:"view",view:"settings",settingsCategory:"playback"},
+    }});await settle();await settle();
+    expect(document.querySelector('.settings-nav [aria-current="page"]')?.textContent).toBe("Playback");
+    const timeout=[...document.querySelectorAll<HTMLLabelElement>(".settings-grid label")].find(label=>label.textContent?.startsWith("Playback startup timeout"))!.querySelector("select")!;
+    expect([...timeout.options].map(option=>option.textContent)).toEqual(["20 seconds","30 seconds","45 seconds"]);
+    expect(timeout.value).toBe("20");
+    expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete",{requestId:"navigate-playback-settings",destination:"settings",status:"complete"});
+  });
+
+  it.each([
+    {kind:"view",view:"settings",settingsCategory:"arbitrary"},
+    {kind:"view",view:"library",settingsCategory:"playback"},
+  ])("rejects invalid or mixed settings category navigation in the frontend: %j", async target => {
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    eventHandlers.get("automation-ui-navigation")!({event:"automation-ui-navigation",id:1,payload:{requestId:"invalid-settings-category",target}});await settle();
+    expect(document.querySelector('section.settings')).toBeNull();
+    expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete",{requestId:"invalid-settings-category",destination:target.view,status:"failed"});
   });
 
   it("navigates the rendered app through bounded automation and rejects stale requests", async () => {
@@ -4118,6 +4275,7 @@ describe("saved recording navigation", () => {
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".playlist-card")].find(button => button.textContent?.includes("History"))!.click();
     await settle();
+    expect(document.querySelectorAll('.shared-track-list li:not(.virtual-spacer)').length).toBeLessThan(50);
     const query = document.querySelector<HTMLInputElement>('[aria-label="Search playback history"]')!;
     query.value = "History recording";
     query.dispatchEvent(new Event("input", { bubbles: true }));
@@ -4426,7 +4584,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     await chooseTrackAction("Track information");
@@ -4447,16 +4605,16 @@ describe("saved recording navigation", () => {
     unmountApp = () => { void unmount(instance); };
     await settle();
     const localSelect = document.querySelector('[aria-label="Filter local recordings"]') as HTMLSelectElement;
-    expect(document.querySelectorAll("tbody tr:not(.spacer)")).toHaveLength(3);
+    expect(document.querySelectorAll(".shared-track-list > li:not(.virtual-spacer)")).toHaveLength(3);
     localSelect.value = "local";
     localSelect.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
-    expect([...document.querySelectorAll("tbody tr")].map((row) => row.textContent).join(" ")).toContain("Local Recording");
-    expect([...document.querySelectorAll("tbody tr")].map((row) => row.textContent).join(" ")).not.toContain("Not Downloaded");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map((row) => row.textContent).join(" ")).toContain("Local Recording");
+    expect([...document.querySelectorAll(".shared-track-list > li")].map((row) => row.textContent).join(" ")).not.toContain("Not Downloaded");
     localSelect.value = "not-local";
     localSelect.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
-    expect(document.querySelectorAll("tbody tr:not(.spacer)")).toHaveLength(2);
+    expect(document.querySelectorAll(".shared-track-list > li:not(.virtual-spacer)")).toHaveLength(2);
   });
 
   it("keeps the unified track list and rail navigation usable with track actions and playlist creation", async () => {
@@ -4487,17 +4645,17 @@ describe("saved recording navigation", () => {
     unmountApp = () => { void unmount(instance); };
     await settle();
     expect(document.querySelector("h1")?.textContent).toBe("Library");
-    expect(document.querySelectorAll(".compact-track-actions input[type=checkbox]")).toHaveLength(0);
+    expect(document.querySelectorAll(".track-list-viewport .select-track")).toHaveLength(0);
     document.querySelector<HTMLButtonElement>('[aria-label="Select tracks for batch actions"]')!.click();
     await settle();
-    const checkbox = document.querySelector<HTMLInputElement>('.compact-track-actions input[aria-label="Select Saved Recording"]')!;
+    const checkbox = document.querySelector<HTMLInputElement>('.track-list-viewport input[aria-label="Select Saved Recording"]')!;
     expect(checkbox).not.toBeNull();
     checkbox.click();
     await settle();
     expect(checkbox.checked).toBe(true);
     [...document.querySelectorAll<HTMLButtonElement>(".table-tools button")].find(button => button.textContent?.trim() === "Cancel selection")!.click();
     await settle();
-    expect(document.querySelectorAll(".compact-track-actions input[type=checkbox]")).toHaveLength(0);
+    expect(document.querySelectorAll(".track-list-viewport .select-track")).toHaveLength(0);
     expect(document.querySelector('[aria-label="Select tracks for batch actions"]')).not.toBeNull();
     expect(mocks.call.mock.calls.some(([command]) => ["play_tracks", "resolve_playback", "resolve_preview", "resolve_audio", "playback_command", "record_playback"].includes(String(command)))).toBe(false);
   });
@@ -4650,7 +4808,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
     row.querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
     await settle();
     document.querySelector<HTMLButtonElement>(".artist-result")!.click();
@@ -4683,7 +4841,7 @@ describe("saved recording navigation", () => {
     await settle();
     document.querySelector<HTMLButtonElement>('.library-sidebar button[aria-label="Library"]')?.click();
     await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("tbody tr")].find((row) => row.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li")].find((row) => row.textContent?.includes("Saved Recording"))!
       .querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
     await settle();
     document.querySelector<HTMLButtonElement>(".artist-result")!.click();
@@ -4730,7 +4888,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("tbody tr")].find((row) => row.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li")].find((row) => row.textContent?.includes("Saved Recording"))!
       .querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
     await settle();
     document.querySelector<HTMLButtonElement>(".artist-result")!.click();
@@ -4897,7 +5055,7 @@ describe("saved recording navigation", () => {
     });
     const instance = mount(App, {target:document.body}); unmountApp=()=>{void unmount(instance);};
     await settle();
-    document.querySelector("tbody tr")!.dispatchEvent(new MouseEvent("click",{bubbles:true}));
+    document.querySelector(".shared-track-list > li")!.dispatchEvent(new MouseEvent("click",{bubbles:true}));
     await settle();
     const beforePlayCount=play.mock.calls.length;
     (document.querySelector(".artist-link") as HTMLButtonElement).click(); await settle();
@@ -4948,7 +5106,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    document.querySelector("tbody tr")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    document.querySelector(".shared-track-list > li")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     (document.querySelector(".artist-link") as HTMLButtonElement).click(); await settle();
     (document.querySelector(".artist-result") as HTMLButtonElement).click(); await settle();
@@ -5024,7 +5182,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
     row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     row.querySelector('[aria-label="Find recordings by Visible Artist"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -5046,7 +5204,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find(item => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find(item => item.textContent?.includes("Saved Recording"))!;
     row.querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
     await settle();
     document.querySelector<HTMLButtonElement>(".artist-result")!.click();
@@ -5073,7 +5231,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find(item => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find(item => item.textContent?.includes("Saved Recording"))!;
     row.querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
     await settle();
     document.querySelector<HTMLButtonElement>(".artist-result")!.click();
@@ -5122,7 +5280,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find(item => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find(item => item.textContent?.includes("Saved Recording"))!;
     row.querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
     await settle();
     document.querySelector<HTMLButtonElement>(".artist-result")!.click();
@@ -5151,7 +5309,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find(item => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find(item => item.textContent?.includes("Saved Recording"))!;
     row.querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click();
     await settle();
     document.querySelector<HTMLButtonElement>(".artist-result")!.click();
@@ -5164,7 +5322,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
     row.querySelector('[aria-label="Find recordings by Visible Artist"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     document.querySelector(".artist-result")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -5195,7 +5353,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"));
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"));
     row!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(mocks.call).not.toHaveBeenCalledWith("get_track_details", expect.anything());
@@ -5223,7 +5381,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Salaam"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Salaam"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("resolve_playback_track", expect.objectContaining({ track: expect.objectContaining({ provenance: expect.objectContaining({ audioCandidate: candidate }) }) }));
@@ -5244,7 +5402,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("resolve_playback_track", expect.objectContaining({ track: expect.objectContaining({ provenance: expect.objectContaining({ audioCandidate: candidate }) }) }));
@@ -5261,7 +5419,7 @@ describe("saved recording navigation", () => {
       : [new Error("Configured playback sources unavailable")];
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(1);
     if(enabled) expect(document.querySelector(".player-source")?.textContent).toContain("SoundCloud");
     else expect(document.querySelector(".player-status")?.getAttribute("title")).toContain("Configured playback sources unavailable");
@@ -5273,7 +5431,7 @@ describe("saved recording navigation", () => {
     playbackResolverCandidates = [monochromeCandidates[0]!, ...(enabled ? [{ ...youtubeCandidate(savedTrack), id: "soundcloud:recording-1", provider: "soundcloud", url: "https://soundcloud.com/visible-artist/saved-recording" } as Candidate] : [new Error("Configured playback sources unavailable")])];
     vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     document.querySelector("audio")!.dispatchEvent(new Event("error"));await settle();
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(2);
     expect(document.querySelector(".player-status")?.getAttribute("title")).toContain(enabled ? "soundcloud audio" : "Configured playback sources unavailable");
@@ -5291,7 +5449,7 @@ describe("saved recording navigation", () => {
     playbackResolverCandidate = provider === "monochrome" ? monochromeCandidates[0]! : linked;
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find(row => row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click", { bubbles:true }));
+    [...document.querySelectorAll(".shared-track-list > li")].find(row => row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click", { bubbles:true }));
     await settle();
     const resolutions = mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track");
     expect(resolutions).toHaveLength(1);
@@ -5311,7 +5469,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Salaam"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Salaam"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(document.querySelector(".player-status")?.textContent).toContain("Unavailable");
@@ -5333,7 +5491,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const rows = [...document.querySelectorAll("tbody tr")];
+    const rows = [...document.querySelectorAll(".shared-track-list > li")];
     rows.find((item) => item.textContent?.includes("Explicit source"))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     rows.find((item) => item.textContent?.includes("Another Recording"))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -5357,7 +5515,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((row) => row.textContent?.includes("Explicit source"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((row) => row.textContent?.includes("Explicit source"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(finishPlaybackResolve).toBeDefined();
@@ -5426,6 +5584,63 @@ describe("saved recording navigation", () => {
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("append_playlist_entries", { collectionId: "collection-new", tracks: [expect.objectContaining({ id: savedTrack.id })] });
     expect(document.querySelector("dialog.playlist-picker-dialog")).toBeNull();
+  });
+
+  it("uses a verified HTTPS radio transport without rewriting the saved station URL", async () => {
+    const originalUrl="http://stream.example/live.mp3";
+    radioStationState=[{id:"transport",name:"Transport fixture",streamUrl:originalUrl,sourceUrl:"https://radio.example",provider:"custom",isCustom:true}];
+    const previous=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="resolve_radio_station_playback_url"?"https://stream.example/live.mp3":previous(command,args));
+    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){return this.src.startsWith("http:")?Promise.reject(new DOMException("The operation is not supported.","NotSupportedError")):Promise.resolve();});
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes("Transport fixture"))!.click();await settle();
+    expect(mocks.call).toHaveBeenCalledWith("resolve_radio_station_playback_url",expect.objectContaining({stationId:"transport",requestGeneration:expect.any(Number),detailed:true}));
+    expect(document.querySelector("audio")?.src).toBe("https://stream.example/live.mp3");
+    expect(radioStationState[0]?.streamUrl).toBe(originalUrl);
+    expect(play).toHaveBeenCalled();
+  });
+
+  it("uses compatibility transport for HTTPS radio and preserves its MIME and CORS", async () => {
+    radioStationState=[{id:"ogg-live",name:"Ogg compatibility fixture",streamUrl:"https://stream.example/live.ogg",sourceUrl:"https://radio.example",codec:"VORBIS",provider:"custom",isCustom:true}];
+    const previous=mocks.call.getMockImplementation()!;
+    const url="http://127.0.0.1:4567/webview-radio-mp3/fixture?token=fixture";
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="resolve_radio_station_playback_url"?{url,audioMimeType:"audio/mpeg",audioCodec:"mp3",sourceTransport:"loopback-transcode"}:previous(command,args));
+    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes("Ogg compatibility fixture"))!.click();await settle();
+    expect(mocks.call).toHaveBeenCalledWith("resolve_radio_station_playback_url",expect.objectContaining({stationId:"ogg-live",detailed:true,webviewCapabilities:{oggVorbis:expect.any(Boolean),oggOpus:expect.any(Boolean)}}));
+    expect(document.querySelector("audio")?.src).toBe(url);
+    expect(document.querySelector("audio")?.crossOrigin).toBe("anonymous");
+    expect(play).toHaveBeenCalled();
+  });
+
+  it("keeps a rejected radio transport error visible rather than retrying the unsafe original", async () => {
+    radioStationState=[{id:"rejected",name:"Rejected transport",streamUrl:"http://stream.example/live",sourceUrl:"https://radio.example",provider:"custom",isCustom:true}];
+    const previous=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{if(command==="resolve_radio_station_playback_url")throw new Error("Station redirect resolves to a nonpublic address");return previous(command,args);});
+    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes("Rejected transport"))!.click();await settle();
+    expect(document.body.textContent).toContain("Station redirect resolves to a nonpublic address");
+    expect(document.querySelector("audio")).toBeNull();
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it("discards an old radio transport lookup after another station starts", async () => {
+    radioStationState=[{id:"transport",name:"Old transport",streamUrl:"http://stream.example/old.mp3",sourceUrl:"https://radio.example",provider:"custom",isCustom:true},{id:"backup",name:"Current transport",streamUrl:"https://stream.example/current.mp3",sourceUrl:"https://radio.example",provider:"custom",isCustom:true}];
+    const previous=mocks.call.getMockImplementation()!;
+    let finish!:(url:string)=>void;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="resolve_radio_station_playback_url" && args?.stationId==="transport"?new Promise<string>(resolve=>{finish=resolve;}):previous(command,args));
+    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    const station=(name:string)=>[...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes(name))!;
+    station("Old transport").click();await settle();expect(finish).toBeTypeOf("function");
+    station("Current transport").click();await settle();
+    expect(document.querySelector("audio")?.src).toBe("https://stream.example/current.mp3");
+    finish("https://stream.example/old.mp3");await settle();
+    expect(document.querySelector("audio")?.src).toBe("https://stream.example/current.mp3");
+    expect(document.querySelector(".player-track-title")?.textContent).toBe("Current transport");
+    expect(play).toHaveBeenCalledTimes(1);
   });
 
   it("records identified radio songs with station and listen-time attribution per transition", async () => {
@@ -5525,6 +5740,36 @@ describe("saved recording navigation", () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("cannot capture the currently playing radio audio");
   });
 
+  it("preserves current radio evidence when a background station lookup is rejected as stale", async () => {
+    radioStationState = [{id: "main", name: "Main Mix", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false}];
+    radioNowPlayingState = {stationId: "main", artist: "Ruthee", title: "Zoblazo", sourceUrl: "", metadataConfidence: "SongRec fingerprint"};
+    const original = mocks.call.getMockImplementation()!;
+    let rejectBackground = false, staleRejections = 0, countSuccessfulBackground = false, backgroundCalls = 0;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "poll_radio_station" && countSuccessfulBackground) {
+        backgroundCalls++;
+        if (backgroundCalls > 1) throw new Error("Playback changed during station metadata lookup");
+      }
+      if (command === "poll_radio_station" && rejectBackground) {staleRejections++; throw new Error("Playback changed during station metadata lookup");}
+      return original(command, args);
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, {target: document.body}); unmountApp = () => {void unmount(instance);};
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button => button.textContent?.includes("Main Mix"))!.click(); await settle();
+    expect(document.querySelector("footer.player")?.textContent).toContain("Zoblazo");
+    rejectBackground = true;
+    document.querySelector<HTMLButtonElement>('[aria-label="Library"]')!.click(); await settle();
+    expect(staleRejections).toBeGreaterThan(0);
+    expect(document.querySelector("footer.player")?.textContent).toContain("Zoblazo");
+    expect(document.querySelector('[role="alert"]')?.textContent ?? "").not.toContain("Playback changed during station metadata lookup");
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button => button.textContent?.includes("Main Mix"))!.click(); await settle();
+    rejectBackground = false; countSuccessfulBackground = true;
+    document.querySelector<HTMLButtonElement>('[aria-label="Library"]')!.click(); await settle(); await settle();
+    expect(backgroundCalls).toBe(1);
+    expect(document.querySelector("footer.player")?.textContent).toContain("Zoblazo");
+  });
+
   it("keeps identified radio songs in the queue when playback-history saving is off", async () => {
     radioHistoryEnabled = false;
     radioStationState = [{ id: "main", name: "Main Mix", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false }];
@@ -5556,6 +5801,29 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".history-list")?.textContent).toContain("Sodade");
     expect(document.querySelector(".history-list")?.textContent).toContain("Main Mix");
     expect(mocks.call.mock.calls.some(([command]) => command === "record_radio_history")).toBe(false);
+  });
+
+  it("shows an explicit unavailable album action for a radio history track without an album link", async () => {
+    radioStationState = [{ id: "main", name: "Main Mix", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false }];
+    const metadata = { stationId: "main", artist: "Ruthee", title: "Zoblazo", sourceUrl: "https://radio.example/live", metadataConfidence: "station-reported metadata" };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_station_details") return { stationId: "main", history: [metadata], historyAvailable: true, note: "" };
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button => button.textContent?.includes("Main Mix"))!.click();
+    await settle(); await settle();
+    const row = [...document.querySelectorAll<HTMLElement>(".radio-page .track-list-viewport li")].find(item => item.textContent?.includes("Zoblazo"))!;
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }));
+    await settle(); await settle();
+    const albumAction = [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button => button.textContent?.trim() === "Go to album")!;
+    expect(albumAction.disabled).toBe(true);
+    expect(albumAction.title).toBe("Album link unavailable for this track.");
+    expect(albumAction.getAttribute("aria-label")).toContain("Album link unavailable for this track");
+    expect(mocks.call.mock.calls.some(([command]) => command === "get_release_tracks")).toBe(false);
   });
 
   it("opens selected search-track information and plays that track instead of the current one", async () => {
@@ -5686,7 +5954,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
     row.querySelector('[aria-label="Download Saved Recording"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
 
@@ -5771,7 +6039,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const row = [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Peer Saved Recording"))!;
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Peer Saved Recording"))!;
     row.querySelector('[aria-label="Download Peer Saved Recording"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
 
@@ -5890,7 +6158,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    const rows = [...document.querySelectorAll("tbody tr")];
+    const rows = [...document.querySelectorAll(".shared-track-list > li")];
     rows.find((item) => item.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     rows.find((item) => item.textContent?.includes("Another Recording"))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -5916,7 +6184,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll<HTMLTableRowElement>("tbody tr")].find(row => row.textContent?.includes("Saved Recording"))!.click();
+    [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li")].find(row => row.textContent?.includes("Saved Recording"))!.click();
     await settle();
     const audio = document.querySelector("audio")!;
     audio.dispatchEvent(new Event("playing"));
@@ -6301,8 +6569,9 @@ describe("saved recording navigation", () => {
     expect((await automationAction("held-seek","seek",{position:44})).error).toBeNull();
     expect(begin).toHaveBeenCalledWith(expect.objectContaining({target:44,paused:false}));
     clock+=20_000; await vi.advanceTimersByTimeAsync(20_000); await settle();
-    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(1);
-    expect(seekWrites.filter(value=>value===44).length).toBeGreaterThan(1);
+    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(0);
+    expect(seekWrites.filter(value=>value===44)).toHaveLength(1);
+    expect(document.querySelector(".player-error")?.textContent).toContain("choose Play to retry from the requested position");
     expect(document.querySelector(".player-scrubber .time")?.textContent).toBe("0:44");
   });
 
@@ -6332,7 +6601,7 @@ describe("saved recording navigation", () => {
     expect(begin).toHaveBeenCalledWith(expect.objectContaining({target:44,paused:false}));
     await vi.advanceTimersByTimeAsync(20_000); await settle();
     expect(document.querySelector(".player-scrubber .time")?.textContent).toBe("0:44");
-    expect(document.querySelector(".player-error")?.textContent).toContain("cannot be automatically resumed at that position");
+    expect(document.querySelector(".player-error")?.textContent).toContain("choose Play to retry from the requested position");
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track"||command==="resolve_preview")).toHaveLength(sourceCalls);
   });
 
@@ -6381,9 +6650,9 @@ describe("saved recording navigation", () => {
     expect(begin).toHaveBeenLastCalledWith(expect.objectContaining({target:60,paused:true}));
     await vi.advanceTimersByTimeAsync(30_000); expect(resume).not.toHaveBeenCalled();
     mediaPaused=false; expect((await automationAction("paused-seek-resume","resume")).error).toBeNull();
-    expect(resume).toHaveBeenCalledWith(expect.objectContaining({node:audio,seekSerial:expect.any(Number)}));
+    expect(resume).toHaveBeenCalledWith(expect.objectContaining({node:audio,seekSerial:expect.any(Number)}),20_000);
     await vi.advanceTimersByTimeAsync(20_000); await settle();
-    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(1);
+    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(0);
   });
 
   it("refreshes the steady-playback attachment on a completed seek for an initially resolved full source", async () => {
@@ -6517,13 +6786,40 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".player-error")?.textContent).toContain("could not resume at its previous playback position");
   });
 
+  it.each([
+    ["http://127.0.0.1:43210/webview-audio/session?token=secret", "anonymous"],
+    ["https://audio.example/stream.mp3", null],
+  ])("configures relay-only CORS before media attachment (%s)", async (url, expected) => {
+    previewMode = "direct";
+    const baseCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      const result = await baseCall(command, args);
+      return command === "resolve_preview" ? { ...result, url } : result;
+    });
+    const atAttach: (string | null)[] = [];
+    const originalLoad = HTMLMediaElement.prototype.load;
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function(this: HTMLMediaElement) {
+      if (this.getAttribute("src") === url) atAttach.push(this.getAttribute("crossorigin"));
+      originalLoad.call(this);
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row => row.textContent?.includes("Saved Recording"))!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    expect(atAttach).toContain(expected);
+    expect(document.querySelector("audio")?.getAttribute("crossorigin")).toBe(expected);
+  });
+
   it("plays a cached direct preview before searching provider candidates", async () => {
     previewMode = "direct";
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(document.querySelector(".player-error")).toBeNull();
     await settle();
@@ -6542,7 +6838,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
 
@@ -6632,7 +6928,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(play).toHaveBeenCalledTimes(1);
@@ -6643,15 +6939,16 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".player-status")?.getAttribute("title")).toContain("20-second playback deadline");
     expect(document.querySelector(".player-error")?.textContent).toContain("20-second playback deadline");
     expect(pause).toHaveBeenCalled();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Another Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Another Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
     expect(document.querySelector(".player-error")).toBeNull();
-    const pausesWhileNewTrackPlays = pause.mock.calls.length;
+    const newAudio = document.querySelector("audio")!;
+    const pausesWhileNewTrackPlays = pause.mock.contexts.filter(node => node === newAudio).length;
     finishPlay?.();
     await settle();
-    expect(pause).toHaveBeenCalledTimes(pausesWhileNewTrackPlays);
+    expect(pause.mock.contexts.filter(node => node === newAudio)).toHaveLength(pausesWhileNewTrackPlays);
     expect(document.querySelector(".now-playing")?.textContent).toContain("Another Recording");
     expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
     expect(document.querySelector(".player-error")).toBeNull();
@@ -6666,7 +6963,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
 
@@ -6684,7 +6981,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
 
@@ -6700,7 +6997,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
 
@@ -6736,7 +7033,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(finishPlaybackResolve).toBeDefined();
@@ -6762,7 +7059,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(performance,"now").mockImplementation(() => clock);
     vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
     const instance = mount(App,{target:document.body}); unmountApp=()=>{void unmount(instance);}; await settle();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true})); await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true})); await settle();
     let audio=document.querySelector("audio")!;
     clock += mode!=="short" ? 6000 : 2000;
     audio.currentTime += mode!=="short" ? 6 : 2;
@@ -6778,6 +7075,128 @@ describe("saved recording navigation", () => {
     if(steady) { audio=document.querySelector("audio")!;clock+=2000;audio.currentTime+=2;audio.dispatchEvent(new Event("error"));await settle();expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(3); }
   });
 
+  it("uses the selected 30-second deadline for an explicit pinned source whose play never settles", async () => {
+    vi.useFakeTimers();let clock=1_000;vi.spyOn(performance,"now").mockImplementation(()=>clock);
+    previewMode="fallback";const candidate=youtubeCandidate(savedTrack);
+    savedChartTracks=[{...savedTrack,provenance:{sourceKind:"audioSearch",audioCandidate:candidate}}];
+    const base=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command,args)=>{
+      const result=await base(command,args);
+      return command==="get_settings" ? {...result,playbackStartupTimeoutSeconds:30} : result;
+    });
+    let finish!:()=>void;
+    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+    const pause=vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();await settle();
+    const oldAudio=document.querySelector("audio")!;expect(play).toHaveBeenCalledTimes(1);
+    const resolution=mocks.call.mock.calls.find(([command])=>command==="resolve_playback_track")![1];
+    expect(resolution.budgetMs).toBeGreaterThan(0);
+    expect(resolution.budgetMs).toBeLessThanOrEqual(30_000);
+    clock+=29_999;await vi.advanceTimersByTimeAsync(29_999);await settle();
+    expect(document.querySelector('[aria-label="Pause loading playback"]')).not.toBeNull();
+    clock+=1;await vi.advanceTimersByTimeAsync(1);await settle();
+    expect(document.querySelector(".player-error")?.textContent).toContain("30-second playback deadline");
+    expect(document.querySelector('[aria-label="Pause loading playback"]')).toBeNull();
+    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(1);
+    finish();oldAudio.dispatchEvent(new Event("playing"));await settle();
+    expect(pause.mock.contexts).toContain(oldAudio);
+    expect(document.querySelector(".play-button")?.getAttribute("aria-label")).toBe("Play");
+  });
+
+  async function liveRecoveryFixture() {
+    vi.useFakeTimers();
+    let clock = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    radioStationState = [{ id:"main",name:"Main Mix",streamUrl:"https://radio.example/live",sourceUrl:"https://radio.example",provider:"radio_paradise",isCustom:false }];
+    vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(Infinity);
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
+    const play = vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const pause = vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes("Main Mix"))!.click();await settle();
+    const advance = async (milliseconds:number) => {clock+=milliseconds;await vi.advanceTimersByTimeAsync(milliseconds);await settle();};
+    return {play,pause,advance,setClock:(value:number)=>{clock=value;}};
+  }
+
+  it.each(["error","stall","ended"])("reconnects a live radio %s after minutes using a fresh station budget without a finite seek", async trigger => {
+    const fixture=await liveRecoveryFixture();
+    const oldAudio=document.querySelector("audio")!;
+    fixture.setClock(301_000);oldAudio.currentTime=300;
+    if(trigger!=="stall") {oldAudio.dispatchEvent(new Event(trigger));await settle();}
+    else {oldAudio.dispatchEvent(new Event("timeupdate"));oldAudio.dispatchEvent(new Event("waiting"));await fixture.advance(5_000);}
+    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_radio_station_playback_url")).toHaveLength(2);
+    expect(mocks.call.mock.calls.some(([command])=>command==="resolve_playback_track")).toBe(false);
+    expect(fixture.play).toHaveBeenCalledTimes(2);
+    expect(document.querySelector("audio")!.currentTime).toBe(0);
+    expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
+    oldAudio.dispatchEvent(new Event("error"));await settle();
+    expect(fixture.play).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds radio no-progress reconnects and renews retry allowance after five seconds of playback", async () => {
+    const fixture=await liveRecoveryFixture();
+    await fixture.advance(5_000);
+    expect(fixture.play).toHaveBeenCalledTimes(2);
+    let audio=document.querySelector("audio")!;
+    // Five continuous seconds of playable clock progress earns a new recovery episode.
+    for(let second=1;second<=5;second++) {
+      audio.currentTime=second;audio.dispatchEvent(new Event("timeupdate"));await fixture.advance(1_000);
+    }
+    audio.dispatchEvent(new Event("error"));await settle();
+    expect(fixture.play).toHaveBeenCalledTimes(3);
+    audio=document.querySelector("audio")!;
+    await fixture.advance(5_000);
+    expect(fixture.play).toHaveBeenCalledTimes(4);
+    await fixture.advance(5_000);
+    expect(fixture.play).toHaveBeenCalledTimes(4);
+    expect(document.querySelector(".player-error")?.textContent).toContain("Radio reconnect failed");
+  });
+
+  it("cancels an owned radio reconnect lookup on pause and ignores its late transport", async () => {
+    const fixture=await liveRecoveryFixture();
+    const base=mocks.call.getMockImplementation()!;
+    let finish!: (value:string)=>void;
+    mocks.call.mockImplementation((command,args)=>command==="resolve_radio_station_playback_url" ? new Promise(resolve=>{finish=resolve;}) : base(command,args));
+    fixture.setClock(61_000);const oldAudio=document.querySelector("audio")!;oldAudio.currentTime=60;
+    oldAudio.dispatchEvent(new Event("error"));await settle();
+    expect(finish).toBeTypeOf("function");
+    await automationAction("pause-owned-radio-reconnect","pause");
+    finish("https://radio.example/late-transport");await settle();
+    oldAudio.dispatchEvent(new Event("playing"));await settle();
+    expect(fixture.play).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("audio")).toBeNull();
+    expect(document.querySelector(".play-button")?.getAttribute("aria-label")).toBe("Play");
+  });
+
+  it("refreshes a pinned candidate on network failure at the same playhead and never asks for alternatives", async () => {
+    vi.useFakeTimers();let clock=1_000;vi.spyOn(performance,"now").mockImplementation(()=>clock);
+    previewMode="fallback";const candidate=youtubeCandidate(savedTrack);
+    savedChartTracks=[{...savedTrack,durationSeconds:240,provenance:{sourceKind:"audioSearch",audioCandidate:candidate}}];
+    const base=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command,args)=>{
+      if(command==="resolve_playback_track" && args.refreshCandidateFresh) return Promise.resolve({candidate,preview:{kind:"audio",url:"/fresh-pinned.mp3",canSeek:true,canVolume:true,canAutoplay:true,isExcerpt:false,sourceGeneration:2}});
+      return base(command,args);
+    });
+    vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return Promise.resolve();});
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();await settle();
+    const original=document.querySelector("audio")!;clock+=60_000;original.currentTime=60;
+    Object.defineProperty(original,"error",{configurable:true,value:{code:2,message:"Network error"}});
+    original.dispatchEvent(new Event("error"));await settle();
+    const refreshed=document.querySelector("audio")!;expect(refreshed.currentTime).toBe(60);
+    refreshed.currentTime=60.3;clock+=25;await vi.advanceTimersByTimeAsync(25);await settle();
+    expect(starts).toEqual([0,60]);
+    const calls=mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track");
+    expect(calls).toHaveLength(2);expect(calls[1][1]).toMatchObject({refreshCandidateFresh:true,refreshCandidate:expect.objectContaining({id:candidate.id,provider:candidate.provider}),failedCandidates:[]});
+    expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
+  });
+
   it("pinned playback media failure cannot switch to an eligible alternative", async () => {
     previewMode="alternates";
     const candidate=youtubeCandidate(savedTrack);
@@ -6791,7 +7210,7 @@ describe("saved recording navigation", () => {
     });
     vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     document.querySelector("audio")!.dispatchEvent(new Event("error"));await settle();
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(1);
     expect(document.querySelector(".player-status")?.getAttribute("title")).toContain("selected");
@@ -6808,7 +7227,7 @@ describe("saved recording navigation", () => {
     const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
     const pause=vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     await automationAction("loaded-pause","pause");
     const audio=document.querySelector("audio")!;
     await automationAction("loaded-seek","seek",{position:10});
@@ -6857,7 +7276,7 @@ describe("saved recording navigation", () => {
     fixture.begin("cancel-resume");await settle();
     if(mode==="pause")await automationAction("explicit-pause","pause");
     else if(mode==="seek")await automationAction("seek-during-resume","seek",{position:15});
-    else { [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes("Another Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle(); }
+    else { [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Another Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle(); }
     await new Promise(resolve=>setTimeout(resolve,40));await settle();
     const cancelled=fixture.completion("cancel-resume")!;
     expect(cancelled.error).toContain("cancelled or superseded");
@@ -6912,7 +7331,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     document.querySelector("audio")!.dispatchEvent(new Event("error"));
@@ -6936,7 +7355,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll("tbody tr")].find((item) => item.textContent?.includes("Saved Recording"))!
+    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     document.querySelector("audio")!.dispatchEvent(new Event("error"));
@@ -7255,13 +7674,13 @@ describe("native playback frontend", () => {
     mountNative(initial);
     await settle();
 
-    const currentRows = () => [...document.querySelectorAll<HTMLTableRowElement>("tbody tr[aria-current='true']")];
+    const currentRows = () => [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li[aria-current='true']")];
     const status = () => currentRows()[0]?.querySelector<HTMLElement>(".table-playback-state");
     expect(currentRows()).toHaveLength(1);
     expect(currentRows()[0]?.textContent).toContain(savedTrack.title);
     expect(status()?.textContent).toBe("♫");
     expect(status()?.getAttribute("aria-label")).toBe(`Playing ${savedTrack.title}`);
-    const playControl = () => currentRows()[0]?.querySelector<HTMLButtonElement>(".row-play");
+    const playControl = () => currentRows()[0]?.querySelector<HTMLButtonElement>(".position-play");
     expect(playControl()?.getAttribute("aria-label")).toBe(`Play ${savedTrack.title}`);
     expect(playControl()?.getAttribute("aria-busy")).toBe("false");
     expect(currentRows()[0]?.classList.contains("buffering")).toBe(false);
@@ -7282,8 +7701,8 @@ describe("native playback frontend", () => {
     expect(status()?.getAttribute("aria-label")).toBe(`Buffering ${savedTrack.title}`);
     expect(playControl()?.classList.contains("buffering")).toBe(true);
     expect(playControl()?.getAttribute("aria-busy")).toBe("true");
-    const unrelatedSameTitle = [...document.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.spacer)")].find(row => row.getAttribute("aria-current") !== "true");
-    expect(unrelatedSameTitle?.querySelector<HTMLButtonElement>(".row-play")?.getAttribute("aria-busy")).toBe("false");
+    const unrelatedSameTitle = [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li:not(.virtual-spacer)")].find(row => row.getAttribute("aria-current") !== "true");
+    expect(unrelatedSameTitle?.querySelector<HTMLButtonElement>(".position-play")?.getAttribute("aria-busy")).toBe("false");
 
     const unknownRange = { parentTrackId: "same-id-parent", chapterId: "part", sourceUrl: "https://example.test/mix", startTime: 30, endTime: 60, parentTitle: "Unknown range" };
     const unknownPlaybackIdentity = { ...savedTrack, playbackRange: unknownRange };
@@ -7555,11 +7974,13 @@ describe("native playback frontend", () => {
     historyEntries=[chapter,other].map((track,index)=>({id:`source-history-${index}`,track,provider:"youtube",sessionId:`source-session-${index}`,playedAt:"2026-10-12T00:00:00Z"}));
     mountNative(makeNativeSnapshot({revision:46,generation:9,status:"playing",trackId:chapter.id,track:chapter,queue:[chapter],currentIndex:0,paused:false,position:17,duration:30}));await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".playlist-card")].find(button=>button.textContent?.includes("History"))!.click();await settle();
-    const links=document.querySelectorAll<HTMLAnchorElement>('.history-page .more-menu a');expect(links).toHaveLength(2);
-    links[1].dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true,button:0}));await settle();
+    const rows=[...document.querySelectorAll<HTMLElement>('.history-page .shared-track-list li')];expect(rows).toHaveLength(2);
+    rows[1]!.querySelector<HTMLButtonElement>('.more-trigger')!.click();await settle();
+    document.querySelector<HTMLButtonElement>('.track-menu .source-link')!.click();await settle();
     expect(mocks.call).toHaveBeenCalledWith("open_external_url",{url:other.sourceUrl});
     expect(mocks.call.mock.calls.some(([command,args])=>command==="playback_command"&&(args as {command?:{action?:string}})?.command?.action==="pause")).toBe(false);
-    links[0].dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true,button:0}));await settle();
+    rows[0]!.querySelector<HTMLButtonElement>('.more-trigger')!.click();await settle();
+    document.querySelector<HTMLButtonElement>('.track-menu .source-link')!.click();await settle();
     expect(mocks.call).toHaveBeenCalledWith("playback_command",{command:{action:"pause"}});
     expect(mocks.call).toHaveBeenCalledWith("open_external_url",{url:"https://youtube.com/watch?v=abcdefghi12&t=89s"});
     expect(mocks.call.mock.calls.filter(([command,args])=>command==="open_external_url"&&(args as {url?:string})?.url===other.sourceUrl)).toHaveLength(1);
@@ -7870,6 +8291,45 @@ describe("native playback frontend", () => {
     expect(mocks.call.mock.calls.some(([command]) => ["update_track", "save_audio_match", "apply_autotag_review"].includes(String(command)))).toBe(false);
   });
 
+  it("identifies progressive WebView samples and stops after the first match", async () => {
+    previewMode = "direct";
+    webviewSourceGeneration = 73;
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const originalCall = mocks.call.getMockImplementation()!;
+    let attempts = 0;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "identify_webview_playing_pcm") {
+        attempts++;
+        return attempts === 1 ? {trackId: savedTrack.id, note: "No match yet"} : {trackId: savedTrack.id, title: "Progressive Match", artist: "Recognized Artist"};
+      }
+      return originalCall(command, args);
+    });
+    const sampledSeconds: number[] = [];
+    mocks.captureRadioPcm.mockImplementation(async (_audio: HTMLAudioElement, isCurrent: () => boolean, signal: AbortSignal, progress: (seconds: number) => void, options: {onSample: (wav: string, seconds: number) => Promise<boolean>}) => {
+      for (const seconds of [3, 6, 12]) {
+        expect(isCurrent()).toBe(true);
+        expect(signal.aborted).toBe(false);
+        sampledSeconds.push(seconds); progress(seconds);
+        if (await options.onSample(`captured-${seconds}`, seconds)) break;
+      }
+      return "captured-6";
+    });
+    const instance = mount(App, {target: document.body});
+    unmountApp = () => {void unmount(instance);};
+    await settle();
+    const identify = await startWebviewIdentify();
+    identify.click(); await settle();
+    expect(sampledSeconds).toEqual([3, 6]);
+    expect(mocks.captureRadioPcm).toHaveBeenCalledTimes(1);
+    const calls = mocks.call.mock.calls.filter(([command]) => command === "identify_webview_playing_pcm");
+    expect(calls).toHaveLength(2);
+    expect(calls.map(([, args]) => args.wavBase64)).toEqual(["captured-3", "captured-6"]);
+    const identity = expect.objectContaining({generation: 73, trackId: savedTrack.id, sessionId: expect.any(String), seekSerial: 0});
+    for (const [, args] of calls) expect(args).toEqual(identity);
+    expect(calls[0]![1].captureId).toBe(calls[1]![1].captureId);
+    expect(document.querySelector(".banner.notice")?.textContent).toContain("Recognized Artist — Progressive Match");
+  });
+
   it("discards WebView identification when playback crosses a natural chapter boundary", async () => {
     previewMode = "direct";
     webviewSourceGeneration = 84;
@@ -8086,7 +8546,7 @@ describe("native playback frontend", () => {
   it("routes the registered automation identify event through captured PCM and completes a generic result", async () => {
     previewMode = "direct";
     webviewSourceGeneration = 73;
-    webviewIdentifyResult = { trackId: savedTrack.id, title: "Live Performance", artist: "Recognized Artist", note: "Matched" };
+    webviewIdentifyResult = { trackId: savedTrack.id, title: "Live Performance", artist: "Recognized Artist", artworkUrl: "https://images.shazam.com/matched-cover.jpg", note: "Matched" };
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -8104,7 +8564,7 @@ describe("native playback frontend", () => {
     await settle();
 
     expect(mocks.call).toHaveBeenCalledWith("identify_webview_playing_pcm", expect.objectContaining({captureId,trackId:savedTrack.id,generation:73,sessionId:playback!.sessionId,seekSerial:0,wavBase64:"captured-wav-base64"}));
-    expect(mocks.call).toHaveBeenCalledWith("automation_identify_complete", {captureId,result:{trackId:savedTrack.id,title:"Live Performance",artist:"Recognized Artist",note:"Matched"},error:null});
+    expect(mocks.call).toHaveBeenCalledWith("automation_identify_complete", {captureId,result:{trackId:savedTrack.id,title:"Live Performance",artist:"Recognized Artist",artworkUrl:"https://images.shazam.com/matched-cover.jpg",note:"Matched"},error:null});
     expect(mocks.call.mock.calls.some(([command])=>command==="identify_webview_track" || command==="identify_playing_track")).toBe(false);
   });
 
@@ -8136,6 +8596,10 @@ describe("native playback frontend", () => {
     handler({event:"automation-identify-playing-audio",id:3,payload:{captureId,trackId:savedTrack.id,sessionId:snapshot!.sessionId,generation:73,seekSerial:snapshot!.seekSerial}});
     await settle();
     expect(finishWebviewIdentify).toBeDefined();
+    const busyId = "123e4567-e89b-12d3-a456-426614174099";
+    handler({event:"automation-identify-playing-audio",id:30,payload:{captureId:busyId,trackId:savedTrack.id,sessionId:snapshot!.sessionId,generation:73,seekSerial:snapshot!.seekSerial}});
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("automation_identify_complete", {captureId:busyId,result:{},error:"Audio identification is already in progress"});
     eventHandlers.get("automation-identify-cancelled")!({event:"automation-identify-cancelled",id:4,payload:{captureId:"old-capture"}});
     await settle();
     expect(mocks.call).not.toHaveBeenCalledWith("cancel_webview_identification",expect.anything());
@@ -8372,7 +8836,7 @@ describe("native playback frontend", () => {
     expect(reset.playback.diagnostics).toEqual({recentTrackFailures:[]});
   });
   it("failure history survives position/index pulses and keeps independent retry ownership",async()=>{
-    const fixture=await mountInitialQueueFailureFixture('HTTP 404 unavailable',{duplicate:true});
+    const fixture=await mountInitialQueueFailureFixture('Video has been deleted',{duplicate:true});
     const first=fixture.completion()!.playback.diagnostics.recentTrackFailures;
     expect(first).toHaveLength(1);
     const previous=await automationAction('history-retry-occurrence','previous');
@@ -8604,17 +9068,32 @@ describe("native playback frontend", () => {
     expect(notice).not.toContain("hidden");
   });
   it("WebView queue audit reports actual early end without claiming the skip cap",async()=>{
-    const fixture=await mountQueueFailureFixture("Video unavailable","end");
+    const fixture=await mountQueueFailureFixture("Video has been deleted","end");
     const snapshot=(await automationAction("queue-end-inspect","volume",{volume:0.8})).playback;
     expect(fixture.resolved()).toEqual([savedTrack.id,fixture.middle.id]);expect(snapshot.currentIndex).toBe(1);expect(snapshot.paused).toBe(true);
     expect(snapshot.playerMessage).toContain("reached the end of the queue (1 unavailable occurrences checked)");
-    expect(snapshot.playerMessage).toContain("Video unavailable");expect(snapshot.playerMessage).not.toContain("skipping 3");
+    expect(snapshot.playerMessage).toContain("Video has been deleted");expect(snapshot.playerMessage).not.toContain("skipping 3");
   });
-  it("WebView queue audit stops global network failures on the current occurrence",async()=>{
-    const fixture=await mountQueueFailureFixture("Network connection timed out");
+  it.each(["Network connection timed out","HTTP 403 forbidden","HTTP 404 unavailable","HTTP 429 too many requests"])("WebView queue audit stops retryable failures on the current occurrence: %s",async(reason)=>{
+    const fixture=await mountQueueFailureFixture(reason);
     const snapshot=(await automationAction("queue-network-inspect","volume",{volume:0.8})).playback;
     expect(fixture.resolved()).toEqual([savedTrack.id,fixture.middle.id]);
     expect(snapshot.currentIndex).toBe(1);expect(snapshot.trackId).toBe(fixture.middle.id);expect(snapshot.paused).toBe(true);
+    expect((snapshot.diagnostics as {recentTrackFailures:unknown[]}).recentTrackFailures).toEqual([]);
+  });
+  it.each([
+    ["No audio results were returned by the available providers. Open the catalog source or choose another source.", "no_audio_results"],
+    ["Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.", "recording_identity_unverified"],
+    ["Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.", "recording_identity_unverified"],
+  ] as const)("WebView queue audit preserves the full fixed resolver failure and advances: %s",async(reason,category)=>{
+    const fixture=await mountQueueFailureFixture(reason);
+    const snapshot=(await automationAction("fixed-resolver-failure-inspect","volume",{volume:0.8})).playback;
+    expect(fixture.resolved()).toEqual([savedTrack.id,fixture.middle.id,fixture.last.id]);
+    expect(snapshot.currentIndex).toBe(2);expect(snapshot.trackId).toBe(fixture.last.id);expect(snapshot.paused).toBe(false);
+    const failures=(snapshot.diagnostics as {recentTrackFailures:import("./lib/types").PlaybackTrackFailure[]}).recentTrackFailures;
+    expect(failures).toHaveLength(1);expect(failures[0]?.category).toBe(category);expect(failures[0]?.reason).toBe(reason);
+    const notice=document.querySelector(".banner.notice")?.textContent??"";
+    expect(notice.startsWith(`Skipped Unavailable middle album recording: ${reason}`)).toBe(true);
   });
   it("WebView queue audit bypasses repeat-one only for exhausted unavailable entries",async()=>{
     const fixture=await mountQueueFailureFixture("The resolved audio source identity does not match this recording","repeat-one");
@@ -8633,7 +9112,7 @@ describe("native playback frontend", () => {
     vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
     const original=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
-      if(command==="resolve_playback_track" && (args?.track as Track|undefined)?.id!==savedTrack.id) throw new Error("Video unavailable");
+      if(command==="resolve_playback_track" && (args?.track as Track|undefined)?.id!==savedTrack.id) throw new Error("Video has been deleted");
       return original(command,args);
     });
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
@@ -8868,6 +9347,19 @@ describe("native playback frontend", () => {
     expect(mocks.call.mock.calls.some(([command])=>command==="playback_command")).toBe(false);
   });
 
+  it("does not prepare neighboring remote audio when a WebView user loads and selects library rows", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const row = [...document.querySelectorAll<HTMLElement>(".track-table > .track-row, .shared-track-list > li")].find(item => item.textContent?.includes(savedTrack.title));
+    expect(row).toBeDefined();
+    expect(mocks.call.mock.calls.some(([command]) => ["warm_track_previews", "warm_playback_candidate_search", "resolve_preview_audio", "find_candidates", "resolve_playback_track"].includes(String(command)))).toBe(false);
+    row!.click(); await settle();
+    expect(mocks.call.mock.calls.some(([command]) => command === "warm_track_previews" || command === "warm_playback_candidate_search")).toBe(false);
+    const resolved = mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track");
+    expect(resolved.every(([, args]) => (args?.track as Track | undefined)?.id === savedTrack.id)).toBe(true);
+  });
+
   it("does not launch competing library preview extractors during native startup", async () => {
     mountNative(makeNativeSnapshot());
     await settle();
@@ -9099,7 +9591,7 @@ describe("native playback frontend", () => {
     const before=searchReads();
     document.querySelector<HTMLButtonElement>(".open-result")!.click();await settle();
     expect(document.querySelector(".release-view h1")?.textContent).toBe("History Album");
-    document.querySelector<HTMLButtonElement>(".release-view .back")!.click();await settle();await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();await settle();await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Album route search");
     expect(document.querySelector(".source-results")?.textContent).toContain("Other Album");expect(document.querySelector<HTMLElement>(".search-panel")?.scrollTop).toBe(420);expect(searchReads()).toBe(before);
     document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click();await settle();
@@ -9161,13 +9653,25 @@ describe("native playback frontend", () => {
 
   it("opens the current radio station without restarting native playback", async () => {
     radioStationState=[{id:"main",name:"Main Mix",streamUrl:"https://radio.example/main",sourceUrl:"https://radio.example",provider:"radio_paradise",isCustom:false}];
-    const track:Track={...savedTrack,id:"radio:main",provider:"radio",providerId:"main",title:"Main Mix",artist:"Radio Paradise",provenance:{stationId:"main",sourceKind:"radio",radioStreamUrl:"https://radio.example/main"}};
+    const track:Track={...savedTrack,id:"radio:main",provider:"radio",providerId:"main",title:"Overnight selection",artist:"Radio Paradise",sourceUrl:"https://radio.example",provenance:{stationId:"main",sourceKind:"radio",radioStreamUrl:"https://radio.example/main"}};
     mountNative(makeNativeSnapshot({revision:50,generation:9,status:"playing",trackId:track.id,track,queue:[track],currentIndex:0,paused:false,position:127,duration:0}));
     await settle();
     mocks.call.mockClear();
     document.querySelector<HTMLButtonElement>(".radio-section .playlist-card")!.click();
     await settle();
     expect(document.querySelector(".radio-page")).not.toBeNull();
+    expect(document.querySelector(".player-track-title")?.textContent).toBe("Main Mix");
+    expect(document.querySelector(".player-source")).toBeNull();
+    const footerInfo=document.querySelector("footer .station-info")!;
+    footerInfo.querySelector("summary")!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    expect(footerInfo.querySelector('a[href="https://radio.example/"]')).not.toBeNull();
+    expect(footerInfo.querySelector('a[href="https://radio.example/main"]')).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[aria-label="Show playing track information"]')!.click();await settle();
+    const panelInfo=document.querySelector(".player-panel-host .station-info")!;
+    expect(panelInfo.querySelector("summary")?.getAttribute("aria-label")).toBe("Station information for Main Mix");
+    panelInfo.querySelector("summary")!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    expect(panelInfo.querySelector('a[href="https://radio.example/"]')).not.toBeNull();
+    expect(panelInfo.querySelector('a[href="https://radio.example/main"]')).not.toBeNull();
     expect(mocks.call.mock.calls.some(([command])=>command==="playback_command")).toBe(false);
     expect(mocks.call.mock.calls.some(([command])=>command==="resolve_preview"||command==="resolve_candidate_audio")).toBe(false);
   });
@@ -9177,7 +9681,7 @@ describe("native playback frontend", () => {
     mountNative(makeNativeSnapshot());
     await settle();
     mocks.call.mockClear();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes(savedTrack.title))!
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(savedTrack.title))!
       .dispatchEvent(new MouseEvent("click",{bubbles:true}));
     await settle();
 
@@ -9207,7 +9711,7 @@ describe("native playback frontend", () => {
     mountNative(makeNativeSnapshot({status:"paused",track:savedTrack,trackId:savedTrack.id,queue:[savedTrack,secondTrack],currentIndex:0,paused:true}));
     await settle();
     mocks.call.mockClear();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes(secondTrack.title))!
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(secondTrack.title))!
       .dispatchEvent(new MouseEvent("click",{bubbles:true}));
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("playback_command",{command:expect.objectContaining({action:"select",index:1})});
@@ -9220,7 +9724,7 @@ describe("native playback frontend", () => {
     mountNative(makeNativeSnapshot({status:"paused",track:savedTrack,trackId:savedTrack.id,queue:[savedTrack,secondTrack],currentIndex:0,paused:true}));
     await settle();
     mocks.call.mockClear();
-    [...document.querySelectorAll("tbody tr")].find(row=>row.textContent?.includes(changedTrack.title))!
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(changedTrack.title))!
       .dispatchEvent(new MouseEvent("click",{bubbles:true}));
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("playback_command",{command:expect.objectContaining({action:"play",tracks:[savedTrack,changedTrack],index:1,candidate:undefined,position:0})});
@@ -9515,8 +10019,10 @@ describe("search-only upcoming WebView preparation", () => {
     const original=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation((command,args)=>command==="warm_playback_candidate_search"?new Promise(()=>{}):original(command,args));
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    expect(mocks.call.mock.calls.some(([command])=>command==="warm_track_previews"||command==="warm_playback_candidate_search")).toBe(false);
     await automationAction("candidate-prefetch-start","resume");await settle();
     const audio=document.querySelector("audio")!;
+    expect(mocks.call.mock.calls.some(([command])=>command==="warm_playback_candidate_search")).toBe(false);
     audio.dispatchEvent(new Event("playing"));await settle();
     const warmups=mocks.call.mock.calls.filter(([command])=>command==="warm_playback_candidate_search");
     expect(warmups).toHaveLength(1);expect(warmups[0][1]).toMatchObject({track:{id:secondTrack.id}});
@@ -9941,7 +10447,45 @@ describe("remote occurrence save wiring", () => {
     expect(mocks.call.mock.calls.some(([command]) => ["playback_command", "resolve_preview", "resolve_playback_track", "play_tracks", "play_tracks_queued", "automation_queued_playback", "add_remote_playlist_tracks", "write_remote_playlist"].includes(String(command)))).toBe(false);
   });
 
+  it("records a nested Spotify album before mutation so toolbar back and forward restore artist and release state", async () => {
+    const original = mocks.call.getMockImplementation()!;
+    const artistId = "1234567890123456789012";
+    const album = { id: "history-album", title: "History Album", url: "https://open.spotify.com/album/history-album", artists: ["History Artist"], totalTracks: 1 };
+    const row = { ...savedTrack, id: "history-album-track", title: "History Track", provider: "spotify", durationSeconds: 180 };
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_managed_provider_session_status") return { accountRevisions: { spotify: 1 }, spotifyAccountId: "history-fixture" };
+      if (command === "browse_remote_artist") return { artist: { id: artistId, name: "History Artist", url: `https://open.spotify.com/artist/${artistId}`, genres: [] }, albums: [album], totalAlbums: 1 };
+      if (command === "browse_remote_artist_tracks") return { provider: "spotify", artistId, tracks: [], total: 0 };
+      if (command === "browse_remote_album_tracks") return { album, tracks: [row], total: 1, complete: true };
+      return original(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    eventHandlers.get("automation-ui-navigation")!({ event: "automation-ui-navigation", id: 1, payload: { requestId: "history-artist", target: { kind: "spotify_artist", spotifyArtistId: artistId } } });
+    await settle(); await settle();
+    const releaseSort = document.querySelector<HTMLSelectElement>('[aria-label="Sort releases"]')!;
+    releaseSort.value = "title"; releaseSort.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    const artistPane = document.querySelector<HTMLElement>(".spotify-artist")!;
+    artistPane.scrollTop = 275; artistPane.dispatchEvent(new Event("scroll"));
+    document.querySelector<HTMLButtonElement>(".spotify-artist .album")!.click(); await settle();
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("History Album");
+    expect([...document.querySelectorAll(".spotify-artist button")].some(button => /^(← Back|Back to releases)/.test(button.textContent ?? ""))).toBe(false);
+    const sort = document.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!;
+    sort.value = "title"; sort.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle(); await settle();
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("History Artist");
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Sort releases"]')?.value).toBe("title");
+    expect(document.querySelector<HTMLElement>(".spotify-artist")?.scrollTop).toBe(275);
+    document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click(); await settle(); await settle();
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("History Album");
+    expect(document.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')?.value).toBe("title");
+    expect(document.querySelector(".spotify-artist")?.textContent).toContain("History Track");
+    expect(mocks.call.mock.calls.filter(([command]) => command === "browse_remote_album_tracks")).toHaveLength(1);
+  });
+
   it("wires selected duplicate album occurrences into a local append without collapsing positions", async () => {
+    const { providerNavigationSnapshots } = await import("./lib/provider-navigation-snapshots");
+    providerNavigationSnapshots.clear();
     const original = mocks.call.getMockImplementation()!;
     const artistId = "1234567890123456789012";
     const album = { id: "duplicate-album-app", title: "Duplicate Album", url: "https://open.spotify.com/album/duplicate-album-app", artists: ["Album Artist"], totalTracks: 3 };

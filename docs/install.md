@@ -38,6 +38,12 @@ archives are for developers. Supporting helper packages are optional.
 3. Open Burrata from the Start menu. The installer includes WebView2 and the
    required runtime helpers; no terminal commands are needed.
 
+On Windows **N** editions, missing system media components can affect playback.
+If media fails despite the app opening, install Microsoft’s optional
+[Media Feature Pack](https://support.microsoft.com/en-us/windows/experience/platform-variants/media-feature-pack-for-windows-n)
+and restart Windows. This is specific to N editions; ordinary Windows installs
+do not need that extra step.
+
 ### Linux
 
 For DEB/RPM, open the file in your distribution's software installer and approve

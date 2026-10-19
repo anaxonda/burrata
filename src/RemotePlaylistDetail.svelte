@@ -2,6 +2,7 @@
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import { onDestroy, tick, untrack } from "svelte";
   import TrackList from "./TrackList.svelte";
+  import TrackDurationFilter from "./TrackDurationFilter.svelte";
   import { ProviderReadCancellation } from "./lib/provider-read-cancellation";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
   import type { Track } from "./lib/types";
@@ -337,8 +338,7 @@
       <select aria-label="Sort playlist tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Playlist order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", [provider])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", [provider])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", [provider])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", [provider])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", [provider])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", [provider])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", [provider])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", [provider])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", [provider])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", [provider])}</option></select>
     </label>
     <label>Direction<select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-    <label>Duration from<input aria-label="Minimum track duration" inputmode="numeric" placeholder="mm:ss" bind:value={minDuration} oninput={cancelRestore} /></label>
-    <label>to<input aria-label="Maximum track duration" inputmode="numeric" placeholder="mm:ss" bind:value={maxDuration} oninput={cancelRestore} /></label>
+    <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} />
   </div>
   {#if loading}<p class="remote-detail-status" role="status">Loading playlist…</p>{/if}
   {#if error}<p class="remote-detail-error" role="alert">{error}</p>{/if}
@@ -364,7 +364,6 @@
   .remote-detail-tools > input { flex:1 1 240px; width:auto; min-width:160px; }
   .remote-detail-tools label { flex:0 0 auto; display:flex; flex-direction:row; align-items:center; gap:5px; margin:0; color:var(--muted); font-size:10px; white-space:nowrap; }
   .remote-detail-tools input,.remote-detail-tools select { box-sizing:border-box; align-self:center; height:34px; min-height:34px; max-height:34px; padding:6px 8px; font-size:12px; }
-  .remote-detail-tools label input { flex:none; width:82px; min-width:0; }
   .remote-detail-tools select { flex:none; min-width:130px; max-width:180px; height:auto; min-height:34px; max-height:none; padding:4px 8px; line-height:normal; }
   .remote-detail-tools label:nth-of-type(2) select { min-width:112px; }
   .remote-detail-status,.remote-detail-error,.remote-detail-notice { flex:none; margin:0; padding:0 12px; font-size:11px; line-height:1.4; overflow-wrap:anywhere; }

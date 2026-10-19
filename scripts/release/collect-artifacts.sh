@@ -18,6 +18,39 @@ test -n "$(find "$out/installers" -type f -print -quit)" || { echo "No installer
 python3 scripts/release/write-inventory.py "$out/artifact-inventory.json"
 cp src-tauri/vendor/SOURCES.md "$out/THIRD_PARTY_SOURCES.md"
 cp scripts/release/THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES.md"
+python3 - "$out" <<'PY'
+import gzip, hashlib, io, pathlib, tarfile, sys
+
+out = pathlib.Path(sys.argv[1])
+source = pathlib.Path("src-tauri/vendor/stream-download")
+prefix = "stream-download-0.24.4-burrata-patched"
+required = ["Cargo.toml", "Cargo.toml.orig", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "PATCHES.md"]
+files = [source / name for name in required] + sorted((source / "src").rglob("*.rs"))
+if not (source / "src/source/mod.rs").is_file() or any(not path.is_file() or path.is_symlink() for path in files):
+    raise SystemExit("Patched stream-download sources, licenses or patch record are missing")
+for original, destination in [
+    ("LICENSE-MIT", "STREAM_DOWNLOAD_LICENSE_MIT.txt"),
+    ("LICENSE-APACHE", "STREAM_DOWNLOAD_LICENSE_APACHE.txt"),
+    ("PATCHES.md", "STREAM_DOWNLOAD_PATCHES.md"),
+]:
+    (out / destination).write_bytes((source / original).read_bytes())
+archive = out / f"{prefix}.tar.gz"
+# Fixed metadata excludes timestamps and host ownership from the source archive.
+with archive.open("wb") as raw:
+    with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as bundle:
+            for path in sorted(files):
+                payload = path.read_bytes()
+                member = tarfile.TarInfo(f"{prefix}/{path.relative_to(source).as_posix()}")
+                member.size = len(payload)
+                member.mode = 0o644
+                bundle.addfile(member, io.BytesIO(payload))
+digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+with (out / "THIRD_PARTY_SOURCES.md").open("a", encoding="utf-8", newline="\n") as record:
+    record.write("\n## Patched native streaming dependency\n\n")
+    record.write("| Package | Matching source archive | SHA-256 | License |\n| --- | --- | --- | --- |\n")
+    record.write(f"| stream-download 0.24.4, Burrata patch | `{archive.name}` | `{digest}` | MIT OR Apache-2.0; both license texts accompany this archive |\n")
+PY
 cp scripts/release/locked-tools.json "$out/locked-tools.json"
 cp "src-tauri/resources/tools/$TARGET/LOCKED_TOOLS.json" "$out/LOCKED_TOOLS-$LABEL.json"
 cp "src-tauri/resources/tools/$TARGET/FFMPEG_BUILD_CONFIGURATION.json" "$out/FFMPEG_BUILD_CONFIGURATION.json"

@@ -29,24 +29,26 @@ function render(track: Track, extra: Record<string, unknown> = {}) {
 async function settle() { for (let i = 0; i < 6; i++) await Promise.resolve(); await tick(); }
 
 describe("PlayingInfo internet-radio links", () => {
-  it("labels the station website and actual stream URL separately and opens the stream safely", async () => {
+  it("keeps station links behind an accessible station-name disclosure", async () => {
     const target = render(radioTrack); await settle();
-    expect(target.textContent).toContain("Station website");
-    expect(target.textContent).toContain("https://station.example/about");
-    expect(target.textContent).toContain("Stream URL");
-    expect(target.textContent).toContain("https://stream.example/live.mp3");
+    const details = target.querySelector(".station-info")!;
+    expect(details.querySelector("summary")?.getAttribute("aria-label")).toBe("Station information for Custom Jazz");
+    expect((details as HTMLDetailsElement).open).toBe(false);
+    details.querySelector("summary")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    expect(details.textContent).toContain("Station website");
+    expect(details.querySelector('a[href="https://station.example/about"]')?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(details.textContent).toContain("Stream URL");
+    expect(details.querySelector('a[href="https://stream.example/live.mp3"]')).not.toBeNull();
     expect(target.textContent).not.toContain("example-implementation-secret");
     expect(target.textContent).not.toContain("rawResponse");
-    target.querySelector<HTMLButtonElement>('[aria-label="Open stream URL"]')!.click();
-    expect(callMock).toHaveBeenCalledWith("open_external_url", { url: "https://stream.example/live.mp3" });
+    expect(callMock).not.toHaveBeenCalled();
   });
 
   it("does not render or open unsafe stream and station URLs", async () => {
     const track = { ...radioTrack, sourceUrl: "javascript:alert(1)", provenance: { sourceKind: "radio", radioStreamUrl: "file:///etc/passwd" } };
     const target = render(track); await settle();
-    expect(target.querySelector(".radio-links")).toBeNull();
-    expect(target.querySelector('[aria-label="Open stream URL"]')).toBeNull();
-    expect(target.querySelector('[aria-label="Open station website"]')).toBeNull();
+    expect(target.querySelector(".station-info")).toBeNull();
     expect(callMock).not.toHaveBeenCalled();
   });
 });

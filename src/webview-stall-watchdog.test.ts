@@ -40,7 +40,7 @@ describe("WebView steady stall watchdog", () => {
     watchdog.reset();
   });
 
-  it.each(["paused", "stale", "unknown duration", "live"])("does not recover for %s ownership/state", (caseName) => {
+  it.each(["paused", "stale", "unknown duration"])("does not recover for %s ownership/state", (caseName) => {
     const { node, watchdog, onExpired, arm, setCurrent } = setup();
     if (caseName === "paused") (node as unknown as { paused: boolean }).paused = true;
     if (caseName === "stale") setCurrent(false);
@@ -49,6 +49,19 @@ describe("WebView steady stall watchdog", () => {
     else arm();
     vi.advanceTimersByTime(20_000);
     expect(onExpired).not.toHaveBeenCalled();
+    watchdog.reset();
+  });
+
+  it("bounds a live source with infinite duration to five seconds without clock progress", () => {
+    const { node, owner, watchdog, onExpired, arm } = setup();
+    arm(Infinity, true);
+    vi.advanceTimersByTime(4_000);
+    (node as unknown as {currentTime:number}).currentTime += 4;
+    watchdog.observeProgress(owner, node.currentTime);
+    vi.advanceTimersByTime(4_999);
+    expect(onExpired).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onExpired).toHaveBeenCalledTimes(1);
     watchdog.reset();
   });
 

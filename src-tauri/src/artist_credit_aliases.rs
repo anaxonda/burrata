@@ -72,9 +72,169 @@ pub(crate) struct VerifiedPlaybackArtistAliases {
     /// crosswalk cache and is never populated from caller-supplied tracks.
     isrc_enriched: Vec<Track>,
     verified_recording_isrc: Option<String>,
+    credit_sets: Vec<VerifiedCreditSet>,
+    source: Option<Track>,
+}
+
+#[derive(Debug, Clone)]
+struct VerifiedCreditSet {
+    names: Vec<Vec<String>>,
+    join_phrases: Vec<String>,
+    isrc: Option<String>,
+}
+
+impl VerifiedCreditSet {
+    fn matches(&self, candidate: &str) -> bool {
+        // Dynamic programming over candidate offsets keeps every retained alias
+        // reachable without materializing a Cartesian product. Every credit and
+        // its role-bearing join phrase must consume its part of the string.
+        let joined_candidate = crate::source_fallback::normalize_artist_credit(candidate);
+        let candidate = crate::matching::normalize(candidate);
+        if candidate.is_empty() || self.names.is_empty() {
+            return false;
+        }
+        for mode in 0..3 {
+            // Conjunction normalization is safe for a flat catalog performer
+            // list. Keep role-bearing joins (e.g. MusicBrainz `feat.`) exact:
+            // replacing their semantics with `and` is not alias evidence.
+            if mode == 2
+                && self.join_phrases.iter().any(|join| {
+                    !matches!(
+                        join.trim().to_ascii_lowercase().as_str(),
+                        "" | "," | "&" | "and"
+                    )
+                })
+            {
+                continue;
+            }
+            let candidate = if mode == 2 {
+                joined_candidate.clone()
+            } else {
+                candidate.clone()
+            };
+            let mut offsets = std::collections::HashSet::from([0usize]);
+            for (index, names) in self.names.iter().enumerate() {
+                let mut next = std::collections::HashSet::new();
+                for offset in offsets {
+                    for name in names {
+                        let join = if mode == 2 {
+                            if index + 1 == self.names.len() {
+                                ""
+                            } else {
+                                " and "
+                            }
+                        } else if mode == 1 {
+                            if index + 1 == self.names.len() {
+                                ""
+                            } else {
+                                ", "
+                            }
+                        } else {
+                            self.join_phrases[index].as_str()
+                        };
+                        let fragment = if mode == 2 {
+                            crate::source_fallback::normalize_artist_credit(&format!(
+                                "{name}{join}"
+                            ))
+                        } else {
+                            crate::matching::normalize(&format!("{name}{join}"))
+                        };
+                        if fragment.is_empty() {
+                            continue;
+                        }
+                        let remaining = &candidate[offset..];
+                        if let Some(tail) = remaining.strip_prefix(&fragment) {
+                            if tail.is_empty() {
+                                next.insert(candidate.len());
+                            } else if let Some(tail) = tail.strip_prefix(' ') {
+                                next.insert(candidate.len() - tail.len());
+                            }
+                        }
+                    }
+                }
+                offsets = next;
+            }
+            if offsets.contains(&candidate.len()) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl VerifiedPlaybackArtistAliases {
+    pub(crate) fn has_verified_credit_sets(&self) -> bool {
+        !self.credit_sets.is_empty()
+    }
+
+    /// Complete search renderings, excluding the unchanged source spelling.
+    /// Per-credit canonical choices precede the compatibility variant list.
+    pub(crate) fn search_artist_candidates(&self) -> Vec<String> {
+        let Some(source) = self.source.as_ref() else {
+            return Vec::new();
+        };
+        let mut candidates = Vec::new();
+        for credits in &self.credit_sets {
+            for rank in [1usize, 0] {
+                candidates.push(
+                    credits
+                        .names
+                        .iter()
+                        .zip(&credits.join_phrases)
+                        .map(|(names, join)| {
+                            format!(
+                                "{}{}",
+                                names
+                                    .get(rank)
+                                    .or_else(|| names.first())
+                                    .map(String::as_str)
+                                    .unwrap_or_default(),
+                                join
+                            )
+                        })
+                        .collect::<String>(),
+                );
+            }
+        }
+        candidates.extend(self.tracks.iter().map(|variant| variant.artist.clone()));
+        let mut seen =
+            std::collections::HashSet::from([crate::matching::normalize(&source.artist)]);
+        candidates.retain(|artist| {
+            !artist.trim().is_empty() && seen.insert(crate::matching::normalize(artist))
+        });
+        candidates
+    }
+
+    pub(crate) fn include_candidate_artist(&mut self, source: &Track, artist: &str) -> bool {
+        let Some(variant) = self.matching_track(source, artist) else {
+            return false;
+        };
+        if variant.isrc != source.isrc && !self.isrc_enriched.contains(&variant) {
+            self.isrc_enriched.push(variant.clone());
+        }
+        if !self.tracks.contains(&variant) {
+            self.tracks.push(variant);
+        }
+        true
+    }
+
+    /// Materialize only the complete artist rendering actually being assessed.
+    pub(crate) fn matching_track(&self, source: &Track, candidate_artist: &str) -> Option<Track> {
+        if self.source.as_ref() != Some(source) {
+            return None;
+        }
+        let credits = self
+            .credit_sets
+            .iter()
+            .find(|credits| credits.matches(candidate_artist))?;
+        let mut variant = source.clone();
+        variant.artist = candidate_artist.to_owned();
+        if let Some(isrc) = &credits.isrc {
+            variant.isrc = Some(isrc.clone());
+        }
+        Some(variant)
+    }
+
     pub(crate) fn tracks(&self) -> &[Track] {
         &self.tracks
     }
@@ -92,23 +252,95 @@ pub(crate) fn cached_verified_playback_artist_aliases(
     store: &Store,
     track: &Track,
 ) -> VerifiedPlaybackArtistAliases {
-    let mut aliases = cached_verified_artist_alias_tracks(store, track);
+    let original = track;
+    let hydrated = crate::remote_playlists::read_alias_hydrated_track(store, original);
+    let track = hydrated.as_ref().unwrap_or(original);
+    let mut credit_sets = Vec::new();
+    let mut aliases =
+        cached_verified_artist_alias_tracks_with_context(store, track, &mut credit_sets);
     let mut isrc_enriched = Vec::new();
     let mut verified_recording_isrc = None;
     if track.provider == "spotify" {
-        aliases.extend(cached_verified_spotify_recording_alias_tracks(store, track));
+        aliases.extend(cached_verified_spotify_recording_alias_tracks_with_context(
+            store,
+            track,
+            &mut credit_sets,
+        ));
         let recording_aliases =
-            cached_verified_spotify_recording_artist_id_alias_tracks(store, track);
+            cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
+                store,
+                track,
+                &mut credit_sets,
+            );
         verified_recording_isrc = recording_aliases
             .iter()
             .find_map(|alias| alias.isrc.clone());
         isrc_enriched.extend(
             recording_aliases
                 .iter()
-                .filter(|alias| alias.isrc != track.isrc)
+                .filter(|alias| alias.isrc != original.isrc)
                 .cloned(),
         );
         aliases.extend(recording_aliases);
+        if let Some(credits) = cached_verified_provider_artist_credit_set(store, original) {
+            // Search fanout stays bounded while matching keeps every alias.
+            let canonical = credits
+                .names
+                .iter()
+                .filter_map(|names| names.get(1).or_else(|| names.first()))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            if !canonical.is_empty() && canonical != original.artist {
+                let mut variant = original.clone();
+                variant.artist = canonical;
+                aliases.push(variant);
+            }
+            credit_sets.push(credits);
+        }
+        aliases.extend(
+            crate::artist_alias_discovery::cached_isrc_authority_alias_tracks(store, original),
+        );
+        if let Some(choices) =
+            crate::artist_alias_discovery::cached_isrc_authority_credit_choices(store, original)
+        {
+            if verified_recording_isrc.is_none() {
+                verified_recording_isrc =
+                    spotify_artist_credit_fingerprint(track).and_then(|source| source.isrc);
+            }
+            credit_sets.push(VerifiedCreditSet {
+                names: choices.iter().map(|(names, _)| names.clone()).collect(),
+                join_phrases: choices.into_iter().map(|(_, join)| join).collect(),
+                isrc: None,
+            });
+        }
+    }
+    if let Some(choices) =
+        crate::artist_alias_discovery::cached_generic_isrc_authority_credit_choices(store, original)
+    {
+        if verified_recording_isrc.is_none() {
+            verified_recording_isrc = original.isrc.as_ref().map(|isrc| isrc.to_ascii_uppercase());
+        }
+        credit_sets.push(VerifiedCreditSet {
+            names: choices.iter().map(|(names, _)| names.clone()).collect(),
+            join_phrases: choices.into_iter().map(|(_, join)| join).collect(),
+            isrc: None,
+        });
+    }
+    if let Some(credits) = cached_discogs_credit_set(store, original) {
+        let canonical = credits
+            .names
+            .iter()
+            .filter_map(|names| names.get(1).or_else(|| names.first()))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !canonical.is_empty() && canonical != original.artist {
+            let mut variant = original.clone();
+            variant.artist = canonical;
+            aliases.push(variant);
+        }
+        credit_sets.push(credits);
     }
     aliases.sort_by(|left, right| {
         left.artist
@@ -117,11 +349,144 @@ pub(crate) fn cached_verified_playback_artist_aliases(
     });
     aliases.dedup_by(|left, right| left.artist == right.artist && left.isrc == right.isrc);
     isrc_enriched.retain(|variant| aliases.contains(variant));
+    // Hydration is proof context only: candidate variants retain every saved field.
+    for variant in aliases.iter_mut().chain(isrc_enriched.iter_mut()) {
+        let artist = variant.artist.clone();
+        let isrc = variant.isrc.clone();
+        *variant = original.clone();
+        variant.artist = artist;
+        variant.isrc = isrc;
+    }
     VerifiedPlaybackArtistAliases {
         tracks: aliases,
         isrc_enriched,
         verified_recording_isrc,
+        credit_sets,
+        source: Some(original.clone()),
     }
+}
+
+pub(crate) const DISCOGS_ALIAS_RELEASE_CACHE: &str = "artists.alias-discovery.discogs-release.v1";
+pub(crate) const DISCOGS_ALIAS_PROFILE_CACHE: &str = "artists.alias-discovery.discogs-artist.v1";
+
+/// Bind every artist ID to the exact provider occurrence by reparsing public raw
+/// release metadata. Caller provenance alone cannot authorize alias expansion.
+pub(crate) fn verified_discogs_credit_refs(
+    store: &Store,
+    track: &Track,
+) -> Option<Vec<(String, String)>> {
+    if track.provider != "catalog"
+        || track.provenance["catalogProvider"] != "discogs"
+        || track.version.is_some()
+        || track.playback_range.is_some()
+    {
+        return None;
+    }
+    let id = track.provenance["releaseId"].as_str()?;
+    if id.is_empty() || id.len() > 20 || !id.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let raw = store
+        .get_provider_cache(DISCOGS_ALIAS_RELEASE_CACHE, id)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            store
+                .get_provider_cache("artists.release-tracks.discogs-release", id)
+                .ok()
+                .flatten()
+        })?;
+    if raw["id"].as_u64().map(|value| value.to_string()).as_deref() != Some(id) {
+        return None;
+    }
+    let requested = track.provenance["requestedReleaseSourceUrl"].as_str()?;
+    let expected = crate::artists::parse_discogs_release_tracks(
+        &raw,
+        id,
+        requested,
+        track.provenance["representativeEdition"]
+            .as_bool()
+            .unwrap_or(false),
+        None,
+    )
+    .into_iter()
+    .find(|row| row.id == track.id)?;
+    if expected.provider_id != track.provider_id
+        || expected.source_url != track.source_url
+        || expected.title != track.title
+        || expected.artist != track.artist
+        || expected.album != track.album
+        || expected.duration_seconds != track.duration_seconds
+        // The saved row adds app-owned overlays such as `manualFields: {}`.
+        // Bind provider occurrence/credits explicitly, as in the MB verifier,
+        // instead of requiring all incidental app provenance to be identical.
+        || ["sourceKind", "catalogProvider", "sourceUrl", "releaseId",
+            "mediumPosition", "trackPosition", "occurrence", "trackId",
+            "parentTitle", "artistCredits"].iter().any(|key| {
+                expected.provenance[*key] != track.provenance[*key]
+            })
+    {
+        return None;
+    }
+    let credits = expected.provenance["artistCredits"].as_array()?;
+    let mut refs = Vec::new();
+    for credit in credits {
+        let role = credit["role"].as_str().unwrap_or_default();
+        if !["artist", "main artist", "main"]
+            .iter()
+            .any(|value| role.eq_ignore_ascii_case(value))
+        {
+            continue;
+        }
+        if credit["artist"]["provider"] != "discogs" {
+            return None;
+        }
+        let id = credit["artist"]["id"].as_str()?;
+        if id.is_empty() || id.len() > 20 || !id.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        refs.push((id.to_owned(), credit["name"].as_str()?.to_owned()));
+    }
+    (!refs.is_empty() && refs.len() <= MAX_CREDIT_ARTISTS).then_some(refs)
+}
+
+fn cached_discogs_credit_set(store: &Store, track: &Track) -> Option<VerifiedCreditSet> {
+    let refs = verified_discogs_credit_refs(store, track)?;
+    let mut names = Vec::new();
+    for (id, name) in refs {
+        let raw = store
+            .get_provider_cache(DISCOGS_ALIAS_PROFILE_CACHE, &id)
+            .ok()
+            .flatten()?;
+        if raw["id"].as_u64().map(|value| value.to_string()).as_deref() != Some(&id)
+            || raw["name"].as_str() != Some(&name)
+        {
+            return None;
+        }
+        let mut choices = vec![name];
+        for alias in raw["namevariations"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            if !alias.trim().is_empty()
+                && alias.len() <= 200
+                && !choices.iter().any(|name| name == alias)
+            {
+                choices.push(alias.to_owned());
+            }
+        }
+        names.push(choices);
+    }
+    let count = names.len();
+    Some(VerifiedCreditSet {
+        names,
+        join_phrases: (0..count)
+            .map(|index| if index + 1 == count { "" } else { ", " }.to_owned())
+            .collect(),
+        isrc: None,
+    })
 }
 
 /// Read the exact saved Spotify row and its normalized provider catalog fields.
@@ -326,6 +691,17 @@ pub(crate) fn verify_spotify_artist_credit_recording(
     Some((fingerprint, normalized_isrcs.remove(0), credits.len()))
 }
 
+pub(crate) fn invalidate_spotify_artist_credit_recording(
+    store: &Store,
+    provider_id: &str,
+) -> Result<(), String> {
+    store.set_retained_provider_cache(
+        SPOTIFY_RECORDING_CREDIT_CACHE,
+        provider_id,
+        &serde_json::json!({"version":1,"status":"ambiguous"}),
+    )
+}
+
 pub(crate) fn write_verified_spotify_artist_credit_recording(
     store: &Store,
     track: &Track,
@@ -335,17 +711,25 @@ pub(crate) fn write_verified_spotify_artist_credit_recording(
         verify_spotify_artist_credit_recording(store, track, recording_id).ok_or(
             "Spotify and MusicBrainz artist credits do not have a complete verified ID match",
         )?;
+    let saved = store
+        .get_library_track(&track.id)?
+        .ok_or("Saved Spotify source is missing")?;
+    let hydrated_saved = crate::remote_playlists::read_alias_hydrated_track(store, &saved);
+    if spotify_artist_credit_fingerprint(hydrated_saved.as_ref().unwrap_or(&saved)).as_ref()
+        != Some(&fingerprint)
+    {
+        return Err("Saved Spotify source no longer matches verified provider evidence".into());
+    }
     let payload = serde_json::json!({
         "version": 1,
         "spotifyTrackId": fingerprint.track_id,
         "musicbrainzRecordingId": recording_id,
         "fingerprint": fingerprint,
     });
-    store.set_provider_cache(
+    store.set_retained_provider_cache(
         SPOTIFY_RECORDING_CREDIT_CACHE,
         &track.provider_id,
         &payload,
-        6 * 60 * 60,
     )?;
     Ok(SpotifyArtistCreditCrosswalkStatus {
         status: "recording_credits_verified".into(),
@@ -402,13 +786,28 @@ fn cached_verified_spotify_recording_artist_id_alias_tracks(
     store: &Store,
     track: &Track,
 ) -> Vec<Track> {
+    cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
+        store,
+        track,
+        &mut Vec::new(),
+    )
+}
+
+fn cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
+    store: &Store,
+    track: &Track,
+    credit_sets: &mut Vec<VerifiedCreditSet>,
+) -> Vec<Track> {
     let Some(fingerprint) = spotify_artist_credit_fingerprint(track) else {
         return Vec::new();
     };
     let Ok(Some(saved)) = store.get_library_track(&track.id) else {
         return Vec::new();
     };
-    if spotify_artist_credit_fingerprint(&saved).as_ref() != Some(&fingerprint) {
+    let hydrated_saved = crate::remote_playlists::read_alias_hydrated_track(store, &saved);
+    if spotify_artist_credit_fingerprint(hydrated_saved.as_ref().unwrap_or(&saved)).as_ref()
+        != Some(&fingerprint)
+    {
         return Vec::new();
     }
     let Ok(Some(sidecar)) =
@@ -488,18 +887,34 @@ fn cached_verified_spotify_recording_artist_id_alias_tracks(
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .take(64)
+                .filter(|alias| {
+                    !alias
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("Search hint"))
+                })
                 .filter_map(|alias| alias.get("name").and_then(Value::as_str))
                 .filter(|name| !name.trim().is_empty() && name.len() <= 256)
                 .map(str::to_owned),
         );
+        names.extend(
+            crate::artist_alias_discovery::verified_wikidata_alias_names(store, mbid, &profile),
+        );
         let mut seen = std::collections::HashSet::new();
         names.retain(|name| name.len() <= 256 && seen.insert(crate::matching::normalize(name)));
-        if names.is_empty() || names.len() > 66 {
+        if names.is_empty() {
             return Vec::new();
         }
         choices.push(names);
     }
+    credit_sets.push(VerifiedCreditSet {
+        names: choices.clone(),
+        join_phrases: credits
+            .iter()
+            .map(|credit| credit["joinphrase"].as_str().unwrap_or_default().to_owned())
+            .collect(),
+        isrc: Some(source_isrc.clone()),
+    });
     // Keep both complete source credit renderings ahead of bounded alias
     // expansion. A large alias list on an early/later artist must never evict
     // the exact MusicBrainz credited names or canonical profile names.
@@ -586,6 +1001,14 @@ fn cached_verified_spotify_recording_artist_id_alias_tracks(
 pub(crate) fn cached_verified_spotify_recording_alias_tracks(
     store: &Store,
     track: &Track,
+) -> Vec<Track> {
+    cached_verified_spotify_recording_alias_tracks_with_context(store, track, &mut Vec::new())
+}
+
+fn cached_verified_spotify_recording_alias_tracks_with_context(
+    store: &Store,
+    track: &Track,
+    credit_sets: &mut Vec<VerifiedCreditSet>,
 ) -> Vec<Track> {
     if track.provider != "spotify"
         || !valid_spotify_id(&track.provider_id)
@@ -695,7 +1118,7 @@ pub(crate) fn cached_verified_spotify_recording_alias_tracks(
     if exact.next().is_some() {
         return Vec::new();
     }
-    cached_verified_artist_alias_tracks(store, &musicbrainz_track)
+    cached_verified_artist_alias_tracks_with_context(store, &musicbrainz_track, credit_sets)
         .into_iter()
         .filter_map(|alias| {
             if alias.artist == musicbrainz_track.artist {
@@ -713,11 +1136,109 @@ pub(crate) fn cached_verified_spotify_recording_alias_tracks(
         })
 }
 
+/// Artist-ID mappings are reusable across recordings, but every ordered source
+/// credit must have a unique exact provider URL lookup and matching raw profile.
+fn cached_verified_provider_artist_credit_set(
+    store: &Store,
+    original: &Track,
+) -> Option<VerifiedCreditSet> {
+    let hydrated = crate::remote_playlists::read_alias_hydrated_track(store, original);
+    let source = spotify_artist_credit_fingerprint(hydrated.as_ref().unwrap_or(original))?;
+    let saved = store.get_library_track(&original.id).ok()??;
+    let hydrated_saved = crate::remote_playlists::read_alias_hydrated_track(store, &saved);
+    if spotify_artist_credit_fingerprint(hydrated_saved.as_ref().unwrap_or(&saved)).as_ref()
+        != Some(&source)
+    {
+        return None;
+    }
+    let mut all_names = Vec::new();
+    for credit in &source.artists {
+        let evidence = store
+            .get_provider_cache(
+                "artists.alias-discovery.provider-artist.v1",
+                &format!("spotify:{}", credit.id),
+            )
+            .ok()??;
+        let mbid = evidence["musicbrainzArtistId"].as_str()?;
+        let profile = &evidence["profile"];
+        let lookup = &evidence["lookup"];
+        let url = format!("https://open.spotify.com/artist/{}", credit.id);
+        if evidence["version"] != 1
+            || evidence["provider"] != "spotify"
+            || evidence["providerArtistId"].as_str() != Some(credit.id.as_str())
+            || !valid_mbid(mbid)
+            || profile["id"].as_str() != Some(mbid)
+            || lookup["resource"].as_str() != Some(url.as_str())
+            || !profile_has_exact_spotify_artist_url(profile, &credit.id)
+        {
+            return None;
+        }
+        let mapped = lookup["relations"]
+            .as_array()?
+            .iter()
+            .filter(|relation| relation["target-type"] == "artist")
+            .map(|relation| relation["artist"]["id"].as_str())
+            .collect::<Option<std::collections::HashSet<_>>>()?;
+        if mapped.len() != 1 || !mapped.contains(mbid) {
+            return None;
+        }
+        let canonical = profile["name"].as_str()?.trim();
+        if canonical.is_empty() || canonical.len() > 256 {
+            return None;
+        }
+        let mut names = vec![credit.name.clone(), canonical.to_owned()];
+        names.extend(
+            profile["aliases"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|alias| {
+                    !alias["type"]
+                        .as_str()
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("Search hint"))
+                })
+                .filter_map(|alias| alias["name"].as_str())
+                .map(str::to_owned),
+        );
+        names.extend(
+            crate::artist_alias_discovery::verified_wikidata_alias_names(store, mbid, profile),
+        );
+        let mut seen = std::collections::HashSet::new();
+        names.retain(|name| {
+            !name.trim().is_empty()
+                && name.len() <= 256
+                && seen.insert(crate::matching::normalize(name))
+        });
+        all_names.push(names);
+    }
+    Some(VerifiedCreditSet {
+        join_phrases: (0..all_names.len())
+            .map(|index| {
+                if index + 1 == all_names.len() {
+                    String::new()
+                } else {
+                    ", ".into()
+                }
+            })
+            .collect(),
+        names: all_names,
+        isrc: None,
+    })
+}
+
 fn valid_spotify_id(value: &str) -> bool {
     value.len() == 22 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
 pub(crate) fn cached_verified_artist_alias_tracks(store: &Store, track: &Track) -> Vec<Track> {
+    cached_verified_artist_alias_tracks_with_context(store, track, &mut Vec::new())
+}
+
+fn cached_verified_artist_alias_tracks_with_context(
+    store: &Store,
+    track: &Track,
+    credit_sets: &mut Vec<VerifiedCreditSet>,
+) -> Vec<Track> {
     let Some((release_id, recording_id, track_guid)) = verified_occurrence_ids(track) else {
         return Vec::new();
     };
@@ -738,6 +1259,10 @@ pub(crate) fn cached_verified_artist_alias_tracks(store: &Store, track: &Track) 
     {
         return Vec::new();
     }
+    let mut all_names: Vec<Vec<String>> = raw_credits
+        .iter()
+        .map(|credit| vec![credit.name.clone()])
+        .collect();
     let mut variants = Vec::new();
     for (index, credit) in raw_credits.iter().enumerate() {
         let Some(mbid) = credit.artist_id.as_deref() else {
@@ -761,7 +1286,12 @@ pub(crate) fn cached_verified_artist_alias_tracks(store: &Store, track: &Track) 
                 .as_array()
                 .into_iter()
                 .flatten()
-                .take(64)
+                .filter(|alias| {
+                    !alias
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("Search hint"))
+                })
                 .filter_map(|alias| alias["name"].as_str())
                 .filter(|name| !name.trim().is_empty() && name.len() <= 256)
                 .map(str::to_owned),
@@ -771,11 +1301,19 @@ pub(crate) fn cached_verified_artist_alias_tracks(store: &Store, track: &Track) 
             .into_iter()
             .chain(names.into_iter().skip(1).collect::<Vec<_>>())
             .collect();
+        names.extend(
+            crate::artist_alias_discovery::verified_wikidata_alias_names(store, mbid, &profile),
+        );
         let mut seen = std::collections::HashSet::new();
-        names.retain(|name| seen.insert(name.clone()));
+        names.retain(|name| {
+            !name.trim().is_empty()
+                && name.len() <= 256
+                && seen.insert(crate::matching::normalize(name))
+        });
+        all_names[index].extend(names.clone());
         for name in names {
             if variants.len() >= 32 {
-                return variants;
+                break;
             }
             if name.len() > 256 || name == credit.name {
                 continue;
@@ -804,6 +1342,14 @@ pub(crate) fn cached_verified_artist_alias_tracks(store: &Store, track: &Track) 
             }
         }
     }
+    credit_sets.push(VerifiedCreditSet {
+        names: all_names,
+        join_phrases: raw_credits
+            .iter()
+            .map(|credit| credit.join_phrase.clone().unwrap_or_default())
+            .collect(),
+        isrc: None,
+    });
     variants
 }
 
@@ -1018,6 +1564,97 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
+    #[test]
+    fn discogs_exact_occurrence_binds_each_performer_alias_without_inventing_names() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../fixtures/discogs-prolific-credit-identity.json"
+        ))
+        .unwrap();
+        let raw = &fixture["release"];
+        let track = crate::artists::parse_discogs_release_tracks(
+            raw,
+            "38549214",
+            "https://www.discogs.com/release/38549214",
+            false,
+            None,
+        )
+        .remove(0);
+        let dir = tempdir().unwrap();
+        let store = Store::open(&dir.path().join("discogs.sqlite")).unwrap();
+        store
+            .set_retained_provider_cache(DISCOGS_ALIAS_RELEASE_CACHE, "38549214", raw)
+            .unwrap();
+        assert!(
+            cached_verified_playback_artist_aliases(&store, &track).has_verified_credit_sets()
+                == false
+        );
+        for profile in fixture["profiles"].as_array().unwrap() {
+            store
+                .set_retained_provider_cache(
+                    DISCOGS_ALIAS_PROFILE_CACHE,
+                    &profile["id"].as_u64().unwrap().to_string(),
+                    profile,
+                )
+                .unwrap();
+        }
+        let context = cached_verified_playback_artist_aliases(&store, &track);
+        assert!(context.has_verified_credit_sets());
+        let title = fixture["officialTitle"].as_str().unwrap();
+        let artist = crate::source_fallback::youtube_flat_artist_credit(title).unwrap();
+        let variant = context.matching_track(&track, &artist).unwrap();
+        assert!(crate::source_fallback::youtube_catalog_title_matches(
+            &variant,
+            "Sacrifices",
+            &artist
+        ));
+        assert!(context
+            .matching_track(&track, "Nipsey Hussle, Bino Rideaux, Unrelated Guest")
+            .is_none());
+        assert!(context
+            .matching_track(&track, "Nipsey Hussle, Bino Rideaux")
+            .is_none());
+        let mut forged = track.clone();
+        forged.provenance["artistCredits"][2]["artist"]["id"] = json!("123");
+        assert!(
+            !cached_verified_playback_artist_aliases(&store, &forged).has_verified_credit_sets()
+        );
+        let mut changed = track.clone();
+        changed.title = "Other song".into();
+        assert!(
+            !cached_verified_playback_artist_aliases(&store, &changed).has_verified_credit_sets()
+        );
+        assert!(track.duration_seconds.is_none());
+        assert!(track.artist.ends_with("James Fauntleroy II"));
+        let mut saved = track.clone();
+        saved.provenance["manualFields"] = json!({});
+        assert!(cached_verified_playback_artist_aliases(&store, &saved).has_verified_credit_sets());
+        // App overlays are irrelevant; every provider identity coordinate and
+        // complete artist credit still has to match raw public evidence.
+        for key in [
+            "sourceKind",
+            "catalogProvider",
+            "sourceUrl",
+            "releaseId",
+            "mediumPosition",
+            "trackPosition",
+            "occurrence",
+            "trackId",
+            "parentTitle",
+            "artistCredits",
+        ] {
+            let mut changed = saved.clone();
+            changed.provenance[key] = json!("changed");
+            assert!(
+                !cached_verified_playback_artist_aliases(&store, &changed)
+                    .has_verified_credit_sets(),
+                "{key}"
+            );
+        }
+        saved.artist = "Nipsey Hussle,Bino Rideaux".into();
+        saved.provenance["manualFields"] = json!({"artist":true});
+        assert!(!cached_verified_playback_artist_aliases(&store, &saved).has_verified_credit_sets());
+    }
+
     fn fixture_track() -> Track {
         Track {
             id: "catalog:musicbrainz:4f7f6950-29cc-448d-a25b-445e383612f1:1:2:1:d0b8d1b1-05c3-4422-ae75-a5aae859d8dd".into(),
@@ -1057,6 +1694,121 @@ mod tests {
     }
     fn profile() -> Value {
         json!({"id":"80fb9c75-af15-4a6b-9528-715f9ef4ebea","name":"Bulgarian State Radio & Television Female Vocal Choir","aliases":[{"name":"Le Mystère Des Voix Bulgares"},{"name":"The Bulgarian State Television and Radio Female Choir"}]})
+    }
+
+    #[test]
+    #[ignore = "explicit local cache/matching microbenchmark; excludes network and playback"]
+    fn benchmark_verified_alias_cache_matching() {
+        let mut raw_profile = profile();
+        raw_profile["aliases"] = Value::Array(
+            (0..80)
+                .map(|index| json!({"name":format!("Synthetic alias {index}")}))
+                .chain(std::iter::once(json!({"name":"Български хор"})))
+                .collect(),
+        );
+        let (_directory, store) = cached_store(&release_fixture(), Some(&raw_profile));
+        let source = fixture_track();
+        let run = || {
+            let mut context = cached_verified_playback_artist_aliases(&store, &source);
+            assert!(context.has_verified_credit_sets());
+            assert!(context.include_candidate_artist(&source, "Български хор"));
+            assert!(context.matching_track(&source, "Български хор").is_some());
+            assert!(!context.search_artist_candidates().is_empty());
+            std::hint::black_box(context);
+        };
+        for _ in 0..3 {
+            run();
+        }
+        #[cfg(target_os = "linux")]
+        fn usage() -> Option<(f64, i64)> {
+            let mut raw = std::mem::MaybeUninit::<libc::rusage>::uninit();
+            if unsafe { libc::getrusage(libc::RUSAGE_SELF, raw.as_mut_ptr()) } != 0 {
+                return None;
+            }
+            let raw = unsafe { raw.assume_init() };
+            Some((
+                raw.ru_utime.tv_sec as f64
+                    + raw.ru_utime.tv_usec as f64 / 1_000_000.0
+                    + raw.ru_stime.tv_sec as f64
+                    + raw.ru_stime.tv_usec as f64 / 1_000_000.0,
+                raw.ru_maxrss as i64,
+            ))
+        }
+        #[cfg(not(target_os = "linux"))]
+        fn usage() -> Option<(f64, i64)> {
+            None
+        }
+        let before = usage();
+        let mut timings_ms = Vec::new();
+        for _ in 0..20 {
+            let started = std::time::Instant::now();
+            run();
+            timings_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        let after = usage();
+        let cpu_seconds = before.zip(after).map(|(before, after)| after.0 - before.0);
+        let peak_rss_kib = after.map(|value| value.1);
+        println!(
+            "{}",
+            json!({"benchmark":"verified_alias_cache_matching_microbenchmark", "build":if cfg!(debug_assertions) {"debug"} else {"release"}, "warmupIterations":3,"measuredIterations":20,"timingsMs":timings_ms,"cpuSeconds":cpu_seconds,"processPeakRssKiB":peak_rss_kib,"scope":"local synthetic fixture: verified cache reader, late alias matching, variant and search rendering construction; excludes network, extraction, and playback"})
+        );
+    }
+
+    #[test]
+    fn verified_credit_sets_can_match_without_compatibility_tracks() {
+        let source = fixture_track();
+        let context = VerifiedPlaybackArtistAliases {
+            source: Some(source.clone()),
+            credit_sets: vec![VerifiedCreditSet {
+                names: vec![vec![source.artist.clone(), "Български хор".into()]],
+                join_phrases: vec![String::new()],
+                isrc: None,
+            }],
+            ..Default::default()
+        };
+        assert!(context.tracks().is_empty());
+        assert!(context.has_verified_credit_sets());
+        assert!(context.matching_track(&source, "Български хор").is_some());
+        assert_eq!(context.search_artist_candidates(), vec!["Български хор"]);
+    }
+
+    #[test]
+    fn per_credit_matching_reaches_late_multilingual_aliases_without_dropping_guests() {
+        let mut first: Vec<String> = (0..64).map(|i| format!("First alias {i}")).collect();
+        first.push("Български хор".into());
+        let mut second: Vec<String> = (0..64).map(|i| format!("Guest alias {i}")).collect();
+        second.push("合唱団".into());
+        let credits = VerifiedCreditSet {
+            names: vec![first, second],
+            join_phrases: vec![" feat. ".into(), "".into()],
+            isrc: None,
+        };
+        assert!(credits.matches("Български хор feat. 合唱団"));
+        assert!(credits.matches("Български хор, 合唱団"));
+        assert!(!credits.matches("Български хор"));
+        assert!(!credits.matches("合唱団 feat. Български хор"));
+        assert!(!credits.matches("Български хор feat. Unknown Guest"));
+        assert!(!credits.matches("Български хор and 合唱団"));
+        assert!(!credits.matches("Български хор feat. 合唱団 feat. Extra"));
+        let flat = VerifiedCreditSet {
+            names: vec![
+                vec!["Nipsey Hussle".into()],
+                vec!["Bino Rideaux".into()],
+                vec!["James Fauntleroy II".into(), "James Fauntleroy".into()],
+            ],
+            join_phrases: vec![", ".into(), ", ".into(), "".into()],
+            isrc: None,
+        };
+        assert!(flat.matches("Nipsey Hussle and Bino Rideaux, James Fauntleroy"));
+        for incomplete in [
+            "Nipsey Hussle and Bino Rideaux",
+            "Nipsey Hussle and James Fauntleroy",
+            "Nipsey Hussle and Bino Rideaux, Wrong Guest",
+            "Nipsey Hussle and Bino Rideaux, James",
+            "Nipsey Hussle and Bino Rideaux, James Fauntleroy, Extra",
+        ] {
+            assert!(!flat.matches(incomplete), "{incomplete}");
+        }
     }
 
     #[test]
@@ -1287,6 +2039,12 @@ mod tests {
             write_verified_spotify_artist_credit_recording(&store, &track, recording_id).unwrap();
         assert_eq!(status.status, "recording_credits_verified");
         assert!(!status.album_link_verified);
+        let context = cached_verified_playback_artist_aliases(&store, &track);
+        let late = context
+            .matching_track(&track, "Canonical Act feat. Guest alternate 39")
+            .unwrap();
+        assert_eq!(late.isrc.as_deref(), Some("USABC2600001"));
+        assert!(context.matching_track(&track, "Canonical Act").is_none());
         let aliases = cached_verified_spotify_recording_artist_id_alias_tracks(&store, &track);
         assert!(aliases
             .iter()
@@ -1305,6 +2063,191 @@ mod tests {
         assert!(aliases
             .iter()
             .all(|alias| alias.isrc.as_deref() == Some("USABC2600001")));
+    }
+
+    #[test]
+    fn provider_artist_mappings_are_reusable_and_require_every_unique_credit() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("artists.sqlite")).unwrap();
+        let source = spotify_artist_credit_track();
+        store.save_track(&source).unwrap();
+        let (_, profile_a, profile_b) = recording_credit_fixture();
+        for (provider_id, profile) in [
+            ("aaaaaaaaaaaaaaaaaaaaaa", &profile_a),
+            ("cccccccccccccccccccccc", &profile_b),
+        ] {
+            store.set_retained_provider_cache("artists.alias-discovery.provider-artist.v1", &format!("spotify:{provider_id}"), &json!({
+                "version":1,"provider":"spotify","providerArtistId":provider_id,"musicbrainzArtistId":profile["id"],"profile":profile,
+                "lookup":{"resource":format!("https://open.spotify.com/artist/{provider_id}"),"relations":[{"target-type":"artist","artist":{"id":profile["id"]}}]}
+            })).unwrap();
+        }
+        let context = cached_verified_playback_artist_aliases(&store, &source);
+        assert!(context
+            .matching_track(&source, "Canonical Act, Guest")
+            .is_some());
+        assert!(context.matching_track(&source, "Canonical Act").is_none());
+        assert!(context.isrc_enriched().is_empty());
+        let mut second = source.clone();
+        second.title = "Another recording".into();
+        second.provenance["remoteCatalog"]["title"] = json!(second.title);
+        store.save_track(&second).unwrap();
+        assert!(cached_verified_playback_artist_aliases(&store, &second)
+            .matching_track(&second, "Canonical Act, Guest")
+            .is_some());
+        store
+            .set_retained_provider_cache(
+                "artists.alias-discovery.provider-artist.v1",
+                "spotify:cccccccccccccccccccccc",
+                &json!({"version":1,"status":"ambiguous"}),
+            )
+            .unwrap();
+        assert!(cached_verified_playback_artist_aliases(&store, &second)
+            .matching_track(&second, "Canonical Act, Guest")
+            .is_none());
+    }
+
+    #[test]
+    fn independent_isrc_fallback_retains_conflict_guard_without_enriching_track() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("fallback.sqlite")).unwrap();
+        let mut source = spotify_artist_credit_track();
+        source.isrc = None;
+        store.save_track(&source).unwrap();
+        let (recording, mut a, b) = recording_credit_fixture();
+        a["relations"] = json!([]);
+        a["aliases"] = json!([{"name":"Spotify Act"}]);
+        for (namespace, value) in [
+            (SPOTIFY_RECORDING_CREDIT_RAW_CACHE, &recording),
+            (SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, &a),
+            (SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, &b),
+        ] {
+            store
+                .set_retained_provider_cache(namespace, value["id"].as_str().unwrap(), value)
+                .unwrap();
+        }
+        store.set_retained_provider_cache("artists.alias-discovery.isrc-authority-binding.v1", &source.provider_id, &json!({"version":1,"fingerprint":spotify_artist_credit_fingerprint(&source),"recordingId":recording["id"],"search":{"count":1,"recordings":[{"id":recording["id"]}]}})).unwrap();
+        let context = cached_verified_playback_artist_aliases(&store, &source);
+        assert_eq!(context.verified_recording_isrc(), Some("USABC2600001"));
+        let variant = context
+            .matching_track(&source, "Canonical Act feat. Guest")
+            .unwrap();
+        let mut restored = variant.clone();
+        restored.artist = source.artist.clone();
+        assert_eq!(restored, source);
+        assert!(context.isrc_enriched().is_empty());
+    }
+
+    #[test]
+    fn generic_isrc_proof_retains_conflict_guard_and_all_source_fields() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("generic-guard.sqlite")).unwrap();
+        let source = Track {
+            id: "beatport:123".into(),
+            provider: "beatport".into(),
+            provider_id: "123".into(),
+            source_url: "https://example.test/123".into(),
+            title: "Song".into(),
+            artist: "Source Act".into(),
+            duration_seconds: Some(180.0),
+            isrc: Some("USABC2600001".into()),
+            genre: Some("Saved".into()),
+            ..Track::default()
+        };
+        store.save_track(&source).unwrap();
+        let (mut recording, mut profile, _) = recording_credit_fixture();
+        recording["artist-credit"] = json!([{"name":"Canonical Act","joinphrase":"","artist":{"id":profile["id"],"name":"Canonical Act"}}]);
+        profile["aliases"] = json!([{"name":"Source Act"}]);
+        store
+            .set_retained_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_RAW_CACHE,
+                recording["id"].as_str().unwrap(),
+                &recording,
+            )
+            .unwrap();
+        store
+            .set_retained_provider_cache(
+                SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE,
+                profile["id"].as_str().unwrap(),
+                &profile,
+            )
+            .unwrap();
+        let fingerprint = json!({"id":source.id,"provider":source.provider,"providerId":source.provider_id,"sourceUrl":source.source_url,"title":source.title,"artist":source.artist,"version":source.version,"album":source.album,"albumArtist":source.album_artist,"duration":source.duration_seconds,"isrc":source.isrc,"playbackRange":source.playback_range,"remixers":source.remixers});
+        store.set_retained_provider_cache("artists.alias-discovery.generic-isrc-authority.v1", &source.id, &json!({"version":1,"fingerprint":fingerprint,"recordingId":recording["id"],"search":{"count":1,"recordings":[{"id":recording["id"]}]}})).unwrap();
+        let context = cached_verified_playback_artist_aliases(&store, &source);
+        assert_eq!(context.verified_recording_isrc(), Some("USABC2600001"));
+        let mut variant = context.matching_track(&source, "Canonical Act").unwrap();
+        variant.artist = source.artist.clone();
+        assert_eq!(variant, source);
+        assert!(context.isrc_enriched().is_empty());
+    }
+
+    #[test]
+    fn retained_hydration_preserves_original_fields_and_enrichment_proof() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("hydration.sqlite")).unwrap();
+        let mut hydrated = spotify_artist_credit_track();
+        hydrated.isrc = None;
+        let mut original = hydrated.clone();
+        original.provenance = json!({"remotePlaylist":true});
+        original.genre = Some("Saved genre".into());
+        hydrated.genre = original.genre.clone();
+        store.save_track(&original).unwrap();
+        let key = crate::remote_playlists::alias_hydration_key(&original).unwrap();
+        store
+            .set_retained_provider_cache(
+                "artists.spotify-alias-hydration.v1",
+                &key,
+                &json!({"version":1,"original":original,"hydrated":hydrated,"checkedAt":0}),
+            )
+            .unwrap();
+        let (recording, profile_a, profile_b) = recording_credit_fixture();
+        for (namespace, value) in [
+            (SPOTIFY_RECORDING_CREDIT_RAW_CACHE, &recording),
+            (SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, &profile_a),
+            (SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, &profile_b),
+        ] {
+            store
+                .set_retained_provider_cache(namespace, value["id"].as_str().unwrap(), value)
+                .unwrap();
+        }
+        write_verified_spotify_artist_credit_recording(
+            &store,
+            &hydrated,
+            recording["id"].as_str().unwrap(),
+        )
+        .unwrap();
+        let context = cached_verified_playback_artist_aliases(&store, &original);
+        let variant = context
+            .matching_track(&original, "Canonical Act feat. Guest")
+            .unwrap();
+        assert_eq!(variant.provenance, original.provenance);
+        assert_eq!(variant.genre, original.genre);
+        assert_eq!(variant.isrc.as_deref(), Some("USABC2600001"));
+        assert!(context.isrc_enriched().contains(&variant));
+        let mut edited = original.clone();
+        edited.genre = Some("Edited genre".into());
+        assert!(context
+            .matching_track(&edited, "Canonical Act feat. Guest")
+            .is_none());
+        store.save_track(&edited).unwrap();
+        let refreshed = cached_verified_playback_artist_aliases(&store, &edited);
+        let refreshed_variant = refreshed
+            .matching_track(&edited, "Canonical Act feat. Guest")
+            .unwrap();
+        assert_eq!(refreshed_variant.genre, edited.genre);
+        assert_eq!(refreshed_variant.provenance, edited.provenance);
+        assert!(refreshed.isrc_enriched().contains(&refreshed_variant));
+        let mut identity_edit = edited.clone();
+        identity_edit.artist = "Edited artist".into();
+        store.save_track(&identity_edit).unwrap();
+        assert!(cached_verified_playback_artist_aliases(&store, &edited)
+            .tracks()
+            .is_empty());
+        assert!(
+            cached_verified_playback_artist_aliases(&store, &identity_edit)
+                .tracks()
+                .is_empty()
+        );
     }
 
     #[test]

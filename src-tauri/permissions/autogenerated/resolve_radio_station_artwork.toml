@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resolve-radio-station-artwork"
+description = "Enables the resolve_radio_station_artwork command without any pre-configured scope."
+commands.allow = ["resolve_radio_station_artwork"]
+
+[[permission]]
+identifier = "deny-resolve-radio-station-artwork"
+description = "Denies the resolve_radio_station_artwork command without any pre-configured scope."
+commands.deny = ["resolve_radio_station_artwork"]

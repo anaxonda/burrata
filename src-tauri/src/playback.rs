@@ -25,7 +25,7 @@ use tokio::sync::{mpsc, watch};
 const SESSION_KEY: &str = "nativePlaybackSession.v1";
 const QUEUE_KEY: &str = "nativePlaybackQueue.v1";
 const ENGINE_KEY: &str = "playbackEngine.v1";
-const STEADY_BUFFERING_RECOVERY_DELAY: Duration = Duration::from_secs(20);
+const STEADY_BUFFERING_RECOVERY_DELAY: Duration = Duration::from_secs(5);
 
 fn startup_deadline(request_started: Instant, first_audio_seen: bool) -> Instant {
     if first_audio_seen {
@@ -98,6 +98,7 @@ pub struct PlayingTrackIdentification {
     pub track_id: String,
     pub title: Option<String>,
     pub artist: Option<String>,
+    pub artwork_url: Option<String>,
     pub note: String,
 }
 
@@ -144,6 +145,7 @@ struct State {
     repeat: String,
     shuffle: bool,
     candidate: Option<Candidate>,
+    explicit_source: bool,
     quality: Value,
     decoder_diagnostics: Option<DecoderDiagnostics>,
     last_buffering: Option<Value>,
@@ -168,6 +170,9 @@ struct State {
     pending_seek_generation: Option<u64>,
     seek_watchdog_epoch: u64,
     recovery: u8,
+    startup_budget: Duration,
+    recovery_deadline: Option<Instant>,
+    recovered_audio_since: Option<(Instant, f64)>,
     failed_occurrence_ids: HashSet<String>,
     request_started: Instant,
     first_audio_ms: Option<u64>,
@@ -217,6 +222,7 @@ impl Default for State {
             repeat: "off".into(),
             shuffle: false,
             candidate: None,
+            explicit_source: false,
             quality: json!({}),
             decoder_diagnostics: None,
             last_buffering: None,
@@ -241,6 +247,9 @@ impl Default for State {
             pending_seek_generation: None,
             seek_watchdog_epoch: 0,
             recovery: 0,
+            startup_budget: crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE,
+            recovery_deadline: None,
+            recovered_audio_since: None,
             failed_occurrence_ids: HashSet::new(),
             request_started: Instant::now(),
             first_audio_ms: None,
@@ -305,6 +314,12 @@ impl State {
         .collect::<Vec<_>>();
         let mut value = json!({"engine":if native{"native"}else{"webview"},"revision":self.revision,"queueRevision":self.queue_revision,"queuedOperationId":self.queued_operation_id,"generation":self.generation,"status":self.status,"trackId":self.track().map(|t|&t.id),"track":self.track(),"entryId":self.entries.get(self.index),"candidate":self.candidate,"currentIndex":if self.queue.is_empty(){-1}else{self.index as i64},"position":self.position,"duration":self.duration,"volume":self.volume,"repeat":self.repeat,"shuffle":self.shuffle,"paused":self.status!="playing","canSeek":self.station.is_none()&&self.duration>0.,"canVolume":true,"playerMessage":self.message,"quality":self.quality,"chapter":self.chapter(),"radioNowPlaying":self.radio_now,"radioHistory":self.radio_history,"seekSerial":self.seek_serial,"previewKind":"native","diagnostics":{"firstAudioMs":self.first_audio_ms,"sourceReadyMs":self.source_ready_ms,"seekFirstAudioMs":self.seek_first_audio_ms,"operationId":self.operation_id,"operationKind":self.operation_kind,"operationTrace":operation_trace,"clientStartedAtMs":self.operation_client_started_at_ms,"clickToIpcMs":self.operation_click_to_ipc_ms,"commandSerializedBytes":self.operation_command_bytes,"seekOperationId":self.seek_operation_id,"seekTrace":seek_trace,"seekClientStartedAtMs":self.seek_client_started_at_ms,"seekClickToIpcMs":self.seek_click_to_ipc_ms,"seekCommandSerializedBytes":self.seek_command_bytes,"seekOperationFirstAudioMs":self.seek_operation_first_audio_ms,"recoveryCount":self.recovery,"bufferingCount":self.buffering_count,"decoder":self.decoder_diagnostics,"lastBuffering":self.last_buffering,"lastRecovery":self.last_recovery,"lastLocalStorageFailure":self.last_local_storage_failure,"lastSourceFailure":self.last_source_failure,"lastSkippedTrackFailure":self.last_skipped_track_failure}});
         value["naturalQueueEnd"] = json!(self.natural_queue_end);
+        value["failure"] = if self.status == "failed" {
+            json!(crate::playback_failure::classify(&self.message))
+        } else {
+            Value::Null
+        };
+        value["diagnostics"]["startupTimeoutSeconds"] = json!(self.startup_budget.as_secs());
         value["queueTotal"] = json!(self.queue.len());
         if let Some(chapter) = value["chapter"]["title"].as_str().map(str::to_owned) {
             if let Some(track) = value["track"].as_object_mut() {
@@ -481,10 +496,7 @@ fn steady_buffering_watch_matches(
         && state.first_audio_ms.is_some()
         && state.output_ready
         && state.pending_seek_generation.is_none()
-        && state.station.is_none()
-        && state.steady_http_stream
-        && state.duration.is_finite()
-        && state.duration > 0.
+        && (state.station.is_some() || state.steady_http_stream)
 }
 
 async fn wait_for_steady_buffering_deadline(
@@ -539,38 +551,35 @@ fn persisted_session_key(state: &State) -> PersistedSessionKey {
 fn persist_playback_state<E>(
     state: &Mutex<State>,
     persistence: &Mutex<()>,
-    write: impl Fn(&str, &Value) -> Result<(), E>,
+    write: impl Fn(Option<&Value>, Option<&Value>) -> Result<(), E>,
     after_snapshot: impl FnOnce(),
 ) {
     // Acquire before snapshotting: locking only the writes still permits stale overwrites.
     let _persistence = persistence.lock().unwrap_or_else(|e| e.into_inner());
     let (queue_revision, queue, session_key, session) = {
         let s = state.lock().unwrap_or_else(|e| e.into_inner());
-        let queue = (s.persisted_queue_revision != Some(s.queue_revision))
-            .then(|| json!({"tracks":s.queue}));
+        let queue = (s.persisted_queue_revision != Some(s.queue_revision)).then(
+            || json!({"tracks":s.queue,"entryIds":s.entries,"queueRevision":s.queue_revision}),
+        );
         let key = persisted_session_key(&s);
         let session = (s.persisted_session.as_ref() != Some(&key)).then(|| {
-                json!({"index":s.index,"position":s.position,"volume":s.volume,"repeat":s.repeat,"shuffle":s.shuffle,"finished":s.status=="ended"})
+                json!({"index":s.index,"currentEntryId":s.entries.get(s.index),"queueRevision":s.queue_revision,"position":s.position,"volume":s.volume,"repeat":s.repeat,"shuffle":s.shuffle,"finished":s.status=="ended"})
             });
         (s.queue_revision, queue, key, session)
     };
     after_snapshot();
-    if let Some(queue) = queue {
-        if write(QUEUE_KEY, &queue).is_err() {
-            return;
-        }
-        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-        if s.queue_revision == queue_revision {
-            s.persisted_queue_revision = Some(queue_revision);
-        }
+    if queue.is_none() && session.is_none() {
+        return;
     }
-    if let Some(session) = session {
-        if write(SESSION_KEY, &session).is_ok() {
-            let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-            if persisted_session_key(&s) == session_key {
-                s.persisted_session = Some(session_key);
-            }
-        }
+    if write(queue.as_ref(), session.as_ref()).is_err() {
+        return;
+    }
+    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+    if queue.is_some() && s.queue_revision == queue_revision {
+        s.persisted_queue_revision = Some(queue_revision);
+    }
+    if session.is_some() && persisted_session_key(&s) == session_key {
+        s.persisted_session = Some(session_key);
     }
 }
 
@@ -634,14 +643,18 @@ impl PlaybackService {
         let (radio_events, mut radio_rx) = mpsc::unbounded_channel();
         let mut state = State::default();
         if let Some(mut saved) = store.get_json_preference(SESSION_KEY)? {
-            if saved.get("tracks").and_then(Value::as_array).is_none() {
-                if let Some(queue) = store.get_json_preference(QUEUE_KEY)? {
-                    if let Some(tracks) = queue.get("tracks") {
-                        saved["tracks"] = tracks.clone();
-                    }
+            let merged = if saved.get("tracks").and_then(Value::as_array).is_none() {
+                match store.get_json_preference(QUEUE_KEY)? {
+                    Some(queue) => merge_persisted_queue(&mut saved, &queue),
+                    None => Err("Saved playback queue is missing".into()),
                 }
-            }
-            if restore_state(&mut state, &saved).is_err() {
+            } else {
+                Ok(())
+            };
+            if merged
+                .and_then(|()| restore_state(&mut state, &saved))
+                .is_err()
+            {
                 state = State::default();
                 state.message = "Saved playback state could not be restored".into();
             }
@@ -795,9 +808,9 @@ impl PlaybackService {
         state.generation = state.generation_counter;
         state.status = "failed".into();
         state.message = if expected_seek_epoch.is_some() {
-            "The seek did not become ready before its 20 second deadline. Try another position or restart playback.".into()
+            format!("The seek did not become ready before its {} second deadline. Try another position or restart playback.", state.startup_budget.as_secs())
         } else if startup_only {
-            "Playback startup exceeded 20 seconds before audio became ready. Check provider availability or choose another source.".into()
+            format!("Playback startup exceeded {} seconds before audio became ready. Check provider availability or choose another source.", state.startup_budget.as_secs())
         } else {
             "Playback timed out".into()
         };
@@ -871,6 +884,8 @@ impl PlaybackService {
         let operation_received_at = Instant::now();
         let operation_received_wall_ms = system_time_ms();
         let _command = self.inner.commands.lock().await;
+        let budget = self.inner.store.settings()?.playback_startup_timeout();
+        self.inner.state.lock().unwrap().startup_budget = budget;
         if let Some(expected) = expected_epoch {
             let current = self.inner.state.lock().unwrap().queued_intent_epoch;
             if !crate::queued_playback::native_start_is_current(
@@ -1056,6 +1071,7 @@ impl PlaybackService {
                 self.start(None, 0., false);
             }
             "pause" => {
+                self.clear_preload();
                 let resolving = {
                     let s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
                     ["resolving", "buffering"].contains(&s.status.as_str())
@@ -1118,7 +1134,7 @@ impl PlaybackService {
                         self.watch_ready_seek(
                             generation,
                             epoch,
-                            operation_deadline(Instant::now()),
+                            Instant::now() + self.inner.state.lock().unwrap().startup_budget,
                         );
                     }
                 } else {
@@ -1131,7 +1147,11 @@ impl PlaybackService {
                             reset_failed_resume_diagnostics(s);
                         });
                     } else if !continuing {
-                        self.change(|s| s.recovery = 0);
+                        self.change(|s| {
+                            s.recovery = 0;
+                            s.recovery_deadline = None;
+                            s.recovered_audio_since = None;
+                        });
                     }
                     if pending_seek.is_some() {
                         self.change(|s| arm_resumed_seek_metrics(s, Instant::now()));
@@ -1191,7 +1211,8 @@ impl PlaybackService {
                         generation: s.generation,
                         position: position + offset,
                     })?;
-                    seek_watchdog = ready_seek_watchdog_deadline(&status, operation_received_at)
+                    seek_watchdog = (status != "paused")
+                        .then_some(operation_received_at + s.startup_budget)
                         .map(|deadline| (s.generation, s.seek_watchdog_epoch, deadline));
                     if seek_watchdog.is_some() {
                         s.status = "buffering".into();
@@ -1396,6 +1417,12 @@ impl PlaybackService {
         Ok(())
     }
     fn start(&self, candidate: Option<Candidate>, position: f64, resume: bool) {
+        let startup_budget = self
+            .inner
+            .store
+            .settings()
+            .map(|settings| settings.playback_startup_timeout())
+            .unwrap_or(crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE);
         let position = if self
             .inner
             .state
@@ -1415,6 +1442,7 @@ impl PlaybackService {
             let Some(track) = s.track().cloned() else {
                 return;
             };
+            s.startup_budget = startup_budget;
             s.cancel = Some(tx);
             s.last_buffering = None;
             s.status = "resolving".into();
@@ -1430,6 +1458,9 @@ impl PlaybackService {
                 .map_or(track.duration_seconds.unwrap_or(0.), |r| {
                     r.end_time - r.start_time
                 });
+            if !resume {
+                s.explicit_source = candidate.is_some();
+            }
             s.candidate = candidate.clone();
             s.steady_http_stream = false;
             if !resume {
@@ -1439,6 +1470,8 @@ impl PlaybackService {
             s.radio_now = Value::Null;
             s.radio_history.clear();
             if !resume || s.session.is_empty() {
+                s.recovery_deadline = None;
+                s.recovered_audio_since = None;
                 s.request_started = Instant::now();
                 s.first_audio_ms = None;
                 s.source_ready_ms = None;
@@ -1506,18 +1539,46 @@ impl PlaybackService {
                             (None, None)
                         }
                     };
-                    crate::playback_sources::recover_with_trace_context(
-                        &service.inner.store,
-                        &service.inner.acquisition,
-                        &track,
-                        candidate,
-                        recovery >= 2,
-                        rx.clone(),
-                        operation_id,
-                        seek_operation_id,
-                        None,
-                    )
-                    .await
+                    let strict_recording_verification =
+                        !service.inner.state.lock().unwrap().explicit_source;
+                    let deadline = crate::playback_sources::PlaybackDeadline::at(
+                        tokio::time::Instant::from_std(startup_deadline),
+                    );
+                    let replace_source = service.inner.store.settings().is_ok_and(|settings| {
+                        recovery_can_replace_source(
+                            recovery,
+                            !strict_recording_verification,
+                            &track,
+                            &settings,
+                        )
+                    });
+                    if replace_source {
+                        // One refresh has failed. Spend the final recovery
+                        // extraction on another verified source, excluding the
+                        // failed ID, rather than repeating that ID indefinitely.
+                        crate::playback_sources::resolve_with_trace_context_excluding_until_attempt_limit(
+                            &service.inner.store, &service.inner.acquisition, &track, None,
+                            rx.clone(), operation_id, seek_operation_id, None,
+                            &[crate::playback_sources::FailedPlaybackCandidate {
+                                provider: candidate.provider.clone(), id: candidate.id.clone(),
+                            }], deadline, 1,
+                        ).await
+                    } else {
+                        crate::playback_sources::recover_with_trace_context_until(
+                            &service.inner.store,
+                            &service.inner.acquisition,
+                            &track,
+                            candidate,
+                            recovery >= 2,
+                            rx.clone(),
+                            operation_id,
+                            seek_operation_id,
+                            None,
+                            deadline,
+                            strict_recording_verification,
+                        )
+                        .await
+                    }
                 } else {
                     service.resolve(g, &track, candidate, rx.clone()).await
                 }
@@ -1663,7 +1724,8 @@ impl PlaybackService {
                 (None, None)
             }
         };
-        crate::playback_sources::resolve_with_trace_context(
+        let deadline = restart_deadline(&self.inner.state.lock().unwrap());
+        crate::playback_sources::resolve_with_trace_context_excluding_until(
             &self.inner.store,
             &self.inner.acquisition,
             track,
@@ -1672,6 +1734,8 @@ impl PlaybackService {
             operation_id,
             seek_operation_id,
             None,
+            &[],
+            crate::playback_sources::PlaybackDeadline::at(tokio::time::Instant::from_std(deadline)),
         )
         .await
     }
@@ -1740,7 +1804,7 @@ impl PlaybackService {
             if still_owned {
                 service.recover_failure(
                     generation,
-                    "Audio stalled for 20 seconds after playback started. Check the connection or choose another source.",
+                    "Audio stalled for five seconds after playback started. Check the connection or choose another source.",
                     RecoveryTrigger::SteadyBufferingTimeout,
                 );
             }
@@ -1758,6 +1822,10 @@ impl PlaybackService {
             // resolution has exhausted its own retries.
             let can_recover = can_retry_failed_stream(&s, message);
             if can_recover {
+                let budget = s.startup_budget;
+                s.recovery_deadline
+                    .get_or_insert_with(|| Instant::now() + budget);
+                s.recovered_audio_since = None;
                 record_recovery_facts(&mut s, trigger);
                 s.recovery += 1;
                 Some((s.candidate.clone(), s.position))
@@ -1827,6 +1895,17 @@ impl PlaybackService {
             return;
         }
         self.inner.audible.send_replace(false);
+        if let Some(cancel) = s.cancel.take() {
+            cancel.send_replace(true);
+        }
+        if let Some(cancel) = s.preload_cancel.take() {
+            cancel.send_replace(true);
+        }
+        s.preload = None;
+        s.recovered_audio_since = None;
+        // Keep stop under the ownership lock so an older failure cannot stop a
+        // newer load, and failed status cannot coexist with queued audible PCM.
+        let _ = self.inner.output.send(OutputCommand::Stop);
         s.output_ready = false;
         s.pending_seek_generation = None;
         s.steady_http_stream = false;
@@ -1873,6 +1952,10 @@ impl PlaybackService {
                             .map(|at| at.elapsed().as_millis() as u64);
                     }
                     s.status = "playing".into();
+                    if s.recovery > 0 && s.recovered_audio_since.is_none() {
+                        let position = s.position;
+                        s.recovered_audio_since = Some((Instant::now(), position));
+                    }
                     s.message = "Playing audio".into();
                     if s.end.is_none() {
                         if let Some(duration) = duration {
@@ -1910,6 +1993,13 @@ impl PlaybackService {
                         return;
                     }
                     s.position = (seconds - s.offset).max(0.);
+                    if s.recovered_audio_since.is_some_and(|(started, position)| {
+                        started.elapsed() >= Duration::from_secs(5) && s.position - position >= 5.
+                    }) {
+                        s.recovery = 0;
+                        s.recovery_deadline = None;
+                        s.recovered_audio_since = None;
+                    }
                     s.revision += 1;
                     let save = s.last_saved.elapsed() > Duration::from_secs(10);
                     if save {
@@ -1933,10 +2023,13 @@ impl PlaybackService {
                 generation,
                 diagnostics,
             } => {
+                let adopted = !self.current(generation) && self.adopt_preload(generation);
                 let mut s = self.inner.state.lock().unwrap();
                 if !apply_buffering_event(&mut s, generation, diagnostics) {
                     return;
                 }
+                s.recovered_audio_since = None;
+                let preload_deadline = adopted.then(|| s.request_started + s.startup_budget);
                 let steady_watch = steady_buffering_watch_matches(
                     &s,
                     generation,
@@ -1952,6 +2045,13 @@ impl PlaybackService {
                 self.inner.audible.send_replace(false);
                 drop(s);
                 self.publish();
+                if let Some(deadline) = preload_deadline {
+                    self.watch_preload_startup(generation, deadline);
+                } else {
+                    // Speculative readers never compete with recovery of the
+                    // active occurrence. Started will prepare the next again.
+                    self.clear_preload();
+                }
                 if let Some((generation, seek_serial, buffering_count, buffering_started)) =
                     steady_watch
                 {
@@ -2043,6 +2143,9 @@ impl PlaybackService {
                 generation,
                 message,
             } => {
+                if !self.current(generation) && !self.adopt_preload(generation) {
+                    return;
+                }
                 self.recover_failure(generation, &message, RecoveryTrigger::OutputFailed);
             }
         }
@@ -2055,6 +2158,33 @@ impl PlaybackService {
         s.preload = None;
         let _ = self.inner.output.send(OutputCommand::ClearPreload {
             generation: s.generation,
+        });
+    }
+    fn watch_preload_startup(&self, generation: u64, deadline: Instant) {
+        let service = self.clone();
+        let mut updates = self.subscribe();
+        tauri::async_runtime::spawn(async move {
+            let wait = async {
+                loop {
+                    {
+                        let value = updates.borrow();
+                        if value["generation"].as_u64() != Some(generation)
+                            || !matches!(value["status"].as_str(), Some("resolving" | "buffering"))
+                        {
+                            return;
+                        }
+                    }
+                    if updates.changed().await.is_err() {
+                        return;
+                    }
+                }
+            };
+            if tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), wait)
+                .await
+                .is_err()
+            {
+                service.expire_generation(generation, true);
+            }
         });
     }
     fn prepare_next(&self) {
@@ -2077,6 +2207,54 @@ impl PlaybackService {
         let track = self.track_with_registered_chapter_asset(&track);
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
+            let mut updates = service.subscribe();
+            // Stable candidate discovery can be reused; expiring stream URLs
+            // and decoder preparation wait until the next occurrence is near.
+            if track.local_path.is_none() {
+                if let Ok(settings) = service.inner.store.settings() {
+                    let mut providers = vec![settings.preferred_streaming_source.clone()];
+                    if settings.streaming_fallback_enabled {
+                        providers.extend(settings.streaming_fallback_sources.iter().cloned());
+                    }
+                    providers.sort();
+                    providers.dedup();
+                    let _ = service
+                        .inner
+                        .acquisition
+                        .prefetch_playback_candidates_cancelled(
+                            &track,
+                            &[],
+                            &providers,
+                            &settings,
+                            cancel.clone(),
+                            crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(
+                                3,
+                            )),
+                        )
+                        .await;
+                }
+            }
+            loop {
+                let prepare_now = {
+                    let state = service.inner.state.lock().unwrap();
+                    if state.generation != g
+                        || state.entries.get(index) != Some(&entry)
+                        || state.status != "playing"
+                        || *cancel.borrow()
+                    {
+                        return;
+                    }
+                    state.duration <= 0. || state.duration - state.position <= 30.
+                };
+                if prepare_now {
+                    break;
+                }
+                tokio::select! {
+                    biased;
+                    _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return,
+                    changed = updates.changed() => { if changed.is_err() { return; } },
+                }
+            }
             let resolved = crate::playback_sources::resolve(
                 &service.inner.store,
                 &service.inner.acquisition,
@@ -2160,6 +2338,9 @@ impl PlaybackService {
         s.duration_verified = range_duration.is_some();
         s.duration = range_duration.or(p.duration).unwrap_or(0.);
         s.candidate = p.candidate;
+        s.explicit_source = false;
+        s.recovery_deadline = None;
+        s.recovered_audio_since = None;
         s.quality = p.quality;
         s.steady_http_stream = p.steady_http_stream;
         s.session = uuid::Uuid::new_v4().to_string();
@@ -2245,7 +2426,7 @@ impl PlaybackService {
         persist_playback_state(
             &self.inner.state,
             &self.inner.persistence,
-            |key, value| self.inner.store.set_json_preference(key, value),
+            |queue, session| self.inner.store.save_playback_checkpoint(queue, session),
             || {},
         );
     }
@@ -2317,6 +2498,14 @@ impl PlaybackService {
         &self,
         station_id: &str,
     ) -> Result<crate::radio::RadioMetadata, String> {
+        self.identify_radio_for(station_id, None).await
+    }
+
+    pub async fn identify_radio_for(
+        &self,
+        station_id: &str,
+        caller_id: Option<String>,
+    ) -> Result<crate::radio::RadioMetadata, String> {
         let (generation, station, session) = {
             let state = self.inner.state.lock().unwrap();
             let station = state
@@ -2329,29 +2518,87 @@ impl PlaybackService {
             }
             (state.generation, station, state.session.clone())
         };
+        let job = self.inner.playing_track_identifications.begin(caller_id)?;
+        let request_id = job.id().to_owned();
+        let cancelled = job.cancellation();
+        let capture_cancelled = cancelled.clone();
         let path =
             std::env::temp_dir().join(format!("burrata-recognition-{}.wav", uuid::Uuid::new_v4()));
-        let tap = self.inner.output.tap();
-        let capture = path.clone();
         let cleanup = Arc::new(TemporaryPcmFile(path.clone()));
         let capture_cleanup = cleanup.clone();
-        let recognized = crate::radio::recognize_played_sample_with_capture(
-            &station,
-            true,
-            move || async move {
-                tauri::async_runtime::spawn_blocking(move || {
-                    // The worker owns cleanup if the async caller is cancelled mid-capture.
-                    let _cleanup = capture_cleanup;
-                    tap.capture_wav(generation, &capture, 12.)?;
-                    Ok::<_, String>(capture)
-                })
-                .await
-                .map_err(|e| e.to_string())?
-            },
-        )
-        .await;
-        let (metadata, note) = recognized?;
-        if !self.current(generation) || !*self.inner.audible.borrow() {
+        let tap = self.inner.output.tap();
+        let service = self.clone();
+        let worker_station = station.clone();
+        let updates = self.subscribe();
+        let seek_serial = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .seek_serial;
+        // The worker owns both guards even if the command caller disappears.
+        // Its own deadline and source watcher keep detached work bounded.
+        let worker = tokio::spawn(async move {
+            let _job = job;
+            let _cleanup = cleanup;
+            let work = crate::radio::recognize_played_samples_progressively_manual(
+                &worker_station,
+                cancelled.clone(),
+                move |seconds| {
+                    let path = path.clone();
+                    let tap = tap.clone();
+                    let cleanup = capture_cleanup.clone();
+                    let cancelled = capture_cancelled.clone();
+                    async move {
+                        while tap.available_seconds(generation) < seconds {
+                            if *cancelled.borrow() {
+                                return Err("Audio identification was cancelled".into());
+                            }
+                            tokio::time::sleep(Duration::from_millis(25)).await;
+                        }
+                        if *cancelled.borrow() {
+                            return Err("Audio identification was cancelled".into());
+                        }
+                        tauri::async_runtime::spawn_blocking(move || {
+                            let _cleanup = cleanup;
+                            tap.capture_wav(generation, &path, seconds)?;
+                            Ok::<_, String>(path)
+                        })
+                        .await
+                        .map_err(|error| error.to_string())?
+                    }
+                },
+            );
+            let mut work = Box::pin(work);
+            let mut invalidated = Box::pin(wait_for_native_radio_identification_invalidation(
+                cancelled,
+                updates,
+                worker_station.id.clone(),
+                generation,
+                seek_serial,
+            ));
+            let terminal = tokio::select! {
+                result = &mut work => return result,
+                error = &mut invalidated => error,
+                _ = tokio::time::sleep(Duration::from_secs(60)) => "Radio identification exceeded 60 seconds".into(),
+            };
+            service
+                .inner
+                .playing_track_identifications
+                .cancel(&request_id);
+            // Cancellation interrupts gate waits and kills/reaps SongRec before
+            // the task-owned WAV/job guards can be released.
+            let _ = work.await;
+            Err(terminal)
+        });
+        let (metadata, note) = worker.await.map_err(|error| error.to_string())??;
+        if !native_radio_identification_matches(
+            &self.snapshot_without_queue(),
+            &station.id,
+            generation,
+            seek_serial,
+        ) || !*self.inner.audible.borrow()
+        {
             return Err("Playback changed during identification".into());
         }
         let already_current = metadata.as_ref().is_some_and(|identified| {
@@ -2387,6 +2634,11 @@ impl PlaybackService {
             let track = crate::playback_history::radio_song_track(&station, metadata);
             history.insert(0,json!({"id":uuid::Uuid::new_v4().to_string(),"track":track,"playedAt":now,"stationName":station.name}));
         }
+        crate::radio::record_played_radio_identification(
+            &station.id,
+            generation,
+            metadata.as_ref(),
+        );
         self.radio_event(RadioEvent::Metadata {
             generation,
             station: station.clone(),
@@ -2474,26 +2726,51 @@ impl PlaybackService {
         let capture_path = path.clone();
         let tap = self.inner.output.tap();
         let recognition = async move {
-            if *recognition_cancelled.borrow() {
-                return Err("Audio identification was cancelled".into());
+            // Try short fingerprints first; only a clean no-match warrants a
+            // larger excerpt. SongRec calls remain serial and share its gate.
+            let mut last_attempt = None;
+            let capture_started = std::time::Instant::now();
+            for seconds in crate::pcm_tap::RECOGNITION_CAPTURE_WINDOWS {
+                loop {
+                    if *recognition_cancelled.borrow() {
+                        return Err("Audio identification was cancelled".into());
+                    }
+                    let spaced = last_attempt.is_none_or(|at: std::time::Instant| {
+                        at.elapsed() >= Duration::from_secs(10)
+                    });
+                    if tap.available_seconds(generation) >= seconds
+                        && seconds <= capture_seconds + capture_started.elapsed().as_secs_f64()
+                        && spaced
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                let capture_cleanup = recognition_cleanup.clone();
+                let capture_path = capture_path.clone();
+                let tap = tap.clone();
+                let capture = tauri::async_runtime::spawn_blocking(move || {
+                    let _cleanup = capture_cleanup;
+                    tap.capture_wav(generation, &capture_path, seconds)?;
+                    Ok::<_, String>(capture_path)
+                })
+                .await
+                .map_err(|error| error.to_string())??;
+                if *recognition_cancelled.borrow() {
+                    return Err("Audio identification was cancelled".into());
+                }
+                last_attempt = Some(std::time::Instant::now());
+                let identified = crate::radio::recognize_captured_sample_cancellable(
+                    &station,
+                    &capture,
+                    recognition_cancelled.clone(),
+                )
+                .await?;
+                if identified.is_some() {
+                    return Ok(identified);
+                }
             }
-            let capture_cleanup = recognition_cleanup.clone();
-            let capture = tauri::async_runtime::spawn_blocking(move || {
-                let _cleanup = capture_cleanup;
-                tap.capture_wav(generation, &capture_path, capture_seconds)?;
-                Ok::<_, String>(capture_path)
-            })
-            .await
-            .map_err(|error| error.to_string())??;
-            if *recognition_cancelled.borrow() {
-                return Err("Audio identification was cancelled".into());
-            }
-            crate::radio::recognize_captured_sample_cancellable(
-                &station,
-                &capture,
-                recognition_cancelled,
-            )
-            .await
+            Ok(None)
         };
         let updates = self.subscribe();
         if !native_identification_matches(
@@ -2568,6 +2845,9 @@ impl PlaybackService {
             return Err("Playback changed during identification".into());
         }
         let title = recognized.as_ref().map(|track| track.title.clone());
+        let artwork_url = recognized
+            .as_ref()
+            .and_then(|track| track.artwork_url.clone());
         let artist = recognized.map(|track| track.artist);
         let note = if title.is_some() {
             "SongRec identified the current audio; catalog identity is unverified.".into()
@@ -2578,6 +2858,7 @@ impl PlaybackService {
             track_id,
             title,
             artist,
+            artwork_url,
             note,
         })
     }
@@ -2756,7 +3037,7 @@ fn native_identification_capture_seconds(
     natural_chapter_start_seconds: Option<f64>,
     playback_position_seconds: f64,
 ) -> Result<f64, String> {
-    const MIN_CAPTURE_SECONDS: f64 = 8.0;
+    const MIN_CAPTURE_SECONDS: f64 = 3.0;
     const MAX_CAPTURE_SECONDS: f64 = 12.0;
     if has_explicit_playback_range {
         return Ok(MAX_CAPTURE_SECONDS);
@@ -2767,10 +3048,52 @@ fn native_identification_capture_seconds(
     let elapsed = (playback_position_seconds - start).max(0.0);
     if elapsed < MIN_CAPTURE_SECONDS {
         return Err(
-            "This chapter is too short to identify yet; wait until at least eight seconds have played".into(),
+            "This chapter is too short to identify yet; wait until at least three seconds have played".into(),
         );
     }
     Ok(elapsed.min(MAX_CAPTURE_SECONDS))
+}
+
+fn native_radio_identification_matches(
+    snapshot: &Value,
+    station_id: &str,
+    generation: u64,
+    seek_serial: u64,
+) -> bool {
+    snapshot["status"].as_str() == Some("playing")
+        && snapshot["generation"].as_u64() == Some(generation)
+        && snapshot["seekSerial"].as_u64() == Some(seek_serial)
+        && snapshot["trackId"].as_str() == Some(format!("radio:{station_id}").as_str())
+}
+
+async fn wait_for_native_radio_identification_invalidation(
+    mut cancelled: watch::Receiver<bool>,
+    mut updates: watch::Receiver<Value>,
+    station_id: String,
+    generation: u64,
+    seek_serial: u64,
+) -> String {
+    loop {
+        if *cancelled.borrow() {
+            return "Audio identification was cancelled".into();
+        }
+        if !native_radio_identification_matches(
+            &updates.borrow_and_update(),
+            &station_id,
+            generation,
+            seek_serial,
+        ) {
+            return "Playback changed during identification".into();
+        }
+        tokio::select! {
+            changed = cancelled.changed() => {
+                if changed.is_err() { std::future::pending::<()>().await; }
+            }
+            changed = updates.changed() => {
+                if changed.is_err() { return "Playback changed during identification".into(); }
+            }
+        }
+    }
 }
 
 async fn wait_for_native_identification_invalidation(
@@ -2821,40 +3144,92 @@ impl Drop for TemporaryPcmFile {
     }
 }
 fn clean_error(raw: &str) -> String {
-    raw.split_whitespace()
-        .map(|part| {
-            if part.contains("http://")
-                || part.contains("https://")
-                || part.trim_start_matches(['(', '\"', '\'']).starts_with('/')
-            {
-                "[source]"
-            } else {
-                part
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(250)
-        .collect()
+    safe_failure_text(raw, 250)
 }
+
+fn merge_persisted_queue(saved: &mut Value, queue: &Value) -> Result<(), String> {
+    if !saved.is_object() || !queue.is_object() {
+        return Err("Saved playback checkpoint is invalid".into());
+    }
+    // Legacy pairs have neither revision. Once either component uses occurrence
+    // identity, both revisions must match before any session position is reused.
+    let has_identity = queue.get("entryIds").is_some()
+        || queue.get("queueRevision").is_some()
+        || saved.get("queueRevision").is_some()
+        || saved.get("currentEntryId").is_some();
+    if has_identity {
+        let revision = queue["queueRevision"]
+            .as_u64()
+            .ok_or("Saved playback queue revision is invalid")?;
+        if saved["queueRevision"].as_u64() != Some(revision) {
+            return Err("Saved playback queue and session revisions do not match".into());
+        }
+        saved["entryIds"] = queue["entryIds"].clone();
+    }
+    saved["tracks"] = queue["tracks"].clone();
+    Ok(())
+}
+
 fn restore_state(state: &mut State, saved: &Value) -> Result<(), String> {
     let tracks = serde_json::from_value::<Vec<Track>>(saved["tracks"].clone())
         .map_err(|_| "Saved playback queue is invalid")?;
     if tracks.len() > 10000 {
         return Err("Saved playback queue is too large".into());
     }
+    let has_identity = saved.get("entryIds").is_some()
+        || saved.get("queueRevision").is_some()
+        || saved.get("currentEntryId").is_some();
+    let (entries, queue_revision, index) = if has_identity {
+        let entries: Vec<String> = serde_json::from_value(saved["entryIds"].clone())
+            .map_err(|_| "Saved playback occurrence IDs are invalid")?;
+        if entries.len() != tracks.len()
+            || entries.iter().any(|entry| entry.trim().is_empty())
+            || entries.iter().collect::<HashSet<_>>().len() != entries.len()
+        {
+            return Err("Saved playback occurrence IDs must be unique and match the queue".into());
+        }
+        let revision = saved["queueRevision"]
+            .as_u64()
+            .ok_or("Saved playback queue revision is invalid")?;
+        let index = if tracks.is_empty() {
+            if !saved["currentEntryId"].is_null() {
+                return Err("Saved playback current occurrence is invalid".into());
+            }
+            0
+        } else {
+            let current = saved["currentEntryId"]
+                .as_str()
+                .ok_or("Saved playback current occurrence is missing")?;
+            entries
+                .iter()
+                .position(|entry| entry == current)
+                .ok_or("Saved playback current occurrence is not in the queue")?
+        };
+        (entries, Some(revision), index)
+    } else {
+        let entries = tracks
+            .iter()
+            .map(|_| uuid::Uuid::new_v4().to_string())
+            .collect();
+        let index =
+            (saved["index"].as_u64().unwrap_or(0) as usize).min(tracks.len().saturating_sub(1));
+        (entries, None, index)
+    };
+    // Validate fallible fields before changing the live queue.
+    let position = positive(saved.get("position"), 0.)?;
+    let volume = positive(saved.get("volume"), 0.8)?.min(1.);
     state.queue = tracks;
-    state.entries = state
-        .queue
-        .iter()
-        .map(|_| uuid::Uuid::new_v4().to_string())
-        .collect();
+    state.entries = entries;
     mark_queue_changed(state);
-    state.index = saved["index"].as_u64().unwrap_or(0) as usize;
-    state.index = state.index.min(state.queue.len().saturating_sub(1));
-    state.position = positive(saved.get("position"), 0.)?;
-    state.volume = positive(saved.get("volume"), 0.8)?.min(1.);
+    if let Some(revision) = queue_revision {
+        state.queue_revision = revision;
+    }
+    state.persisted_queue_revision = None;
+    state.persisted_session = None;
+    state.published_queue_revision = None;
+    state.index = index;
+    state.position = position;
+    state.volume = volume;
     state.repeat = saved["repeat"]
         .as_str()
         .filter(|s| ["one", "all", "off"].contains(s))
@@ -3032,58 +3407,7 @@ fn camelot_sort_value(value: &str) -> Option<TrackSortValue> {
 }
 
 fn should_skip_failed_track(message: &str) -> bool {
-    let message = message.to_ascii_lowercase();
-    // These terminal resolver errors have already exhausted eligible sources.
-    // Classify the fixed prefix before inspecting free-form artist/title text;
-    // a recording called "Connection" or "Cancel" is not a network/user event.
-    if message.starts_with("no playable audio match was found")
-        || matches!(
-            message.as_str(),
-            "the resolved audio source identity does not match this recording"
-                | "source identity changed during audio resolution; select it again"
-                | "source identity changed during inspection; select it again"
-                | "this source has no supported audio stream"
-        )
-    {
-        return true;
-    }
-    // Provider throttling/server failures are global even when the provider also
-    // describes the resource as unavailable. Never consume the queue for these.
-    if ["429", "500", "502", "503", "504"].iter().any(|status| {
-        message.contains(&format!("http {status}"))
-            || message.contains(&format!("http status {status}"))
-            || message.contains(&format!("status code {status}"))
-    }) || message.contains("rate limit")
-    {
-        return false;
-    }
-    if [
-        "cancel",
-        "timeout",
-        "timed out",
-        "connection",
-        "network",
-        "output device",
-        "audio output",
-        "service unavailable",
-        "server unavailable",
-        "temporarily unavailable",
-    ]
-    .iter()
-    .any(|marker| message.contains(marker))
-    {
-        return false;
-    }
-    message.contains("unavailable")
-        || message.contains("private video")
-        || message.contains("video is private")
-        || message.contains("video has been removed")
-        || message.contains("video has been deleted")
-        || ["403", "404", "410"].iter().any(|status| {
-            message.contains(&format!("http {status}"))
-                || message.contains(&format!("http status {status}"))
-                || message.contains(&format!("status code {status}"))
-        })
+    crate::playback_failure::should_skip_recording(&crate::playback_failure::classify(message))
 }
 
 #[derive(Clone, Copy)]
@@ -3094,8 +3418,7 @@ enum RecoveryTrigger {
     SteadyBufferingTimeout,
 }
 
-// One fixed-size record survives recovery start and successful audio so a later
-// snapshot cannot accidentally substitute the new decoder for the failing one.
+// Retain the failing decoder facts across recovery and successful audio.
 fn record_recovery_facts(state: &mut State, trigger: RecoveryTrigger) {
     let trigger = match trigger {
         RecoveryTrigger::OutputFailed => "output_failed",
@@ -3134,9 +3457,26 @@ fn record_recovery_facts(state: &mut State, trigger: RecoveryTrigger) {
 fn can_retry_failed_stream(state: &State, message: &str) -> bool {
     state.first_audio_ms.is_some()
         && state.recovery < 2
+        && state
+            .recovery_deadline
+            .is_none_or(|deadline| Instant::now() < deadline)
+        && state
+            .seek_requested
+            .is_none_or(|started| Instant::now() < started + state.startup_budget)
         && (state.candidate.is_some() || state.station.is_some())
         && !message.to_ascii_lowercase().contains("output device")
         && !message.contains("Cancelled")
+}
+
+fn recovery_can_replace_source(
+    attempt: u8,
+    explicit: bool,
+    track: &Track,
+    settings: &crate::models::Settings,
+) -> bool {
+    attempt >= 2
+        && !explicit
+        && !crate::playback_sources::source_resolution_is_pinned(track, false, settings, true)
 }
 
 fn record_seek_context(
@@ -3180,8 +3520,15 @@ fn reset_seek_metrics_for_start(state: &mut State, resume: bool) {
 fn restart_deadline(state: &State) -> Instant {
     state
         .seek_requested
-        .map(operation_deadline)
-        .unwrap_or_else(|| startup_deadline(state.request_started, state.first_audio_ms.is_some()))
+        .map(|started| started + state.startup_budget)
+        .or(state.recovery_deadline)
+        .unwrap_or_else(|| {
+            if state.first_audio_ms.is_some() {
+                Instant::now() + state.startup_budget
+            } else {
+                state.request_started + state.startup_budget
+            }
+        })
 }
 
 // Paused seeks defer decoder latency until Resume, while receipt latency still
@@ -3317,6 +3664,14 @@ pub(crate) fn safe_failure_identity(raw: &str) -> Option<String> {
 pub(crate) const MAX_RECENT_TRACK_FAILURES: usize = 64;
 
 pub(crate) fn track_failure_category(reason: &str) -> &'static str {
+    match reason {
+        crate::playback_sources::SOURCE_NO_RESULTS => return "no_audio_results",
+        crate::playback_sources::SOURCE_IDENTITY_REJECTED
+        | crate::playback_sources::SOURCE_MISSING_DURATION => {
+            return "recording_identity_unverified"
+        }
+        _ => {}
+    }
     let message = reason.to_ascii_lowercase();
     let no_match = "no playable audio match was found";
     if message.strip_prefix(no_match).is_some_and(|tail| {
@@ -3438,6 +3793,8 @@ pub(crate) fn safe_failure_text(raw: &str, max_chars: usize) -> String {
 }
 
 fn reset_failed_resume_diagnostics(state: &mut State) {
+    state.recovery_deadline = None;
+    state.recovered_audio_since = None;
     state.recovery = 0;
     state.first_audio_ms = None;
     state.source_ready_ms = None;
@@ -4002,6 +4359,25 @@ mod tests {
     }
 
     #[test]
+    fn radio_identification_ignores_song_metadata_but_rejects_changed_audio_identity() {
+        let mut snapshot = json!({"status":"playing", "generation":7,
+            "seekSerial":2, "trackId":"radio:nova", "revision":1,
+            "radioNowPlaying":{"title":"old title"}});
+        assert!(native_radio_identification_matches(&snapshot, "nova", 7, 2));
+        snapshot["revision"] = json!(20);
+        snapshot["radioNowPlaying"] = json!({"title":"new title"});
+        assert!(native_radio_identification_matches(&snapshot, "nova", 7, 2));
+        for changed in [
+            json!({"status":"paused", "generation":7,"seekSerial":2,"trackId":"radio:nova"}),
+            json!({"status":"playing", "generation":8,"seekSerial":2,"trackId":"radio:nova"}),
+            json!({"status":"playing", "generation":7,"seekSerial":3,"trackId":"radio:nova"}),
+            json!({"status":"playing", "generation":7,"seekSerial":2,"trackId":"radio:other"}),
+        ] {
+            assert!(!native_radio_identification_matches(&changed, "nova", 7, 2));
+        }
+    }
+
+    #[test]
     fn native_identification_uses_available_chapter_excerpt_and_keeps_explicit_ranges() {
         assert_eq!(
             native_identification_capture_seconds(false, Some(10.0), 18.0).unwrap(),
@@ -4019,7 +4395,7 @@ mod tests {
             native_identification_capture_seconds(true, Some(10.0), 18.0).unwrap(),
             12.0
         );
-        assert!(native_identification_capture_seconds(false, Some(10.0), 17.99).is_err());
+        assert!(native_identification_capture_seconds(false, Some(10.0), 12.99).is_err());
     }
 
     #[test]
@@ -4053,7 +4429,7 @@ mod tests {
         let started = Instant::now();
         assert_eq!(
             steady_buffering_deadline(started),
-            started + Duration::from_secs(20)
+            started + Duration::from_secs(5)
         );
         let mut state = State::default();
         state.generation = 42;
@@ -4117,12 +4493,12 @@ mod tests {
             }))
             .unwrap(),
         );
-        assert!(!steady_buffering_watch_matches(
+        assert!(steady_buffering_watch_matches(
             &state, watched.0, watched.1, watched.2
         ));
         state.station = None;
         state.duration = 0.;
-        assert!(!steady_buffering_watch_matches(
+        assert!(steady_buffering_watch_matches(
             &state, watched.0, watched.1, watched.2
         ));
         state.duration = 181.4;
@@ -5029,7 +5405,7 @@ mod tests {
         );
         assert_eq!(state.recent_track_failures.len(), 64);
         state.generation = 71;
-        record_track_failure(&mut state, 71, "HTTP 404 unavailable", "queue_exhausted");
+        record_track_failure(&mut state, 71, "Video has been deleted", "queue_exhausted");
         assert_eq!(
             state.recent_track_failures.last().unwrap()["outcome"],
             "queue_exhausted"
@@ -5170,8 +5546,8 @@ mod tests {
             "Source identity changed during audio resolution; select it again",
             "Source identity changed during inspection; select it again",
             "This source has no supported audio stream",
-            "yt-dlp failed: ERROR: Private video. Sign in if you have been granted access",
-            "yt-dlp failed: ERROR: This video has been removed",
+            crate::playback_sources::SOURCE_NO_RESULTS,
+            crate::playback_sources::SOURCE_IDENTITY_REJECTED,
         ] {
             state.failed_occurrence_ids.clear();
             assert_eq!(
@@ -5194,6 +5570,11 @@ mod tests {
         state.generation = 7;
         for message in [
             "Cancelled",
+            "HTTP 403 unavailable",
+            "HTTP 404 unavailable",
+            "HTTP 410 unavailable",
+            "yt-dlp failed: ERROR: Private video. Sign in if you have been granted access",
+            "yt-dlp failed: ERROR: This video has been removed",
             "HTTP 429 unavailable",
             "HTTP status 503 unavailable",
             "status code 502 resource unavailable",
@@ -5223,6 +5604,50 @@ mod tests {
             "a cancelled resolver must not consume occurrences"
         );
     }
+    #[test]
+    fn distinct_resolver_outcomes_advance_and_record_the_exact_failure_category() {
+        for (reason, category) in [
+            (
+                crate::playback_sources::SOURCE_NO_RESULTS,
+                "no_audio_results",
+            ),
+            (
+                crate::playback_sources::SOURCE_IDENTITY_REJECTED,
+                "recording_identity_unverified",
+            ),
+            (
+                crate::playback_sources::SOURCE_MISSING_DURATION,
+                "recording_identity_unverified",
+            ),
+        ] {
+            let mut state = State::default();
+            state.queue = vec![
+                Track {
+                    id: "recording-a".into(),
+                    ..Track::default()
+                },
+                Track {
+                    id: "recording-b".into(),
+                    ..Track::default()
+                },
+            ];
+            state.entries = vec!["entry-a".into(), "entry-b".into()];
+            state.status = "buffering".into();
+            state.generation = 7;
+            record_track_failure(&mut state, 7, reason, "skipped");
+            assert_eq!(state.recent_track_failures.len(), 1);
+            assert_eq!(state.recent_track_failures[0]["category"], category);
+            assert_eq!(failed_track_next_index(&mut state, 7, reason), Ok(Some(1)));
+            assert_eq!(
+                track_failure_category(&format!("Network failure: {reason}")),
+                "failed_with_reason"
+            );
+            assert!(!should_skip_failed_track(&format!(
+                "Network failure: {reason}"
+            )));
+        }
+    }
+
     #[test]
     fn failure_traversal_rechecks_cancellation_after_initial_failure_eligibility() {
         let mut state = State::default();
@@ -5267,11 +5692,7 @@ mod tests {
         state.repeat = "one".into();
 
         assert_eq!(
-            failed_track_next_index(
-                &mut state,
-                7,
-                "Audio source denied stream access (HTTP 403)"
-            ),
+            failed_track_next_index(&mut state, 7, "Video has been deleted"),
             Ok(Some(2))
         );
         assert_eq!(
@@ -5292,11 +5713,7 @@ mod tests {
             assert_eq!(failed_track_next_index(&mut state, 7, message), Err(()));
         }
         assert_eq!(
-            failed_track_next_index(
-                &mut state,
-                7,
-                "No playable audio match was found after provider fallbacks"
-            ),
+            failed_track_next_index(&mut state, 7, crate::playback_sources::SOURCE_NO_RESULTS),
             Ok(Some(2)),
             "only an exhausted, track-specific no-match result may advance"
         );
@@ -5507,7 +5924,7 @@ mod tests {
             "successful audio starts a fresh failure traversal"
         );
         assert_eq!(
-            failed_track_next_index(&mut state, 4, "HTTP 403 unavailable"),
+            failed_track_next_index(&mut state, 4, "Video has been deleted"),
             Ok(Some(0))
         );
     }
@@ -5649,6 +6066,95 @@ mod tests {
         assert_ne!(s.entries[0], s.entries[1]);
     }
     #[test]
+    fn checkpoint_restore_preserves_the_exact_duplicate_occurrence() {
+        let duplicate = Track {
+            id: "duplicate".into(),
+            ..Track::default()
+        };
+        let mut original = State::default();
+        original.queue = vec![duplicate.clone(), duplicate];
+        original.entries = vec!["first-occurrence".into(), "second-occurrence".into()];
+        original.queue_revision = 42;
+        original.index = 1;
+        original.position = 12.5;
+        original.status = "playing".into();
+        original
+            .failed_occurrence_ids
+            .insert("first-occurrence".into());
+        let state = Mutex::new(original);
+        let checkpoint = std::cell::RefCell::new((Value::Null, Value::Null));
+        persist_playback_state(
+            &state,
+            &Mutex::new(()),
+            |queue, session| {
+                *checkpoint.borrow_mut() = (queue.unwrap().clone(), session.unwrap().clone());
+                Ok::<(), ()>(())
+            },
+            || {},
+        );
+        let (queue, mut session) = checkpoint.into_inner();
+        // The occurrence ID, not a stale numeric index, selects duplicate tracks.
+        session["index"] = json!(0);
+        merge_persisted_queue(&mut session, &queue).unwrap();
+        let mut restored = State::default();
+        restore_state(&mut restored, &session).unwrap();
+        assert_eq!(
+            restored.entries,
+            vec!["first-occurrence", "second-occurrence"]
+        );
+        assert_eq!(restored.index, 1);
+        assert_eq!(restored.queue_revision, 42);
+        assert_eq!(restored.position, 12.5);
+        assert_eq!(restored.status, "paused");
+        assert!(restored.failed_occurrence_ids.is_empty());
+        assert!(restored.recent_track_failures.is_empty());
+    }
+
+    #[test]
+    fn checkpoint_restore_rejects_mixed_revisions_and_invalid_occurrences() {
+        let queue = json!({
+            "tracks": vec![Track { id: "duplicate".into(), ..Track::default() }; 2],
+            "entryIds": ["first", "second"], "queueRevision": 42
+        });
+        for revision in [json!(41), json!(null), json!("42")] {
+            let mut session = json!({"queueRevision": revision, "currentEntryId": "second"});
+            assert!(merge_persisted_queue(&mut session, &queue).is_err());
+        }
+        let mut valid = json!({"queueRevision": 42, "currentEntryId": "second"});
+        merge_persisted_queue(&mut valid, &queue).unwrap();
+        for entries in [
+            json!(["first"]),
+            json!(["same", "same"]),
+            json!(["", "second"]),
+            json!([1, 2]),
+            json!(null),
+        ] {
+            let mut invalid = valid.clone();
+            invalid["entryIds"] = entries;
+            let mut state = State::default();
+            assert!(restore_state(&mut state, &invalid).is_err());
+            assert!(state.queue.is_empty());
+        }
+        for current in [json!("absent"), json!(null), json!(1)] {
+            let mut invalid = valid.clone();
+            invalid["currentEntryId"] = current;
+            assert!(restore_state(&mut State::default(), &invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn checkpoint_restore_accepts_legacy_split_queue_and_session() {
+        let queue = json!({"tracks": [Track { id: "legacy".into(), ..Track::default() }]});
+        let mut session = json!({"index": 0, "position": 8., "finished": true});
+        merge_persisted_queue(&mut session, &queue).unwrap();
+        let mut restored = State::default();
+        restore_state(&mut restored, &session).unwrap();
+        assert_eq!(restored.status, "ended");
+        assert_eq!(restored.position, 8.);
+        assert_eq!(restored.track().unwrap().id, "legacy");
+        assert_eq!(restored.entries.len(), 1);
+    }
+    #[test]
     fn candidate_artwork_is_shared_with_system_controls_without_reusing_an_old_cover() {
         let mut state = State::default();
         state.queue.push(Track {
@@ -5677,6 +6183,35 @@ mod tests {
                 .contains("private")
         );
     }
+    #[test]
+    fn public_failure_message_redacts_credentials_and_all_source_path_forms() {
+        let raw = r"HTTP 403 audio decoder failed https://private.invalid/?token=url-secret file:///tmp/file-secret C:\private\windows-secret \\server\share\unc-secret /home/private/unix-secret token=token-secret cookie=cookie-secret api_key=api-secret Authorization: Bearer bearer-secret";
+        let cleaned = clean_error(raw);
+        assert!(cleaned.starts_with("HTTP 403 audio decoder failed"));
+        for secret in [
+            "private.invalid",
+            "url-secret",
+            "file-secret",
+            "windows-secret",
+            "unc-secret",
+            "unix-secret",
+            "token-secret",
+            "cookie-secret",
+            "api-secret",
+            "bearer-secret",
+        ] {
+            assert!(
+                !cleaned.contains(secret),
+                "public failure exposed {secret}: {cleaned}"
+            );
+        }
+        assert_eq!(
+            crate::playback_failure::classify(&cleaned),
+            crate::playback_failure::classify(raw)
+        );
+        assert!(clean_error(&"x".repeat(400)).chars().count() <= 250);
+    }
+
     #[test]
     fn playback_values_default_only_when_omitted_and_reject_invalid_json() {
         assert_eq!(positive(None, 0.8).unwrap(), 0.8);
@@ -5749,6 +6284,7 @@ mod tests {
             id: "old".into(),
             ..Track::default()
         }];
+        initial.entries = vec!["old-entry".into()];
         initial.queue_revision = 1;
         let state = Arc::new(Mutex::new(initial));
         let persistence = Arc::new(Mutex::new(()));
@@ -5765,8 +6301,14 @@ mod tests {
             persist_playback_state(
                 &old_state,
                 &old_persistence,
-                |key, value| {
-                    old_disk.lock().unwrap().insert(key.into(), value.clone());
+                |queue, session| {
+                    let mut disk = old_disk.lock().unwrap();
+                    if let Some(queue) = queue {
+                        disk.insert(QUEUE_KEY.into(), queue.clone());
+                    }
+                    if let Some(session) = session {
+                        disk.insert(SESSION_KEY.into(), session.clone());
+                    }
                     Ok::<(), ()>(())
                 },
                 || {
@@ -5797,6 +6339,7 @@ mod tests {
                     ..Track::default()
                 },
             ];
+            current.entries = vec!["new-entry-0".into(), "new-entry-1".into()];
             current.queue_revision = 2;
             current.index = 1;
         }
@@ -5808,8 +6351,14 @@ mod tests {
             persist_playback_state(
                 &new_state,
                 &new_persistence,
-                |key, value| {
-                    new_disk.lock().unwrap().insert(key.into(), value.clone());
+                |queue, session| {
+                    let mut disk = new_disk.lock().unwrap();
+                    if let Some(queue) = queue {
+                        disk.insert(QUEUE_KEY.into(), queue.clone());
+                    }
+                    if let Some(session) = session {
+                        disk.insert(SESSION_KEY.into(), session.clone());
+                    }
                     Ok::<(), ()>(())
                 },
                 || {},
@@ -5822,6 +6371,15 @@ mod tests {
         let saved = disk.lock().unwrap();
         assert_eq!(saved[QUEUE_KEY]["tracks"][0]["id"], "new-0");
         assert_eq!(saved[SESSION_KEY]["index"], 1);
+        assert_eq!(
+            saved[QUEUE_KEY]["entryIds"],
+            json!(["new-entry-0", "new-entry-1"])
+        );
+        assert_eq!(saved[SESSION_KEY]["currentEntryId"], "new-entry-1");
+        assert_eq!(
+            saved[QUEUE_KEY]["queueRevision"],
+            saved[SESSION_KEY]["queueRevision"]
+        );
         let current = state.lock().unwrap();
         assert_eq!(current.persisted_queue_revision, Some(2));
         assert_eq!(
@@ -5838,46 +6396,115 @@ mod tests {
         persist_playback_state(
             &state,
             &persistence,
-            |key, _| {
-                writes.borrow_mut().push(key.to_owned());
+            |queue, session| {
+                writes.borrow_mut().push((queue.cloned(), session.cloned()));
                 Err::<(), ()>(())
             },
             || {},
         );
-        assert_eq!(*writes.borrow(), vec![QUEUE_KEY.to_owned()]);
+        assert_eq!(writes.borrow().len(), 1);
+        assert!(writes.borrow()[0].0.is_some());
+        assert!(writes.borrow()[0].1.is_some());
         assert!(state.lock().unwrap().persisted_queue_revision.is_none());
         assert!(state.lock().unwrap().persisted_session.is_none());
         writes.borrow_mut().clear();
         persist_playback_state(
             &state,
             &persistence,
-            |key, _| {
-                writes.borrow_mut().push(key.to_owned());
-                if key == SESSION_KEY {
-                    Err(())
-                } else {
-                    Ok(())
-                }
+            |queue, session| {
+                writes.borrow_mut().push((queue.cloned(), session.cloned()));
+                Err::<(), ()>(())
             },
             || {},
         );
-        assert_eq!(
-            *writes.borrow(),
-            vec![QUEUE_KEY.to_owned(), SESSION_KEY.to_owned()]
-        );
-        assert!(state.lock().unwrap().persisted_queue_revision.is_some());
+        assert_eq!(writes.borrow().len(), 1);
+        assert!(writes.borrow()[0].0.is_some());
+        assert!(writes.borrow()[0].1.is_some());
+        assert!(state.lock().unwrap().persisted_queue_revision.is_none());
         assert!(state.lock().unwrap().persisted_session.is_none());
         writes.borrow_mut().clear();
         persist_playback_state(
             &state,
             &persistence,
-            |key, _| {
-                writes.borrow_mut().push(key.to_owned());
+            |queue, session| {
+                writes.borrow_mut().push((queue.cloned(), session.cloned()));
                 Ok::<(), ()>(())
             },
             || {},
         );
-        assert_eq!(*writes.borrow(), vec![SESSION_KEY.to_owned()]);
+        assert_eq!(writes.borrow().len(), 1);
+        assert!(writes.borrow()[0].0.is_some());
+        assert!(writes.borrow()[0].1.is_some());
+        assert!(state.lock().unwrap().persisted_queue_revision.is_some());
         assert!(state.lock().unwrap().persisted_session.is_some());
+        writes.borrow_mut().clear();
+        state.lock().unwrap().position = 1.;
+        persist_playback_state(
+            &state,
+            &persistence,
+            |queue, session| {
+                writes.borrow_mut().push((queue.cloned(), session.cloned()));
+                Ok::<(), ()>(())
+            },
+            || {},
+        );
+        assert_eq!(writes.borrow().len(), 1);
+        assert!(writes.borrow()[0].0.is_none());
+        assert!(writes.borrow()[0].1.is_some());
+    }
+}
+
+#[cfg(test)]
+mod reliability_policy_tests {
+    use super::*;
+    #[test]
+    fn configured_start_seek_and_recovery_budgets_are_absolute() {
+        let now = Instant::now();
+        let mut state = State::default();
+        state.startup_budget = Duration::from_secs(45);
+        state.request_started = now;
+        assert_eq!(restart_deadline(&state), now + Duration::from_secs(45));
+        state.first_audio_ms = Some(300);
+        state.candidate = Some(Candidate::default());
+        let recovery_deadline = now + Duration::from_secs(7);
+        state.recovery_deadline = Some(recovery_deadline);
+        assert_eq!(restart_deadline(&state), recovery_deadline);
+        state.recovery = 1;
+        assert!(can_retry_failed_stream(&state, "network connection reset"));
+        assert_eq!(restart_deadline(&state), recovery_deadline);
+        state.recovery_deadline = Some(now - Duration::from_millis(1));
+        assert!(!can_retry_failed_stream(&state, "network connection reset"));
+        state.seek_requested = Some(now);
+        assert_eq!(restart_deadline(&state), now + Duration::from_secs(45));
+    }
+    #[test]
+    fn recovery_replaces_only_automatic_unpinned_sources_after_a_refresh() {
+        let settings = crate::models::Settings::default();
+        let mut track = Track {
+            provider: "spotify".into(),
+            ..Track::default()
+        };
+        assert!(!recovery_can_replace_source(1, false, &track, &settings));
+        assert!(recovery_can_replace_source(2, false, &track, &settings));
+        assert!(!recovery_can_replace_source(2, true, &track, &settings));
+        track.provider = "youtube".into();
+        assert!(!recovery_can_replace_source(2, false, &track, &settings));
+        track.provider = "spotify".into();
+        track.local_path = Some("fixture.flac".into());
+        assert!(!recovery_can_replace_source(2, false, &track, &settings));
+    }
+    #[test]
+    fn source_http_denials_do_not_discard_recordings() {
+        for error in [
+            "HTTP 403 unavailable",
+            "HTTP 404 unavailable",
+            "HTTP 410 unavailable",
+            "HTTP 429 unavailable",
+        ] {
+            assert!(!should_skip_failed_track(error), "{error}");
+        }
+        assert!(should_skip_failed_track(
+            crate::playback_sources::SOURCE_NO_RESULTS
+        ));
     }
 }

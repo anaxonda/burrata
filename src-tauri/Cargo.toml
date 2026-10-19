@@ -1,7 +1,7 @@
 [package]
 name = "burrata"
 default-run = "burrata"
-version = "0.1.3"
+version = "0.1.4"
 description = "Local-first DJ music discovery and acquisition"
 edition = "2021"
 license = "GPL-3.0-or-later"
@@ -75,3 +75,7 @@ debug = 0
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+
+[patch.crates-io]
+# Keep strict byte-range validation while fixing upstream's sparse-seek gap selection.
+stream-download = { path = "vendor/stream-download" }

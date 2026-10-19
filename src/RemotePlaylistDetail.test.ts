@@ -602,10 +602,16 @@ describe("RemotePlaylistDetail", () => {
     expect(target.querySelectorAll(".current")).toHaveLength(1);
     expect(target.querySelectorAll(".buffering")).toHaveLength(1);
 
-    const min = target.querySelector<HTMLInputElement>('[aria-label="Minimum track duration"]')!;
+    const filters = target.querySelector<HTMLButtonElement>(".filter-toggle")!;
+    expect(filters.getAttribute("aria-expanded")).toBe("false");
+    filters.click(); await settle();
+    const min = document.body.querySelector<HTMLInputElement>('[aria-label="Minimum track duration"]')!;
     min.value = "1:30"; min.dispatchEvent(new Event("input", { bubbles: true })); await settle();
     expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(1);
     expect(target.querySelector(".track-title")?.textContent).toContain("Long song");
+    filters.click(); await settle();
+    expect(min.value).toBe("1:30");
+    expect(filters.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("keeps sort fields available when filters hide values from the complete playlist", async () => {

@@ -7,6 +7,7 @@
   import { call } from "./lib/api";
   import PlaybackQuality from "./PlaybackQuality.svelte";
   import TrackFiles from "./TrackFiles.svelte";
+  import StationInfo from "./StationInfo.svelte";
   import type { Track, Candidate, LocalAsset } from "./lib/types";
 
   let {
@@ -36,6 +37,7 @@
     favorite = track.favorite,
     panelWidth = 340,
     onPanelWidthChange,
+    stationName = "",
   }: {
     track: Track;
     candidate?: Candidate | null;
@@ -63,6 +65,7 @@
     favorite?: boolean;
     panelWidth?: number;
     onPanelWidthChange?: (width: number) => void;
+    stationName?: string;
   } = $props();
 
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
@@ -100,10 +103,10 @@
     const context = (track.provenance as { recordingContext?: { albumId?: unknown } }).recordingContext;
     return typeof context?.albumId === "string" && /^[A-Za-z0-9]{22}$/.test(context.albumId) ? context.albumId : undefined;
   });
-  function openRadioUrl(url: string) {
-    const safeUrl = safeHttpUrl(url);
-    if (safeUrl) void (sourceOpener ? sourceOpener(track, safeUrl) : call("open_external_url", { url: safeUrl }));
-  }
+  const displayedStationName = $derived.by(() => {
+    const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
+    return stationName.trim() || (typeof provenance.radioStationName === "string" ? provenance.radioStationName : "") || track.title;
+  });
   const views = $derived(metadataCount(track,candidate,["views", "viewCount", "view_count"]));
   const plays = $derived(metadataCount(track,candidate,["plays", "playCount", "play_count", "playcount"]));
   const formatCount = (value: number) => new Intl.NumberFormat().format(value);
@@ -175,10 +178,7 @@
     {#if availableFiles.length}<TrackFiles assets={availableFiles} {preferredAssetId} onPreferred={onPreferredFile} compact />{/if}
 
     {#if radioLinks.isRadio && (radioLinks.stationUrl || radioLinks.streamUrl)}
-      <section class="radio-links" aria-label="Internet radio links">
-        {#if radioLinks.stationUrl}<div><span>Station website</span><code>{radioLinks.stationUrl}</code><button aria-label="Open station website" onclick={() => openRadioUrl(radioLinks.stationUrl)}>Open ↗</button></div>{/if}
-        {#if radioLinks.streamUrl}<div><span>Stream URL</span><code>{radioLinks.streamUrl}</code><button aria-label="Open stream URL" onclick={() => openRadioUrl(radioLinks.streamUrl)}>Open ↗</button></div>{/if}
-      </section>
+      <StationInfo {track} stationName={displayedStationName} stationUrl={radioLinks.stationUrl} streamUrl={radioLinks.streamUrl} />
     {/if}
 
     <dl>
@@ -243,11 +243,6 @@
   .album { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
   .downloaded-badge { display:flex;align-items:center;gap:6px;align-self:flex-start;margin:14px 0 0;padding:5px 9px;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:999px;color:var(--accent);font-size:11px;font-weight:650; }
   .downloaded-badge span { display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:color-mix(in srgb,var(--accent) 20%,transparent);font-size:11px; }
-  .radio-links{display:grid;gap:7px;margin-top:14px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--raised)}
-  .radio-links>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 9px;align-items:center;min-width:0}
-  .radio-links span{grid-column:1/-1;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.04em;text-transform:uppercase}
-  .radio-links code{min-width:0;overflow-wrap:anywhere;color:var(--text);font-size:10px}
-  .radio-links button{min-height:36px;padding:6px 10px;color:var(--accent);font-size:10px;touch-action:manipulation}
   dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; margin: 18px 0 0; }
   dl > div { display: flex; justify-content: space-between; gap: 10px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
   dt { flex: 0 0 auto; color: var(--muted); font-size: 11px; }

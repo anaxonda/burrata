@@ -4,7 +4,9 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import subprocess
+import tarfile
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -14,6 +16,69 @@ TARGETS = {
     "windows-x64": "x86_64-pc-windows-msvc",
     "linux-x64": "x86_64-unknown-linux-gnu",
 }
+
+
+def check_patched_stream_download_collection():
+    """Exercise the real collector with synthetic installers and media-tool records."""
+    with tempfile.TemporaryDirectory(prefix="burrata-source-collection-") as temp:
+        workspace = pathlib.Path(temp)
+        release = workspace / "scripts/release"
+        release.mkdir(parents=True)
+        # Media binaries are outside this fixture's scope; their verification has
+        # its own contract suite. The actual collector and inventory writer run.
+        (release / "verify-media-tool-build.py").write_text("pass\n")
+        for name in ["write-inventory.py", "THIRD_PARTY_NOTICES.md", "locked-tools.json"]:
+            shutil.copy2(ROOT / "scripts/release" / name, release / name)
+        vendor = workspace / "src-tauri/vendor"
+        vendor.mkdir(parents=True)
+        shutil.copy2(ROOT / "src-tauri/vendor/SOURCES.md", vendor / "SOURCES.md")
+        shutil.copytree(ROOT / "src-tauri/vendor/stream-download", vendor / "stream-download",
+                        ignore=shutil.ignore_patterns("target", "Cargo.lock"))
+        target = TARGETS["linux-x64"]
+        tools = workspace / "src-tauri/resources/tools" / target
+        (tools / "build-recipe").mkdir(parents=True)
+        (tools / "LOCKED_TOOLS.json").write_text('{"sha256": {}}')
+        (tools / "FFMPEG_BUILD_CONFIGURATION.json").write_text('{}')
+        (tools / "build-recipe/fixture.txt").write_text("synthetic media-tool fixture")
+        cache = workspace / ".cache"
+        assets = cache / "release-assets"
+        assets.mkdir(parents=True)
+        (cache / "release-smoke-evidence.json").write_text('{"status": "passed"}')
+        for name in [f"burrata-yt-dlp-{target}", f"bgutil-plugin-2.0.2-{target}.zip", "youtube-support-target.json"]:
+            (assets / name).write_bytes(b"synthetic tool asset")
+        bundles = workspace / "src-tauri/target" / target / "release/bundle"
+        bundles.mkdir(parents=True)
+        (bundles / "fixture.deb").write_bytes(b"synthetic installer")
+        environment = dict(os.environ, RELEASE_TAG="v1.2.3", RELEASE_COMMIT="a" * 40,
+                           TARGET=target, LABEL="linux-x64")
+        command = ["bash", str(ROOT / "scripts/release/collect-artifacts.sh")]
+        subprocess.run(command, cwd=workspace, env=environment, check=True, capture_output=True)
+        output = workspace / "release-artifacts"
+        prefix = "stream-download-0.24.4-burrata-patched"
+        archive = output / f"{prefix}.tar.gz"
+        archive_before = archive.read_bytes()
+        with tarfile.open(archive, "r:gz") as bundle:
+            expected = ["Cargo.toml", "Cargo.toml.orig", "LICENSE-MIT", "LICENSE-APACHE", "PATCHES.md", "README.md"]
+            expected += [path.relative_to(vendor / "stream-download").as_posix()
+                         for path in (vendor / "stream-download/src").rglob("*.rs")]
+            assert set(bundle.getnames()) == {f"{prefix}/{name}" for name in expected}
+            for name in expected:
+                assert bundle.extractfile(f"{prefix}/{name}").read() == (vendor / "stream-download" / name).read_bytes()
+        for original, packaged in [("LICENSE-MIT", "STREAM_DOWNLOAD_LICENSE_MIT.txt"),
+                                   ("LICENSE-APACHE", "STREAM_DOWNLOAD_LICENSE_APACHE.txt"),
+                                   ("PATCHES.md", "STREAM_DOWNLOAD_PATCHES.md")]:
+            assert (output / packaged).read_bytes() == (vendor / "stream-download" / original).read_bytes()
+        inventory = (output / "THIRD_PARTY_SOURCES.md").read_text()
+        assert archive.name in inventory and hashlib.sha256(archive_before).hexdigest() in inventory
+        assert "stream-download 0.24.4" in (output / "THIRD_PARTY_NOTICES.md").read_text()
+        subprocess.run(command, cwd=workspace, env=environment, check=True, capture_output=True)
+        assert archive.read_bytes() == archive_before, "source archive must not contain collection timestamps"
+        (vendor / "stream-download/LICENSE-MIT").unlink()
+        rejected = subprocess.run(command, cwd=workspace, env=environment, capture_output=True)
+        assert rejected.returncode != 0, "source collection must reject missing upstream license text"
+
+
+check_patched_stream_download_collection()
 
 with tempfile.TemporaryDirectory(prefix="burrata-feed-fixture-") as temp:
     workspace = pathlib.Path(temp)
@@ -57,6 +122,10 @@ with tempfile.TemporaryDirectory(prefix="burrata-feed-fixture-") as temp:
             "tag": "v1.2.3", "commit": commit, "label": label,
             "artifacts": artifacts,
         }), encoding="utf-8")
+        # Supporting source/license records must remain checksummed supporting
+        # downloads rather than changing the public installer/companion set.
+        (directory / "STREAM_DOWNLOAD_LICENSE_MIT.txt").write_bytes(b"MIT license fixture")
+        (directory / "stream-download-0.24.4-burrata-patched.tar.gz").write_bytes(b"patched source fixture")
     extension_dir = incoming / "burrata-extensions-fixture"
     extension_dir.mkdir()
     (extension_dir / "signed.xpi").write_bytes(b"signed xpi fixture")
@@ -81,6 +150,8 @@ with tempfile.TemporaryDirectory(prefix="burrata-feed-fixture-") as temp:
     output = workspace / "support-artifacts"
     assert not any(output.glob("*.xpi")) and not any(output.glob("*chromium.zip"))
     assert (output / "RELEASE_ACCEPTANCE.md").is_file()
+    assert len(list(output.glob("*-STREAM_DOWNLOAD_LICENSE_MIT.txt"))) == 3
+    assert len(list(output.glob("*-stream-download-0.24.4-burrata-patched.tar.gz"))) == 3
     for directory in (main_output, output):
         checked = set()
         for line in (directory / "SHA256SUMS.txt").read_text().splitlines():

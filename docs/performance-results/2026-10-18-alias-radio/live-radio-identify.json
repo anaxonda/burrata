@@ -1,0 +1,25 @@
+{
+  "build": "alias-radio-91413bedee1d",
+  "purpose": "single exploratory current-output identification; no independent song ground truth",
+  "before": {
+    "status": "playing",
+    "title": "Zoblazo",
+    "artist": "Ruthee",
+    "station": "Radio Nova",
+    "historyCount": 1
+  },
+  "wallMs": 4068,
+  "category": "identified",
+  "result": {
+    "artist": "Ruthee",
+    "note": "SongRec identified the captured audio; catalog identity is unverified.",
+    "title": "Zoblazo"
+  },
+  "after": {
+    "status": "playing",
+    "title": "Zoblazo",
+    "artist": "Ruthee",
+    "station": "Radio Nova",
+    "historyCount": 1
+  }
+}
