@@ -4448,6 +4448,7 @@ mod tests {
         state.seek_operation_id = Some("https://private.invalid/?token=secret".into());
         state.decoder_diagnostics = Some(DecoderDiagnostics {
             startup_reserve: None,
+            failed_native_attempt: None,
             decoder_kind: "rodio".into(),
             codec_hint: Some("secret codec".into()),
             content_type: Some("secret header".into()),

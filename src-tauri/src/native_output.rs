@@ -188,6 +188,8 @@ impl Drop for ReserveProducerCompletion {
 pub struct DecoderDiagnostics {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub startup_reserve: Option<StartupReserveDiagnostics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_native_attempt: Option<FailedNativeAttemptDiagnostics>,
     pub decoder_kind: String,
     pub codec_hint: Option<String>,
     pub content_type: Option<String>,
@@ -208,6 +210,27 @@ pub struct DecoderDiagnostics {
     pub first_decoded_block_ms: Option<u64>,
     pub reader_reused: bool,
     pub decoder_reused: bool,
+}
+
+/// Accounting retained when the native reader/decoder falls back to FFmpeg.
+/// Range progress is a high-water mark, not network bytes transferred.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailedNativeAttemptDiagnostics {
+    pub reason: FailedNativeAttemptReason,
+    pub duration_ms: u64,
+    pub reader_setup_ms: Option<u64>,
+    pub native_decoder_setup_ms: Option<u64>,
+    pub reader_bytes_read: u64,
+    pub downloaded_range_end: u64,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailedNativeAttemptReason {
+    DecoderSetup,
+    Seek,
+    Decode,
 }
 
 #[derive(Debug)]
@@ -520,6 +543,10 @@ impl Source for NativeDecoder {
 struct DecoderSession {
     #[cfg(test)]
     decode_thread_finished: AtomicBool,
+    #[cfg(test)]
+    force_legacy_opus_probe: AtomicBool,
+    #[cfg(test)]
+    force_loopback_opus_ffmpeg: AtomicBool,
     stream_stats: Arc<StreamRuntimeStats>,
     storage_faults: storage_fault::Faults,
     decoder: std::sync::Mutex<Option<NativeDecoder>>,
@@ -1903,7 +1930,21 @@ fn decode_with_session_and_diagnostics(
     session: Arc<DecoderSession>,
 ) -> Result<(), String> {
     let decode_started = Instant::now();
-    if should_use_ffmpeg_for_source(&source) {
+    let reader_bytes_at_start = session.stream_stats.bytes_read.load(Ordering::Relaxed);
+    let use_ffmpeg = should_use_ffmpeg_for_source(&source);
+    #[cfg(test)]
+    let use_ffmpeg = {
+        let valid_loopback_opus = has_finite_opus_webm_hint(&source)
+            && url::Url::parse(&source.input).ok().is_some_and(|url| {
+                url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+            });
+        let legacy_opus = session.force_legacy_opus_probe.load(Ordering::Relaxed)
+            && (is_finite_remote_opus_webm(&source) || valid_loopback_opus);
+        let loopback_opus =
+            session.force_loopback_opus_ffmpeg.load(Ordering::Relaxed) && valid_loopback_opus;
+        (use_ffmpeg || loopback_opus) && !legacy_opus
+    };
+    if use_ffmpeg {
         let hint = source.decoder_hint.as_ref();
         let duration = hint
             .and_then(|hint| hint.duration_seconds)
@@ -1914,6 +1955,7 @@ fn decode_with_session_and_diagnostics(
         if let Some(diagnostics_out) = diagnostics_out.as_ref() {
             *diagnostics_out.lock().unwrap_or_else(|e| e.into_inner()) = Some(DecoderDiagnostics {
                 startup_reserve: None,
+                failed_native_attempt: None,
                 decoder_kind: "ffmpeg".into(),
                 codec_hint: hint.and_then(|hint| hint.codec.clone()),
                 content_type: hint.and_then(|hint| hint.mime_type.clone()),
@@ -1954,6 +1996,7 @@ fn decode_with_session_and_diagnostics(
             &source,
             output_rate,
             output_channels,
+            None,
         );
         return decode_ffmpeg_with_diagnostics(
             source,
@@ -1968,7 +2011,7 @@ fn decode_with_session_and_diagnostics(
             duration_out,
             cancelled,
             diagnostics_out.clone(),
-            Instant::now(),
+            decode_started,
         );
     }
     let mut cached = match session.lock_decoder(&cancelled) {
@@ -2146,6 +2189,14 @@ fn decode_with_session_and_diagnostics(
                         &ffmpeg_fallback,
                         output_rate,
                         output_channels,
+                        Some(failed_native_attempt(
+                            FailedNativeAttemptReason::DecoderSetup,
+                            &session,
+                            decode_started,
+                            reader_setup_ms,
+                            Some(decoder_setup_started.elapsed().as_millis() as u64),
+                            reader_bytes_at_start,
+                        )),
                     );
                     return decode_ffmpeg_with_diagnostics(
                         ffmpeg_fallback,
@@ -2160,7 +2211,7 @@ fn decode_with_session_and_diagnostics(
                         duration_out,
                         cancelled,
                         diagnostics_out.clone(),
-                        Instant::now(),
+                        decode_started,
                     )
                     .map_err(|fallback| {
                         format!(
@@ -2191,6 +2242,7 @@ fn decode_with_session_and_diagnostics(
                 .clone()
                 .unwrap_or_else(|| DecoderDiagnostics {
                     startup_reserve: None,
+                    failed_native_attempt: None,
                     decoder_kind: decoder_kind.to_owned(),
                     codec_hint: source
                         .decoder_hint
@@ -2244,6 +2296,7 @@ fn decode_with_session_and_diagnostics(
                 );
             DecoderDiagnostics {
                 startup_reserve: None,
+                failed_native_attempt: None,
                 decoder_kind: decoder_kind.to_owned(),
                 codec_hint: source
                     .decoder_hint
@@ -2314,6 +2367,14 @@ fn decode_with_session_and_diagnostics(
             &source,
             output_rate,
             output_channels,
+            Some(failed_native_attempt(
+                FailedNativeAttemptReason::Seek,
+                &session,
+                decode_started,
+                reader_setup_ms,
+                decoder_setup_ms,
+                reader_bytes_at_start,
+            )),
         );
         return decode_ffmpeg_with_diagnostics(
             source,
@@ -2328,7 +2389,7 @@ fn decode_with_session_and_diagnostics(
             duration_out,
             cancelled,
             diagnostics_out.clone(),
-            Instant::now(),
+            decode_started,
         )
         .map_err(|error| {
             format!("decoder could not seek to {position:.3}s ({seek_reason}); ffmpeg fallback failed: {error}")
@@ -2404,6 +2465,14 @@ fn decode_with_session_and_diagnostics(
             &source,
             output_rate,
             output_channels,
+            Some(failed_native_attempt(
+                FailedNativeAttemptReason::Decode,
+                &session,
+                decode_started,
+                reader_setup_ms,
+                decoder_setup_ms,
+                reader_bytes_at_start,
+            )),
         );
         return decode_ffmpeg_with_diagnostics(
             source,
@@ -2418,7 +2487,7 @@ fn decode_with_session_and_diagnostics(
             duration_out,
             cancelled,
             diagnostics_out.clone(),
-            Instant::now(),
+            decode_started,
         )
         .map_err(|fallback| {
             format!("Opus decoder failed ({error}); ffmpeg fallback failed: {fallback}")
@@ -2459,11 +2528,33 @@ fn is_finite_remote_aac_mp4(source: &AudioSource) -> bool {
         })
 }
 
+fn has_finite_opus_webm_hint(source: &AudioSource) -> bool {
+    source.decoder_hint.as_ref().is_some_and(|hint| {
+        !hint.has_video
+            && hint.mime_type.as_deref() == Some("audio/webm")
+            && hint.codec.as_deref() == Some("opus")
+            && hint
+                .duration_seconds
+                .is_some_and(|duration| duration.is_finite() && duration > 0.)
+            && hint.content_length.is_some_and(|length| length > 0)
+    })
+}
+
+fn is_finite_remote_opus_webm(source: &AudioSource) -> bool {
+    has_finite_opus_webm_hint(source)
+        && url::Url::parse(&source.input)
+            .ok()
+            .is_some_and(|url| url.scheme() == "https" && url.host_str().is_some())
+}
+
 fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
     // Symphonia scans every MP4 atom before starting a seekable stream. For
     // verified finite remote AAC, use the existing incremental FFmpeg path.
     source.input.to_ascii_lowercase().contains(".m3u8")
         || is_finite_remote_aac_mp4(source)
+        // The default Symphonia registry has no Opus decoder. Avoid opening a
+        // seekable WebM reader only to fail codec creation and reopen via FFmpeg.
+        || (!cfg!(feature = "experimental-opus") && is_finite_remote_opus_webm(source))
         || source
             .decoder_hint
             .as_ref()
@@ -2491,11 +2582,37 @@ impl Drop for FfmpegChildReaper {
     }
 }
 
+fn failed_native_attempt(
+    reason: FailedNativeAttemptReason,
+    session: &DecoderSession,
+    started: Instant,
+    reader_setup_ms: Option<u64>,
+    native_decoder_setup_ms: Option<u64>,
+    reader_bytes_at_start: u64,
+) -> FailedNativeAttemptDiagnostics {
+    FailedNativeAttemptDiagnostics {
+        reason,
+        duration_ms: started.elapsed().as_millis() as u64,
+        reader_setup_ms,
+        native_decoder_setup_ms,
+        reader_bytes_read: session
+            .stream_stats
+            .bytes_read
+            .load(Ordering::Relaxed)
+            .saturating_sub(reader_bytes_at_start),
+        downloaded_range_end: session
+            .stream_stats
+            .downloaded_range_end
+            .load(Ordering::Relaxed),
+    }
+}
+
 fn prepare_ffmpeg_fallback_diagnostics(
     diagnostics_out: Option<&Arc<std::sync::Mutex<Option<DecoderDiagnostics>>>>,
     source: &AudioSource,
     output_rate: u32,
     output_channels: u16,
+    failed_native_attempt: Option<FailedNativeAttemptDiagnostics>,
 ) {
     let Some(diagnostics_out) = diagnostics_out else {
         return;
@@ -2507,6 +2624,7 @@ fn prepare_ffmpeg_fallback_diagnostics(
         .filter(|value| value.is_finite() && *value > 0.0);
     let diagnostics = guard.get_or_insert_with(|| DecoderDiagnostics {
         startup_reserve: None,
+        failed_native_attempt: None,
         decoder_kind: "ffmpeg".into(),
         codec_hint: hint.and_then(|hint| hint.codec.clone()),
         content_type: hint.and_then(|hint| hint.mime_type.clone()),
@@ -2524,6 +2642,7 @@ fn prepare_ffmpeg_fallback_diagnostics(
         decoder_reused: false,
     });
     diagnostics.decoder_kind = "ffmpeg".into();
+    diagnostics.failed_native_attempt = failed_native_attempt;
     diagnostics.reader_setup_ms = None;
     diagnostics.decoder_setup_ms = None;
     diagnostics.first_decoded_block_ms = None;
@@ -2550,6 +2669,8 @@ fn decode_ffmpeg_with_diagnostics(
     decode_started: Instant,
 ) -> Result<(), String> {
     use std::process::{Command, Stdio};
+    // Phase timing starts here; only first PCM keeps the original decode origin.
+    let ffmpeg_setup_started = Instant::now();
     let mut command = Command::new(&source.ffmpeg);
     crate::tools::configure_no_console(&mut command);
     command.args([
@@ -2560,6 +2681,14 @@ fn decode_ffmpeg_with_diagnostics(
         "-rw_timeout",
         "5000000",
     ]);
+    // Offline TCP fixtures must stay on the bound loopback socket even when
+    // the host environment supplies an HTTP proxy. Production is unchanged.
+    #[cfg(test)]
+    if url::Url::parse(&source.input).ok().is_some_and(|url| {
+        url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+    }) {
+        command.args(["-http_proxy", ""]);
+    }
     // A finite AAC transport must not turn a truncated response into clean EOF.
     // FFmpeg otherwise permits some demux/read errors and can exit successfully.
     if is_finite_remote_aac_mp4(&source) {
@@ -2646,7 +2775,7 @@ fn decode_ffmpeg_with_diagnostics(
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
         {
-            diagnostics.decoder_setup_ms = Some(decode_started.elapsed().as_millis() as u64);
+            diagnostics.decoder_setup_ms = Some(ffmpeg_setup_started.elapsed().as_millis() as u64);
         }
     }
     let mut first_block_recorded = false;
@@ -4124,6 +4253,52 @@ mod tests {
         let mut non_mp4_video = source;
         non_mp4_video.decoder_hint.as_mut().unwrap().mime_type = Some("audio/webm".into());
         assert!(!should_use_ffmpeg_for_source(&non_mp4_video));
+    }
+
+    #[test]
+    fn finite_https_opus_webm_routes_only_when_native_opus_is_disabled() {
+        let source = AudioSource {
+            input: "https://cdn.example/stream".into(),
+            ffmpeg: "ffmpeg".into(),
+            headers: vec![],
+            decoder_hint: Some(AudioSourceDecoderHint {
+                mime_type: Some("audio/webm".into()),
+                codec: Some("opus".into()),
+                duration_seconds: Some(250.0),
+                content_length: Some(4_000_000),
+                has_video: false,
+            }),
+        };
+        assert!(is_finite_remote_opus_webm(&source));
+        assert_eq!(
+            should_use_ffmpeg_for_source(&source),
+            !cfg!(feature = "experimental-opus")
+        );
+        for change in 0..13 {
+            let mut unsupported = source.clone();
+            match change {
+                0 => unsupported.input = "http://cdn.example/stream".into(),
+                1 => unsupported.input = "/local/file.webm".into(),
+                2 => unsupported.decoder_hint = None,
+                3 => unsupported.decoder_hint.as_mut().unwrap().codec = None,
+                4 => unsupported.decoder_hint.as_mut().unwrap().codec = Some("vorbis".into()),
+                5 => {
+                    unsupported.decoder_hint.as_mut().unwrap().mime_type = Some("video/webm".into())
+                }
+                6 => unsupported.decoder_hint.as_mut().unwrap().duration_seconds = None,
+                7 => unsupported.decoder_hint.as_mut().unwrap().duration_seconds = Some(f64::NAN),
+                8 => unsupported.decoder_hint.as_mut().unwrap().duration_seconds = Some(0.),
+                9 => unsupported.decoder_hint.as_mut().unwrap().content_length = None,
+                10 => unsupported.decoder_hint.as_mut().unwrap().content_length = Some(0),
+                11 => unsupported.decoder_hint.as_mut().unwrap().has_video = true,
+                _ => {
+                    unsupported.decoder_hint.as_mut().unwrap().duration_seconds =
+                        Some(f64::INFINITY)
+                }
+            }
+            assert!(!is_finite_remote_opus_webm(&unsupported), "case {change}");
+            assert!(!should_use_ffmpeg_for_source(&unsupported), "case {change}");
+        }
     }
 
     struct AacHttpFixture {
@@ -5695,6 +5870,14 @@ mod seek_queue_tests {
 #[cfg(test)]
 #[path = "native_preload_tests.rs"]
 mod reliability_tests;
+
+#[cfg(test)]
+#[path = "native_direct_pcm_experiment.rs"]
+pub(crate) mod direct_pcm_experiment;
+
+#[cfg(all(test, not(feature = "experimental-opus")))]
+#[path = "native_direct_opus_tests.rs"]
+mod direct_opus_tests;
 
 /// Diagnostic-only comparison: production preflight + native URL open versus
 /// a validated owned StreamDownload handed to the same native decoder. No device.

@@ -3139,6 +3139,17 @@ async fn validate_prepared_preview_audio(
     Ok(audio)
 }
 
+/// Test-only native resolver handoff. Retains production public-DNS, URL,
+/// bounded head/tail byte checks and the caller's original deadline/cancel.
+#[cfg(test)]
+pub(crate) async fn diagnostic_validate_prepared_preview_audio(
+    audio: PreviewAudio,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<PreviewAudio, String> {
+    validate_prepared_preview_audio(audio, cancel, None, "youtube", deadline).await
+}
+
 async fn traced_monochrome_probe<F, Fut>(
     trace: Option<crate::playback_sources::SourceTrace>,
     cancel: watch::Receiver<bool>,
