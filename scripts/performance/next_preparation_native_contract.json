@@ -1,0 +1,57 @@
+{
+  "provenance": "Source-derived native MCP wire contract; synthetic values, not a captured runtime or acoustic result.",
+  "sources": [
+    {
+      "path": "src-tauri/src/playback.rs",
+      "requiredSnippets": [
+        "\"phase\":\"first_audio\",\"atMs\":at",
+        "\"candidate\":self.candidate",
+        "\"generation\":self.generation",
+        "\"quality\":self.quality",
+        "value[\"queueEntryIds\"] = json!(self.entries);"
+      ]
+    },
+    {
+      "path": "src-tauri/src/automation.rs",
+      "requiredSnippets": [
+        "page[\"queueEntryIds\"] = json!(entry_ids.get(start..end).unwrap_or(&[]));",
+        "page[\"queueOffset\"] = json!(offset.min(total));",
+        "page[\"queueLimit\"] = json!(limit);",
+        "page[\"queueHasMore\"] = json!(offset.saturating_add(limit) < total);"
+      ]
+    },
+    {
+      "path": "src-tauri/src/playback_sources.rs",
+      "requiredSnippets": [
+        "\"formatId\": audio.selected_format_id",
+        "id: format!(\"youtube:{video_id}\")"
+      ]
+    }
+  ],
+  "snapshot": {
+    "engine": "native",
+    "status": "playing",
+    "trackId": "youtube:abcdefghijk",
+    "entryId": "next-occurrence",
+    "generation": 3,
+    "seekSerial": 1,
+    "currentIndex": 1,
+    "position": 0.1,
+    "duration": 228,
+    "queue": [{ "id": "local:control" }, { "id": "youtube:abcdefghijk" }],
+    "queueEntryIds": ["local-occurrence", "next-occurrence"],
+    "queueTotal": 2,
+    "queueOffset": 0,
+    "queueLimit": 2,
+    "queueHasMore": false,
+    "candidate": { "provider": "youtube", "id": "youtube:abcdefghijk" },
+    "quality": { "formatId": "251" },
+    "diagnostics": {
+      "operationId": "native-transition-operation",
+      "operationKind": "transition",
+      "operationTrace": [{ "phase": "ipc_received", "atMs": 0 }, { "phase": "first_audio", "atMs": 4 }],
+      "recoveryCount": 0,
+      "bufferingCount": 0
+    }
+  }
+}

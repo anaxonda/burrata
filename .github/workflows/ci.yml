@@ -93,7 +93,9 @@ jobs:
         timeout-minutes: 3
         env:
           PYTHONPATH: scripts/performance/innertube
-        run: python3 -m unittest test_player_cache_reuse test_seek_durability test_cold_player_overlap test_visionos_driver
+        run: |
+          node --test --test-timeout=30000 scripts/performance/next_preparation_observer.test.mjs
+          python3 -m unittest test_player_cache_reuse test_seek_durability test_cold_player_overlap test_visionos_driver
       - run: npm run check
       - run: npm test
       - run: npm run test:extension
