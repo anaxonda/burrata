@@ -1,0 +1,215 @@
+{
+  "schema": "burrata.direct-resolver-integration-evidence/v1",
+  "qualification": false,
+  "sourceCommit": "1c52f4f1a5faa912b9377b2e658746758dc31ba7",
+  "binarySha256": "dd237ba8aedc3c2dcb3d6f8bd32a5b3455bc5c3a88c05bca93bffc067108b091",
+  "driverSha256": "706d99016d6abc22c35cfcd93367bdb5a95aefd5622019fdbb8d51d405725ac0",
+  "initialCheckpoint": "initial-checkpoint.json",
+  "initialCheckpointPreserved": true,
+  "correctedFeatureSuite": {
+    "passed": 1306,
+    "failed": 0,
+    "ignored": 31,
+    "seconds": 19.66,
+    "log": "corrected-wiring-offline.log"
+  },
+  "correctedLive": {
+    "videoId": "uZGRATckoBM",
+    "origin": "direct_youtube",
+    "firstPcmFromStartMs": 1237.980402,
+    "resolveMs": 1019.4767609999999,
+    "decodedFrames": 240000,
+    "log": "corrected-live.log",
+    "resources": "corrected-live.time"
+  },
+  "freshProcessMatrix": {
+    "report": "fresh-process-matrix/report.json",
+    "exploratoryPassed": 3,
+    "exploratoryPlanned": 3,
+    "measuredPassed": 20,
+    "measuredPlanned": 20,
+    "statistics": {
+      "firstPcmFromStartMs": {
+        "count": 20,
+        "median": 1089.1278875,
+        "p95NearestRank": 1295.545216,
+        "worst": 2897.787037
+      },
+      "resolutionMs": {
+        "count": 20,
+        "median": 815.95764,
+        "p95NearestRank": 1036.442487,
+        "worst": 1627.210855
+      },
+      "processCpuSeconds": {
+        "count": 20,
+        "median": 0.33999999999999997,
+        "p95NearestRank": 0.39,
+        "worst": 0.41
+      },
+      "maxProcessRssKiB": {
+        "count": 20,
+        "median": 83340.0,
+        "p95NearestRank": 83808,
+        "worst": 84300
+      }
+    }
+  },
+  "timingScope": "Starts immediately before source resolution after test/store/manager setup; excludes process launch and GUI/catalog work. Includes existing access validation and decoder first PCM. Five seconds PCM is decoded; no mixer/device output.",
+  "resourceScope": "GNU time CPU includes waited descendants; maxRSS is maximum reported process RSS, not simultaneous summed tree memory or PSS. CPU is aggregate, not a peak.",
+  "comparison": false,
+  "promotion": false,
+  "defaultSuite": {
+    "sourceCommit": "1c52f4f1a5faa912b9377b2e658746758dc31ba7",
+    "passed": 1298,
+    "failed": 1,
+    "ignored": 30,
+    "seconds": 20.14,
+    "log": "default-suite-readiness-failure.log",
+    "failure": "acquisition::tests::outer_cancellation_drop_kills_live_helper_process_group: fixture parent and descendant did not start",
+    "diagnosis": "Fixture readiness future was polled only once and could stall while helper startup retried ETXTBSY; fixture-only correction and deterministic regression applied after frozen source.",
+    "rerun": {
+      "metadata": "default-suite-readiness-fixed.json",
+      "passed": 1300,
+      "failed": 0,
+      "ignored": 30,
+      "seconds": 19.53,
+      "sourceScope": "Base plus acquisition.rs cfg(test) readiness-future fixture correction and deterministic ETXTBSY regression. Source not retagged as the earlier frozen matrix.",
+      "binarySha256": "880587c35671945bc2a42539dc56559ceb99199466bc99c112b3e695b84fb530"
+    }
+  },
+  "ci": {
+    "runId": 39355951458,
+    "url": "https://github.com/anaxonda/burrata/actions/runs/39355951458",
+    "terminal": true,
+    "overall": "failed",
+    "failedJobsLog": "ci-39355951458-failed-jobs.log",
+    "macOS": {
+      "result": "success",
+      "scope": "All checks, including default and feature suites, per coordinator report."
+    },
+    "linux": {
+      "result": "failed",
+      "failure": "Python3.10 lacks hashlib.file_digest;15 offline InnerTube-driver fixture errors.",
+      "localCorrection": "Shared streaming SHA helper;19 relevant tests pass with file_digest removed, plus38 benchmark tests. No workflow rerun result."
+    },
+    "windows": {
+      "result": "failed",
+      "defaultSuite": {
+        "passed": 1219,
+        "failed": 1,
+        "ignored": 30,
+        "seconds": 82.76
+      },
+      "failure": "native_output::tests::finite_remote_aac_stalled_input_cancels_and_reaps_without_pcm",
+      "prefixReadyMs": 88,
+      "cancelToTimeoutMs": 2004,
+      "cleanupCompleted": true,
+      "cleanupMsAfterFixtureStop": 3,
+      "previousOpusFixtureFailures": "Both now pass.",
+      "hypothesis": "Chocolatey shim parent may be killed while actual decoder persists; not confirmed.",
+      "plannedCorrection": "Put actual FFmpeg directory on GITHUB_PATH and assert Get-Command resolves it; workflow fix pending."
+    }
+  },
+  "sha256": {
+    "corrected-live.log": "81191ce514a491e2204f4efb258fff6abe21ce4d27ff6b7907e55a7628114fec",
+    "corrected-live.time": "38766e83c07c6208752ca534596bff0e0cf22c88f920c8b03b70b6cf3efcaf59",
+    "corrected-wiring-offline.log": "bcde9417300dff8d499fbdc3990176fda83c7714d18c568d3b17a4f6acebb0ab",
+    "first-live-transport-rejection.log": "83e1a872b1ef26ef8e8af96cf6f15123104f31a08209db46e3aabc1b1e3438e6",
+    "fresh-process-matrix/report.json": "0af3deebf3704387a8d409dd7d41581a095058bca19f17d1d3632bb981cef5f0",
+    "fresh-process-matrix/trial-00.log": "cda77ed83a43a0d437dccf55dab72a34fe6edab535a2a3d5d97a946a982f3ab9",
+    "fresh-process-matrix/trial-00.time.json": "35a6b5d83c8aa2a0879460b30e3c792b0e8eae71c5f95f1cf39a511b9bf16f12",
+    "fresh-process-matrix/trial-01.log": "5a20cee0c4b5eee004b87ea1a068a4f39098de430990e573a661766f32a43d91",
+    "fresh-process-matrix/trial-01.time.json": "043ade63571415f1f1f456d8d11b2700e3018dbdf130b25cfe04eb3760a49150",
+    "fresh-process-matrix/trial-02.log": "ca2a23b351f97d4be6372691af79d3acf4151e9723125bb91f6f2125bbc0655b",
+    "fresh-process-matrix/trial-02.time.json": "d679f56476b7a3e9ab2e3b9a59b66c77590eed9f11dda1bb43ab492ab192d704",
+    "fresh-process-matrix/trial-03.log": "d30215b7a84df89ea413f9f8df8e0f84449c581851a0e4ad9d82eb79b36063b0",
+    "fresh-process-matrix/trial-03.time.json": "36c51044251a0a733bc7368c74d0b6476ea6f0dc818b43df5546cee341b21478",
+    "fresh-process-matrix/trial-04.log": "896b7d30d4af297edabac7f1b390969a28d4f41c5acbecdd9b3b2e14e41600d8",
+    "fresh-process-matrix/trial-04.time.json": "08b9dfbd59631ace4869223954413ff72338f298209156fa19ce328c66da82a7",
+    "fresh-process-matrix/trial-05.log": "0ef56a9288023ca15b105df523696746aefd40953df1707ecfaf6057ddd27462",
+    "fresh-process-matrix/trial-05.time.json": "eda6e6f5c66edf49b7e829eb87216a5f8288f02d7adff991d5d0abddf5f00cd0",
+    "fresh-process-matrix/trial-06.log": "298580c656cf9eb263e3e83fdcf966b2cf9d594b135704bf751e43bbec6fe7af",
+    "fresh-process-matrix/trial-06.time.json": "76c93ac030a7dbcb54a5ccde2cc4e50ccb5881373561e92ac318c59b12e7c7ee",
+    "fresh-process-matrix/trial-07.log": "37fc1e1c8f64666a62298b574ab22cad8920ce6fb1de488fae895c4dcaae463d",
+    "fresh-process-matrix/trial-07.time.json": "3ea5d17e4cad865a143e2cfd448253fa547553f7f717320bd990192237ddcff5",
+    "fresh-process-matrix/trial-08.log": "9b9b37f3b9e643ada469e49a596311808a48e9aa2bbc24f8bd9b7f4501951b66",
+    "fresh-process-matrix/trial-08.time.json": "ff6e2b6ed5b3d197a327739dbb8d58c8f8c473a646619e686f7142c878f35e90",
+    "fresh-process-matrix/trial-09.log": "63e15eed19a325779a4364c7ba0ff11d5baa7a1f6f26616785f64645bec65ef4",
+    "fresh-process-matrix/trial-09.time.json": "1d456f6b4339c2fea3b0ff165f9ecd7dcc25e3425d1ad8e3f775d7085115632a",
+    "fresh-process-matrix/trial-10.log": "407ad8018e9e6fd5956137ec3609b26b14bd5061a0f4d8ccb1d28a54f253b768",
+    "fresh-process-matrix/trial-10.time.json": "22e4a8c98e501a7284ef24dbae5042461deb4355d03cdaf564baf8c5b2fff0d1",
+    "fresh-process-matrix/trial-11.log": "30c135577edc58cfa0d9b04093e38e1b3c8fff4cb73cdd69b4e37b8a1fddf537",
+    "fresh-process-matrix/trial-11.time.json": "67b860840e2242ae694b966e3ec774ee22315feee14faab47ed6577910db2812",
+    "fresh-process-matrix/trial-12.log": "d135fbe2cd862c7ecb8aa7af6a65aa4a38ba7573a2f44b81cac52adf6382b492",
+    "fresh-process-matrix/trial-12.time.json": "dda1e98f9fba067fad3e70c4d4f7f4e5d4d33b8568a93bbf4012f27dc58d7e4b",
+    "fresh-process-matrix/trial-13.log": "a8c0fcd28c3752d0813bdc35ce748ae9acf239e538528f81c4e88dfa6d4cf972",
+    "fresh-process-matrix/trial-13.time.json": "3b3a1de7e78bc2d3c1cff207401dce77d7fb4655a7e42ad50aff4881946feb82",
+    "fresh-process-matrix/trial-14.log": "02b970da87a7edfa602c38371c83c1ded86409b38da85838f2511e17dc321d98",
+    "fresh-process-matrix/trial-14.time.json": "0485852ada1edf921ac077669aa92c1cd004540e0fbe3d9cd76a9cabf24d03ad",
+    "fresh-process-matrix/trial-15.log": "b9b9a4dd2102a94a6742569a56b2ed3321a4651950c1b6a2af8e15906fdc5f53",
+    "fresh-process-matrix/trial-15.time.json": "f80003092de015057f59d385853a305d81e2b76c38dabbc8c5d9ed1466dcc6a9",
+    "fresh-process-matrix/trial-16.log": "80ceee4e01ee5eca9307267b31204ad67f324a5a4e72eaf3a8392fb0f180fddf",
+    "fresh-process-matrix/trial-16.time.json": "d4a65e24a8e149b3f2a09dc10a47f5d7f3ccf503887d05aa7945926d20dc6f1e",
+    "fresh-process-matrix/trial-17.log": "97c550b6f714426d71e8b9db48f7f9b4b0644e5ab5585f2253be176a2fbd91e6",
+    "fresh-process-matrix/trial-17.time.json": "be825853874e44b77c967b55806f460174b0668ee0c586535791b8530c2e0d7a",
+    "fresh-process-matrix/trial-18.log": "9d98edcdc1698bdc922f5584e4296f2e01d30f0d90aaf6344c8bbd119bc1d624",
+    "fresh-process-matrix/trial-18.time.json": "818592732cf2ef8c5adae594f5a03f4ed40c1b141cc16aaec77a7307d8a64120",
+    "fresh-process-matrix/trial-19.log": "6642001742a5dffe2f3b9f113de57c97f1d4b3100f5b342c0717556917ee7c42",
+    "fresh-process-matrix/trial-19.time.json": "49378be714023a571d6bcdb5da6d64c60b2cc2ac5e7779774bdbb82e23789543",
+    "fresh-process-matrix/trial-20.log": "10649bf1a1329969402052a3dbf11dd8351772cdf2f0f0ea2e3e546063f54e38",
+    "fresh-process-matrix/trial-20.time.json": "e6fa424477e62bdee01fb3b1d806c27852542ad8792855c27d27761c8dfac333",
+    "fresh-process-matrix/trial-21.log": "02cb87446f3fdc583b7184f878461f06b03a0390965660c6a2322c76c1abbc45",
+    "fresh-process-matrix/trial-21.time.json": "20672f007417054d8d5ddc4e8a716176f41252832fc7e40d98c86d990bb3074d",
+    "fresh-process-matrix/trial-22.log": "9c54b3a1d1e61d66dcb2d1fa7e40588337bdd040769ab146da777a26813e2634",
+    "fresh-process-matrix/trial-22.time.json": "0c6e7bb0bc949e0ddbf1904fa0f1bd46282c1eaed1e51056014ac26337d2aece",
+    "initial-checkpoint.json": "a6cae2c3a4ec2426c03c431ba56dcf84e8e5073923e70531015cf870eedd1815",
+    "initial-wiring-offline.log": "5ee88a8975cb319677c93ff7ff04ece4d0e123c2307375503401def107aa2727",
+    "repeat_foreground.py": "706d99016d6abc22c35cfcd93367bdb5a95aefd5622019fdbb8d51d405725ac0",
+    "ci-39355951458-failed-jobs.log": "4dcd4d239502fd5ef5e4efb6dae91b163e4250ed5f5af0efde6c7ee0a2d1c76e",
+    "default-suite-readiness-failure.log": "18a151dc2e352851c402ad47a3ad957f605c69aa51b1aecf717216b9acc12f41",
+    "default-suite-readiness-fixed.log": "3f49799a34f2b29d5cfe1dee086be77a92dc4e2179ed49be0060ffd39343501d",
+    "default-suite-readiness-fixed.json": "e96b9f112c36b92f3079972991572bbfd223d23588e482ee7b7a1bdaac0da94c",
+    "native-gui/layout.json": "cdd81bf650b03bc9e30fa39ef6212c58294e33a58d3c324e88b4fe8624baa939",
+    "native-gui/layout.png": "743ae5cb813cf1d4cf2e46999d9292b81736a01730ddf645b61ea8b363e59e8d",
+    "native-gui/manifest.json": "a0a2234da70bac5a5b319edcedb5f0b9529ef25bfd81413a47242a195705f658",
+    "native-gui/playback-phases.jsonl": "9b3491b32f46377c5b8bddbbefdb969d759dcb32290076ae72af94eaee0f83b5",
+    "native-gui/probe.json": "75751615bd9be788243621256b2f2b60e4033cc022c511ee967048f0e815b368",
+    "native-gui/README.md": "f4a4d5457195768d81e1509534e88530b97d33c9eca484ddda162459af5b5250",
+    "native-gui/restoration.json": "c31050c587993b813d14d6bc1544709e9dc6c48264beb25402fc576fe25ad18c",
+    "ci-39357267865-failed-jobs.log": "f5466be9471a82bb4d27b2c67a2d947d7f847821f84f083742bf2c73e942713d"
+  },
+  "nativeGui": {
+    "manifest": "native-gui/manifest.json",
+    "sourceCommit": "c626eb3b1eb00a1dc03a6b6d38951eef930501e9",
+    "appBinarySha256": "b24e06540a8b335405c066cc0ec38e552a6bb9641afd4f032e34f77347804776",
+    "scope": "One anonymous muted native GUI session; mixer progression and seeks pass, no physical audibility/catalog qualification.",
+    "restoration": "native-gui/restoration.json"
+  },
+  "latestCi": {
+    "runId": 39358962075,
+    "targetCommit": "b6b876c9351591f4e45bfaca9166e6779bf2c3f0",
+    "status": "running; no result claimed",
+    "sourceScope": "CI/test-only corrections after c626eb3; restored GUI remains c626eb3 and runtime implementation unchanged per coordinator."
+  },
+  "ciC626": {
+    "runId": 39357267865,
+    "targetCommit": "c626eb3b1eb00a1dc03a6b6d38951eef930501e9",
+    "terminal": true,
+    "overall": "failed; all three platform jobs failed",
+    "failedJobsLog": "ci-39357267865-failed-jobs.log",
+    "windows": {
+      "failure": "Install assertion treated Get-Command.Source collection as a single executable path.",
+      "correction": "Select the strict first executable result and normalize the path."
+    },
+    "linux": {
+      "failure": "Three fake-worker fixture errors read absent research node_modules/youtubei.js/package.json.",
+      "correction": "Self-contained temporary metadata fixtures,21 local tests pass plus guard against repository-dependency reads; live dependency checks remain strict."
+    },
+    "macOS": {
+      "failure": "unbuffered_http_seek_uses_ranges_and_keeps_recording_position;1263passed1failed30ignored23.56s.",
+      "correction": "Explicitly disable inherited nonblocking mode on accepted streams in this and adjacent diagnostic fixture; all other accepted-stream fixtures audited."
+    },
+    "correctionScope": "CI/test-only changes in b6b876c; no corrected workflow pass claimed."
+  }
+}

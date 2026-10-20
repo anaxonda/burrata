@@ -1,0 +1,21 @@
+{
+  "schema": "burrata.default-readiness-fixed-checkpoint/v1",
+  "qualification": false,
+  "baseCommit": "1c52f4f1a5faa912b9377b2e658746758dc31ba7",
+  "sourceScope": "Base plus acquisition.rs cfg(test) readiness-future fixture correction and deterministic ETXTBSY regression. Source not retagged as the earlier frozen matrix.",
+  "runtimeScope": "Acquisition source before the cfg(test) tests module is byte-identical to base; coordinator confirms no runtime implementation changes since matrix source.",
+  "acquisitionSourceSha256": "26b462fb2234337b706c31005e0c7e81138c0496dd2a2334596938a1c4dc87c7",
+  "acquisitionPrefixBeforeTestsSha256": "5b3822c7b740ad3d73c41480c05910997242dc136378f448618c60b56f6b983a",
+  "binaryName": "burrata_lib-65c253e8a3a5ca30",
+  "binarySha256": "880587c35671945bc2a42539dc56559ceb99199466bc99c112b3e695b84fb530",
+  "suite": {
+    "passed": 1300,
+    "failed": 0,
+    "ignored": 30,
+    "seconds": 19.53,
+    "log": "default-suite-readiness-fixed.log",
+    "logSha256": "3f49799a34f2b29d5cfe1dee086be77a92dc4e2179ed49be0060ffd39343501d"
+  },
+  "earlierFailure": "default-suite-readiness-failure.log",
+  "platformScope": "Local Linux default suite; does not replace terminal CI39355951458 failures or establish a corrected workflow pass."
+}

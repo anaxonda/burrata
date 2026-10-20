@@ -1,0 +1,73 @@
+{
+  "schema": "burrata.direct-resolver-native-gui/v1",
+  "qualification": false,
+  "sourceCommit": "c626eb3b1eb00a1dc03a6b6d38951eef930501e9",
+  "appBinarySha256": "b24e06540a8b335405c066cc0ec38e552a6bb9641afd4f032e34f77347804776",
+  "sourceProvenance": "App build source and executable hash reported by coordinator; archive agent verified artifact hashes, not executable.",
+  "profile": "Fresh isolated profile, anonymous/no account; native engine, experiment flag1, volume0.",
+  "videoId": "uZGRATckoBM",
+  "probeRows": 67,
+  "firstMixerAudioMs": 1242,
+  "sourceReadyMs": 1005,
+  "startupPositionSeconds": 5.201269841269841,
+  "activeSeek": {
+    "targetSeconds": 60,
+    "observedSeconds": 61.25387755102041,
+    "firstAudioMs": 668
+  },
+  "pausedSeek": {
+    "targetSeconds": 120,
+    "observedSeconds": 120,
+    "remainedPaused": true
+  },
+  "resume": {
+    "observedSeconds": 121.02167800453515,
+    "seekFirstAudioMs": 509
+  },
+  "layout": {
+    "width": 954,
+    "height": 1036,
+    "footerHeight": 106.5,
+    "findings": [],
+    "visualReview": "PNG inspected: footer fits; fresh onboarding dialog obscures the main list. No full-list visual acceptance claim."
+  },
+  "trace": {
+    "file": "playback-phases.jsonl",
+    "events": 18,
+    "policy": "Only allowlisted phase JSON objects extracted verbatim from app.log; raw app.log is not published.",
+    "originalAppLogSha256": "98df17a535252e9ef21f43ec6f41ef6f52a605a79a438794b835fc97faa78eaa"
+  },
+  "ci": {
+    "runId": 39357267865,
+    "targetCommit": "c626eb3b1eb00a1dc03a6b6d38951eef930501e9",
+    "status": "terminal; all three jobs failed; see ../ci-39357267865-failed-jobs.log"
+  },
+  "limits": [
+    "One ID/one bounded GUI session; no physical audibility because muted.",
+    "No catalog, natural next-preparation, full-track, recovery matrix or performance-comparison claim."
+  ],
+  "sha256": {
+    "layout.json": "cdd81bf650b03bc9e30fa39ef6212c58294e33a58d3c324e88b4fe8624baa939",
+    "layout.png": "743ae5cb813cf1d4cf2e46999d9292b81736a01730ddf645b61ea8b363e59e8d",
+    "playback-phases.jsonl": "9b3491b32f46377c5b8bddbbefdb969d759dcb32290076ae72af94eaee0f83b5",
+    "probe.json": "75751615bd9be788243621256b2f2b60e4033cc022c511ee967048f0e815b368",
+    "restoration.json": "c31050c587993b813d14d6bc1544709e9dc6c48264beb25402fc576fe25ad18c"
+  },
+  "restoration": {
+    "report": "restoration.json",
+    "oneGuiVerified": true,
+    "originalProfilePreserved": true,
+    "experimentalResolverEnabled": false,
+    "engine": "webview",
+    "radioResumed": true,
+    "queueOccurrencePreserved": true,
+    "volumePreserved": true,
+    "hostVerification": "Coordinator verified current b24e executable and exactly one GUI; original profile restored without publishing raw profile, queue or account state."
+  },
+  "latestCi": {
+    "runId": 39358962075,
+    "targetCommit": "b6b876c9351591f4e45bfaca9166e6779bf2c3f0",
+    "status": "running; no result claimed",
+    "sourceScope": "CI/test-only corrections after c626eb3; restored GUI remains c626eb3 and runtime implementation unchanged per coordinator."
+  }
+}

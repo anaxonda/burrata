@@ -1,0 +1,3264 @@
+{
+  "scope": "Fresh-profile native GUI, muted device output; no physical audibility claim.",
+  "rows": [
+    {
+      "stage": "startup",
+      "atMs": 1267.035697,
+      "engine": "native",
+      "status": "playing",
+      "position": 0,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 1395.739115,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.13931972789115646,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 1523.252628,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.13931972789115646,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 1650.287274,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.13931972789115646,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 1776.3093259999998,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.4179591836734694,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 1907.6585619999998,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.4179591836734694,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2041.668797,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.6965986394557823,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2170.489579,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.6965986394557823,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2301.4119929999997,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.9884807256235828,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2426.4932529999996,
+      "engine": "native",
+      "status": "playing",
+      "position": 0.9884807256235828,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2565.1227019999997,
+      "engine": "native",
+      "status": "playing",
+      "position": 1.3003174603174603,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2691.0698439999996,
+      "engine": "native",
+      "status": "playing",
+      "position": 1.3003174603174603,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2816.933586,
+      "engine": "native",
+      "status": "playing",
+      "position": 1.5789569160997732,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 2942.757028,
+      "engine": "native",
+      "status": "playing",
+      "position": 1.5789569160997732,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 3067.678761,
+      "engine": "native",
+      "status": "playing",
+      "position": 1.8575963718820863,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 3202.1130380000004,
+      "engine": "native",
+      "status": "playing",
+      "position": 1.8575963718820863,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 3340.224634,
+      "engine": "native",
+      "status": "playing",
+      "position": 1.8575963718820863,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 3479.309104,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.136235827664399,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 3606.628391,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.136235827664399,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 3744.9093279999997,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.414875283446712,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 3873.778402,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.414875283446712,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4001.215021,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.693514739229025,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4138.04828,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.693514739229025,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4268.5725059999995,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.972154195011338,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4393.850321,
+      "engine": "native",
+      "status": "playing",
+      "position": 2.972154195011338,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4519.721318,
+      "engine": "native",
+      "status": "playing",
+      "position": 3.250793650793651,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4645.126472,
+      "engine": "native",
+      "status": "playing",
+      "position": 3.250793650793651,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4771.970534,
+      "engine": "native",
+      "status": "playing",
+      "position": 3.5294331065759637,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 4899.961953,
+      "engine": "native",
+      "status": "playing",
+      "position": 3.5294331065759637,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5027.043286,
+      "engine": "native",
+      "status": "playing",
+      "position": 3.5294331065759637,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5155.4324289999995,
+      "engine": "native",
+      "status": "playing",
+      "position": 3.8080725623582765,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5282.380572,
+      "engine": "native",
+      "status": "playing",
+      "position": 3.8080725623582765,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5406.836909,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.08671201814059,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5533.844802,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.08671201814059,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5669.3408549999995,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.365351473922902,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5805.023782,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.365351473922902,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 5930.658735999999,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.6439909297052155,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 6055.3346599999995,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.6439909297052155,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 6185.027685999999,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.922630385487528,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 6322.618509,
+      "engine": "native",
+      "status": "playing",
+      "position": 4.922630385487528,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "startup",
+      "atMs": 6461.113187999999,
+      "engine": "native",
+      "status": "playing",
+      "position": 5.201269841269841,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 2,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 6522.785578999999,
+      "engine": "native",
+      "status": "buffering",
+      "position": 60,
+      "paused": true,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 6663.01024,
+      "engine": "native",
+      "status": "buffering",
+      "position": 60,
+      "paused": true,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 6804.099208,
+      "engine": "native",
+      "status": "buffering",
+      "position": 60,
+      "paused": true,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 6931.8495729999995,
+      "engine": "native",
+      "status": "buffering",
+      "position": 60,
+      "paused": true,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7058.255396,
+      "engine": "native",
+      "status": "buffering",
+      "position": 60,
+      "paused": true,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 103,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7184.94837,
+      "engine": "native",
+      "status": "playing",
+      "position": 60,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7312.0696259999995,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.139319727891156,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7439.8775989999995,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.139319727891156,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7565.8430960000005,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.41795918367347,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7692.606519999999,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.41795918367347,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7820.75145,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.41795918367347,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 7948.796441,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.69659863945578,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 8074.059668,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.69659863945578,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 8212.15632,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.9752380952381,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 8347.865396,
+      "engine": "native",
+      "status": "playing",
+      "position": 60.9752380952381,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "active_seek",
+      "atMs": 8484.525712999999,
+      "engine": "native",
+      "status": "playing",
+      "position": 61.25387755102041,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 3,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 668,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "paused_seek",
+      "atMs": 8532.138044,
+      "engine": "native",
+      "status": "paused",
+      "position": 120,
+      "paused": true,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": null,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 1,
+        "firstDecodedBlockMs": 626,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9057.040647,
+      "engine": "native",
+      "status": "playing",
+      "position": 120,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9181.233488,
+      "engine": "native",
+      "status": "playing",
+      "position": 120,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9306.695577,
+      "engine": "native",
+      "status": "playing",
+      "position": 120.18575963718821,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9432.25304,
+      "engine": "native",
+      "status": "playing",
+      "position": 120.18575963718821,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9570.924635,
+      "engine": "native",
+      "status": "playing",
+      "position": 120.46439909297052,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9696.546454,
+      "engine": "native",
+      "status": "playing",
+      "position": 120.46439909297052,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9821.952174,
+      "engine": "native",
+      "status": "playing",
+      "position": 120.74303854875284,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 9948.319819,
+      "engine": "native",
+      "status": "playing",
+      "position": 120.74303854875284,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    },
+    {
+      "stage": "resume",
+      "atMs": 10077.463033,
+      "engine": "native",
+      "status": "playing",
+      "position": 121.02167800453515,
+      "paused": false,
+      "volume": 0,
+      "trackId": "youtube:uZGRATckoBM",
+      "generation": 4,
+      "firstAudioMs": 1242,
+      "sourceReadyMs": 1005,
+      "seekFirstAudioMs": 509,
+      "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+      "operationTrace": [
+        {
+          "atMs": 0,
+          "phase": "ipc_received"
+        },
+        {
+          "atMs": 1006,
+          "phase": "source_ready"
+        },
+        {
+          "atMs": 1244,
+          "phase": "first_audio"
+        }
+      ],
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 2,
+        "codecHint": "opus",
+        "contentRangeTotal": null,
+        "contentType": "audio/webm",
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "decoderSetupMs": 0,
+        "firstDecodedBlockMs": 521,
+        "inputContentLength": 3845541,
+        "readerReused": false,
+        "sampleRate": 44100,
+        "totalDurationSeconds": 228
+      },
+      "failurePresent": false
+    }
+  ],
+  "startup": {
+    "engine": "native",
+    "status": "playing",
+    "position": 5.201269841269841,
+    "paused": false,
+    "volume": 0,
+    "trackId": "youtube:uZGRATckoBM",
+    "generation": 2,
+    "firstAudioMs": 1242,
+    "sourceReadyMs": 1005,
+    "seekFirstAudioMs": null,
+    "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+    "operationTrace": [
+      {
+        "atMs": 0,
+        "phase": "ipc_received"
+      },
+      {
+        "atMs": 1006,
+        "phase": "source_ready"
+      },
+      {
+        "atMs": 1244,
+        "phase": "first_audio"
+      }
+    ],
+    "decoder": {
+      "bytesRead": 0,
+      "bytesReceived": 0,
+      "channels": 2,
+      "codecHint": "opus",
+      "contentRangeTotal": null,
+      "contentType": "audio/webm",
+      "decoderKind": "ffmpeg",
+      "decoderReused": false,
+      "decoderSetupMs": 0,
+      "firstDecodedBlockMs": 103,
+      "inputContentLength": 3845541,
+      "readerReused": false,
+      "sampleRate": 44100,
+      "totalDurationSeconds": 228
+    },
+    "failurePresent": false
+  },
+  "activeSeek": {
+    "engine": "native",
+    "status": "playing",
+    "position": 61.25387755102041,
+    "paused": false,
+    "volume": 0,
+    "trackId": "youtube:uZGRATckoBM",
+    "generation": 3,
+    "firstAudioMs": 1242,
+    "sourceReadyMs": 1005,
+    "seekFirstAudioMs": 668,
+    "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+    "operationTrace": [
+      {
+        "atMs": 0,
+        "phase": "ipc_received"
+      },
+      {
+        "atMs": 1006,
+        "phase": "source_ready"
+      },
+      {
+        "atMs": 1244,
+        "phase": "first_audio"
+      }
+    ],
+    "decoder": {
+      "bytesRead": 0,
+      "bytesReceived": 0,
+      "channels": 2,
+      "codecHint": "opus",
+      "contentRangeTotal": null,
+      "contentType": "audio/webm",
+      "decoderKind": "ffmpeg",
+      "decoderReused": false,
+      "decoderSetupMs": 1,
+      "firstDecodedBlockMs": 626,
+      "inputContentLength": 3845541,
+      "readerReused": false,
+      "sampleRate": 44100,
+      "totalDurationSeconds": 228
+    },
+    "failurePresent": false
+  },
+  "pausedSeek": {
+    "engine": "native",
+    "status": "paused",
+    "position": 120,
+    "paused": true,
+    "volume": 0,
+    "trackId": "youtube:uZGRATckoBM",
+    "generation": 4,
+    "firstAudioMs": 1242,
+    "sourceReadyMs": 1005,
+    "seekFirstAudioMs": null,
+    "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+    "operationTrace": [
+      {
+        "atMs": 0,
+        "phase": "ipc_received"
+      },
+      {
+        "atMs": 1006,
+        "phase": "source_ready"
+      },
+      {
+        "atMs": 1244,
+        "phase": "first_audio"
+      }
+    ],
+    "decoder": {
+      "bytesRead": 0,
+      "bytesReceived": 0,
+      "channels": 2,
+      "codecHint": "opus",
+      "contentRangeTotal": null,
+      "contentType": "audio/webm",
+      "decoderKind": "ffmpeg",
+      "decoderReused": false,
+      "decoderSetupMs": 1,
+      "firstDecodedBlockMs": 626,
+      "inputContentLength": 3845541,
+      "readerReused": false,
+      "sampleRate": 44100,
+      "totalDurationSeconds": 228
+    },
+    "failurePresent": false
+  },
+  "resume": {
+    "engine": "native",
+    "status": "playing",
+    "position": 121.02167800453515,
+    "paused": false,
+    "volume": 0,
+    "trackId": "youtube:uZGRATckoBM",
+    "generation": 4,
+    "firstAudioMs": 1242,
+    "sourceReadyMs": 1005,
+    "seekFirstAudioMs": 509,
+    "operationId": "native-145995b5-bce1-4bb9-aa4c-4b62cbc24080",
+    "operationTrace": [
+      {
+        "atMs": 0,
+        "phase": "ipc_received"
+      },
+      {
+        "atMs": 1006,
+        "phase": "source_ready"
+      },
+      {
+        "atMs": 1244,
+        "phase": "first_audio"
+      }
+    ],
+    "decoder": {
+      "bytesRead": 0,
+      "bytesReceived": 0,
+      "channels": 2,
+      "codecHint": "opus",
+      "contentRangeTotal": null,
+      "contentType": "audio/webm",
+      "decoderKind": "ffmpeg",
+      "decoderReused": false,
+      "decoderSetupMs": 0,
+      "firstDecodedBlockMs": 521,
+      "inputContentLength": 3845541,
+      "readerReused": false,
+      "sampleRate": 44100,
+      "totalDurationSeconds": 228
+    },
+    "failurePresent": false
+  },
+  "ok": true
+}

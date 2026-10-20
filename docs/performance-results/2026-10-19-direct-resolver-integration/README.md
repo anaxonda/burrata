@@ -1,0 +1,48 @@
+# Opt-in native direct-resolver integration checkpoint
+
+The corrected experimental foreground route reached five seconds of decoder PCM through the production source resolver and existing strict access validator. This is a bounded capability and repetition result for one explicit public YouTube ID. It does not qualify default enablement, a release, catalog matching or audible output. A later, separately sourced muted native GUI check is retained below. Both `playback-direct-youtube-experiment` and `BURRATA_DIRECT_YOUTUBE_EXPERIMENT=1` remain required; the default route is unchanged.
+
+The frozen source is `1c52f4f1a5faa912b9377b2e658746758dc31ba7`; the test binary SHA-256 is `dd237ba8aedc3c2dcb3d6f8bd32a5b3455bc5c3a88c05bca93bffc067108b091`. The [manifest](manifest.json) retains file hashes, the exact driver hash and independently verified summary statistics. Original logs and reports were copied byte-for-byte.
+
+## Preserved failure and corrected checkpoint
+
+The [initial checkpoint](initial-checkpoint.json), [first wiring suite](initial-wiring-offline.log) and [first live failure](first-live-transport-rejection.log) remain unchanged. That suite passed 1,303 tests with 31 ignored in 20.18 seconds. The first live direct attempt rejected transport at 635 ms with HTTP 200; existing yt-dlp fallback resolved the same ID at about 5.19 seconds. The direct-required test failed before PCM. Its exact complete source was not frozen, so it is not a source-identical control.
+
+Inspection found blanket rejection of sibling SABR metadata. The correction validates the selected direct itag 251 independently, allowing SABR/HLS siblings without substituting a different format. The [corrected feature-enabled suite](corrected-wiring-offline.log) passed **1,306 tests, zero failed, 31 ignored in 19.66 seconds**. The [corrected live log](corrected-live.log) records direct origin, **1,237.980 ms to first PCM**, 1,019.477 ms resolution and exactly 240,000 stereo frames. Its [GNU time capture](corrected-live.time) is separate from the repetition matrix.
+
+## Fresh-process repetition
+
+The retained [driver](repeat_foreground.py) launched three exploratory processes and then twenty measured processes, all using the same Matthew ID `uZGRATckoBM` and the direct profile's itag 251. All **3/3 exploratory and 20/20 measured** trials succeeded, each producing exactly 240,000 frames. The [original report](fresh-process-matrix/report.json) retains every row, per-trial log hash and resource sample; all 46 trial log/time files are alongside it. No retry occurred within a trial.
+
+| Measured quantity, twenty trials | Median | Nearest-rank p95 | Worst |
+| --- | ---: | ---: | ---: |
+| Source-resolution start to first PCM | 1,089.128 ms | 1,295.545 ms | 2,897.787 ms |
+| Source resolution, including access validation | 815.958 ms | 1,036.442 ms | 1,627.211 ms |
+| Process CPU, user plus system | 0.340 s | 0.390 s | 0.410 s |
+| GNU time maximum process RSS | 83,340 KiB | 83,808 KiB | 84,300 KiB |
+
+The median averages the central two observations; p95 is sorted rank 19 of 20. First-PCM timing starts immediately before source resolution after test/store/manager setup. It excludes process launch, catalog matching and GUI work; decoder initialization and the existing access validator are included. A fresh test process and anonymous client were used for each trial, but OS DNS/TLS/server state was not reset. This is not a matched performance comparison with the existing resolver or the earlier Node matrix.
+
+No `provider_prepare_start` or `extraction_start` trace events occurred in any of the 23 trials. These are the observed helper-related event counters, not a general absence-of-process proof. GNU time CPU includes waited descendants and is aggregate CPU rather than a sampled peak. Maximum RSS is the maximum reported process RSS, **not** simultaneous summed process-tree memory or PSS. It does not answer native startup peak versus equal-duration steady CPU.
+
+No GUI, mixer, output device, physical audibility, catalog proof, full-recording durability, seek/recovery or next-preparation acceptance was exercised in that decoder matrix. The earlier failed live attempt remains in the evidence set; twenty successful repetitions on one ID do not establish universal provider reliability or a three-track matrix.
+
+## Later native GUI check
+
+The [native GUI archive](native-gui/README.md) records a feature-enabled app built at `c626eb3`, executable SHA-256 `b24e06540a8b335405c066cc0ec38e552a6bb9641afd4f032e34f77347804776`. One anonymous fresh-profile Matthew session with native output and volume zero reached first mixer audio at **1,242 ms**, source ready at 1,005 ms and over five seconds of playhead progression. Active seek to 60 seconds advanced to 61.254 seconds (668 ms seek first audio); paused seek stayed at 120 seconds; resume reached 121.022 seconds (509 ms). This is muted native device-path evidence, not physical audibility or catalog proof, and does not change the frozen decoder matrix's source or timing scope.
+
+All 67 safe probe rows, layout JSON, PNG and 18 allowlisted phase events are retained. The 954 × 1036 layout has a 106.5 px footer and no automated findings. Visual review confirms the footer fits; the onboarding dialog obscures the main list, so full-list visual acceptance is not claimed. The [restoration report](native-gui/restoration.json) confirms exactly one GUI on the current executable, original profile and queue occurrence preserved, WebView/radio resumed, volume restored and the direct experiment disabled.
+
+## Remaining qualification
+
+The [default-suite run at frozen `1c52f4f`](default-suite-readiness-failure.log) failed: **1,298 passed, one failed, 30 ignored in 20.14 seconds**. The failure was `outer_cancellation_drop_kills_live_helper_process_group`, whose fixture parent/descendant never became ready. Inspection found its readiness future was polled only once and could stall while helper startup retried `ETXTBSY`. A fixture-only correction and deterministic regression were applied after the frozen source. The [corrected local default suite](default-suite-readiness-fixed.log) then passed **1,300 tests, zero failed, 30 ignored in 19.53 seconds**. Its [metadata](default-suite-readiness-fixed.json) records the new binary hash and current acquisition source hash; the acquisition source before its `cfg(test)` tests module is byte-identical to `1c52f4f`. The coordinator confirms only that test fixture and regression changed for this build. The successful matrix retains its original frozen source and binary; both default-suite checkpoints remain preserved.
+
+[CI run 39355951458](https://github.com/anaxonda/burrata/actions/runs/39355951458) is terminal and failed overall. macOS passed all checks, including default and feature suites, in that historical run only, per the coordinator. This does not describe the later `c626eb3` run. The [retained failed-job log](ci-39355951458-failed-jobs.log) records Linux Python 3.10 raising 15 fixture errors because `hashlib.file_digest` is unavailable. A shared streaming SHA helper fixes compatibility locally: 19 relevant tests pass with `file_digest` removed, alongside 38 benchmark tests. These are local checks, not a successful CI rerun.
+
+In that same historical run, Windows passed both formerly failing Opus fixtures, but its default suite failed the stalled-AAC cancellation test (**1,219 passed, one failed, 30 ignored**). Diagnostics record prefix readiness at 88 ms, cancellation timeout at 2,004 ms, then completed cleanup in 3 ms after stopping the fixture. This supports the hypothesis that a Chocolatey shim parent was killed while the real decoder remained blocked; it does not establish that cause. A later workflow change put the actual FFmpeg directory on `GITHUB_PATH` and asserted `Get-Command` resolution; its assertion problem is retained below. The two-second cancellation bound is unchanged. The subsequent [CI run 39357267865](https://github.com/anaxonda/burrata/actions/runs/39357267865) at `c626eb3` is **terminal: all three platform jobs failed**. Its [original failed-job log](ci-39357267865-failed-jobs.log) is retained byte-for-byte:
+
+- Windows failed the install assertion because `Get-Command.Source` was a collection rather than one executable path. The correction strictly selects the first executable and normalizes its path; this run did not establish decoder cancellation acceptance.
+- Linux had three fake-worker fixture errors because research `node_modules/youtubei.js/package.json` was absent. The correction uses self-contained temporary metadata; 21 local tests pass with a guard against repository dependency reads, while live dependency checks remain strict.
+- macOS failed the unbuffered HTTP seek fixture (1,263 passed, one failed, 30 ignored). This fixture still lacked explicit blocking mode on accepted sockets. It and an adjacent diagnostic fixture were corrected; the other accepted-stream fixtures were audited. The earlier all-macOS pass belongs only to run 39355951458.
+
+New [CI run 39358962075](https://github.com/anaxonda/burrata/actions/runs/39358962075) targets `b6b876c9351591f4e45bfaca9166e6779bf2c3f0`, containing CI/test-only corrections, and is running. No corrected workflow result or all-platform pass is claimed. The restored app remains `c626eb3`/`b24e`, experiment off, WebView, exactly one GUI with original profile/radio/volume/queue restored; runtime is unchanged by these subsequent corrections.  The [research decision record](../../playback-startup-research.md#remaining-direct-http-integration-blockers) retains the remaining scope and acceptance gaps. No promotion or public release follows from this result.

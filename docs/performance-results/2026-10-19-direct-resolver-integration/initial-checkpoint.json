@@ -1,0 +1,32 @@
+{
+  "scope": "Initial uncommitted experimental integration checkpoint before correcting the sibling-SABR guard; decoder-only live probe, no device output or catalog matching.",
+  "baseCommit": "e8176e577faac983757f7023b21b7640daab0b2e",
+  "sourceProvenance": "Uncommitted integration edits at capture; exact complete source snapshot/hash was not frozen. Do not use for source-identical or statistically qualified comparison.",
+  "offline": {
+    "passed": 1303,
+    "failed": 0,
+    "ignored": 31,
+    "seconds": 20.18,
+    "log": "initial-wiring-offline.log"
+  },
+  "live": {
+    "passed": false,
+    "videoId": "uZGRATckoBM",
+    "directFailure": {
+      "code": "UNSUPPORTED_TRANSPORT",
+      "httpStatus": 200,
+      "stage": "format",
+      "observedResolutionElapsedMs": 635
+    },
+    "fallback": "Existing yt-dlp resolved the same explicit video; no PCM attempted because this probe requires the direct origin.",
+    "testSeconds": 5.21,
+    "log": "first-live-transport-rejection.log",
+    "correction": "Removed blanket rejection of sibling SABR/HLS metadata; independently validated selected direct format remains required.",
+    "correctionVerifiedLive": false
+  },
+  "sha256": {
+    "initial-wiring-offline.log": "5ee88a8975cb319677c93ff7ff04ece4d0e123c2307375503401def107aa2727",
+    "first-live-transport-rejection.log": "83e1a872b1ef26ef8e8af96cf6f15123104f31a08209db46e3aabc1b1e3438e6"
+  },
+  "qualification": false
+}
