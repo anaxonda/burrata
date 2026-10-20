@@ -1,0 +1,7 @@
+{
+  "destination": "settings",
+  "settingsCategory": "playback",
+  "settingsControl": "playbackStartupTimeout",
+  "status": "complete",
+  "targetKind": "view"
+}

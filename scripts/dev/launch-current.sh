@@ -199,25 +199,11 @@ trap 'exit 143' TERM
 if [[ "$frontend_mode" == "dev" ]]; then
   node_modules/.bin/vite --configLoader runner --host 127.0.0.1 --port 1420 --strictPort >"$scratch_dir/vite.log" 2>&1 &
   launched_vite_pid=$!
-  if ! node --input-type=module -e '
-    const url = "http://127.0.0.1:1420/src/main.ts";
-    for (let i = 0; i < 80; i++) {
-      try {
-        const response = await fetch(url);
-        const type = response.headers.get("content-type") ?? "";
-        const body = await response.text();
-        if (response.ok && /javascript/i.test(type) && body.includes("mount")
-            && body.includes("App.svelte") && body.includes("style.css")
-            && !body.includes("getElementById(\"app\")!")) {
-          process.stdout.write("Verified Vite-transformed /src/main.ts module.\n");
-          process.exit(0);
-        }
-      } catch {}
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-    process.stderr.write("Vite did not serve a transformed /src/main.ts module within 20 seconds.\n");
-    process.exit(1);
-  '; then
+  # Preflight can fail or be interrupted before listener discovery. Cleanup
+  # still owns this child, and must not strand its compiler/server process.
+  vite_pid="$launched_vite_pid"
+  vite_owner="owned"
+  if ! node "$project_root/scripts/dev/verify-frontend-modules.mjs"; then
     echo "The compiled Vite module check failed; Burrata was not launched." >&2
     exit 1
   fi

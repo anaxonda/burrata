@@ -1,0 +1,191 @@
+{
+  "status": "passed",
+  "samples": [
+    {
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "197b457b-6b1b-4fff-b78d-2003ce7f0753",
+      "media": {
+        "buffered": [
+          [
+            0,
+            360
+          ]
+        ],
+        "currentTime": 0.017602,
+        "duration": 360,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            360
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "local",
+      "queueTotal": 1,
+      "queueTrackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "seekSerial": 0,
+      "sessionId": "4ac6e8a4-b446-456d-955d-d7a5402e0ea3",
+      "sourceGeneration": 1792440064096001,
+      "trackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e"
+    },
+    {
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "197b457b-6b1b-4fff-b78d-2003ce7f0753",
+      "media": {
+        "buffered": [
+          [
+            0,
+            360
+          ]
+        ],
+        "currentTime": 0.181967,
+        "duration": 360,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            360
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "local",
+      "queueTotal": 1,
+      "queueTrackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "seekSerial": 0,
+      "sessionId": "4ac6e8a4-b446-456d-955d-d7a5402e0ea3",
+      "sourceGeneration": 1792440064096001,
+      "trackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e"
+    },
+    {
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "197b457b-6b1b-4fff-b78d-2003ce7f0753",
+      "media": {
+        "buffered": [
+          [
+            0,
+            360
+          ]
+        ],
+        "currentTime": 0.341182,
+        "duration": 360,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            360
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "local",
+      "queueTotal": 1,
+      "queueTrackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "seekSerial": 0,
+      "sessionId": "4ac6e8a4-b446-456d-955d-d7a5402e0ea3",
+      "sourceGeneration": 1792440064096001,
+      "trackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e"
+    },
+    {
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "197b457b-6b1b-4fff-b78d-2003ce7f0753",
+      "media": {
+        "buffered": [
+          [
+            0,
+            360
+          ]
+        ],
+        "currentTime": 0.499041,
+        "duration": 360,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            360
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "local",
+      "queueTotal": 1,
+      "queueTrackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "seekSerial": 0,
+      "sessionId": "4ac6e8a4-b446-456d-955d-d7a5402e0ea3",
+      "sourceGeneration": 1792440064096001,
+      "trackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e"
+    },
+    {
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "197b457b-6b1b-4fff-b78d-2003ce7f0753",
+      "media": {
+        "buffered": [
+          [
+            0,
+            360
+          ]
+        ],
+        "currentTime": 0.656916,
+        "duration": 360,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            360
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "local",
+      "queueTotal": 1,
+      "queueTrackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e",
+      "seekSerial": 0,
+      "sessionId": "4ac6e8a4-b446-456d-955d-d7a5402e0ea3",
+      "sourceGeneration": 1792440064096001,
+      "trackId": "local:1ee7b4eab977169478e839092cf1692651e8a28331563cd7b3d986b6f76b741e"
+    }
+  ],
+  "inspectionErrors": 0
+}
