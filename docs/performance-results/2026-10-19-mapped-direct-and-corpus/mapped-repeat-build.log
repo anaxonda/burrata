@@ -1,0 +1,320 @@
+   Compiling burrata v0.1.4 (/home/loki/projects/burrata/src-tauri)
+warning: unused import: `AuthEntry`
+  --> src/managed_provider_session.rs:11:32
+   |
+11 | use self::spotify_auth_cache::{AuthEntry, AuthScope, SpotifyAuthCache};
+   |                                ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/acquisition.rs:610:5
+    |
+610 |     mut cancel: watch::Receiver<bool>,
+    |     ----^^^^^^
+    |     |
+    |     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/acquisition.rs:612:5
+    |
+612 |     mut on_line: F,
+    |     ----^^^^^^^
+    |     |
+    |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/acquisition.rs:656:9
+    |
+656 |     let mut child = match spawn_result {
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2138:9
+     |
+2138 |         mut cancel: watch::Receiver<bool>,
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2449:9
+     |
+2449 |         mut cancel: watch::Receiver<bool>,
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2618:5
+     |
+2618 |     mut found: Vec<Candidate>,
+     |     ----^^^^^
+     |     |
+     |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2829:5
+     |
+2829 |     mut cancel: watch::Receiver<bool>,
+     |     ----^^^^^^
+     |     |
+     |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:3625:5
+     |
+3625 |     mut cancel: watch::Receiver<bool>,
+     |     ----^^^^^^
+     |     |
+     |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/linux_webview_output.rs:554:13
+    |
+554 |         let mut child = Command::new("python3")
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/spotify_auth_refresh_process.rs:47:9
+   |
+47 |     let mut stdout = child
+   |         ----^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/managed_provider_session.rs:1994:9
+     |
+1994 |     let mut stdout = child
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/managed_provider_session.rs:2363:9
+     |
+2363 |     let mut stdout = child
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: use of deprecated method `webkit2gtk::WebViewExt::run_javascript`: Since 2.40
+    --> src/managed_provider_session.rs:2713:30
+     |
+2713 |             platform.inner().run_javascript(
+     |                              ^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/remote_playlists.rs:328:9
+    |
+328 |     let mut response = tokio::time::timeout(
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/webview_audio_transcode.rs:304:12
+    |
+304 |     let Ok(mut child) = command.spawn() else {
+    |            ----^^^^^
+    |            |
+    |            help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/webview_audio_transcode.rs:313:9
+    |
+313 |     let mut cancel = session.stop.subscribe();
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: use of deprecated method `std::sync::atomic::Atomic::<usize>::fetch_update`: renamed to `try_update` for consistency
+   --> src/playback_sources.rs:253:14
+    |
+253 |             .fetch_update(
+    |              ^^^^^^^^^^^^
+    |
+help: replace the use of the deprecated method
+    |
+253 -             .fetch_update(
+253 +             .try_update(
+    |
+
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+  --> src/storage.rs:52:14
+   |
+52 |             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |              ^^^^^^^^^^^^
+   |
+help: replace the use of the deprecated method
+   |
+52 -             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+52 +             .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |
+
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+  --> src/storage.rs:57:14
+   |
+57 |             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |              ^^^^^^^^^^^^
+   |
+help: replace the use of the deprecated method
+   |
+57 -             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+57 +             .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |
+
+warning: value assigned to `verified_snapshot` is never read
+    --> src/remote_playlists.rs:2627:52
+     |
+2627 |         let mut verified_snapshot: Option<Value> = None;
+     |                                                    ^^^^ this value is reassigned later and never used
+...
+2779 |                         verified_snapshot = Some(snapshot);
+     |                         ----------------- `verified_snapshot` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/playback.rs:819:17
+    |
+819 |             let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+    |                 ----^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `candidate`
+    --> src/playback_sources.rs:1552:5
+     |
+1552 |     candidate: &Candidate,
+     |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_candidate`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/playing_track_identification.rs:176:13
+    |
+176 |         let mut first = requests.begin(Some(id(1))).unwrap();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: type `playback_sources::PlaybackDeadline` is more private than the item `acquisition::AcquisitionManager::prefetch_playback_candidates_cancelled`
+    --> src/acquisition.rs:4903:5
+     |
+4903 | /     pub async fn prefetch_playback_candidates_cancelled(
+4904 | |         &self,
+4905 | |         track: &Track,
+4906 | |         alternate_artists: &[String],
+...    |
+4910 | |         deadline: crate::playback_sources::PlaybackDeadline,
+4911 | |     ) -> Result<Vec<Candidate>, String> {
+     | |_______________________________________^ method `acquisition::AcquisitionManager::prefetch_playback_candidates_cancelled` is reachable at visibility `pub`
+     |
+note: but type `playback_sources::PlaybackDeadline` is only usable at visibility `pub(crate)`
+    --> src/playback_sources.rs:138:1
+     |
+ 138 | pub(crate) struct PlaybackDeadline(tokio::time::Instant);
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `remote_playlists::SpotifyProfileInspectionRequest` is more private than the item `remote_playlists::RemotePlaylistService::inspect_spotify_profile_page`
+    --> src/remote_playlists.rs:2117:5
+     |
+2117 | /     pub async fn inspect_spotify_profile_page(
+2118 | |         &self,
+2119 | |         request: &SpotifyProfileInspectionRequest,
+2120 | |     ) -> Result<SpotifyProfileResponseShape> {
+     | |____________________________________________^ method `remote_playlists::RemotePlaylistService::inspect_spotify_profile_page` is reachable at visibility `pub`
+     |
+note: but type `remote_playlists::SpotifyProfileInspectionRequest` is only usable at visibility `pub(crate)`
+    --> src/remote_playlists.rs:738:1
+     |
+ 738 | pub(crate) struct SpotifyProfileInspectionRequest {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `remote_playlists::SpotifyArtistInspectionRequest` is more private than the item `remote_playlists::RemotePlaylistService::inspect_spotify_artist_page`
+    --> src/remote_playlists.rs:2396:5
+     |
+2396 | /     pub async fn inspect_spotify_artist_page(
+2397 | |         &self,
+2398 | |         request: &SpotifyArtistInspectionRequest,
+2399 | |     ) -> Result<SpotifyArtistResponseShape> {
+     | |___________________________________________^ method `remote_playlists::RemotePlaylistService::inspect_spotify_artist_page` is reachable at visibility `pub`
+     |
+note: but type `remote_playlists::SpotifyArtistInspectionRequest` is only usable at visibility `pub(crate)`
+    --> src/remote_playlists.rs:926:1
+     |
+ 926 | pub(crate) struct SpotifyArtistInspectionRequest {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `SpotifyArtistCreditCrosswalkStatus` is more private than the item `remote_playlists::RemotePlaylistService::prepare_spotify_artist_credit_crosswalk`
+    --> src/remote_playlists.rs:2866:5
+     |
+2866 | /     pub async fn prepare_spotify_artist_credit_crosswalk(
+2867 | |         &self,
+2868 | |         artists: &crate::artists::ArtistService,
+2869 | |         track_id: &str,
+...    |
+2872 | |         cancel: tokio::sync::watch::Receiver<bool>,
+2873 | |     ) -> Result<crate::artist_credit_aliases::SpotifyArtistCreditCrosswalkStatus> {
+     | |_________________________________________________________________________________^ method `remote_playlists::RemotePlaylistService::prepare_spotify_artist_credit_crosswalk` is reachable at visibility `pub`
+     |
+note: but type `SpotifyArtistCreditCrosswalkStatus` is only usable at visibility `pub(crate)`
+    --> src/artist_credit_aliases.rs:38:1
+     |
+  38 | pub(crate) struct SpotifyArtistCreditCrosswalkStatus {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `resolve_preview_audio_traced`, `resolve_preview_audio_traced_preparing_alternate`, `resolve_preview_audio_fresh_traced_cancelled`, and `resolve_preview_audio_fresh_or_prepared_traced` are never used
+    --> src/acquisition.rs:5335:25
+     |
+4444 | impl AcquisitionManager {
+     | ----------------------- methods in this implementation
+...
+5335 |     pub(crate) async fn resolve_preview_audio_traced(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5349 |     pub(crate) async fn resolve_preview_audio_traced_preparing_alternate(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5387 |     pub(crate) async fn resolve_preview_audio_fresh_traced_cancelled(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5408 |     pub(crate) async fn resolve_preview_audio_fresh_or_prepared_traced(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `invalidate` is never used
+   --> src/spotify_auth_cache.rs:268:18
+    |
+ 81 | impl SpotifyAuthCache {
+    | --------------------- method in this implementation
+...
+268 |     pub async fn invalidate(&self) {
+    |                  ^^^^^^^^^^
+
+warning: field `field` is never read
+   --> src/track_sort_sql.rs:104:5
+    |
+102 | pub struct AvailabilityJsonPath {
+    |            -------------------- field in this struct
+103 |     pub path: &'static str,
+104 |     field: usize,
+    |     ^^^^^
+    |
+    = note: `AvailabilityJsonPath` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: `burrata` (lib test) generated 31 warnings (run `cargo fix --lib -p burrata --tests` to apply 22 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 3m 19s
+  Executable unittests src/lib.rs (.cache/verification-target/debug/deps/burrata_lib-f37d34080c2fadac)

@@ -1,0 +1,1677 @@
+   Compiling burrata v0.1.4 (/home/loki/projects/burrata/src-tauri)
+warning: unused import: `AuthEntry`
+  --> src/managed_provider_session.rs:11:32
+   |
+11 | use self::spotify_auth_cache::{AuthEntry, AuthScope, SpotifyAuthCache};
+   |                                ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/acquisition.rs:610:5
+    |
+610 |     mut cancel: watch::Receiver<bool>,
+    |     ----^^^^^^
+    |     |
+    |     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/acquisition.rs:612:5
+    |
+612 |     mut on_line: F,
+    |     ----^^^^^^^
+    |     |
+    |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/acquisition.rs:656:9
+    |
+656 |     let mut child = match spawn_result {
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2138:9
+     |
+2138 |         mut cancel: watch::Receiver<bool>,
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2449:9
+     |
+2449 |         mut cancel: watch::Receiver<bool>,
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2618:5
+     |
+2618 |     mut found: Vec<Candidate>,
+     |     ----^^^^^
+     |     |
+     |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:2829:5
+     |
+2829 |     mut cancel: watch::Receiver<bool>,
+     |     ----^^^^^^
+     |     |
+     |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/acquisition.rs:3625:5
+     |
+3625 |     mut cancel: watch::Receiver<bool>,
+     |     ----^^^^^^
+     |     |
+     |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/linux_webview_output.rs:554:13
+    |
+554 |         let mut child = Command::new("python3")
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/spotify_auth_refresh_process.rs:47:9
+   |
+47 |     let mut stdout = child
+   |         ----^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/managed_provider_session.rs:1994:9
+     |
+1994 |     let mut stdout = child
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/managed_provider_session.rs:2363:9
+     |
+2363 |     let mut stdout = child
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: use of deprecated method `webkit2gtk::WebViewExt::run_javascript`: Since 2.40
+    --> src/managed_provider_session.rs:2713:30
+     |
+2713 |             platform.inner().run_javascript(
+     |                              ^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/remote_playlists.rs:328:9
+    |
+328 |     let mut response = tokio::time::timeout(
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/webview_audio_transcode.rs:304:12
+    |
+304 |     let Ok(mut child) = command.spawn() else {
+    |            ----^^^^^
+    |            |
+    |            help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/webview_audio_transcode.rs:313:9
+    |
+313 |     let mut cancel = session.stop.subscribe();
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: use of deprecated method `std::sync::atomic::Atomic::<usize>::fetch_update`: renamed to `try_update` for consistency
+   --> src/playback_sources.rs:253:14
+    |
+253 |             .fetch_update(
+    |              ^^^^^^^^^^^^
+    |
+help: replace the use of the deprecated method
+    |
+253 -             .fetch_update(
+253 +             .try_update(
+    |
+
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+  --> src/storage.rs:52:14
+   |
+52 |             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |              ^^^^^^^^^^^^
+   |
+help: replace the use of the deprecated method
+   |
+52 -             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+52 +             .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |
+
+warning: use of deprecated method `std::sync::atomic::Atomic::<u64>::fetch_update`: renamed to `try_update` for consistency
+  --> src/storage.rs:57:14
+   |
+57 |             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |              ^^^^^^^^^^^^
+   |
+help: replace the use of the deprecated method
+   |
+57 -             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+57 +             .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+   |
+
+warning: value assigned to `verified_snapshot` is never read
+    --> src/remote_playlists.rs:2627:52
+     |
+2627 |         let mut verified_snapshot: Option<Value> = None;
+     |                                                    ^^^^ this value is reassigned later and never used
+...
+2779 |                         verified_snapshot = Some(snapshot);
+     |                         ----------------- `verified_snapshot` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/playback.rs:819:17
+    |
+819 |             let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+    |                 ----^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `candidate`
+    --> src/playback_sources.rs:1552:5
+     |
+1552 |     candidate: &Candidate,
+     |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_candidate`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/playing_track_identification.rs:176:13
+    |
+176 |         let mut first = requests.begin(Some(id(1))).unwrap();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: type `playback_sources::PlaybackDeadline` is more private than the item `acquisition::AcquisitionManager::prefetch_playback_candidates_cancelled`
+    --> src/acquisition.rs:4903:5
+     |
+4903 | /     pub async fn prefetch_playback_candidates_cancelled(
+4904 | |         &self,
+4905 | |         track: &Track,
+4906 | |         alternate_artists: &[String],
+...    |
+4910 | |         deadline: crate::playback_sources::PlaybackDeadline,
+4911 | |     ) -> Result<Vec<Candidate>, String> {
+     | |_______________________________________^ method `acquisition::AcquisitionManager::prefetch_playback_candidates_cancelled` is reachable at visibility `pub`
+     |
+note: but type `playback_sources::PlaybackDeadline` is only usable at visibility `pub(crate)`
+    --> src/playback_sources.rs:138:1
+     |
+ 138 | pub(crate) struct PlaybackDeadline(tokio::time::Instant);
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `remote_playlists::SpotifyProfileInspectionRequest` is more private than the item `remote_playlists::RemotePlaylistService::inspect_spotify_profile_page`
+    --> src/remote_playlists.rs:2117:5
+     |
+2117 | /     pub async fn inspect_spotify_profile_page(
+2118 | |         &self,
+2119 | |         request: &SpotifyProfileInspectionRequest,
+2120 | |     ) -> Result<SpotifyProfileResponseShape> {
+     | |____________________________________________^ method `remote_playlists::RemotePlaylistService::inspect_spotify_profile_page` is reachable at visibility `pub`
+     |
+note: but type `remote_playlists::SpotifyProfileInspectionRequest` is only usable at visibility `pub(crate)`
+    --> src/remote_playlists.rs:738:1
+     |
+ 738 | pub(crate) struct SpotifyProfileInspectionRequest {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `remote_playlists::SpotifyArtistInspectionRequest` is more private than the item `remote_playlists::RemotePlaylistService::inspect_spotify_artist_page`
+    --> src/remote_playlists.rs:2396:5
+     |
+2396 | /     pub async fn inspect_spotify_artist_page(
+2397 | |         &self,
+2398 | |         request: &SpotifyArtistInspectionRequest,
+2399 | |     ) -> Result<SpotifyArtistResponseShape> {
+     | |___________________________________________^ method `remote_playlists::RemotePlaylistService::inspect_spotify_artist_page` is reachable at visibility `pub`
+     |
+note: but type `remote_playlists::SpotifyArtistInspectionRequest` is only usable at visibility `pub(crate)`
+    --> src/remote_playlists.rs:926:1
+     |
+ 926 | pub(crate) struct SpotifyArtistInspectionRequest {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `SpotifyArtistCreditCrosswalkStatus` is more private than the item `remote_playlists::RemotePlaylistService::prepare_spotify_artist_credit_crosswalk`
+    --> src/remote_playlists.rs:2866:5
+     |
+2866 | /     pub async fn prepare_spotify_artist_credit_crosswalk(
+2867 | |         &self,
+2868 | |         artists: &crate::artists::ArtistService,
+2869 | |         track_id: &str,
+...    |
+2872 | |         cancel: tokio::sync::watch::Receiver<bool>,
+2873 | |     ) -> Result<crate::artist_credit_aliases::SpotifyArtistCreditCrosswalkStatus> {
+     | |_________________________________________________________________________________^ method `remote_playlists::RemotePlaylistService::prepare_spotify_artist_credit_crosswalk` is reachable at visibility `pub`
+     |
+note: but type `SpotifyArtistCreditCrosswalkStatus` is only usable at visibility `pub(crate)`
+    --> src/artist_credit_aliases.rs:38:1
+     |
+  38 | pub(crate) struct SpotifyArtistCreditCrosswalkStatus {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `resolve_preview_audio_traced`, `resolve_preview_audio_traced_preparing_alternate`, `resolve_preview_audio_fresh_traced_cancelled`, and `resolve_preview_audio_fresh_or_prepared_traced` are never used
+    --> src/acquisition.rs:5335:25
+     |
+4444 | impl AcquisitionManager {
+     | ----------------------- methods in this implementation
+...
+5335 |     pub(crate) async fn resolve_preview_audio_traced(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5349 |     pub(crate) async fn resolve_preview_audio_traced_preparing_alternate(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5387 |     pub(crate) async fn resolve_preview_audio_fresh_traced_cancelled(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5408 |     pub(crate) async fn resolve_preview_audio_fresh_or_prepared_traced(
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `invalidate` is never used
+   --> src/spotify_auth_cache.rs:268:18
+    |
+ 81 | impl SpotifyAuthCache {
+    | --------------------- method in this implementation
+...
+268 |     pub async fn invalidate(&self) {
+    |                  ^^^^^^^^^^
+
+warning: field `field` is never read
+   --> src/track_sort_sql.rs:104:5
+    |
+102 | pub struct AvailabilityJsonPath {
+    |            -------------------- field in this struct
+103 |     pub path: &'static str,
+104 |     field: usize,
+    |     ^^^^^
+    |
+    = note: `AvailabilityJsonPath` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: `burrata` (lib test) generated 31 warnings (run `cargo fix --lib -p burrata --tests` to apply 22 suggestions)
+    Finished `test` profile [unoptimized] target(s) in 3m 21s
+     Running unittests src/lib.rs (.cache/verification-target/debug/deps/burrata_lib-f37d34080c2fadac)
+
+running 1346 tests
+test acquisition::tests::alternate_preview_audio_format_prefers_webm_then_m4a_without_changing_default ... ok
+test acquisition::tests::archive_reuses_preserved_source_instead_of_newer_mp3_derivative ... ok
+test acquisition::tests::bandcamp_probe_requires_a_small_audio_partial_response_without_purchase_retry ... ok
+test acquisition::tests::alias_query_uses_second_existing_slot_keeps_version_and_stays_within_two_calls ... ok
+test acquisition::tests::blank_candidate_fields_use_nonempty_fallbacks_without_inventing_identity ... ok
+test acquisition::tests::cancelled_catalog_completion_is_not_cached_and_foreground_can_retry ... ok
+test acquisition::tests::cancelled_speculative_search_owner_leaves_foreground_waiter_independent ... ok
+test acquisition::tests::cached_audio_url_and_format_metadata_stay_from_the_same_resolution ... ok
+test acquisition::tests::chapter_label_artist_and_title_are_unverified_and_conservative ... ok
+test acquisition::tests::chapter_metadata_is_used_only_for_a_valid_unique_catalog_match ... ok
+test acquisition::tests::cancelled_candidate_cache_waiter_does_not_cancel_owner_or_lose_result ... ok
+test acquisition::tests::cached_inspection_is_singleflight_and_rescored_for_each_track ... ok
+test acquisition::tests::default_ffmpeg_uses_path_lookup ... ok
+test acquisition::tests::default_original_versions_do_not_pollute_provider_queries ... ok
+test acquisition::tests::candidate_search_discards_results_with_no_source_identity ... ok
+test acquisition::tests::chapter_raw_source_is_copied_to_each_jobs_confined_staging ... ok
+test acquisition::tests::empty_search_result_is_cached_to_avoid_repeating_failed_lookups ... ok
+test acquisition::tests::expired_candidate_search_entry_is_refreshed_and_then_reused ... ok
+test acquisition::tests::expired_or_cancelled_playback_stage_skips_setup_callback ... ok
+test acquisition::tests::empty_exact_version_search_retries_without_version_and_keeps_low_match_uncertain ... ok
+test acquisition::tests::failed_stream_cache_entry_can_be_invalidated_before_same_source_retry ... ok
+test acquisition::tests::concurrent_preview_audio_resolutions_share_one_lookup ... ok
+test acquisition::tests::concurrent_raw_audio_searches_share_results_and_cache_empty_successes ... ok
+test acquisition::tests::fresh_stream_forbidden_gets_longer_bounded_retry_than_throttling ... ok
+test acquisition::tests::flat_warm_cache_is_distinct_and_foreground_completes_catalog_before_caching ... ok
+test acquisition::tests::incomplete_managed_provider_falls_back_to_system_ytdlp_only_when_available ... ok
+test acquisition::tests::inspection_cache_key_tracks_source_and_effective_tool_profile ... ok
+test acquisition::tests::invalidating_one_source_does_not_discard_an_independent_source_cache ... ok
+test acquisition::tests::invalidation_during_lookup_cannot_restore_a_stale_stream ... ok
+test acquisition::tests::known_duration_precision_fallback_uses_only_the_available_second_query_slot ... ok
+test acquisition::tests::known_duration_unverified_search_results_allow_exact_catalog_fallback ... ok
+test acquisition::tests::flat_batch_observer_runs_before_catalog_and_does_not_finish_search_early ... ok
+test acquisition::tests::independent_web_provider_queries_run_concurrently ... ok
+test acquisition::tests::managed_provider_runtime_replaces_configured_runtime_with_bundled_node ... ok
+test acquisition::tests::legacy_youtube_results_url_search_keeps_fifty_row_cap_and_video_identity ... ok
+test acquisition::tests::monochrome_search_is_canonical_plus_at_most_one_distinct_alias ... ok
+test acquisition::tests::monochrome_probe_trace_marks_explicit_cancel_and_outer_deadline_drop ... ok
+test acquisition::tests::mweb_requires_installed_managed_youtube_provider_args ... ok
+test acquisition::tests::music_catalog_locator_requires_one_distinct_exact_recording ... ok
+test acquisition::tests::failed_playback_profile_cooldown_is_bounded_and_leaves_alternates_eligible ... ok
+test acquisition::tests::chapter_track_identity_is_accepted_by_asset_registration ... ok
+test acquisition::tests::optional_catalog_does_not_start_when_extraction_reserve_is_unavailable ... ok
+test acquisition::tests::newer_preview_generation_cancels_old_search_and_rejects_late_result ... ok
+test acquisition::tests::optional_catalog_research_leaves_time_for_extraction_and_access_checks ... ok
+test acquisition::tests::ordinary_youtube_identity_requires_fresh_verified_channel_fields ... ok
+test acquisition::tests::concurrent_preview_cache_misses_share_one_search ... ok
+test acquisition::tests::one_provider_failure_does_not_discard_other_provider_candidates ... ok
+test acquisition::tests::coalesced_lookup_short_deadline_does_not_expire_later_caller ... ok
+test acquisition::tests::denied_signed_url_does_not_block_fresh_extraction_of_the_same_format ... ok
+test acquisition::tests::parses_chapters_and_thumbnail_fallback_as_unverified_metadata ... ok
+test acquisition::tests::peer_monitor_limit_can_be_cancelled_without_leaking_slots ... ok
+test acquisition::tests::outer_cancellation_drop_kills_live_helper_process_group ... ok
+test acquisition::tests::playback_flat_search_retains_bare_and_missing_urls_but_rejects_id_mismatch ... ok
+test acquisition::tests::playback_flat_youtube_bare_id_is_canonicalized_without_broadening_url_admission ... ok
+test acquisition::tests::outer_cancellation_drop_preserves_group_until_descendant_pipes_close ... ok
+test acquisition::tests::playback_source_search_drops_imported_unverified_candidate_but_keeps_explicit_audio_search ... ok
+test acquisition::tests::prepared_alternate_cancel_and_deadline_stop_before_network ... ok
+test acquisition::tests::prepared_alternate_preserves_recording_identity_and_uses_its_own_format_fields ... ok
+test acquisition::tests::outer_deadline_drop_kills_helper_process_group ... ok
+test acquisition::tests::prepared_alternate_rejects_video_manifests_foreign_hosts_expiry_and_changed_identity ... ok
+test acquisition::tests::preview_access_checks_known_length_start_and_tail_ranges ... ok
+test acquisition::tests::outer_cancellation_drop_drives_spawn_retry_before_helper_readiness ... ok
+test acquisition::tests::optional_catalog_timeout_returns_flat_rows_without_caching_incomplete_search ... ok
+test acquisition::tests::preview_audio_cache_respects_signed_url_expiry ... ok
+test acquisition::tests::preview_audio_cache_separates_default_and_alternate_format_urls ... ok
+test acquisition::tests::preview_audio_cache_hit_is_correlated_but_emits_no_monochrome_probe ... ok
+test acquisition::tests::preview_audio_headers_keep_only_safe_allowlisted_values ... ok
+test acquisition::tests::preview_audio_cancelled_owner_hands_off_to_already_queued_waiter ... ok
+test acquisition::tests::preview_audio_joiner_cancellation_keeps_worker_identity_and_worker_alive ... ok
+test acquisition::tests::playback_search_uses_provider_alternatives_after_imported_hint ... ok
+test acquisition::tests::preview_operation_deadline_uses_the_configured_startup_timeout ... ok
+test acquisition::tests::preview_audio_worker_and_joiner_survive_closed_false_channels ... ok
+test acquisition::tests::preview_audio_metadata_requires_audio_only_and_trusted_public_hosts ... ok
+test acquisition::tests::preview_probe_error_classifies_truncated_local_response_body ... ok
+test acquisition::tests::private_networks_rejected ... ok
+test acquisition::tests::provider_host_boundaries ... ok
+test acquisition::tests::preview_search_uses_three_result_query_and_caps_candidates ... ok
+test acquisition::tests::public_magalenha_flat_results_use_the_existing_strict_playback_gate ... ok
+test acquisition::tests::public_music_feature_locator_retains_complete_explicit_performers_without_proving_playback ... ok
+test acquisition::tests::raw_audio_search_pages_use_playlist_offsets_and_stop_on_empty_page ... ok
+test acquisition::tests::raw_audio_search_uses_query_directly_and_maps_unverified_tracks ... ok
+test acquisition::tests::raw_search_track_preserves_known_artist_and_does_not_promote_uploader ... ok
+test acquisition::tests::provider_reset_fences_inflight_metadata_and_prepared_audio_before_access ... ok
+test acquisition::tests::raw_search_track_recognizes_single_spaced_credit_separators ... ok
+test acquisition::tests::nested_search_and_extraction_share_one_absolute_deadline ... ok
+test acquisition::tests::raw_youtube_performance_title_gets_live_version_without_promoting_uploader ... ok
+test acquisition::tests::rejected_peers_are_downranked_without_blaming_them_for_shutdown ... ok
+test acquisition::tests::restrictions_are_not_inferred_as_permissions ... ok
+test acquisition::tests::retry_only_terminal_errors ... ok
+test acquisition::tests::relative_signed_url_expiry_is_anchored_to_signing_time ... ok
+test acquisition::tests::run_tool_cancellation_during_busy_spawn_backoff_prevents_launch ... ok
+test acquisition::tests::repeated_candidate_search_uses_cached_fake_subprocess_result ... ok
+test acquisition::tests::run_tool_cancels_when_watch_sender_closes_with_pending_true ... ok
+test acquisition::tests::run_tool_busy_spawn_deadline_is_bounded_and_does_not_launch ... ok
+test acquisition::tests::sequential_provider_fallback_can_reuse_generation ... ok
+test acquisition::tests::preview_search_honors_provider_timeout ... ok
+test acquisition::tests::slskd_free_slot_is_availability_tiebreaker_and_not_identity_score ... ok
+test acquisition::tests::source_statistics_preserve_zero_and_distinguish_soundcloud_plays ... ok
+test acquisition::tests::spotify_catalog_recording_has_a_plausible_review_candidate ... ok
+test acquisition::tests::startup_recovers_only_interrupted_authorized_soulseek_jobs ... ok
+test acquisition::tests::shared_deadline_keeps_attempt_cancellation_independent ... ok
+test acquisition::tests::run_tool_persistent_busy_spawn_uses_at_most_one_retry ... ok
+test acquisition::tests::subprocess_progress_and_final_path_are_separate_messages ... ok
+test acquisition::tests::topic_metadata_retains_only_structured_identity_and_credit ... ok
+test acquisition::tests::traced_playback_candidate_cache_distinguishes_waited_hit ... ok
+test acquisition::tests::traced_playback_candidate_cache_reports_observed_miss_then_hit_only ... ok
+test acquisition::tests::transient_network_and_cancellation_never_cool_down_a_playback_profile ... ok
+test acquisition::tests::waiting_peers_do_not_consume_processing_workers ... ok
+test acquisition::tests::warm_budget_without_catalog_time_is_not_a_full_search_cache_hit ... ok
+test acquisition::tests::warmup_cache_includes_catalog_locator_before_foreground_hit ... ok
+test acquisition::tests::run_tool_retries_one_transient_text_file_busy_spawn ... ok
+test acquisition::tests::youtube_results_search_url_preserves_verbatim_query_with_safe_encoding ... ok
+test acquisition::tests::youtube_results_url_search_preserves_query_paging_and_video_identity ... ok
+test artist_alias_discovery::generic_isrc_tests::cached_generic_discovery_reuses_proof_without_http ... ok
+test acquisition::tests::subprocess_cancellation_is_prompt ... ok
+test artist_alias_discovery::live_qualification::public_artist_authority_aliases_are_independently_corroborated ... ignored, public metadata HTTP; run explicitly with --ignored --nocapture
+test artist_alias_discovery::provider_identity_tests::url_lookup_requires_exact_resource_and_unique_identity ... ok
+test artist_alias_discovery::generic_isrc_tests::complete_search_uniqueness_and_provider_boundaries_are_required ... ok
+test artist_alias_discovery::tests::independent_shared_ids_required ... ok
+test artist_alias_discovery::tests::shared_discogs_identity_can_bridge_missing_direct_link_but_not_conflict ... ok
+test artist_alias_discovery::tests::similar_hosts_and_deprecated_claims_fail ... ok
+test artist_alias_lookup::tests::expired_caller_starts_no_work ... ok
+test acquisition::tests::subprocess_timeout_terminates_instead_of_waiting_for_output ... ok
+test artist_alias_discovery::recording_proof_tests::independent_isrc_alias_proof_requires_every_identity_field ... ok
+test artist_credit_aliases::tests::benchmark_verified_alias_cache_matching ... ignored, explicit local cache/matching microbenchmark; excludes network and playback
+test acquisition::tests::preview_probe_error_classes_use_only_reqwest_categories ... ok
+test artist_alias_lookup::tests::shared_callers_cancel_independently_and_execute_once ... ok
+test artist_credit_aliases::tests::actual_cached_release_parser_round_trips_exact_occurrence_and_rejects_forged_coordinates ... ok
+test artist_alias_discovery::generic_isrc_tests::imports_share_recording_scoped_alias_proof_without_spotify_ids ... ok
+test acquisition::tests::known_length_range_probe_requires_exact_bounded_body_and_honors_cancellation ... ok
+test artist_credit_aliases::tests::discogs_exact_occurrence_binds_each_performer_alias_without_inventing_names ... ok
+test artist_credit_aliases::tests::exact_release_occurrence_and_credit_cache_are_required_before_alias_expansion ... ok
+test artist_credit_aliases::tests::generic_isrc_proof_retains_conflict_guard_and_all_source_fields ... ok
+test artist_credit_aliases::tests::per_credit_matching_reaches_late_multilingual_aliases_without_dropping_guests ... ok
+test artist_credit_aliases::tests::exact_recording_and_ordered_artist_url_relations_enable_scoped_alias ... ok
+test artist_credit_aliases::tests::independent_isrc_fallback_retains_conflict_guard_without_enriching_track ... ok
+test artist_credit_aliases::tests::multi_artist_credit_aliases_substitute_only_the_attached_ordered_member ... ok
+test artist_credit_aliases::tests::recording_credit_crosswalk_rejects_incomplete_or_conflicting_source_identity ... ok
+test artist_credit_aliases::tests::recording_credit_crosswalk_rejects_forged_or_stale_cache_context ... ok
+test artist_credit_aliases::tests::spotify_crosswalk_alias_can_use_only_recent_verified_track_context_cache ... ok
+test artist_credit_aliases::tests::verified_credit_sets_can_match_without_compatibility_tracks ... ok
+test artists::tests::album_search_parser_uses_release_group_identity_and_url ... ok
+test artists::tests::chapter_catalog_suggestion_requires_one_exact_match_and_drops_full_recording_isrc ... ok
+test artist_credit_aliases::tests::missing_profile_or_release_cache_fails_closed ... ok
+test artists::tests::discogs_master_and_release_are_distinct_source_entities ... ok
+test artists::tests::discogs_member_and_group_relationships_keep_roles_and_provider_ids ... ok
+test artists::tests::discogs_non_artist_track_credit_does_not_blank_the_release_artist ... ok
+test artist_credit_aliases::tests::provider_artist_mappings_are_reusable_and_require_every_unique_credit ... ok
+test artist_credit_aliases::tests::spotify_embedded_album_context_cannot_bypass_missing_ambiguous_or_conflicting_cache ... ok
+test artists::tests::explicit_crosslink_parsing_rejects_lookalike_links ... ok
+test artists::tests::html_markup_is_removed_from_lastfm_bio ... ok
+test artists::tests::musicbrainz_album_query_searches_titles_and_artists_as_literal_text ... ok
+test artist_credit_aliases::tests::spotify_crosswalk_alias_requires_exact_cache_mapping_and_preserves_source_track ... ok
+test artist_credit_aliases::tests::retained_hydration_preserves_original_fields_and_enrichment_proof ... ok
+test artists::tests::discogs_parser_uses_main_credits_and_defaults_empty_track_credit_roles ... ok
+test artists::tests::discogs_search_404_keeps_musicbrainz_artist_result_usable ... ok
+test artists::tests::recording_tracks_keep_first_release_date_and_unknown_mix_provenance ... ok
+test artists::tests::release_cursor_keeps_musicbrainz_offset_and_discogs_page_independent ... ok
+test artists::tests::discogs_parser_flattens_subtracks_and_keeps_various_artist_credit ... ok
+test artists::tests::musicbrainz_track_parser_preserves_compilation_credits_and_occurrences ... ok
+test artists::tests::search_parsers_keep_provider_ids_and_disambiguation_separate ... ok
+test artists::tests::musicbrainz_track_parser_uses_track_credit_when_recording_credit_is_empty ... ok
+test artists::tests::spotify_same_title_track_outside_album_is_rejected_before_catalog_http ... ok
+test artists::tests::unsafe_links_and_untrusted_refs_are_rejected ... ok
+test artists::tests::verified_spotify_unique_index_is_invalidated_by_duplicate_or_missing_target ... ok
+test artwork_display::tests::reads_supported_magic_only_inside_owned_flat_cache ... ok
+test artwork_display::tests::rejects_size_and_non_cache_filenames ... ok
+test artwork_display::tests::rejects_symlink_files_and_cache_directory ... ok
+test artwork_protocol_trace::tests::classifies_only_known_asset_error_prefixes_without_retaining_suffixes ... ok
+test artwork_protocol_trace::tests::unknown_messages_are_discarded_and_registration_state_is_fixed ... ok
+test artwork_resource_probe::tests::completion_wait_returns_only_after_observation_finishes ... ok
+test artwork_resource_probe::tests::dispatch_report_uses_fixed_enums_without_uri_data ... ok
+test artwork_resource_probe::tests::missing_glib_completion_is_reported_as_timed_out_at_deadline ... ok
+test artwork_resource_probe::tests::observes_only_exact_asset_path_while_ignoring_probe_query ... ok
+test artwork_resource_probe::tests::report_contains_no_paths_urls_or_error_messages ... ok
+test asset_protocol_startup_grant_tests::initial_scope_classification_preserves_exact_tauri_permission_behavior ... ok
+test asset_protocol_startup_grant_tests::no_music_root_keeps_every_asset_on_explicit_grant_path ... ok
+test automation::exact_playlist_and_history_navigation_are_finite_route_only_targets ... ok
+test automation::tests::acknowledged_history_pulses_move_the_same_array_and_keep_status_dto ... ok
+test automation::tests::advertised_discovery_sources_are_accepted_by_request_validation ... ok
+test automation::tests::app_status_exposes_only_sanitized_managed_provider_qualification ... ok
+test automation::tests::artwork_diagnostics_redacts_private_fields_and_rejects_unbounded_data ... ok
+test automation::tests::bearer_token_is_required ... ok
+test automation::tests::chapter_candidate_urls_are_provider_scoped ... ok
+test automation::tests::chapter_ids_and_ranges_are_stable_and_bounded ... ok
+test automation::tests::discovery_cursor_argument_accepts_buffered_cursors_and_rejects_over_limit ... ok
+test automation::tests::discovery_cursor_schema_matches_the_decoder_protocol_limit ... ok
+test automation::tests::history_revision_mismatch_rejects_without_mutation_and_full_resync_restores_it ... ok
+test automation::tests::history_source_and_client_resets_require_full_owned_history_and_clear_old_records ... ok
+test automation::tests::idempotency_keys_reject_conflicting_signatures ... ok
+test automation::tests::identify_completion_drops_unregistered_request_ids ... ok
+test automation::tests::identify_completion_preserves_only_safe_recognized_artwork ... ok
+test automation::tests::identify_completion_sanitizes_known_fields_and_rejects_oversized_or_unknown_shapes ... ok
+test automation::tests::identify_result_requires_playing_unchanged_webview_identity_and_matching_result_track ... ok
+test automation::tests::legacy_playback_snapshots_remain_accepted_before_protocol_negotiation ... ok
+test automation::tests::list_tracks_page_tool_is_read_scoped_with_bounded_paging_and_filters ... ok
+test automation::tests::logical_window_readback_converts_client_area_pixels_at_display_scale ... ok
+test automation::tests::main_ui_capture_is_finite_and_read_only ... ok
+test automation::tests::malformed_arguments_are_rejected_and_missing_tracks_are_typed ... ok
+test automation::tests::malformed_history_full_packets_do_not_commit_queue_or_sequence ... ok
+test automation::tests::mcp_identification_cancel_tombstones_both_backends_before_identify_arrives ... ok
+test automation::tests::native_playback_automation_payload_redacts_paths_and_private_or_signed_urls ... ok
+test automation::tests::navigate_ui_tool_is_control_scoped_and_bounded ... ok
+test automation::tests::new_automation_tools_have_explicit_scopes_and_schemas ... ok
+test automation::tests::optional_u32_arguments_accept_the_u32_maximum_and_absence ... ok
+test automation::tests::optional_u32_arguments_reject_negative_fractional_and_overflow_values ... ok
+test automation::tests::origins_are_restricted ... ok
+test automation::tests::pending_playback_guard_cleans_registry_when_request_is_dropped ... ok
+test automation::tests::pending_search_ui_guard_cleans_registry_and_active_slot_on_drop ... ok
+test automation::tests::permission_defaults_are_scoped ... ok
+test automation::tests::playback_failure_history_is_allowlisted_redacted_and_preserved_in_status_pages ... ok
+test automation::tests::playback_failure_history_rejects_unbounded_stale_and_malformed_records ... ok
+test automation::tests::playback_history_output_hides_local_paths_and_keeps_stable_ids ... ok
+test automation::tests::playback_history_search_options_are_bounded_and_validated ... ok
+test automation::tests::playback_layout_accepts_only_sanitized_track_state_counts ... ok
+test automation::tests::playback_layout_drops_nonallowlisted_payload_fields ... ok
+test automation::tests::playback_layout_rejects_unknown_or_inconsistent_track_counts ... ok
+test automation::tests::playback_layout_reports_queue_header_clipping_and_control_overlaps ... ok
+test automation::tests::playback_layout_reports_real_overlap_and_overflow_from_allowed_roles ... ok
+test automation::tests::playback_layout_tool_is_read_only_and_requires_no_arguments ... ok
+test automation::tests::playback_pages_remain_bounded_and_preserve_duplicate_occurrences_without_full_queue_watch_updates ... ok
+test automation::tests::playback_publisher_rejects_reordered_sequences_and_retired_page_ids ... ok
+test automation::tests::playback_queue_pulses_reuse_arc_and_reject_mismatched_revisions_wholesale ... ok
+test automation::tests::playback_state_pages_bound_queue_and_preserve_control_metadata ... ok
+test automation::tests::player_panel_request_is_bounded_and_completion_is_correlated ... ok
+test automation::tests::playing_audio_identification_tools_require_control_and_share_a_bounded_uuid ... ok
+test automation::tests::provider_session_tools_require_control_and_accept_no_credentials ... ok
+test automation::tests::public_duration_repair_errors_are_sanitized ... ok
+test automation::tests::public_spotify_duration_tools_have_strict_scopes_and_no_argument_schemas ... ok
+test automation::tests::public_track_payload_removes_local_paths_but_keeps_availability ... ok
+test automation::tests::queue_modes_are_explicit_and_validated ... ok
+test automation::tests::queue_ui_completion_rejects_unbounded_untrusted_or_secret_fields ... ok
+test automation::tests::queue_ui_requires_exact_isolated_marker_and_paused_distinct_occurrences ... ok
+test automation::tests::queue_ui_strict_schema_and_scope_reject_arbitrary_input ... ok
+test automation::tests::queued_acceptance_publishes_before_receipt_and_preserves_history_ack ... ok
+test automation::tests::queued_acceptance_requires_full_exact_projection_and_occurrence ... ok
+test automation::tests::queued_cancelled_superseded_and_wrong_transport_never_publish ... ok
+test automation::tests::queued_invalid_receipt_or_projection_never_publishes ... ok
+test automation::tests::queued_playback_tools_keep_legacy_play_schema_and_require_control_uuid ... ok
+test automation::tests::queued_stale_publication_can_retry_but_duplicate_receipt_cannot_republish ... ok
+test automation::tests::radio_mcp_tools_have_narrow_scopes_bounded_inputs_and_stable_track_identity ... ok
+test automation::tests::release_tracks_tool_requires_release_and_artist_references ... ok
+test automation::tests::resize_window_arguments_accept_bounded_integer_sizes_and_restore_state ... ok
+test automation::tests::resize_window_arguments_reject_fractional_or_out_of_range_sizes ... ok
+test automation::tests::resize_window_tool_is_control_scoped_with_a_bounded_schema ... ok
+test automation::tests::search_control_completions_are_bounded_and_action_typed ... ok
+test automation::tests::search_control_inputs_reject_unknown_wrong_typed_and_out_of_range_values ... ok
+test automation::tests::search_ui_completion_returns_only_allowlisted_counts_and_status ... ok
+test automation::tests::search_ui_completion_sanitizes_optional_source_coverage ... ok
+test automation::tests::search_ui_request_accepts_only_bounded_query_source_and_kind ... ok
+test automation::tests::search_ui_tool_is_control_scoped_and_strictly_typed ... ok
+test automation::tests::spotify_artist_inspector_is_read_scoped_and_rejects_extra_arguments ... ok
+test automation::tests::spotify_browse_arguments_validate_ids_and_numeric_cursors ... ok
+test automation::tests::spotify_profile_inspection_tool_is_read_only_and_accepts_only_bounded_page_args ... ok
+test automation::tests::spotify_profile_ui_navigation_is_canonical_and_completion_is_exact ... ok
+test automation::tests::tool_names_have_explicit_scopes ... ok
+test automation::tests::ui_navigation_settings_categories_are_finite_and_settings_only ... ok
+test automation::tests::ui_navigation_targets_are_finite_and_exact ... ok
+test automation::tests::verification_playlist_tool_is_control_scoped_and_provider_only ... ok
+test automation::tests::webview_media_event_diagnostics_are_bounded_owned_and_redacted ... ok
+test automation::tests::webview_media_inspection_is_read_only_no_argument_and_sanitizes_element_fields ... ok
+test automation::tests::webview_watch_projection_skips_history_before_cloning_and_explicit_pages_keep_it ... ok
+test automation::tests::youtube_inspection_tool_is_read_only_and_accepts_only_playlist_and_cursor ... ok
+test automation::verification_intent_mcp_tests::creation_requires_explicit_complete_approval ... ok
+test automation::writeback_mcp_parity_tests::candidate_search_parser_is_bounded_and_read_only ... ok
+test automation::writeback_mcp_parity_tests::reviewed_preview_parser_preserves_tokens_and_rejects_unreviewed_payloads ... ok
+test automation::youtube_library_inspector_is_read_only_and_has_no_identifier_arguments ... ok
+test autotag::tests::excerpt_candidate_cannot_carry_full_recording_metadata ... ok
+test autotag::tests::first_release_date_is_not_a_recording_date ... ok
+test autotag::tests::high_fuzzy_score_does_not_override_exact_match_gate ... ok
+test autotag::tests::named_remix_identity_must_match_for_automatic_application ... ok
+test autotag::tests::provider_errors_are_retryable_and_leave_source_metadata_untouched ... ok
+test autotag::tests::raw_fingerprint_threshold_and_source_conflicts_force_review ... ok
+test autotag::tests::records_ignore_superseded_hash_and_deduplicate_current_rows ... ok
+test autotag::tests::strong_catalog_match_requires_exact_identity_and_duration ... ok
+test bandcamp::tests::exact_public_bandcamp_track_url_is_required ... ok
+test bandcamp::tests::only_https_stream_paths_on_numbered_bcbits_hosts_are_allowed ... ok
+test bandcamp::tests::page_resolution_stops_when_cancelled_or_deadline_has_elapsed ... ok
+test bandcamp::tests::redacted_static_metadata_requires_full_track_identity_and_mp3_stream ... ok
+test bandcamp::tests::truncated_or_restricted_public_metadata_is_rejected ... ok
+test browser_bridge::tests::additional_sources_keep_safe_identity_and_reject_lookalikes ... ok
+test browser_bridge::tests::capture_entry_limit_remains_enforced ... ok
+test browser_bridge::tests::completeness_requires_total_and_count ... ok
+test browser_bridge::tests::discovery_only_authenticated_loopback ... ok
+test browser_bridge::tests::duplicates_retain_positions ... ok
+test browser_bridge::tests::first_occurrence_is_smallest_position_and_gaps_are_incomplete ... ok
+test browser_bridge::tests::framing_roundtrip_and_malformed ... ok
+test browser_bridge::tests::lastfm_chart_periods_remain_distinct_without_tracking_parameters ... ok
+test browser_bridge::tests::localized_spotify_paths_are_validated_and_canonicalized ... ok
+test browser_bridge::tests::malformed_ids_remain_unverified ... ok
+test browser_bridge::tests::manual_companion_heartbeat_marks_fresh_connection_without_app_polling ... ok
+test browser_bridge::tests::native_forwarding_authenticates_exact_request ... ignored, Requires permission to bind a local TCP listener; run explicitly outside restricted sandbox
+test browser_bridge::tests::only_complete_known_empty_playlists_are_valid_empty_snapshots ... ok
+test browser_bridge::tests::playlists_never_get_chart_rank ... ok
+test browser_bridge::tests::positive_finite_metadata_required ... ok
+test browser_bridge::tests::provider_requests_and_results_are_bound_to_the_managed_session ... ok
+test browser_bridge::tests::raw_page_title_is_retained_in_track_provenance ... ok
+test browser_bridge::tests::spotify_album_display_name_is_used_without_rewriting_recording_artist ... ok
+test browser_bridge::tests::spotify_album_uses_album_position_and_requires_matching_url_kind ... ok
+test browser_bridge::tests::spotify_get_track_operation_requires_one_exact_track_id ... ok
+test browser_bridge::tests::unsafe_urls_and_fields_rejected ... ok
+test browser_bridge::tests::verification_playlist_transport_accepts_only_account_scope ... ok
+test browser_bridge::tests::youtube_pairing_code_selects_only_a_fixed_loopback_target ... ok
+test candidate_audio_deadline_tests::ready_audio_with_remaining_budget_does_not_cancel_its_registration ... ok
+test candidate_audio_deadline_tests::spent_budget_rejects_even_immediately_ready_audio_without_resetting_deadline ... ok
+test candidate_audio_deadline_tests::timed_out_subscriber_leaves_independent_caller_cancellation_unchanged ... ok
+test candidate_preview::tests::controls_validate_numeric_ranges ... ok
+test candidate_preview::tests::metadata_serialized_as_data ... ok
+test candidate_preview::tests::reject_playlists_and_wrong_hosts ... ok
+test candidate_preview::tests::rejects_older_preview_request_generations ... ok
+test candidate_preview::tests::rejects_stale_and_nonfinite_status ... ok
+test candidate_preview::tests::scoped_stop_matches_only_its_current_session ... ok
+test candidate_preview::tests::soundcloud_track_url ... ok
+test candidate_preview::tests::youtube_canonical_urls ... ok
+test collection_sources::tests::bandcamp_discover_title_strips_storefront_boilerplate ... ok
+test collection_sources::tests::bandcamp_discover_urls_accept_only_discover_and_artist_album_routes ... ok
+test collection_sources::tests::discover_combines_only_album_tracklists_and_preserves_partial_warnings ... ok
+test collection_sources::tests::lastfm_client_challenge_is_not_misread_as_an_empty_complete_chart ... ok
+test collection_sources::tests::lastfm_explicit_period_and_presets_survive_in_canonical_source ... ok
+test collection_sources::tests::lastfm_http_track_links_are_normalized_only_for_exact_lastfm_hosts ... ok
+test collection_sources::tests::lastfm_public_html_rows_are_ordered_and_explicitly_partial ... ok
+test collection_sources::tests::lastfm_rejects_unknown_periods_and_custom_date_ranges ... ok
+test collection_sources::tests::lastfm_tag_route_decodes_spaces_and_percent_escapes_without_losing_identity ... ok
+test collection_sources::tests::lastfm_tag_toptracks_uses_live_json_tracks_root ... ok
+test collection_sources::tests::lastfm_user_toptracks_uses_the_user_specific_response_key ... ok
+test collection_sources::tests::live_bandcamp_debut_album_import_validates_and_persists_tracklist ... ignored, requires public Bandcamp album access
+test collection_sources::tests::live_bandcamp_discover_collection_imports_one_explicit_album_tracklist ... ignored, requires public Bandcamp album access
+test collection_sources::tests::live_lastfm_public_chart_import_or_browser_fallback_is_truthful ... ignored, requires public Last.fm chart access
+test collection_sources::tests::live_shazam_top_200_import_validates_and_persists_complete_snapshot ... ignored, requires public Shazam chart access
+test collection_sources::tests::parses_tralbumdata_without_treating_album_as_recording_metadata ... ok
+test collection_sources::tests::refuses_arbitrary_hosts_and_bad_bandcamp_routes ... ok
+test collection_sources::tests::shazam_csv_preserves_row_order_and_rank_without_catalog_guessing ... ok
+test connections::tests::explicit_session_secret_works_when_keyring_fails_and_suppresses_stale_fallback ... ok
+test directory_browser::tests::actual_scan_reuses_existing_invalid_audio_bytes_without_invoking_ffprobe ... ok
+test directory_browser::tests::browse_immediate_children_and_supported_audio_pages_without_indexing ... ok
+test directory_browser::tests::cancellation_after_legacy_hash_does_not_commit_a_freshness_marker ... ok
+test directory_browser::tests::cancelled_or_changed_files_cannot_commit_stale_index_data ... ok
+test directory_browser::tests::changed_legacy_asset_is_unavailable_and_never_overwrites_saved_metadata ... ok
+test directory_browser::tests::directory_availability_uses_active_query_and_chapter_duration_scope ... ok
+test directory_browser::tests::directory_duration_filter_uses_chapter_range_not_parent_duration ... ok
+test directory_browser::tests::directory_query_is_global_literal_unicode_and_matches_metadata_or_filename ... ok
+test artists::tests::musicbrainz_album_search_includes_artist_matches ... ok
+test artists::tests::scoped_discogs_artist_search_only_calls_discogs_and_returns_its_error ... ok
+test directory_browser::tests::directory_sort_hydrates_exact_asset_analysis_and_preserves_manual_edits ... ok
+test directory_browser::tests::explicit_roots_are_persisted_independently_and_remove_does_not_delete_audio ... ok
+test directory_browser::tests::global_sort_filters_displayed_duration_buckets_before_pagination_and_keeps_unknown_last ... ok
+test acquisition::tests::preview_access_probe_reuses_safe_stream_headers ... ok
+test directory_browser::tests::scan_jobs_reject_overlap_and_cancellation_finishes_without_indexing ... ok
+test directory_browser::tests::indexed_same_content_paths_keep_distinct_assets_and_pinned_playback_tracks ... ok
+test directory_browser::tests::legacy_asset_verifies_hash_once_then_reuses_metadata_and_exact_asset_without_probe ... ok
+test directory_browser::tests::sort_availability_job_completes_for_unindexed_files_without_hydrating_page ... ok
+test directory_browser::tests::tree_children_are_directory_only_sorted_and_bounded_without_indexing ... ok
+test directory_browser::tests::symlink_roots_directories_and_files_are_never_followed ... ok
+test directory_browser::tests::tree_children_never_follow_symlink_directories ... ok
+test discovery::tests::audio_search_cursor_binds_provider_query_kinds_and_offset ... ok
+test discovery::tests::buffered_discovery_cursor_binds_isrc_and_keeps_legacy_none_compatible ... ok
+test discovery::tests::capped_multi_kind_pages_buffer_every_result_before_advancing_provider_cursor ... ok
+test discovery::tests::continuation_page_deduplicates_seen_ids_and_advances_provider_token ... ok
+test discovery::tests::empty_partial_search_keeps_poll_cursor_and_complete_results_page_without_gaps ... ok
+test discovery::tests::failed_music_continuation_keeps_mixed_search_on_video_offset ... ok
+test directory_browser::tests::working_artifacts_are_excluded_without_hiding_ordinary_hidden_audio ... ok
+test discovery::tests::library_search_preserves_unicode_case_folding_and_page_order ... ok
+test discovery::tests::library_search_finds_imported_remixer_metadata_and_pages_saved_tracks ... ok
+test discovery::tests::monochrome_search_reports_unknown_coverage_without_fabricating_a_cursor ... ok
+test discovery::tests::normalized_remote_catalog_artist_credits_reach_discovery_provenance ... ok
+test discovery::tests::partial_catalog_status_survives_buffered_page_drain_and_legacy_cursors ... ok
+test discovery::tests::monochrome_search_caches_result_until_favorite_promotes_it ... ok
+test discovery::tests::remote_catalog_artist_credit_validation_preserves_duplicates_and_incomplete_counts ... ok
+test discovery::tests::remote_catalog_tracks_keep_provider_identity_and_opaque_cursor ... ok
+test discovery::tests::registry_contains_searchable_catalogs_and_library_only ... ok
+test discovery::tests::youtube_catalog_only_failure_remains_an_error ... ok
+test discovery::tests::youtube_music_continuation_bounds_match_cursor_limits ... ok
+test discovery::tests::youtube_music_cursor_binds_token_to_isrc_and_rejects_oversized_token ... ok
+test discovery::tests::youtube_track_intent_ranks_native_song_search_by_artist_and_title ... ok
+test discovery::tests::youtube_video_intent_ranks_matching_video_ahead_of_music_suggestions ... ok
+test external_player::tests::direct_radio_stream_urls_are_allowed_without_enabling_ytdlp ... ok
+test external_player::tests::invalid_ranges_are_rejected ... ok
+test external_player::tests::local_file_args_keep_path_after_end_of_options_and_apply_range ... ok
+test external_player::tests::managed_provider_args_become_escaped_mpv_raw_options ... ok
+test external_player::tests::mpv_search_accepts_executable_from_an_explicit_directory ... ok
+test external_player::tests::provider_args_use_exact_url_and_configured_ytdlp_without_a_shell ... ok
+test external_player::tests::provider_raw_options_only_attach_to_youtube_urls ... ok
+test external_player::tests::provider_url_allowlist_rejects_lookalikes_and_credentials ... ok
+test imports::tests::bad_row_fails_without_partial_import ... ok
+test imports::tests::csv_handles_commas_and_missing_fields ... ok
+test imports::tests::csv_preserves_explicit_rank_and_disc_position_notation ... ok
+test imports::tests::csv_preserves_title_when_artist_credit_is_blank_without_guessing ... ok
+test imports::tests::csv_splits_a_balanced_nested_main_version_without_inventing_duration ... ok
+test imports::tests::duplicates_are_exact_and_versions_distinct ... ok
+test imports::tests::import_version_markers_must_be_whole_tokens ... ok
+test imports::tests::invalid_spotify_duration_fails_the_import ... ok
+test imports::tests::m3u_imports_extinf_metadata_and_discards_entry_locations ... ok
+test imports::tests::m3u_without_extinf_metadata_is_rejected ... ok
+test imports::tests::repeated_spotify_identity_deduplicates_and_local_files_remain_unverified ... ok
+test imports::tests::spotify_exports_keep_identity_order_and_metadata ... ok
+test imports::tests::spotify_links_are_canonical_and_untrusted_hosts_rejected ... ok
+test install_integration::tests::mcp_launcher_resolves_inside_the_packaged_resource_tree ... ok
+test install_integration::tests::native_host_resource_tree_matches_packaged_layout ... ok
+test install_integration::tests::native_messaging_directories_match_per_user_platform_locations ... ok
+test install_integration::tests::registration_manifests_preserve_committed_extension_ids ... ok
+test directory_browser::tests::summary_finds_path_specific_metadata_after_first_page_for_same_recording ... ok
+test artists::tests::provider_cache_avoids_a_second_http_request ... ok
+test linux_webview_output::tests::explicit_cancel_reaps_recorder_before_capture_returns ... ok
+test linux_webview_output::tests::fails_closed_on_webview_audio_ambiguity ... ok
+test linux_webview_output::tests::capture_deadline_kills_and_reaps_selected_child ... ok
+test discovery::tests::youtube_catalog_failure_preserves_native_results_for_mixed_kind_search ... ok
+test linux_webview_output::tests::playback_cancel_kills_and_reaps_selected_capture_without_wav ... ok
+test linux_webview_output::tests::pulse_inspection_cancel_kills_and_reaps_child_before_returning ... ok
+test linux_webview_output::tests::recorder_eof_is_explicitly_reaped_without_wav ... ok
+test acquisition::tests::preview_access_retries_transient_denial_and_requires_real_bytes ... ok
+test linux_webview_output::tests::selects_only_one_app_owned_webkit_stream_and_rejects_unrouted ... ok
+test linux_webview_output::tests::delayed_first_packet_is_not_reported_as_stopped_playback ... ok
+test local_audio::tests::known_extensions_have_audio_mimes ... ok
+test linux_webview_output::tests::selected_output_can_capture_three_seconds_without_waiting_for_eight ... ok
+test local_audio::tests::opus_gets_ogg_mime ... ok
+test local_audio::tests::ranges_are_satisfiable_and_cover_requested_bytes ... ok
+test local_audio::tests::token_comparison_checks_all_bytes_and_origin_is_restricted ... ok
+test managed_playback_session_invalidation_tests::account_session_fence_cancels_old_resolution_and_preserves_next_generation ... ok
+test managed_playback_session_invalidation_tests::healthy_poll_and_idle_transport_do_not_invalidate_sources ... ok
+test managed_playback_session_invalidation_tests::switch_revision_expiry_and_stop_invalidate_only_affected_accounts ... ok
+test managed_provider_session::spotify_auth_cache::tests::concurrent_waiters_share_refresh_and_one_cancellation_is_local ... ok
+test managed_provider_session::spotify_auth_cache::tests::invalidation_rejects_old_flight_for_waiters_and_cache ... ok
+test managed_provider_session::spotify_auth_cache::tests::late_old_token_rejection_does_not_evict_newer_entry ... ok
+test managed_provider_session::spotify_auth_cache::tests::ready_cache_does_not_return_to_cancelled_waiter ... ok
+test managed_provider_session::spotify_auth_cache::tests::same_scope_uses_cache_and_scope_changes_refresh ... ok
+test managed_provider_session::spotify_auth_cache::tests::stop_cancels_shared_refresh_and_wakes_waiter ... ok
+test managed_provider_session::spotify_auth_refresh_process::tests::accepts_cacheable_expiry_and_one_job_lease ... ok
+test managed_provider_session::spotify_auth_refresh_process::tests::exposes_only_allowlisted_auth_errors_and_bounded_retry ... ok
+test managed_provider_session::spotify_auth_refresh_process::tests::preserves_only_allowlisted_phase_and_http_status ... ok
+test managed_provider_session::spotify_auth_refresh_process::tests::rejects_invalid_expiry_and_public_response_shapes ... ok
+test managed_provider_session::tests::cached_auth_failure_invalidation_is_scoped_to_auth_rejection ... ok
+test managed_provider_session::tests::creation_unknown_preserves_finite_http_diagnostics_without_retry_advice ... ok
+test managed_provider_session::tests::cursor_reset_failure_is_finite_sanitized_and_does_not_invalidate_auth ... ok
+test managed_provider_session::tests::debug_managed_host_uses_current_binary_wrapper_and_isolated_manifest_path ... ok
+test managed_provider_session::tests::explicit_youtube_continue_routes_only_google_or_music_pages ... ok
+test managed_provider_session::tests::fake_browser_gets_only_profile_scoped_arguments_and_stops ... ok
+test linux_webview_output::tests::selected_output_uses_explicit_monitor_and_stream_and_reaps_child ... ok
+test managed_provider_session::tests::managed_extension_staging_materializes_every_manifest_icon ... ok
+test managed_provider_session::tests::native_account_confirmation_enables_read_only_access ... ok
+test managed_provider_session::tests::native_cookie_forwarding_keeps_only_the_two_spotify_session_cookies ... ok
+test managed_provider_session::tests::native_login_opens_the_spotify_sign_in_route ... ok
+test managed_provider_session::tests::native_restart_mode_recognizes_either_confirmed_provider ... ok
+test managed_provider_session::tests::native_stop_signals_every_active_worker_and_advances_generation ... ok
+test managed_provider_session::tests::native_transport_opt_in_migrates_conservatively_and_honors_explicit_override ... ok
+test managed_provider_session::tests::native_transport_opt_in_survives_a_profile_restart_without_changing_stop_state ... ok
+test managed_provider_session::tests::legacy_youtube_worker_keeps_its_provider_message_and_phase ... ok
+test managed_provider_session::tests::native_worker_refresh_uses_immutable_content_addressed_snapshots ... ok
+test managed_provider_session::tests::native_youtube_cookie_capture_preserves_allowed_session_cookies_only ... ok
+test managed_provider_session::tests::native_youtube_cookie_capture_rejects_ambiguity_injection_and_oversized_headers ... ok
+test managed_provider_session::tests::native_youtube_cookie_header_accepts_legacy_single_cookie_and_family_header ... ok
+test managed_provider_session::tests::native_youtube_page_context_is_strictly_scoped_and_bounded ... ok
+test managed_provider_session::tests::old_persisted_session_defaults_youtube_reconnect_flag_to_false ... ok
+test managed_provider_session::tests::packaged_host_wins_and_release_build_does_not_use_debug_wrapper_fallback ... ok
+test managed_provider_session::tests::pending_spotify_cookie_is_scoped_to_the_confirmation_generation ... ok
+test managed_provider_session::tests::persisted_session_has_stable_id_and_advances_account_revision ... ok
+test managed_provider_session::tests::rate_limit_diagnostic_keeps_retry_phase_and_http_status ... ok
+test managed_provider_session::tests::shutdown_cancels_refresh_and_preserves_persisted_resume_state ... ok
+test managed_provider_session::tests::spotify_credential_fingerprint_matches_hmac_sha256_and_changes_with_process_key ... ok
+test managed_provider_session::tests::spotify_keyring_read_failure_does_not_confirm ... ok
+test managed_provider_session::tests::spotify_keyring_read_mismatch_does_not_confirm ... ok
+test managed_provider_session::tests::spotify_keyring_store_failure_does_not_read_or_confirm ... ok
+test managed_provider_session::tests::spotify_keyring_verified_store_returns_the_saved_cookie ... ok
+test managed_provider_session::tests::spotify_login_capture_blanks_only_owned_spotify_origin_or_retry_blank ... ok
+test managed_provider_session::tests::spotify_login_return_accepts_only_owned_https_accounts_origin ... ok
+test managed_provider_session::tests::native_worker_fake_process_is_bounded_and_cancellable ... ok
+test managed_provider_session::tests::youtube_keyring_failures_preserve_actionable_storage_error ... ok
+test managed_provider_session::tests::youtube_keyring_readback_precedes_verified_credential_use ... ok
+test managed_provider_session::tests::youtube_login_return_requires_owned_google_origin_and_auth_cookie ... ok
+test managed_provider_session::tests::youtube_reconnect_marker_is_exact_scoped_and_preserves_confirmed_identity ... ok
+test managed_provider_session::tests::youtube_session_without_data_sync_id_remains_backward_compatible ... ok
+test managed_provider_session::verification_creation_intent::tests::account_fence_interleaving_cancels_only_old_provider_and_cleans_every_guard ... ok
+test managed_provider_session::verification_creation_intent::tests::admission_failure_never_consumes_intent_and_failure_drops_fence ... ok
+test managed_provider_session::verification_creation_intent::tests::another_accounts_history_never_exposes_identifiers_or_blocks_current_preview ... ok
+test linux_webview_output::tests::recorder_read_timeout_is_explicitly_reaped_without_wav ... ok
+test managed_provider_session::verification_creation_intent::tests::changed_legacy_state_requires_fresh_preview_without_consuming_approval ... ok
+test managed_provider_session::verification_creation_intent::tests::exact_review_consumes_once_without_touching_legacy_marker ... ok
+test managed_provider_session::verification_creation_intent::tests::concurrent_approval_dispatches_once_and_created_identity_survives_state_loss ... ok
+test managed_provider_session::verification_creation_intent::tests::identity_persistence_failure_prevents_readback_and_success_precedes_readback_failure ... ok
+test managed_provider_session::verification_creation_intent::tests::legacy_and_new_share_account_admission ... ok
+test managed_provider_session::verification_creation_intent::tests::expiry_and_process_restart_are_rejected_even_with_matching_updated_hash ... ok
+test managed_provider_session::verification_creation_intent::tests::preview_surfaces_exact_legacy_unknown_without_modifying_marker ... ok
+test managed_provider_session::verification_creation_intent::tests::malformed_same_account_attempt_remains_unknown_without_exposing_raw_state ... ok
+test managed_provider_session::verification_creation_intent::tests::review_rejects_changed_contract_token_revision_and_paths ... ok
+test managed_provider_session::verification_creation_receipt_tests::receipt_is_bound_to_native_attempt_and_missing_is_unknown ... ok
+test managed_provider_session::verification_creation_receipt_tests::receipt_rejects_secret_fields_and_unbounded_or_malformed_values ... ok
+test managed_provider_session::verification_creation_receipt_tests::receipt_retains_explicit_predispatch_and_postdispatch_facts ... ok
+test managed_provider_session::verification_creation_intent::tests::prior_new_unknown_is_disclosed_and_history_changes_reject_before_consumption ... ok
+test managed_provider_session::verification_intent_account_fence_tests::changed_account_cancels_actual_creation_worker_before_spawn ... ok
+test matching::tests::conflicting_labels_override_expected_version_substring ... ok
+test matching::tests::display_duration_does_not_prevent_exact_mix_match ... ok
+test matching::tests::duration_mismatch_is_low ... ok
+test matching::tests::ephemeral_playback_identity_preserves_original_id_and_manual_or_chapter_fields ... ok
+test matching::tests::exact_version_and_duration_are_high ... ok
+test matching::tests::missing_catalog_version_needs_review ... ok
+test matching::tests::missing_duration_needs_review ... ok
+test matching::tests::nested_main_version_runtime_is_parsed_only_for_a_strict_balanced_suffix ... ok
+test matching::tests::radio_cannot_replace_extended ... ok
+test matching::tests::remix_artist_requires_word_boundaries ... ok
+test matching::tests::remix_identity_is_not_just_remix_word ... ok
+test matching::tests::single_artist_name_normalization_only_equates_ampersand_and_and ... ok
+test matching::tests::song_title_is_not_a_version_label ... ok
+test matching::tests::trailing_catalog_duration_is_not_part_of_version_identity ... ok
+test matching::tests::uploader_name_alone_does_not_verify_the_artist ... ok
+test matching::tests::wrong_artist_is_low ... ok
+test media::tests::archive_reuse_detects_external_changes ... ok
+test managed_provider_session::tests::typed_worker_preserves_spotify_diagnostics_and_transport_classes ... ok
+test media::tests::asset_retag_refuses_an_externally_modified_file ... ok
+test media::tests::compatibility_export_labels_do_not_upgrade_quality ... ok
+test media::tests::detected_bpm_never_replaces_catalog_bpm ... ok
+test managed_provider_session::verification_creation_receipt_tests::typed_worker_receipt_preserves_dispatch_without_string_framing_and_rejects_wrong_attempt ... ok
+test media::tests::detects_supported_artwork_extensions_from_content ... ok
+test linux_webview_output::tests::shared_capture_deadline_kills_and_reaps_pulse_inspection_child ... ok
+test local_audio::tests::loopback_endpoint_streams_large_files_and_serves_exact_ranges_and_head ... ok
+test media::tests::missing_opus_stream_bitrate_is_reported_as_estimated_when_available ... ok
+test media::tests::publication_never_overwrites ... ok
+test media::tests::publication_recovers_after_database_commit_gap ... ok
+test media::tests::rejects_private_artwork_networks ... ok
+test media::tests::inferred_live_tags_preserve_source_without_studio_metadata ... ok
+test media::tests::sanitizes_portable_names ... ok
+test media::tests::release_and_recording_dates_round_trip_without_legacy_date_confusion ... ok
+test media::tests::detects_bpm_from_decoded_pulse_audio_and_persists_it_as_a_tag ... ok
+test media::tests::unicode_filenames_fit_filesystem_limits ... ok
+test metadata::tests::artist_match_does_not_strip_or_merge_roles ... ok
+test metadata::tests::candidate_search_scores_recordings_but_keeps_them_unconfirmed ... ok
+test metadata::tests::discogs_roles_remain_distinct_and_edition_year_is_separate ... ok
+test metadata::tests::selected_discogs_edition_keeps_edition_date_and_shows_tracklist ... ok
+test metadata_normalization::tests::catalog_live_download_gets_source_identity_and_drops_studio_recording_metadata ... ok
+test metadata_normalization::tests::explicit_catalog_version_mismatch_is_rejected_without_mutation ... ok
+test metadata_normalization::tests::explicit_live_source_for_different_song_is_rejected ... ok
+test metadata_normalization::tests::infers_pitchfork_live_version_without_treating_event_year_as_release_date ... ok
+test metadata_normalization::tests::named_live_versions_are_inferred_without_guessing_a_release ... ok
+test metadata_normalization::tests::rejects_ambiguous_titles_and_preserves_existing_catalog_version ... ok
+test models::date_added_compatibility_tests::date_added_round_trips_valid_and_invalid_legacy_json_without_string_errors ... ok
+test models::date_added_compatibility_tests::manual_date_added_override_survives_the_hydration_serialize_merge_deserialize_shape ... ok
+test models::date_added_compatibility_tests::null_or_absent_date_added_stays_omitted_like_the_unknown_field_behavior ... ok
+test models::playback_startup_settings_tests::legacy_settings_default_to_twenty_seconds ... ok
+test models::playback_startup_settings_tests::supported_timeouts_round_trip_and_invalid_values_are_bounded ... ok
+test monochrome::tests::bounded_candidate_sequence_cancels_an_in_flight_request ... ok
+test monochrome::tests::bounded_candidate_sequence_honors_cancel_and_expired_deadline_before_request ... ok
+test monochrome::tests::bounded_candidate_sequence_issues_canonical_then_one_alias_query ... ok
+test monochrome::tests::bounded_candidate_sequence_uses_one_deadline_for_the_actual_request ... ok
+test monochrome::tests::candidate_and_interactive_search_use_separate_bounded_limits ... ok
+test monochrome::tests::catalog_entry_preserves_structured_artist_names_for_playback_identity ... ok
+test monochrome::tests::duplicate_candidate_ids_keep_the_strongest_alias_scored_result ... ok
+test monochrome::tests::http_search_and_probe_do_not_claim_m4a_is_flac ... ok
+test monochrome::tests::imported_official_audio_matches_catalog_but_not_covers_or_live_versions ... ok
+test monochrome::tests::isrc_match_does_not_accept_wrong_duration_or_conflicting_remix ... ok
+test monochrome::tests::join_phrase_credit_remains_a_review_candidate_for_strict_playback_gate ... ok
+test monochrome::tests::peter_paul_mary_catalog_and_credit_variant_matches_playback_strictly ... ok
+test monochrome::tests::rate_limited_probe_suppresses_catalog_retry_until_bounded_cooldown_expires ... ok
+test monochrome::tests::verifies_container_instead_of_trusting_lossless_labels ... ok
+test mpris::tests::cached_artwork_is_exposed_as_a_confined_file_uri ... ok
+test mpris::tests::maps_playback_state_and_repeat_modes_to_mpris_values ... ok
+test mpris::tests::metadata_has_mpris_types_and_microsecond_duration ... ok
+test mpris::tests::mpris_queue_len_uses_compact_queue_total_and_keeps_legacy_fallback ... ok
+test mpris::tests::open_uri_only_accepts_parseable_file_and_web_uris ... ok
+test mpris::tests::playing_position_advances_but_never_exceeds_duration ... ok
+test mpris::tests::position_and_volume_values_are_bounded ... ok
+test mpris::tests::stopped_track_retains_known_duration_and_live_duration_takes_priority ... ok
+test mpris::tests::uncached_public_artwork_remains_a_remote_mpris_url ... ok
+test artists::tests::release_pages_stop_requesting_each_provider_after_its_last_page ... ok
+test native_output::direct_opus_tests::ffmpeg_setup_phase_excludes_injected_failed_native_time ... ok
+test native_output::direct_opus_tests::loopback_direct_opus_decode_cancels_during_stalled_range_read ... ok
+test media::tests::key_estimate_accepts_tonal_audio_and_rejects_silence_and_clicks ... ok
+test native_output::direct_opus_tests::range_server_handles_fragmented_case_insensitive_concurrent_requests ... ok
+test native_output::direct_pcm_experiment::tests::cancelled_or_expired_requests_do_not_start_decode ... ok
+test native_output::direct_pcm_experiment::tests::decoder_failure_stages_are_fixed_and_only_strip_known_wrappers ... ok
+test native_output::direct_pcm_experiment::tests::reports_serialize_only_safe_failure_stage_codes ... ok
+test native_output::direct_opus_tests::missing_codec_hint_cannot_force_direct_route_and_still_decodes_pcm ... ok
+test native_output::direct_opus_tests::finite_opus_webm_paired_route_counts_same_pcm_and_seek_is_bounded ... ok
+test native_output::native_http::tests::content_range_parser_requires_finite_ordered_decimal_bounds ... ok
+test native_output::native_http::tests::bounded_range_rejects_an_origin_that_returns_through_eof ... ok
+test native_output::direct_pcm_experiment::tests::seeks_and_counts_delivered_stereo_frames ... ok
+test native_output::native_http::tests::last_modified_guards_reconnect_when_no_strong_etag_exists ... ok
+test native_output::native_http::tests::initial_partial_response_must_cover_the_whole_resource ... ok
+test native_output::native_http::tests::proper_206_preserves_client_headers_and_validates_requested_bytes ... ok
+test native_output::native_http::tests::range_body_overflow_is_rejected_before_excess_bytes_are_returned ... ok
+test native_output::native_http::tests::pending_range_request_can_be_cancelled_before_headers_arrive ... ok
+test native_output::native_http::tests::reversed_range_request_is_rejected_before_contacting_the_origin ... ok
+test native_output::native_http::tests::range_body_truncation_is_an_error_with_and_without_content_length ... ok
+test native_output::reliability_tests::cancelled_failed_preload_neither_adopts_nor_publishes_its_retained_error ... ok
+test native_output::reliability_tests::partial_pcm_failure_stays_with_preload_until_selection_and_emits_once ... ok
+test native_output::reliability_tests::pending_zero_pcm_preload_owns_buffering_but_started_waits_for_real_pcm ... ok
+test native_output::reliability_tests::real_preload_producer_publishes_failure_before_disconnecting_its_pcm_channel ... ok
+test native_output::reliability_tests::repeated_media_occurrences_do_not_share_cancel_failure_or_generation ... ok
+test native_output::reliability_tests::zero_pcm_nonstorage_failure_adopts_ownership_without_started_or_first_audio ... ok
+test native_output::seek_queue_tests::latest_seek_wins_without_crossing_pause ... ok
+test native_output::storage_fault::tests::captures_each_local_operation_without_messages_and_retains_first_across_reuse ... ok
+test native_output::storage_fault::tests::create_fault_and_normal_eof_are_distinct ... ok
+test native_output::native_http::tests::stream_download_cancellation_interrupts_seek_waiting_for_range_headers ... ok
+test native_output::tests::actual_reserve_worker_cancellation_during_partial_fill_never_starts_or_fails ... ok
+test native_output::tests::actual_reserve_worker_decode_error_never_releases_partial_start ... ok
+test native_output::native_http::tests::nonzero_range_rejects_200_and_malformed_or_mismatched_metadata ... ok
+test native_output::tests::actual_reserve_worker_reader_honors_original_100ms_deadline ... ok
+test native_output::tests::actual_loopback_body_gap_exhausts_production_pcm_while_immediate_same_wav_does_not ... ok
+test native_output::tests::buffering_facts_distinguish_blocked_reader_from_no_pcm_without_exposing_source ... ok
+test native_output::tests::buffering_facts_report_real_held_seek_and_clear_after_completion_or_error ... ok
+test native_output::tests::buffering_runtime_facts_are_live_per_reader_and_have_no_invented_network_progress ... ok
+test native_output::tests::cached_rodio_seek_same_range_body_gap_starves_then_recovers ... ignored, paced cached-seek range causal fixture; isolated child has a40s deadline
+test native_output::tests::actual_reserve_worker_releases_short_clean_eof_with_actual_sample_count ... ok
+test native_output::tests::cancellation_handoff_tracks_latest_seek_not_retired_source ... ok
+test native_output::tests::cancellation_before_response_headers_drops_the_pending_request ... ok
+test native_output::tests::cancelled_storage_fault_is_not_published_and_unrelated_failure_stays_generic ... ok
+test native_output::tests::content_range_diagnostics_extract_only_numeric_total ... ok
+test native_output::tests::counting_reader_tracks_actual_decoder_reads_across_seeks ... ok
+test native_output::tests::decoded_startup_reserve_independent_timeline_ab_bridges_bounded_body_gap ... ignored, paced independent-delivery reserve AB; run alone on idle host with external timeout
+test artists::tests::spotify_album_crosswalk_fetches_exact_url_and_release_then_returns_occurrence ... ok
+test native_output::tests::decodes_generated_wav_without_audio_device ... ok
+test native_output::tests::experimental_reserve_admission_is_format_derived_bounded_and_explicit ... ok
+test native_output::tests::external_audio_fixture_reports_duration_and_decodes_after_late_seek ... ignored, set BURRATA_NATIVE_AUDIO_FIXTURE to a local audio file for decoder duration/late-seek qualification
+test native_output::tests::external_muxed_mp4_uses_ffmpeg_and_preserves_duration_after_late_seek ... ignored, set BURRATA_MUXED_MP4_FIXTURE and BURRATA_MUXED_MP4_EXPECTED_SECONDS for late-seek qualification
+test native_output::tests::failed_zero_pcm_preload_activates_only_at_selection_without_claiming_first_audio ... ok
+test native_output::tests::ffmpeg_cleanup_reaps_the_child_even_on_early_exit ... ok
+test native_output::tests::finite_https_opus_webm_routes_only_when_native_opus_is_disabled ... ok
+test native_output::tests::buffered_http_seeks_do_not_reopen_stream ... ok
+test native_output::tests::decoder_resamples_to_fixed_output_format_and_keeps_source_metadata ... ok
+test native_output::tests::cancellation_reaches_a_stalled_initial_prefetch_read ... ok
+test native_output::tests::generated_wav_reports_decoder_phases_and_preserves_metadata_on_reuse ... ok
+test native_output::tests::finite_remote_aac_stalled_input_cancels_and_reaps_without_pcm ... ok
+test native_output::tests::finite_remote_aac_rejects_inaccessible_and_truncated_input ... ok
+test native_output::tests::live_reported_track_resolver_and_decode ... ignored, requires exact BURRATA_LIVE_TRACK_FIXTURE and BURRATA_LIVE_TRACK_OUTPUT; public network
+test native_output::tests::local_seeks_reuse_open_decoder_and_preserve_excerpt_bounds ... ok
+test native_output::tests::only_verified_muxed_or_finite_remote_aac_mp4_sources_force_ffmpeg ... ok
+test native_output::tests::paced_reader_startup_attribution ... ignored, explicit loopback prefetch attribution benchmark
+test native_output::tests::paced_same_wav_input_gap_preserves_real_consumption_and_exposes_baseline_starvation ... ignored, paced software-mixer causal fixture; run alone on an idle host under an outer timeout
+test native_output::tests::paused_seek_output_never_starts_audible_playback ... ok
+test native_output::tests::reconnect_position_keeps_the_sample_accurate_playhead ... ok
+test native_output::tests::reserve_cancel_before_ready_or_ready_source_replacement_never_starts_old_pcm ... ok
+test native_output::tests::reserve_clean_short_eof_starts_real_pcm_but_failure_cannot_masquerade_as_short_eof ... ok
+test native_output::tests::reserve_panicking_producer_publishes_terminal_failure_unless_cancelled ... ok
+test native_output::tests::reserve_wait_retains_original_startup_deadline_and_empty_eof_never_starts ... ok
+test native_output::tests::http_stream_keeps_runtime_alive_while_audio_arrives ... ok
+test native_output::tests::seek_decoder_benchmark ... ignored, requires BURRATA_SEEK_BENCH_FIXTURE and BURRATA_SEEK_BENCH_OUTPUT
+test native_output::tests::slow_reader_setup_future_is_dropped_at_its_absolute_deadline ... ok
+test native_output::tests::retired_blocked_reader_is_cancelled_before_waiting_for_network_timeout ... ok
+test native_output::tests::superseded_seek_does_not_wait_for_busy_decoder ... ok
+test native_output::tests::known_length_file_seek_at_sixty_percent_is_fast_and_has_duration ... ok
+test native_output::tests::underruns_do_not_reopen_output_but_backend_errors_do ... ok
+test native_output::validation_handoff_diagnostic::compare_preflight_and_owned_validated_reader_handoff ... ignored, diagnostic-only local HTTP preflight/owned-reader comparison; run explicitly
+test native_output::validation_handoff_diagnostic::compare_preflight_same_reader_and_hybrid_handoff ... ignored, diagnostic-only hybrid retained-prefix/strict-tail comparison; run explicitly
+test pcm_tap::tests::capture_wav_checks_generation_and_three_second_minimum ... ok
+test pcm_tap::tests::capture_wav_has_valid_header_and_caps_ring_to_twelve_seconds ... ok
+test pcm_tap::tests::progressive_capture_requires_requested_audio_not_only_minimum ... ok
+test playback::failed_track_traversal::tests::a_single_repeat_all_occurrence_cannot_loop ... ok
+test playback::failed_track_traversal::tests::malformed_entry_state_is_ineligible_and_does_not_consume_an_occurrence ... ok
+test playback::failed_track_traversal::tests::repeat_all_visits_distinct_duplicate_occurrences_once_then_exhausts ... ok
+test playback::failed_track_traversal::tests::repeat_off_exhausts_at_queue_end_without_wrapping ... ok
+test playback::reliability_policy_tests::configured_start_seek_and_recovery_budgets_are_absolute ... ok
+test playback::reliability_policy_tests::recovery_replaces_only_automatic_unpinned_sources_after_a_refresh ... ok
+test playback::reliability_policy_tests::source_http_denials_do_not_discard_recordings ... ok
+test playback::tests::buffering_event_diagnostics_ignore_stale_generation_and_clear_on_new_track_and_seek ... ok
+test playback::tests::candidate_artwork_is_shared_with_system_controls_without_reusing_an_old_cover ... ok
+test playback::tests::chapter_start_and_preload_bounds_distinguish_parent_files_from_cropped_assets ... ok
+test playback::tests::checkpoint_restore_accepts_legacy_split_queue_and_session ... ok
+test playback::tests::checkpoint_restore_preserves_the_exact_duplicate_occurrence ... ok
+test playback::tests::checkpoint_restore_rejects_mixed_revisions_and_invalid_occurrences ... ok
+test playback::tests::completed_identification_job_false_channel_closure_cannot_mask_success ... ok
+test playback::tests::distinct_resolver_outcomes_advance_and_record_the_exact_failure_category ... ok
+test playback::tests::exhausted_recording_failures_ignore_metadata_words_and_advance_once ... ok
+test playback::tests::explicit_operation_ids_are_preserved_for_commands_and_transitions ... ok
+test playback::tests::failed_resume_clears_stale_attempt_metrics_but_paused_resume_keeps_them ... ok
+test playback::tests::failed_track_skips_exhaust_each_occurrence_once_without_repeat_all_loops ... ok
+test playback::tests::failure_traversal_rechecks_cancellation_after_initial_failure_eligibility ... ok
+test playback::tests::false_cancellation_closure_keeps_playback_watch_active_and_true_cancel_wins ... ok
+test playback::tests::finished_queue_survives_restore_and_replays_current_track_from_zero ... ok
+test playback::tests::guarded_reorders_reject_competing_revision_before_any_mutation ... ok
+test playback::tests::local_storage_failure_retains_current_occurrence_without_source_recovery ... ok
+test playback::tests::manual_radio_identification_matches_the_current_station_song ... ok
+test playback::tests::manual_track_changes_clear_current_error_but_keep_queue_skip_context ... ok
+test playback::tests::native_acceptance_commits_before_a_competing_command_can_replace_owner ... ok
+test playback::tests::native_acceptance_rejection_does_not_publish_a_receipt ... ok
+test playback::tests::native_identification_accepts_muted_playing_and_volume_changes_but_invalidates_pause_seek_and_cancel ... ok
+test playback::tests::native_identification_ignores_position_only_updates_and_rejects_identity_changes ... ok
+test playback::tests::native_identification_temporary_wav_is_removed_after_request_cleanup ... ok
+test playback::tests::native_identification_uses_available_chapter_excerpt_and_keeps_explicit_ranges ... ok
+test playback::tests::native_operation_ids_cover_startup_seek_and_transitions_without_reusing_ids ... ok
+test playback::tests::native_queue_uses_shared_unicode_collation_equal_pairs ... ok
+test playback::tests::native_sort_matches_shared_zero_unknown_rules_and_keeps_reported_count_zero ... ok
+test playback::tests::native_sort_values_match_shared_duration_key_and_nested_count_rules ... ok
+test playback::tests::native_sort_values_match_shared_normalization_fixtures ... ok
+test playback::tests::natural_end_uses_verified_duration_not_catalog_estimates ... ok
+test playback::tests::natural_queue_end_marker_only_enables_autoplay_after_repeat_off_exhaustion ... ok
+test playback::tests::new_start_clears_old_seek_timer_but_resume_without_seek_does_not_fabricate_one ... ok
+test playback::tests::next_preparation_diagnostic_window_is_bounded_to_thirty_or_forty_five_seconds ... ok
+test playback::tests::operation_ids_are_bounded_and_snapshot_traces_startup_and_seek_phases ... ok
+test playback::tests::ordinary_resume_and_stale_pending_seek_do_not_arm_seek_metrics ... ok
+test playback::tests::paused_not_ready_seek_retains_context_until_restarted_audio_is_consumed ... ok
+test playback::tests::paused_ready_storage_fault_requires_a_real_retry_not_resume_of_removed_output ... ok
+test playback::tests::paused_seek_records_metrics_only_after_resume_and_consumption ... ok
+test playback::tests::paused_seek_resume_invalidates_old_watchdog_and_starts_a_fresh_wait ... ok
+test media::tests::selected_chapters_publish_independent_tagged_segments_only ... ok
+test playback::tests::persistence_write_failure_keeps_failed_values_retryable ... ok
+test playback::tests::play_after_queue_end_restarts_instead_of_resuming_exhausted_output ... ok
+test playback::tests::playback_values_default_only_when_omitted_and_reject_invalid_json ... ok
+test playback::tests::preload_active_device_loss_cancels_reader_and_releases_reconnect_preparation ... ok
+test playback::tests::preload_channel_identity_fences_an_abandoned_owner_even_without_a_cancel_signal ... ok
+test playback::tests::preload_completion_rechecks_cancel_and_owner_at_the_publication_boundary ... ok
+test playback::tests::preload_failure_releases_only_its_current_slot_and_stale_occurrences_cannot_adopt ... ok
+test playback::tests::preload_stale_device_loss_preserves_new_owner_and_paused_state ... ok
+test playback::tests::provider_global_failures_do_not_consume_occurrence_traversal ... ok
+test playback::tests::persistence_serializes_snapshot_through_write_against_newer_save ... ok
+test playback::tests::queue_end_repeat_and_previous ... ok
+test playback::tests::public_failure_message_redacts_credentials_and_all_source_path_forms ... ok
+test playback::tests::queued_native_nineteen_occurrences_retain_root_through_finite_exhaustion ... ok
+test playback::tests::queued_native_pause_seek_resume_preserve_root_and_stop_releases_it ... ok
+test playback::tests::queued_root_survives_attempt_trace_transition_and_owns_failure_occurrence ... ok
+test playback::tests::radio_identification_ignores_song_metadata_but_rejects_changed_audio_identity ... ok
+test playback::tests::ready_seek_gets_a_fresh_generation_scoped_deadline_but_paused_seek_waits_for_resume ... ok
+test playback::tests::recent_track_failure_history_excludes_cancelled_stale_and_paused_attempts ... ok
+test playback::tests::queue_snapshot_pages_are_bounded_and_revision_tracks_queue_mutations ... ok
+test playback::tests::recovery_facts_survive_restart_and_audio_without_exposing_free_form_metadata ... ok
+test playback::tests::recovery_trigger_is_finite_and_counters_are_bounded ... ok
+test playback::tests::restore_is_paused_and_preserves_duplicate_entries ... ok
+test playback::tests::recent_track_failure_history_is_bounded_owned_and_keeps_duplicate_occurrences ... ok
+test playback::tests::seek_metrics_do_not_reuse_track_start_timing ... ok
+test playback::tests::seek_operation_latency_includes_receipt_wait_without_changing_decoder_latency ... ok
+test playback::tests::signed_urls_do_not_escape_failure_message ... ok
+test playback::tests::skipped_source_failure_diagnostic_survives_next_audio_without_marking_it_failed ... ok
+test playback::tests::sorting_upcoming_preserves_played_prefix_current_and_duplicate_occurrences ... ok
+test playback::tests::starting_a_new_queue_clears_current_and_skipped_failure_diagnostics ... ok
+test playback::tests::startup_retries_share_the_original_resolution_deadline ... ok
+test playback::tests::steady_buffer_timeout_respects_existing_bounded_recovery_limit ... ok
+test playback::tests::steady_buffer_wait_exits_on_closed_updates_or_changed_owner_without_sleeping ... ok
+test playback::tests::steady_buffer_wait_expires_only_while_owner_is_still_buffering ... ok
+test playback::tests::steady_buffer_watch_is_scoped_to_owned_post_start_buffering_state ... ok
+test playback::tests::steady_buffer_watch_requires_known_http_stream_and_excludes_radio_local_or_unknown ... ok
+test playback::tests::stopped_and_finished_seek_stays_paused_and_resumes_chosen_position ... ok
+test playback::tests::stored_failure_diagnostic_is_bounded_and_redacts_signed_sources_and_credentials ... ok
+test playback::tests::track_specific_failures_skip_once_but_global_failures_stop ... ok
+test playback::tests::whole_source_recovery_only_retries_after_audio_began ... ok
+test playback_candidate_prefetch_tests::foreground_cancels_only_legacy_browse_warmup_not_independent_queue_work ... ok
+test playback_candidate_prefetch_tests::native_and_direct_local_radio_paths_do_not_start_speculative_search ... ok
+test playback_candidate_prefetch_tests::settings_elapsed_time_and_early_cancellation_do_not_restart_prefetch_budget ... ok
+test playback_candidate_prefetch_tests::upcoming_trace_opt_in_is_exact_and_payload_is_redacted ... ok
+test playback_failure::tests::extractor_messages_are_safe_and_preserve_classes ... ok
+test playback_failure::tests::frontend_and_native_policy_share_contract ... ok
+test playback_history::tests::archived_url_snapshot_enriches_without_changing_history_identity_or_chapter ... ok
+test playback::tests::routine_native_snapshots_omit_history_while_explicit_status_and_pages_include_it ... ok
+test playback_history::tests::history_duration_bounds_and_sort_apply_before_page_window_and_use_chapter_length ... ok
+test playback_history::tests::history_survives_reopen ... ok
+test native_output::tests::unbuffered_http_seek_uses_ranges_and_keeps_recording_position ... ok
+test playback_history::tests::history_search_filters_after_enrichment_and_before_pagination ... ok
+test media::tests::tags_round_trip_supported_formats ... ok
+test playback_history::tests::records_once_per_session_and_pages_and_clears ... ok
+test playback_metadata_tests::already_expired_deadline_overrides_ready_success_and_signals_stop ... ok
+test native_output::tests::finite_remote_aac_preserves_tones_repeated_seeks_and_chapter_end ... ok
+test playback_metadata_tests::external_cancel_and_expired_deadline_keep_cancel_priority_on_drop ... ok
+test playback_metadata_tests::missing_storefront_preview_returns_discovery_fallback_without_accessing_provider ... ok
+test playback_history::tests::new_history_records_are_enriched_before_persistence ... ok
+test playback_metadata_tests::outer_cancel_drop_emits_one_cancelled_resolution_end ... ok
+test playback_metadata_tests::playback_resolution_budget_signals_cancellation_before_returning ... ok
+test playback_metadata_tests::playback_resolution_generation_cancels_only_older_requests ... ok
+test playback_metadata_tests::public_cached_audio_preview_is_playable_and_unsafe_urls_are_not ... ok
+test playback_metadata_tests::shared_deadline_normalizes_nested_subbudget_timeout_to_public_error ... ok
+test playback_radio::tests::pcm_capture_waits_for_three_seconds_of_continuous_audible_output ... ok
+test playback_radio::tests::repeated_metadata_is_one_occurrence_and_expiry_allows_reappearance ... ok
+test playback_radio::tests::track_change_starts_new_occurrence_but_unobserved_pause_preserves_it ... ok
+test playback_radio::tests::unchanged_station_tags_get_bounded_periodic_audio_validation ... ok
+test playback_request_budget_tests::configured_budget_accepts_remaining_time_and_rejects_client_extensions ... ok
+test playback_request_budget_tests::invalid_persisted_budget_falls_back_to_bounded_legacy_default ... ok
+test playback_request_budget_tests::omitted_legacy_setting_keeps_twenty_second_startup_budget ... ok
+test playback_metadata_tests::outer_deadline_drop_emits_resolution_end_before_timer_signals_cancel ... ok
+test playback_history::tests::radio_song_history_obeys_default_on_setting_and_dedupes_per_occurrence ... ok
+test playback_history::tests::recording_a_cached_search_result_keeps_it_out_of_the_library ... ok
+test native_output::tests::stream_download_rodio_retains_local_write_failure_instead_of_clean_eof ... ok
+test playback_metadata_tests::artist_command_keeps_first_match_and_does_not_skip_following_pages ... ok
+test playback_sources::direct_youtube_integration_tests::direct_wiring_failure_leaves_exactly_one_shared_fallback_attempt ... ok
+test playback_sources::direct_youtube_integration_tests::direct_wiring_identity_rejection_never_enters_access_validation ... ok
+test playback_sources::direct_youtube_integration_tests::live_direct_youtube_foreground_matthew_production_resolver_pcm ... ignored, explicit public-network opt-in; production resolver plus finite decoder PCM, no device/catalog proof
+test playback_sources::direct_youtube_integration_tests::live_direct_youtube_foreground_source_fixture_pcm ... ignored, explicit public-network and source-fixture opt-in; no device/catalog proof
+test playback_sources::failed_candidate_request_tests::failed_candidates_are_provider_scoped_and_do_not_poison_other_requests ... ok
+test playback_sources::mapped_direct_live_tests::live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refreshing_ttl ... ignored, explicit public-network opt-in; fresh catalog proof, mapped direct resolution and decoder PCM only
+test playback_sources::scheduling_tests::definitive_failure_skips_grace ... ok
+test playback_sources::scheduling_tests::failed_fallback_preserves_preferred ... ok
+test playback_sources::scheduling_tests::losing_attempt_is_dropped ... ok
+test playback_sources::scheduling_tests::preferred_wins_inside_grace ... ok
+test playback_sources::scheduling_tests::stalled_preferred_does_not_block_fallback ... ok
+test playback_sources::direct_youtube_integration_tests::direct_wiring_epoch_reset_during_validator_is_terminal_even_if_validator_fails ... ok
+test playback_sources::direct_youtube_integration_tests::direct_wiring_cancellation_drops_held_worker_or_validator_without_fallback ... ok
+test playback_sources::tests::alias_extractor_acceptance_keeps_provider_id_title_version_and_duration_gates ... ok
+test playback_sources::tests::alias_research_does_not_use_inaccessible_sources_as_artist_evidence ... ok
+test playback_sources::tests::alias_research_requires_remaining_foreground_work ... ok
+test playback_sources::tests::available_source_still_wins_over_other_provider_failure ... ok
+test playback_sources::tests::bandcamp_experiment_preserves_other_pinned_sources ... ok
+test playback_sources::tests::bandcamp_resolved_identity_binds_numeric_id_and_enforces_recording_match ... ok
+test playback_sources::tests::cached_artist_aliases_preserve_ordinary_and_topic_gates ... ok
+test playback_sources::direct_youtube_integration_tests::direct_wiring_success_binds_epoch_and_preserves_reduced_validation_deadline ... ok
+test playback_sources::tests::candidate_gate_diagnostics_are_not_allocated_when_trace_is_disabled ... ok
+test playback_sources::tests::candidate_gate_evaluator_preserves_provisional_path_and_rejection ... ok
+test playback_sources::tests::candidate_gate_filter_stays_lazy_at_foreground_cap_when_tracing_is_disabled ... ok
+test playback_sources::direct_youtube_integration_tests::direct_wiring_epoch_reset_during_worker_is_terminal_even_if_worker_fails ... ok
+test playback_sources::tests::catalog_verification_accepts_fractional_duration_only_inside_strict_window ... ok
+test playback_sources::tests::accepted_catalog_proof_is_saved_and_cache_hit_requires_fresh_full_identity ... ok
+test playback_sources::tests::closed_false_watch_does_not_cancel_the_actual_resolver ... ok
+test playback_sources::tests::correlated_provider_spans_end_on_cancellation_or_outer_deadline_drop ... ok
+test playback_sources::tests::diagnostic_gate_evidence_preserves_existing_alias_decision_and_redacts_values ... ok
+test playback_sources::tests::direct_source_origin_keeps_unknown_chapters_on_demand ... ok
+test playback_sources::tests::direct_youtube_foreground_context_excludes_webview_and_preparations ... ok
+test playback_sources::tests::direct_youtube_gate_preserves_explicit_source_and_rejects_ranges_and_catalog_rows ... ok
+test playback_sources::tests::direct_youtube_opportunity_preserves_absolute_fallback_reserve ... ok
+test playback_sources::tests::closed_watch_retaining_true_still_cancels_the_actual_resolver ... ok
+test playback_sources::tests::exact_aliases_apply_to_topic_metadata_only_with_all_existing_identity_guards ... ok
+test playback_sources::tests::exact_music_catalog_locator_precedes_weaker_duration_provisionals ... ok
+test playback_sources::tests::expired_shared_deadline_normalizes_nested_timeout_for_trace_classification ... ok
+test playback_sources::tests::fallback_candidate_attempt_limit_is_bounded_to_one_or_default_two ... ok
+test playback_sources::tests::fresh_candidate_identity_uses_canonical_monochrome_url_or_extractor_identity ... ok
+test playback_sources::tests::imported_bandcamp_source_is_pinned_only_when_experiment_is_enabled ... ok
+test playback_sources::tests::known_empty_chapters_do_not_start_another_extractor ... ok
+test playback_sources::tests::linked_monochrome_rejects_noncanonical_source_urls ... ok
+test playback_sources::tests::linked_monochrome_search_retains_the_selected_canonical_recording ... ok
+test playback_sources::tests::linked_soundcloud_candidate_does_not_use_untrusted_import_id ... ok
+test playback_sources::tests::linked_source_identity_rejects_non_track_urls ... ok
+test playback_sources::tests::linked_youtube_candidate_uses_video_id_from_public_url ... ok
+test playback_sources::tests::mapped_direct_gate_requires_v2_catalog_anchors_and_flat_original_track ... ok
+test playback_sources::tests::cached_crosswalk_proof_allows_only_its_artist_and_isrc_alias_in_the_resolver_gate ... ok
+
+running 1 test
+test playback_sources::tests::discogs_feature_alias_requires_exact_cache_and_fresh_extractor_identity ... ok
+test playback_sources::tests::missing_catalog_duration_accepts_only_fresh_verified_exact_visualizer_identity ... ok
+test playback_sources::tests::one_attempt_fallback_budget_is_global_across_provider_mappings ... ok
+test playback_sources::tests::candidate_gate_rows_are_bounded_and_keep_predicates_on_each_row ... ok
+test playback_sources::tests::parallel_provider_traces_share_two_costly_extractions_per_request ... ok
+test playback_sources::tests::playback_resolution_deadline_covers_the_complete_nested_operation ... ok
+test playback_sources::tests::playlist_url_override_uses_preferred_source_but_preserves_explicit_sources ... ok
+test playback_sources::tests::provisional_candidates_require_resolved_identity_and_keep_known_chapter_state ... ok
+test playback_sources::tests::rank_all_collected_recordings_before_spending_two_foreground_extractions ... ok
+test playback_sources::tests::mapped_direct_path_compares_all_anchors_before_uncached_access ... ok
+test playback_sources::tests::remembered_sources_require_canonical_urls_and_transient_errors_do_not_invalidate ... ok
+test playback_sources::tests::remembered_topic_mapping_rehydrates_the_verified_channel ... ok
+test playback_sources::tests::resolution_trace_normal_finish_is_once_only_for_all_outcomes ... ok
+test playback_sources::tests::resolved_identity_overrides_search_metadata_before_acceptance ... ok
+test playback_sources::tests::resolved_sasa_identity_accepts_exact_main_version_and_rejects_radio_edit ... ok
+test playback_sources::tests::same_candidate_retry_accepts_only_typed_source_format_denial_as_new_eligibility ... ok
+test playback_sources::tests::same_candidate_retry_is_limited_to_transient_stream_failures ... ok
+test playback_sources::tests::serial_resolution_distinguishes_no_rows_from_rejected_identity_and_keeps_failures ... ok
+test playback_sources::tests::actual_resolver_future_is_bounded_and_polls_on_small_stack ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1345 filtered out; finished in 0.03s
+
+test playback_sources::tests::actual_resolver_future_is_bounded_and_polls_on_small_stack ... ok
+test playback_sources::tests::remembered_resolution_rejects_wrong_fresh_credit_before_any_cdn_probe ... ok
+test playback_sources::tests::stale_path_reconciliation_preserves_chapter_and_explicit_source_pins ... ok
+test playback_sources::tests::strong_non_catalog_proofs_keep_their_kind_and_anchor_fresh_youtube_identity ... ok
+test playback_sources::tests::trace_payload_keeps_correlations_and_only_safe_phase_fields ... ok
+test playback_sources::tests::parallel_provider_failures_keep_evidence_in_both_completion_orders ... ok
+test playback_sources::tests::unrelated_resolution_future_drop_is_explicitly_abandoned ... ok
+test playback_sources::tests::v2_catalog_persistence_falls_back_to_v1_without_fresh_verified_channel_facts ... ok
+test playback_sources::tests::v2_youtube_recording_anchors_fail_closed_and_v1_catalog_remains_a_locator ... ok
+test playback_sources::tests::verified_artist_alias_uses_full_monochrome_catalog_credit ... ok
+test playback_sources::tests::stale_path_with_no_remaining_asset_reaches_the_existing_resolver_and_its_error ... ok
+test playback_sources::tests::verified_source_fingerprint_covers_recording_identity_and_chapter_context ... ok
+test playback_sources::tests::verified_youtube_integer_duration_rounding_is_ephemeral_and_bounded ... ok
+test playing_track_identification::tests::active_identification_requests_are_bounded ... ok
+test playback_sources::tests::youtube_music_title_only_candidate_needs_fresh_full_structured_credit ... ok
+test playing_track_identification::tests::cancellation_drops_only_the_matching_recognition_future ... ok
+test playing_track_identification::tests::cancellation_is_scoped_and_duplicate_ids_do_not_replace_callers ... ok
+test playing_track_identification::tests::distinct_requests_can_repeat_for_separate_segments_of_one_queue_item ... ok
+test playing_track_identification::tests::dropping_a_request_releases_only_its_registration ... ok
+test playing_track_identification::tests::cancel_before_begin_is_remembered_and_tombstones_are_bounded ... ok
+test playing_track_identification::tests::shutdown_closes_admission_cancels_active_and_notifies_when_drained ... ok
+test playlist_files::tests::effective_directories_combine_configured_and_validated_standard_roots ... ok
+test playlist_files::tests::extinf_metadata_takes_precedence_over_plain_comment ... ok
+test playback_sources::tests::stale_queued_path_rehydrates_existing_sibling_without_replacing_metadata ... ok
+test playback_sources::tests::unregistered_stale_path_with_selected_source_continues_to_explicit_resolver ... ok
+test playlist_files::tests::isolated_music_root_accepts_launcher_suffix_underscores_and_hyphens_only ... ok
+test playlist_files::tests::isolated_music_root_rejects_symlink_escape ... ok
+test playlist_files::tests::isolated_music_root_requires_the_exact_profile_marker ... ok
+test playlist_files::tests::keeps_user_playlists_beside_burrata_mirrors_visible ... ok
+test playlist_files::tests::imports_metadata_from_unregistered_artist_title_filenames_without_opening_audio ... ok
+test playlist_files::tests::imported_playlist_urls_get_candidates_only_for_validated_youtube_and_soundcloud_sources ... ok
+test playlist_files::tests::imports_only_registered_entries_inside_configured_playlist_root ... ok
+test playlist_files::tests::playlist_header_with_artist_separator_is_not_attached_to_first_url ... ok
+test playlist_files::tests::scans_configured_roots_without_following_symlinks_and_sorts_deterministically ... ok
+test playlist_files::tests::later_bare_url_playlist_reuses_metadata_from_earlier_annotated_import ... ok
+test playlist_files::tests::ordered_playlist_entries_preserve_repeated_tracks ... ok
+test playlist_files::tests::plain_artist_title_comments_enrich_url_tracks_without_changing_url_identity ... ok
+test playlist_preferences::tests::favorite_membership_toggles_idempotently_and_deleted_target_remains_safe ... ok
+test playlist_preferences::tests::changing_favorites_resyncs_flags_and_manual_membership_edits ... ok
+test playlist_files::tests::unchanged_comment_repair_preserves_url_ids_memberships_and_manual_fields ... ok
+test playlist_sync::tests::batched_snapshot_hydration_preserves_duplicate_occurrences_and_none_overwrites ... ok
+test playlist_preferences::tests::first_load_migrates_liked_tracks_and_shortcuts_are_validated_and_persisted ... ok
+test playlist_preferences::tests::imported_snapshot_collections_cannot_be_favorites_or_shortcuts ... ok
+test playlist_sync::tests::m3u_mirror_keeps_order_and_emits_local_then_known_url_then_search ... ok
+test playlist_preferences::tests::shortcut_bindings_normalize_and_reject_collisions ... ok
+test playlist_sync::tests::empty_user_playlist_does_not_create_sync_warning ... ok
+test playlist_sync::tests::deleted_mirror_pauses_until_explicit_resume ... ok
+test playlist_sync::tests::mirror_uses_remembered_audio_candidate_url_without_changing_track_metadata ... ok
+test playlist_sync::tests::mixxx_export_keeps_local_duplicates_and_reports_skipped_remote_entries ... ok
+test playlist_sync::tests::repeated_browser_playlist_positions_export_and_copy_as_duplicate_entries ... ok
+test playlist_sync::tests::mirror_addition_with_extinf_keeps_unregistered_streaming_entry ... ok
+test playlist_sync::tests::same_revision_sync_repairs_legacy_url_placeholder_from_source_comment ... ok
+test playlist_sync::tests::simultaneous_source_and_mirror_changes_preserve_source_and_personal_conflict_order ... ok
+test playback_sources::tests::mapped_direct_path_preserves_access_reset_cancel_and_deadline_failures ... ok
+test playlist_sync::tests::simultaneous_app_and_mirror_edits_fork_conflict_and_keep_app_membership ... ok
+test playlist_watch::tests::deduplicates_aliases_and_nested_roots ... ok
+test playlist_watch::tests::event_filter_accepts_editable_mirrors_but_skips_archives_and_audio ... ok
+test playlist_watch::tests::mirror_roots_are_cached_from_settings_and_sync_events_skip_unchanged_payloads ... ok
+test playlist_watch::tests::watcher_uses_the_shared_configured_roots_without_a_home_music_fallback ... ok
+test provider_read_requests::tests::cancellation_drops_only_the_named_read_and_cleans_registry ... ok
+test provider_read_requests::tests::cancellation_that_arrives_before_registration_is_honored ... ok
+test provider_read_requests::tests::registry_rejects_duplicate_invalid_and_excess_requests ... ok
+test provider_read_requests::tests::search_guard_propagates_only_its_uuid_and_remembers_early_cancellation ... ok
+test providers::beatport::tests::fractional_ranks_cannot_fabricate_chart_positions ... ok
+test providers::beatport::tests::genre_chart_urls_use_verified_beatport_routes ... ok
+test providers::beatport::tests::preserves_chart_rank_version_and_unknown_fields ... ok
+test providers::beatport::tests::ranked_metadata_wins_over_earlier_unranked_duplicate ... ok
+test providers::beatport::tests::rejects_unknown_page_and_untrusted_urls ... ok
+test playlist_sync::tests::startup_migration_keeps_user_edited_archive_collection ... ok
+test providers::beatport::tests::search_results_are_unranked_and_chart_excludes_related_tracks ... ok
+test providers::traxsource::tests::lists_the_complete_live_traxsource_genre_menu_with_chart_routes ... ok
+test playlist_sync::tests::startup_migration_soft_deletes_unchanged_archive_self_import_and_preserves_membership ... ok
+test playlist_sync::tests::startup_sync_ignores_legacy_unmarked_persisted_mirror ... ok
+test providers::traxsource::tests::missing_preview_is_never_fabricated ... ok
+test providers::traxsource::tests::rejects_bad_urls_and_changed_pages ... ok
+test providers::traxsource::tests::details_are_lazy_and_keep_chart_and_user_state ... ok
+test providers::traxsource::tests::preserves_ranks_and_optional_metadata ... ok
+test providers::traxsource::tests::real_sanitized_browser_challenge_is_reported ... ok
+test providers::traxsource::tests::search_results_are_unranked_and_scoped_to_search_container ... ok
+test queued_playback::tests::accepted_owner_survives_lost_receipt_timeout_and_exact_retry ... ok
+test queued_playback::tests::both_mutex_linearizations_of_accept_and_expire ... ok
+test queued_playback::tests::bounded_registry_never_evicts_live_operations ... ok
+test queued_playback::tests::cancellation_and_exhaustion_are_terminal ... ok
+test queued_playback::tests::deadline_winning_rejects_late_acceptance ... ok
+test queued_playback::tests::delayed_phase_updates_cannot_overwrite_a_newer_attempt ... ok
+test queued_playback::tests::native_root_cancel_never_stops_a_replacement ... ok
+test queued_playback::tests::native_start_gate_rechecks_epoch_and_cancel_after_command_lock_wait ... ok
+test queued_playback::tests::native_failure_requires_explicit_queue_exhaustion_marker ... ok
+test queued_playback::tests::newer_preparation_invalidates_delayed_start_without_retiring_accepted_owner ... ok
+test queued_playback::tests::old_completion_cannot_revive_or_replace_new_owner ... ok
+test queued_playback::tests::paused_owner_is_superseded_by_replacement_and_cancel_is_terminal ... ok
+test queued_playback::tests::paused_seek_and_resume_keep_the_existing_root_active ... ok
+test queued_playback::tests::precancel_and_payload_collision_are_not_new_starts ... ok
+test queued_playback::tests::receipt_retry_requires_identical_occurrences_revision_and_generation ... ok
+test queued_playback::tests::receipt_shape_enforces_exact_duplicates_unique_occurrences_and_bounded_fingerprint ... ok
+test radio::radio_artwork::tests::image_type_must_match_raster_signature_and_active_formats_are_rejected ... ok
+test radio::radio_metadata::tests::cancelled_played_sample_releases_station_singleflight ... ok
+test radio::radio_artwork::tests::icon_discovery_uses_authoritative_final_homepage_and_rejects_active_urls ... ok
+test queued_playback::tests::evicted_accepted_uuid_never_replays_after_more_than_registry_capacity ... ok
+test radio::radio_metadata::tests::cancelled_songrec_gate_wait_never_spawns_or_unlocks_other_owner ... ok
+test radio::radio_metadata::tests::curated_station_descriptions_cover_homepages_without_meta_tags ... ok
+test radio::radio_metadata::tests::description_parser_accepts_standard_meta_tags_and_caps_text ... ok
+test radio::radio_metadata::tests::first_station_poll_after_audio_identification_cannot_revive_conflicting_tag ... ok
+test radio::radio_metadata::tests::homepage_fetch_policy_requires_public_https_host ... ok
+test radio::radio_metadata::tests::icy_stream_metadata_requires_a_nonempty_reported_track ... ok
+test radio::radio_metadata::tests::live_automatic_recognition_does_not_reuse_previous_song_cache ... ok
+test radio::radio_metadata::tests::live_the_north_songrec_fallback_uses_only_the_stream_excerpt ... ignored, explicitly captures a short The North stream excerpt and queries installed SongRec
+test radio::radio_metadata::tests::live_the_north_stream_accepts_bounded_icy_metadata_request ... ignored, requires public The North 103.3 stream access
+test radio::radio_metadata::tests::manual_identification_ignores_cached_metadata_and_respects_cooldown_and_singleflight ... ok
+test radio::radio_metadata::tests::manual_progressive_cancel_stops_before_pcm_capture_or_provider_request ... ok
+test radio::radio_metadata::tests::north_station_branding_is_not_a_current_song_but_artist_tracks_remain ... ok
+test radio::radio_metadata::tests::nova_branding_as_artist_is_not_a_song ... ok
+test radio::radio_metadata::tests::played_sample_policy_skips_capture_during_automatic_cooldown ... ok
+test radio::radio_metadata::tests::recognition_policy_reuses_fresh_match_and_cools_down_no_match_attempts ... ok
+test radio::radio_metadata::tests::recognition_policy_skips_overlapping_capture ... ok
+test radio::radio_metadata::tests::repeated_station_tag_cannot_replace_new_audible_match ... ok
+test radio::radio_metadata::tests::cancellable_songrec_reaps_owned_child_before_wav_cleanup ... ok
+test radio::radio_metadata::tests::songrec_parser_accepts_mock_result_and_handles_no_match ... ok
+test radio::radio_metadata::tests::songrec_cover_art_is_preserved_without_guessing_or_local_urls ... ok
+test playlist_sync::tests::startup_sync_imports_discovered_playlist_once_with_order_and_duplicates ... ok
+test radio::radio_metadata::tests::empty_or_invalid_metadata_never_enters_history ... ok
+test radio::secure_radio_transport_tests::successful_html_and_playlist_pages_are_not_audio_transport_proof ... ok
+test radio::secure_radio_transport_tests::upgrade_preserves_exact_mount_and_query_without_rewriting_custom_ports ... ok
+test radio::secure_radio_transport_tests::saved_redirect_resolution_verifies_audio_headers_without_consuming_live_body ... ok
+test radio::tests::custom_station_urls_require_safe_http_syntax_and_ids_are_stable ... ok
+test radio::tests::live_radio_browser_search_finds_mpr_and_the_north ... ignored, requires live Radio Browser directory access
+test radio::tests::live_radio_browser_search_returns_stable_station_uuids ... ignored, requires public Radio Browser API access
+test radio::tests::live_radio_paradise_main_metadata_has_artist_title_and_cover ... ignored, requires public Radio Paradise API access
+test radio::tests::mix_parser_preserves_order_dedupes_and_marks_identity_unverified ... ok
+test radio::radio_metadata::tests::history_deduplicates_only_adjacent_tracks_and_survives_store_reload ... ok
+test radio::tests::mpr_expands_to_curated_official_service_names_and_ranks_full_aliases ... ok
+test radio::tests::playlist_parser_understands_m3u_and_pls_stream_lines ... ok
+test radio::tests::radio_browser_filters_allow_country_or_tag_without_name_and_bound_inputs ... ok
+test radio::tests::radio_paradise_metadata_is_normalized_with_uncertainty_and_safe_artwork ... ok
+test radio::tests::radio_metadata_rejects_untrusted_station_ids_before_network_access ... ok
+test radio::tests::radio_paradise_station_ids_are_allowlisted_and_streams_are_fixed ... ok
+test radio::tests::radio_search_reuses_the_first_working_mirror_for_all_query_variants ... ok
+test radio::tests::radio_search_matches_tokens_in_any_order_and_ignores_diacritics ... ok
+test radio::tests::radio_station_dto_deserializes_older_saved_station_json ... ok
+test radio::secure_radio_transport_tests::cancellation_and_deadline_do_not_rewrite_saved_station_or_trust_old_cache ... ok
+test radio::tests::song_radio_deadline_drops_the_recommendation_future ... ok
+test radio::tests::youtube_video_urls_require_a_supported_host_and_video_id ... ok
+test remote_playlists::alias_hydration_tests::hydration_preserves_saved_tags_and_rejects_manual_identity_edits ... ok
+test radio::tests::saved_radio_browser_stations_persist_deduplicate_and_remove_by_stable_uuid ... ok
+test radio::tests::built_in_and_saved_radio_names_can_be_overridden_without_changing_identity ... ok
+test radio::tests::removing_a_built_in_station_persists_across_store_reopen ... ok
+test remote_playlists::spotify_album_hint_crosswalk_tests::album_hint_is_only_a_locator_and_missing_target_invalidation_is_album_scoped ... ok
+test remote_playlists::tests::account_backfill_requested_during_public_repair_resumes_after_cleanup ... ok
+test remote_playlists::tests::album_browse_keeps_duplicate_recordings_as_distinct_global_occurrences ... ok
+test remote_playlists::tests::anonymous_spotify_embed_client_does_not_follow_redirects ... ok
+test remote_playlists::tests::album_browse_preserves_raw_positions_across_filtered_duplicate_pages ... ok
+test remote_playlists::tests::anonymous_spotify_embed_stream_enforces_body_limit ... ok
+test remote_playlists::tests::archive_metadata_enrichment_does_not_mask_remote_add_remove_on_refresh ... ok
+test remote_playlists::tests::anonymous_spotify_embed_parser_verifies_exact_track_and_millisecond_duration ... ok
+test remote_playlists::tests::artist_track_pages_preserve_metadata_duplicates_and_reject_bad_identity_or_paging ... ok
+test remote_playlists::tests::album_browse_rejects_invalid_explicit_source_positions ... ok
+test remote_playlists::tests::browse_page_parser_keeps_duplicate_and_unavailable_rows ... ok
+test remote_playlists::tests::catalog_query_hash_normalizes_case_and_whitespace ... ok
+test remote_playlists::tests::changed_embed_schema_stops_without_advancing_public_cursor ... ok
+test remote_playlists::tests::background_duration_backfill_finds_existing_import_without_playlist_binding ... ok
+test remote_playlists::tests::concurrent_youtube_apply_entrypoint_dispatches_exactly_one_mutation ... ok
+test remote_playlists::tests::account_switch_cancels_old_generation_and_allows_a_to_b_to_a_rescan ... ok
+test remote_playlists::tests::candidate_search_rejects_partial_matches_of_combined_edition_markers ... ok
+test remote_playlists::tests::duplicate_track_occurrences_keep_distinct_entry_uids_and_order ... ok
+test remote_playlists::tests::duration_backfill_application_preserves_protected_rows_sharing_an_eligible_id ... ok
+test remote_playlists::tests::dropping_public_lease_without_runtime_preserves_deferred_account ... ok
+test radio::radio_metadata::tests::timed_out_songrec_reaps_owned_child_before_wav_cleanup ... ok
+test remote_playlists::tests::dropping_public_repair_future_releases_its_generation ... ok
+test remote_playlists::tests::exact_remote_track_read_is_account_guarded_and_never_persists ... ok
+test playback_sources::direct_youtube_integration_tests::direct_wiring_resolver_and_validation_timeouts_preserve_fallback_reserve ... ok
+test remote_playlists::tests::existing_duration_backfill_stops_on_account_change_or_cancellation ... ok
+test remote_playlists::tests::existing_duration_backfill_cancellation_drops_an_in_flight_provider_read ... ok
+test remote_playlists::tests::exhausted_backfill_is_not_restarted_by_connection_status_polling ... ok
+test remote_playlists::tests::explicit_public_duration_repair_cancels_inflight_read_and_does_not_commit ... ok
+test remote_playlists::tests::explicit_public_duration_repair_runs_without_account_and_uses_guarded_store_fill ... ok
+test remote_playlists::tests::import_duration_search_stops_after_rate_limited_current_chunk ... ok
+test remote_playlists::tests::incomplete_terminal_page_or_count_mismatch_stays_incomplete ... ok
+test remote_playlists::tests::inserted_middle_track_reorders_existing_entries_exactly ... ok
+test remote_playlists::tests::explicit_public_duration_repair_stops_a_rate_limited_chunk_without_cursor_advance ... ok
+test remote_playlists::tests::local_edits_during_remote_preview_validation_prevent_writeback ... ok
+test remote_playlists::tests::old_remote_binding_preferences_deserialize_without_creator_metadata ... ok
+test remote_playlists::tests::owner_urls_are_canonicalized_only_for_matching_official_profiles ... ok
+test remote_playlists::tests::paginated_capture_uses_terminal_page_completeness ... ok
+test remote_playlists::tests::playlist_browse_checks_global_total_against_page_context ... ok
+test remote_playlists::tests::playlist_browse_uses_thirty_and_preserves_cursor_and_occurrences ... ok
+test remote_playlists::tests::playlist_count_distinguishes_known_zero_from_unknown ... ok
+test remote_playlists::tests::playlist_display_totals_are_independent_of_entry_fetch_limits ... ok
+test remote_playlists::tests::playlist_snapshot_consistency_accepts_only_the_finite_mode ... ok
+test remote_playlists::tests::new_spotify_import_rearms_exhausted_scan_from_before_old_cursor ... ok
+test remote_playlists::tests::provider_cursor_requires_bounded_numeric_offset ... ok
+test remote_playlists::tests::public_duration_rate_limit_delay_is_bounded ... ok
+test remote_playlists::tests::read_only_playlists_are_rejected_before_mutation ... ok
+test remote_playlists::tests::refresh_keeps_existing_duration_when_provider_omits_it ... ok
+test remote_playlists::tests::refresh_updates_unavailable_baseline_without_overwriting_user_edits ... ok
+test remote_playlists::tests::remote_playlist_page_serializes_provider_completeness_without_inference ... ok
+test remote_playlists::tests::remote_playlist_reported_counts_round_trip_zero_and_omit_missing_or_invalid_values ... ok
+test remote_playlists::tests::remote_playlist_stats_only_refresh_keeps_revision_and_sync_hash_stable ... ok
+test remote_playlists::tests::repeated_import_reuses_binding_for_same_provider_account_and_playlist ... ok
+test remote_playlists::tests::deadline_does_not_advance_cursor_past_unfinished_search_chunk ... ok
+test remote_playlists::tests::preview_apply_claim_releases_when_owner_future_is_cancelled ... ok
+test remote_playlists::tests::reviewed_writeback_matches_are_scoped_to_binding_account_and_recording_identity ... ok
+test remote_playlists::tests::reviewed_cross_catalog_preview_preserves_occurrences_and_rejects_local_edits ... ok
+test remote_playlists::tests::spotify_artist_inspection_accepts_only_finite_guard_shape ... ok
+test remote_playlists::tests::spotify_artist_inspection_rejects_unbound_ids_and_invalid_offsets ... ok
+test remote_playlists::tests::spotify_catalog_metrics_survive_normalization_for_track_provenance ... ok
+test remote_playlists::tests::spotify_collection_references_are_not_playlist_ids ... ok
+test remote_playlists::tests::spotify_duration_backfill_requires_exact_identity_and_missing_unedited_duration ... ok
+test remote_playlists::tests::spotify_legacy_profile_id_must_match_decoded_official_profile_path ... ok
+test remote_playlists::tests::spotify_legacy_profile_ids_allow_unicode_and_punctuation_with_matching_url ... ok
+test remote_playlists::tests::spotify_profile_and_album_fixtures_retain_artwork_and_metadata ... ok
+test remote_playlists::tests::spotify_profile_hash_diagnostics_are_bounded_and_do_not_accept_raw_ids ... ok
+test remote_playlists::tests::spotify_profile_inspection_page_bounds_are_finite ... ok
+test remote_playlists::tests::spotify_profile_inspection_request_is_bounded_and_normalized ... ok
+test remote_playlists::tests::spotify_profile_inspection_shape_is_finite_and_drops_outer_private_data ... ok
+test remote_playlists::tests::spotify_profile_summary_inspection_is_a_separate_bounded_mode ... ok
+test remote_playlists::tests::spotify_recording_context_preserves_only_consistent_optional_album_metadata ... ok
+test remote_playlists::tests::spotify_zero_duration_is_unknown_and_replaced_by_known_catalog_metadata ... ok
+test remote_playlists::tests::stale_account_trigger_cannot_cancel_confirmed_account_backfill ... ok
+test remote_playlists::tests::typed_write_capabilities_are_strict_and_action_specific ... ok
+test remote_playlists::tests::valid_spotify_track_title_parses_without_fallback_error ... ok
+test remote_playlists::tests::verified_unavailable_track_is_terminal_and_advances_public_cursor ... ok
+test remote_playlists::tests::write_planner_requires_an_official_url_matching_spotify_track_id ... ok
+test remote_playlists::tests::write_sync_is_opt_in_per_provider ... ok
+test remote_playlists::tests::writeback_identity_fingerprint_includes_chapter_range_and_isrc ... ok
+test remote_playlists::tests::writeback_matching_rejects_edition_mismatches ... ok
+test remote_playlists::tests::writeback_planning_preserves_duplicate_local_occurrences ... ok
+test remote_playlists::tests::writeback_search_returns_reviewable_candidates_and_tokens_for_repeated_local_occurrences ... ok
+test remote_playlists::tests::youtube_browse_keeps_large_provider_pages_without_losing_occurrences ... ok
+test remote_playlists::tests::youtube_inspection_playability_is_optional_bounded_and_redacted ... ok
+test remote_playlists::tests::youtube_inspection_rejects_unknown_missing_and_unbounded_shapes_without_echo ... ok
+test remote_playlists::tests::youtube_inspection_request_is_playlist_only_and_bounded ... ok
+test remote_playlists::tests::youtube_inspection_returns_only_fixed_structure ... ok
+test remote_playlists::tests::youtube_modern_inspection_evidence_is_bounded_and_redacted ... ok
+test remote_playlists::tests::youtube_null_entry_ids_get_stable_distinct_duplicate_occurrences ... ok
+test remote_playlists::tests::youtube_readback_integrity_does_not_grant_or_require_future_write_permission ... ok
+test remote_playlists::tests::youtube_sync_account_switch_after_first_phase_consumes_preview_before_any_second_write ... ok
+test media::tests::asset_retag_preserves_audio_and_recovers_the_committed_journal ... ok
+test remote_playlists::tests::youtube_write_plan_requires_unique_verified_occurrences_and_preserves_duplicates ... ok
+test remote_playlists::youtube_library_inspection_tests::library_inspection_emits_only_bounded_structure_and_never_claims_complete ... ok
+test shutdown_signal::tests::cancellation_and_closed_owner_do_not_request_exit_or_hang ... ok
+test shutdown_signal::tests::signal_handoff_calls_exit_once_and_closed_signal_is_not_an_exit ... ok
+test sidebar_layout::tests::account_playlist_visibility_rejects_unknown_providers_and_non_booleans ... ok
+test sidebar_layout::tests::older_layout_defaults_account_playlist_sections_off_and_flags_persist ... ok
+test remote_playlists::tests::youtube_sync_entrypoints_apply_duplicate_occurrences_add_remove_and_reorder_then_persist ... ok
+test slskd::tests::candidate_identity_is_stable_and_uploader_is_not_promoted_to_artist ... ok
+test sidebar_layout::tests::section_changes_preserve_playlists_and_persist ... ok
+test slskd::tests::daemon_retry_is_left_to_slskd_instead_of_reported_as_final_failure ... ok
+test slskd::tests::daemon_url_requires_https_off_loopback ... ok
+test slskd::tests::failed_retry_creates_new_batch_and_reports_queue_and_http_200_rejection ... ok
+test slskd::tests::managed_share_config_refuses_unexpected_shapes_and_invalid_ids ... ok
+test slskd::tests::managed_share_path_validation_protects_config_ancestors_and_private_data ... ok
+test slskd::tests::managed_share_settings_restore_files_when_compose_apply_fails ... ok
+test slskd::tests::managed_share_text_changes_are_read_only_aliases_and_reversible ... ok
+test slskd::tests::older_web_candidates_deserialize_without_typed_source ... ok
+test slskd::tests::remote_basename_accepts_windows_and_posix_share_paths ... ok
+test slskd::tests::remote_paths_reject_traversal_and_allow_normal_share_paths ... ok
+test slskd::tests::response_shapes_decode_flat_and_wrapped_items ... ok
+test slskd::tests::retry_reconciles_active_success_and_pending_retry_without_new_submission ... ok
+test slskd::tests::search_start_poll_responses_cancel_and_delete_use_slskd_api_contract ... ok
+test slskd::tests::shared_folder_list_and_rescan_use_documented_slskd_endpoints ... ok
+test slskd::tests::stalled_transfer_is_distinct_from_a_slow_transfer_or_remote_wait ... ok
+test slskd::tests::telemetry_filters_invalid_speed_and_keeps_failure_reason ... ok
+test slskd::tests::terminal_timeout_is_not_mistaken_for_a_completed_download ... ok
+test slskd::tests::transfer_summary_surfaces_remote_queue_and_terminal_states ... ok
+test sort_availability_backfill_control_tests::bounded_batches_continue_and_stop_prevents_restart ... ok
+test sort_availability_backfill_control_tests::failed_batch_retries_only_after_an_explicit_overlapping_request ... ok
+test sort_availability_backfill_control_tests::overlapping_requests_coalesce_to_one_worker ... ok
+test sort_availability_backfill_control_tests::request_during_zero_result_batch_is_not_lost ... ok
+test source_fallback::delay_settings_tests::exact_requested_version_may_resolve_provisional_duration_drift_only ... ok
+test source_fallback::delay_settings_tests::fallback_delay_defaults_and_boundaries ... ok
+test source_fallback::delay_settings_tests::monochrome_full_artist_credit_joiners_preserve_strict_identity_gates ... ok
+test source_fallback::delay_settings_tests::monochrome_single_artist_ampersand_and_spelling_matches_exact_catalog_identity ... ok
+test source_fallback::tests::configured_order_is_bounded_and_disabled_means_none ... ok
+test source_fallback::tests::exact_catalog_identity_handles_joined_artist_credits_and_short_tracks ... ok
+test source_fallback::tests::exact_monochrome_catalog_candidate_matches_spotify_capture_without_duration ... ok
+test source_fallback::tests::fallback_does_not_substitute_live_versions_or_covers ... ok
+test source_fallback::tests::high_confidence_does_not_skip_known_duration_validation ... ok
+test source_fallback::tests::imported_sasa_shape_matches_only_the_exact_main_version_ephemerally ... ok
+test source_fallback::tests::integer_quantized_duration_slack_requires_verified_full_metadata ... ok
+test source_fallback::tests::known_catalog_feature_title_matches_complete_lyric_video_credit_and_bounded_duration ... ok
+test source_fallback::tests::known_duration_music_locator_requires_fresh_exact_identity_and_bounded_duration ... ok
+test source_fallback::tests::lossless_guard_checks_decoded_file_codec_not_filename_claims ... ok
+test source_fallback::tests::lyric_video_identity_is_provisional_until_full_duration_is_verified ... ok
+test source_fallback::tests::missing_duration_feature_decorations_require_complete_verified_performer_identity ... ok
+test source_fallback::tests::missing_duration_requires_exact_flat_youtube_artist_title ... ok
+test source_fallback::tests::music_catalog_feature_title_requires_complete_fresh_joint_performer_evidence ... ok
+test source_fallback::tests::no_duration_verified_youtube_path_requires_verified_exact_channel ... ok
+test source_fallback::tests::playback_accepts_exact_latin_credit_after_foreign_title_prefix_only ... ok
+test source_fallback::tests::playback_requires_the_requested_main_version_and_rejects_radio_edit ... ok
+test source_fallback::tests::sasa_live_metadata_fixture_never_substitutes_an_unrelated_recording ... ok
+test source_fallback::tests::source_quality_is_preserved_unless_mp3_is_explicitly_requested ... ok
+test source_fallback::tests::switches_only_source_failures_and_never_cancelled_or_processing_jobs ... ok
+test source_fallback::tests::youtube_music_catalog_tag_only_opens_one_exact_extractor_check ... ok
+test source_fallback::tests::youtube_topic_original_playback_requires_exact_full_identity ... ok
+test spotify_mb_crosswalk::tests::exact_url_and_full_album_ordinal_resolve_the_occurrence ... ok
+test spotify_mb_crosswalk::tests::incomplete_or_oversized_artist_credit_fails_closed ... ok
+test spotify_mb_crosswalk::tests::incomplete_spotify_album_or_release_never_maps_a_shifted_ordinal ... ok
+test spotify_mb_crosswalk::tests::metadata_conflict_rejects_the_anchored_position_without_searching_other_rows ... ok
+test spotify_mb_crosswalk::tests::same_title_from_unrelated_spotify_track_is_rejected_before_text_matching ... ok
+test spotify_mb_crosswalk::tests::wrong_resource_and_multiple_direct_editions_fail_closed ... ok
+test spotify_mb_crosswalk::version_tests::explicit_version_conflict_is_not_erased_by_parenthetical_title_matching ... ok
+test storage::persisted_text_sort_index_proposal::persisted_text_sort_index_50k_report ... ignored, 50k synthetic expression-index benchmark; explicitly coordinate; 3 warmups/20 paired reads per case
+test storage::persisted_text_sort_index_proposal::persisted_text_sort_index_5k_exploratory_report ... ignored, 5k exploratory expression-index benchmark; 1 warmup/1 paired read per case
+test slskd::tests::completed_batch_file_is_confined_and_copied_into_staging ... ok
+test storage::persisted_text_sort_index_proposal::persisted_title_artist_expression_indexes_preserve_generic_order_and_are_plannable ... ok
+test storage::tests::append_playlist_entries_empty_is_noop_and_invalid_batch_rolls_back ... ok
+test storage::tests::append_playlist_entries_keeps_legacy_representative_and_alternate_occurrences ... ok
+test remote_playlists::tests::existing_duration_backfill_fails_fast_on_permanent_catalog_denial ... ok
+test storage::tests::append_playlist_entries_rejects_system_membership_targets ... ok
+test storage::tests::artist_normalization_matches_javascript_whitespace_set ... ok
+test storage::tests::artist_playback_matching_obeys_shared_source_conformance_fixture ... ok
+test storage::tests::append_playlist_entries_preserves_duplicates_existing_members_and_paged_order ... ok
+test storage::tests::asset_id_lookup_returns_same_hydrated_asset_without_listing_all_assets ... ok
+test storage::tests::asset_lookup_by_path_returns_only_the_indexed_exact_path ... ok
+test storage::tests::benchmark_bpm_projection_index_pages_and_maintenance ... ignored, BPM index comparison benchmark; exploratory 3-sample and qualification 20-sample runs require explicit coordination
+test storage::tests::benchmark_first_page_global_sort_availability ... ignored, storage-only sort-availability microbenchmark; run explicitly with --ignored --nocapture
+test storage::tests::benchmark_library_metrics_join_elision ... ignored, paired aggregate benchmark; coordinate explicitly; BURRATA_METRICS_JOIN_BENCH_SAMPLES=3 or 20
+test remote_playlists::tests::existing_duration_backfill_stops_rate_limited_chunk_without_cursor_advance ... ok
+test storage::tests::artist_asset_page_sorts_and_filters_globally_before_limit ... ok
+test storage::tests::autotag_overlay_respects_acquisition_manual_flags_and_fills_other_fields ... ok
+test storage::tests::bounded_track_file_lookup_preserves_catalog_alias_and_all_recording_files ... ok
+test storage::tests::bounded_asset_queries_return_only_requested_recordings_paths_and_pages ... ok
+test storage::tests::bounded_availability_backfill_skips_ready_and_multiasset_rows_before_eligible_rows ... ok
+test storage::tests::browser_complete_without_known_total_does_not_remove_existing_members ... ok
+test storage::tests::browser_reimport_preserves_manual_merge_and_counts_duplicate_occurrences ... ok
+test storage::tests::browser_partial_union_complete_replaces_and_history_remains ... ok
+test storage::tests::browser_schema_migrates_v1_database_and_survives_reopen ... ok
+test storage::tests::cached_tracks_remain_retrievable_but_library_membership_is_explicit_and_monotonic ... ok
+test storage::tests::collection_edits_reject_unknown_collections_and_invalid_names ... ok
+test storage::tests::collection_deduplicates_identity_not_version ... ok
+test storage::tests::connection_wait_metrics_are_absent_when_disabled ... ok
+test remote_playlists::tests::existing_duration_backfill_resumes_after_bounded_batch_without_losing_rows ... ok
+test storage::tests::connection_wait_metrics_record_uncontended_and_contended_locks ... ok
+test storage::tests::downloads_membership_uses_reserved_identity_and_is_idempotent ... ok
+test storage::tests::date_added_survives_store_reads_manual_edits_and_global_page_sorting ... ok
+test storage::tests::duration_sort_keeps_whole_second_ties_in_source_order_for_both_directions ... ok
+test storage::tests::ensure_downloads_collection_is_startup_safe_and_restores_soft_deletion ... ok
+test storage::tests::exact_prefix_reuses_page_order_and_preserves_duplicate_playlist_occurrences ... ok
+test storage::tests::exact_cached_mcp_ready_path_skips_single_asset_materialization_and_pending_falls_back ... ok
+test storage::tests::existing_spotify_duration_scan_updates_unbound_listings_without_changing_occurrences ... ok
+test storage::tests::favorite_ids_match_favorites_view_and_return_only_canonical_listing_ids ... ok
+test storage::tests::explicit_curation_collection_and_saved_asset_promote_cached_tracks ... ok
+test storage::tests::favorites_and_manual_metadata_survive_provider_refresh ... ok
+test storage::tests::hydration_merges_acquisition_and_database_manual_fields ... ok
+test storage::tests::fresh_schema_has_saved_membership_default_and_v7_rows_migrate_as_saved ... ok
+test storage::tests::indexed_library_search_includes_unicode_remixer_and_credit_metadata_with_pagination ... ok
+test storage::tests::invalid_alias_id_is_rejected_without_identity_corruption ... ok
+test storage::tests::invalid_playback_timeout_does_not_replace_saved_settings ... ok
+test storage::tests::legacy_collection_position_is_global_source_order_under_filters_and_sorts ... ok
+test storage::tests::library_metrics_keep_effective_filters_and_other_view_multiplicity ... ok
+test storage::tests::library_shows_saved_metadata_without_requiring_downloaded_audio ... ok
+test storage::tests::library_metrics_match_joined_relation_with_partial_and_complete_projections ... ok
+test storage::tests::local_asset_hydration_fills_missing_metadata_without_changing_catalog_or_manual_values ... ok
+test storage::tests::managed_download_backfill_skips_unmarked_local_files ... ok
+test remote_playlists::tests::scheduler_does_not_retry_permanent_catalog_denial ... ok
+test storage::tests::managed_publication_marker_respects_manual_provenance_replacement ... ok
+test remote_playlists::tests::scheduler_does_not_retry_rate_limited_lookup_before_hint_cooldown ... ok
+test storage::tests::multi_asset_rows_stay_live_and_are_not_persisted_as_one_asset_projections ... ok
+test storage::tests::ordered_playlist_positions_follow_reordered_duplicate_entries_without_rewriting_source ... ok
+test storage::tests::no_op_metadata_and_asset_updates_preserve_sort_projections_after_reopen ... ok
+test storage::tests::page_batch_hydration_collection_page_retains_duplicate_positions_and_source_json ... ok
+test storage::tests::page_batch_hydration_preserves_manual_nulls_autotags_and_file_preference_fallbacks ... ok
+test storage::tests::page_batch_hydration_retains_manual_identity_lookup_and_invalid_preference_errors ... ok
+test storage::tests::page_batch_hydration_uses_exact_selected_asset_hash_and_latest_analysis ... ok
+test storage::tests::paged_filters_and_sort_use_hydrated_autotag_values_before_limit ... ok
+test storage::tests::page_batch_hydration_preserves_raw_chapter_occurrences_order_and_aliases_across_chunks ... ok
+test storage::tests::paged_key_sort_normalizes_enharmonics_and_camelot ... ok
+test storage::tests::paged_sort_availability_counts_asset_derived_bpm_and_key ... ok
+test directory_browser::tests::global_sort_relation_keeps_fifty_thousand_file_occurrences_and_stable_pages ... ok
+test storage::tests::paged_sort_availability_covers_filtered_view_and_only_returns_on_first_page ... ok
+test storage::tests::paged_sort_availability_reads_shared_fields_from_materialized_jsonb ... ok
+test storage::tests::paged_sort_availability_respects_duplicate_ordered_collection_entries ... ok
+test storage::tests::paged_sort_availability_uses_shared_validation_for_count_key_and_date ... ok
+test storage::tests::paged_text_filter_matches_version_and_genre_before_limit ... ok
+test storage::tests::paged_track_reads_filter_and_sort_before_offset_and_batch_keeps_requested_order ... ok
+test storage::tests::persisted_sort_masks_backfill_and_pending_is_scoped_to_exact_filtered_relation ... ok
+test storage::tests::playback_checkpoint_commits_occurrences_and_session_as_one_pair ... ok
+test storage::tests::personal_playlists_are_independent_and_source_snapshot_survives_reopen ... ok
+test storage::tests::playback_checkpoint_write_failure_rolls_back_both_components ... ok
+test storage::tests::playback_lookup_adds_exact_featured_source_credit_to_candidate_names ... ok
+test storage::tests::preferred_local_file_survives_hydration_and_restart ... ok
+test storage::tests::promoting_a_merged_cached_alias_invalidates_the_new_date_projection ... ok
+test storage::tests::promotion_preserves_known_provider_added_date ... ok
+test storage::tests::promotion_sets_added_date_once_and_cache_refresh_preserves_provider_counts ... ok
+test storage::tests::provider_cache_expires_and_artist_mappings_persist ... ok
+test storage::tests::recording_merges_preserve_library_membership_on_canonical_and_alias_actions ... ok
+test storage::tests::remembered_audio_candidate_preserves_metadata_and_survives_reopen ... ok
+test storage::tests::replacement_checks_expected_hash_and_retains_previous_file_as_backup ... ok
+test storage::tests::retained_artist_evidence_survives_ordinary_refresh_and_restart ... ok
+test storage::tests::save_library_tracks_accepts_musicbrainz_recording_identity ... ok
+test storage::tests::save_library_tracks_rejects_invalid_album_atomically ... ok
+test storage::tests::save_library_tracks_promotes_cached_metadata_and_preserves_manual_edits ... ok
+test storage::tests::effective_artist_filter_normalizes_alias_names_and_paginates_after_filtering ... ok
+test storage::tests::single_asset_projection_backfill_is_pending_then_drives_exact_page_sort_and_filter ... ok
+test storage::tests::snapshots_preserve_rank_and_missing_metadata ... ok
+test storage::tests::spotify_duration_backfill_obeys_manual_and_chapter_guards ... ok
+test storage::tests::soft_deleted_collection_restores_same_order_without_deleting_audio_or_other_memberships ... ok
+test storage::tests::shared_sort_contract_nulls_ties_and_duplicate_occurrences ... ok
+test storage::tests::stale_autotag_hash_cannot_publish_or_replace_local_asset ... ok
+test storage::tests::spotify_duration_scan_repairs_unknown_zero_and_invalid_values_but_not_manual_zero ... ok
+test storage::tests::stale_projection_partial_index_bounds_pending_and_multiasset_discovery ... ok
+test storage::tests::update_track_marks_only_fields_changed_from_hydrated_values ... ok
+test storage::tests::unicode_query_filters_database_before_first_page ... ok
+test storage::tests::user_actions_do_not_replace_raw_catalog_metadata ... ok
+test storage::tests::verified_merge_combines_memberships_without_erasing_listings ... ok
+test system_media::tests::maps_status_fallback_and_bounds_position ... ok
+test system_media::tests::maps_track_fields_duration_and_supported_artwork ... ok
+test tools::tests::explicit_tool_path_is_preserved ... ok
+test tools::tests::missing_tools_retain_a_useful_command_name ... ok
+test track_sort_sql::tests::availability_or_aggregate_combines_masks_and_marks_unknown_rows ... ok
+test storage::tests::verified_playback_sources_are_identity_scoped_stable_and_expire ... ok
+test track_sort_sql::tests::duration_sort_expression_uses_whole_seconds_while_filter_expression_stays_exact ... ok
+test track_sort_sql::tests::compact_json_projection_matches_sql_presence_and_prior_mask ... ok
+test track_sort_sql::tests::missing_date_and_count_values_stay_unknown_with_guarded_udfs ... ok
+test track_sort_sql::tests::invalid_keys_and_counts_are_unknown_and_reported_zero_is_known ... ok
+test storage::tests::verified_playback_source_proof_migrates_legacy_rows_and_survives_reopen ... ok
+test track_sort_sql::tests::partial_chapter_range_is_unknown_instead_of_falling_back_to_parent_duration ... ok
+test track_sort_sql::tests::one_pass_availability_matches_shared_sql_expressions ... ok
+test track_sort_text::tests::shared_text_fixtures_match_sql_unicode_lowercase_and_collation ... ok
+test webview_audio_transcode::tests::conversion_is_capability_gated_and_rejects_foreign_or_unregistered_transports ... ok
+test track_sort_sql::tests::shared_sort_value_fixtures_match_sql_normalization ... ok
+test webview_audio_transcode::tests::expired_initial_budget_fails_bounded_without_persistent_child ... ok
+test storage::tests::paged_sort_availability_includes_values_after_the_first_200_rows ... ok
+test webview_audio_transcode::tests::head_bad_auth_origin_and_seeks_never_start_child ... ok
+test storage::tests::import_source_url_lookup_uses_index_and_skips_unrelated_library_rows ... ok
+test webview_audio_transport::hls::tests::nested_attributes_keys_maps_ranges_and_relative_urls_are_owned ... ok
+test webview_audio_transport::hls::tests::opaque_resource_ids_keep_only_allowlisted_media_extensions ... ok
+test webview_audio_transport::hls::tests::private_urls_schemes_malformed_and_unsupported_specs_fail_closed ... ok
+test webview_audio_transport::hls::tests::saved_http_is_scoped_to_exact_root_authority ... ok
+test track_sort_sql::tests::one_pass_key_presence_matches_every_sql_note_and_camelot_case ... ok
+test webview_audio_transport::tests::exact_headers_ranges_and_head_are_forwarded_with_cors ... ok
+test webview_audio_transcode::tests::disconnect_and_generation_cancel_reap_active_conversion ... ok
+test webview_audio_transport::tests::header_required_relay_delivers_real_aac_that_decodes_without_device ... ok
+test webview_audio_transport::tests::hls_nested_graph_ranges_and_revocation_work_without_upstream_cors ... ok
+test webview_audio_transport::tests::invalid_origin_token_and_revoked_session_never_reach_upstream ... ok
+test webview_audio_transport::tests::malformed_multipart_ranges_and_redirects_are_rejected ... ok
+test webview_audio_transport::tests::superseded_headers_and_streaming_body_are_cancelled ... ok
+test webview_audio_transport::tests::url_validation_and_registration_epoch_fail_closed ... ok
+test webview_header_policy_never_exposes_names_values_or_urls ... ok
+test webview_identification::tests::cancel_capture_keeps_source_and_cancels_jobs ... ok
+test webview_identification::tests::cancelling_one_capture_does_not_cancel_an_independent_capture ... ok
+test webview_identification::tests::excerpt_window_stays_inside_absolute_chapter_bounds ... ok
+test webview_identification::tests::pcm_admission_is_bounded_and_reopens_after_worker_guard_drops ... ok
+test webview_identification::tests::pcm_cancel_is_nonce_scoped_and_job_drop_cleans_registration ... ok
+test webview_identification::tests::playback_snapshot_rejects_seek_restart_or_engine_change ... ok
+test webview_identification::tests::requires_registered_current_generation_and_track ... ok
+test webview_identification::tests::shutdown_closes_admission_cancels_and_waits_for_guards_to_drop ... ok
+test webview_identification::tests::temporary_capture_is_removed_on_drop ... ok
+test webview_media_event_trace_flag_tests::event_trace_requires_exact_opt_in_value ... ok
+test webview_pcm_recognition_tests::cancelled_worker_keeps_private_wav_until_recognition_exits ... ok
+test webview_pcm_recognition_tests::successful_worker_sender_closure_is_not_cancellation ... ok
+test webview_radio_pcm::tests::accepts_only_bounded_mono_48khz_pcm_wav ... ok
+test webview_radio_pcm::tests::playback_identity_must_match_station_session_source_and_seek ... ok
+test webview_radio_pcm::tests::rejects_oversize_or_malformed_base64_before_recognition ... ok
+test youtube_direct_experiment::paired_tests::live_three_public_ids_paired_opus_routes ... ignored, explicit public-network opt-in; matched decoder-only pairs, no device/catalog proof
+test youtube_direct_experiment::paired_tests::pair_eligibility_retains_failures_and_requires_route_evidence ... ok
+test youtube_direct_experiment::tests::direct_opus_url_can_coexist_with_sabr_hls_siblings_without_selecting_them ... ok
+test youtube_direct_experiment::tests::exact_profile_and_visitor_request_goldens ... ok
+test youtube_direct_experiment::tests::explicit_adapter_keeps_fresh_id_title_unknown_proof_and_minimum_expiry ... ok
+test youtube_direct_experiment::tests::explicit_wrapper_rejects_invalid_request_and_cancellation_before_network ... ok
+test youtube_direct_experiment::tests::fresh_player_identity_is_retained_privately_without_new_proof_claims ... ok
+test youtube_direct_experiment::tests::live_three_public_ids_existing_decoder_pcm ... ignored, explicit public-network opt-in; existing access checks and decoder PCM, no device/catalog proof
+test youtube_direct_experiment::tests::live_three_public_ids_metadata_only ... ignored, explicit public-network opt-in; metadata only, no decode or catalog proof
+test youtube_direct_experiment::tests::otherwise_valid_vod_metadata_rejects_live_upcoming_and_hls_only_markers ... ok
+test youtube_direct_experiment::tests::player_failure_status_is_numeric_and_response_text_stays_private ... ok
+test youtube_direct_experiment::tests::player_rejections_are_typed_and_never_select_an_alternate ... ok
+test youtube_direct_experiment::tests::production_access_bridge_rejects_private_destination_without_decode ... ok
+test youtube_direct_experiment::tests::reused_http_client_bounds_body_and_does_not_follow_redirects ... ok
+test youtube_direct_experiment::tests::selected_stream_is_private_and_not_catalog_proof ... ok
+test youtube_direct_experiment::tests::shared_absolute_deadline_and_cancellation_are_terminal ... ok
+test youtube_direct_experiment::tests::strict_request_validation_and_locale ... ok
+test youtube_direct_experiment::tests::visitor_failure_status_and_stage_belong_to_the_actual_response ... ok
+test youtube_direct_experiment::tests::visitor_parsers_preserve_source_shape_and_bound_values ... ok
+test youtube_music::tests::extracts_provider_continuation_tokens_from_known_renderer_shapes ... ok
+test youtube_music::tests::foreground_search_cancels_an_inflight_request_promptly ... ok
+test youtube_music::tests::foreground_search_rejects_http_errors_html_and_oversize_bodies ... ok
+test youtube_music::tests::foreground_search_respects_absolute_deadline_during_request ... ok
+test youtube_music::tests::foreground_search_returns_parsed_items_from_valid_json ... ok
+test youtube_music::tests::foreground_search_validates_query_and_limit_without_network ... ok
+test youtube_music::tests::music_search_does_not_promote_untyped_second_column_to_artist ... ok
+test youtube_music::tests::music_search_rejects_blank_titles_and_malformed_video_ids ... ok
+test youtube_music::tests::parses_music_video_renderer_fixture_and_deduplicates ... ok
+test youtube_music::tests::public_music_collaboration_retains_every_semantic_artist_run ... ok
+test youtube_music::tests::retained_public_continuation_shape_parses_both_pages ... ok
+test youtube_support::provider_broker::tests::abandoned_client_does_not_kill_concurrent_client_and_last_drop_cleans_worker ... ok
+test youtube_support::provider_broker::tests::cancellation_and_lease_drop_interrupt_readiness ... ok
+test youtube_support::provider_broker::tests::cancellation_interrupts_an_inflight_token_response ... ok
+test webview_audio_transport::tests::finite_hls_relay_decodes_and_seeks_exact_audio_fixture ... ok
+test youtube_support::provider_broker::tests::forwards_exact_token_request_only_after_actual_readiness ... ok
+test youtube_support::provider_broker::tests::rejects_browser_cross_origin_and_wrong_lease_without_waiting ... ok
+test youtube_support::tests::candidate_activation_requires_audio_access_not_metadata_only ... ok
+test youtube_support::tests::corrupt_pointer_falls_back_to_bundled_and_cannot_be_rolled_back ... ok
+test youtube_support::tests::diagnostics_classify_common_failures_without_echoing_input ... ok
+test youtube_support::tests::exit_blocks_provider_already_waiting_for_helper_lock ... ok
+test youtube_support::tests::failed_candidate_probe_keeps_existing_active_pointer ... ok
+test youtube_support::provider_broker::tests::readiness_never_reports_healthy_before_helper_and_uses_original_deadline ... ok
+test youtube_support::tests::helper_reset_remains_recoverable_but_exit_closes_admission ... ok
+test youtube_support::tests::plugin_search_root_discovers_packaged_bgutil_namespace ... ok
+test youtube_support::tests::pointer_is_app_data_scoped_and_switches_atomically ... ok
+test youtube_support::tests::recommended_feed_selects_newest_published_release_including_prereleases ... ok
+test youtube_support::tests::recommended_feed_without_published_manifest_is_not_selected ... ok
+test youtube_support::tests::rejects_path_traversal_in_release_pointer ... ok
+test youtube_support::tests::rollback_returns_to_bundled_baseline_then_toggles_back ... ok
+test youtube_support::tests::sigterm_handoff_fixture ... ok
+test youtube_support::tests::staged_binary_must_report_the_requested_release_version ... ok
+test youtube_support::tests::verifies_upstream_checksum_manifest_entries ... ok
+test youtube_support::tests::graceful_sigterm_runs_cleanup_and_reaps_helper_in_disposable_process ... ok
+test storage::tests::managed_download_backfill_streams_candidates_and_preserves_result_count ... ok
+test storage::tests::exact_cached_mcp_pages_match_legacy_across_pending_ready_and_file_changes ... ok
+test webview_audio_transport::hls::tests::live_refresh_reuses_ids_and_expired_windows_are_bounded ... ok
+test webview_audio_transport::hls::tests::uri_and_aggregate_limits_reject_whole_manifest_without_publication ... ok
+test storage::tests::long_prefix_matches_filtered_duration_pages_and_null_last_order_past_one_thousand ... ok
+test webview_audio_transcode::tests::real_vorbis_converts_to_decodable_mp3_and_reconnect_outlives_startup ... ok
+
+test result: ok. 1313 passed; 0 failed; 33 ignored; 0 measured; 0 filtered out; finished in 23.02s
+

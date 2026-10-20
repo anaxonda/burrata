@@ -1,0 +1,767 @@
+{
+  "sourceFixturePath": "scripts/performance/innertube/results/2026-10-19-transport-track-discovery.json",
+  "sourceFixtureSha256": "16004878405c2176e4f93e14f7a41e7c5736904fb773d2a8633bc0eea243f8cb",
+  "sourceFixtureIndex": 0,
+  "schema": "burrata.native-direct-foreground-matrix/v1",
+  "qualification": false,
+  "sourceCommit": "e06bf2a09be1be6b8ffc7d36cf3c143ce26c49bd",
+  "binarySha256": "2f21fcfbf197b327680b2094b4933cd25eb47e61e7076327f218921f30512621",
+  "driverSha256": "264e18fc9d67e490b8bd7453e3cabae5438ed8e338d099820310e51c7a12813b",
+  "videoId": "kzrZXghhy1k",
+  "scope": "Exact public YouTube ID through native source resolution and five seconds of decoder PCM; no mixer/device/catalog/UI.",
+  "processPolicy": "Fresh test process and anonymous HTTP client per trial; OS DNS/TLS/server state is not reset. No retry within a trial.",
+  "resourceScope": "GNU time CPU includes waited descendants; maxRSS is maximum reported process RSS, not simultaneous summed tree memory or PSS. CPU is aggregate, not a peak.",
+  "limits": {
+    "exploratory": 3,
+    "measured": 20,
+    "perTrialSeconds": 30,
+    "actionSeconds": 120
+  },
+  "rows": [
+    {
+      "index": 0,
+      "exploratory": true,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 2823.0945619999998,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 1598.537061,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 3002.826485
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "49f2e871db99bab55340b4e565c6d8b6ceee92941a727cfd39fdfc73d865e5d3",
+      "resources": {
+        "userSeconds": 0.47,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 85428,
+        "wallSeconds": 3.12,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 1,
+      "exploratory": true,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1735.052449,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 1422.446085,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1917.049048
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "1895bf24ce591bf7474603f3701e4be802d70704ab20b8fb997395d5805838e9",
+      "resources": {
+        "userSeconds": 0.53,
+        "systemSeconds": 0.09,
+        "maxRssKiB": 84720,
+        "wallSeconds": 2.11,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 2,
+      "exploratory": true,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1173.007371,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 895.046834,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1341.0623400000002
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "b1f76e9c3bcaf80bfa2a7f2b9c815853ebf2cf4429bd5bce0afd8079cbbcb921",
+      "resources": {
+        "userSeconds": 0.49,
+        "systemSeconds": 0.09,
+        "maxRssKiB": 85080,
+        "wallSeconds": 1.6,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 3,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 908.5677660000001,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 694.981835,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1078.843489
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "e753536cf0b1f6efb55a782ec5427aec4308230a0c81e3b6c143b4b626d488d0",
+      "resources": {
+        "userSeconds": 0.36,
+        "systemSeconds": 0.06,
+        "maxRssKiB": 84812,
+        "wallSeconds": 1.2,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 4,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 974.063146,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 769.23843,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1133.7088019999999
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "f41560a8669f7c15e37600d7f78c48d511c0600326ca960e402c57962da1f755",
+      "resources": {
+        "userSeconds": 0.33,
+        "systemSeconds": 0.08,
+        "maxRssKiB": 84576,
+        "wallSeconds": 1.27,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 5,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1028.8663589999999,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 761.868824,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1215.86401
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "880f44bdca043136a5f198b8c2ed3b1c8640d28e394c3ed6a3c46fb786af147f",
+      "resources": {
+        "userSeconds": 0.37,
+        "systemSeconds": 0.08,
+        "maxRssKiB": 84708,
+        "wallSeconds": 1.4,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 6,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1162.7571090000001,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 816.164344,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1375.077896
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "be9d1c909a73570a1c57f678275431e4b3ba1c8a8dc279858be192e7c809ab1b",
+      "resources": {
+        "userSeconds": 0.57,
+        "systemSeconds": 0.11,
+        "maxRssKiB": 84468,
+        "wallSeconds": 1.57,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 7,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1077.273511,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 894.662363,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1237.820624
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "1f41798b0d505f76f0621ace01f4bde36470778a9975c23dece6913e2f4b34cb",
+      "resources": {
+        "userSeconds": 0.41,
+        "systemSeconds": 0.08,
+        "maxRssKiB": 84808,
+        "wallSeconds": 1.44,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 8,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1135.8734570000001,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 856.870765,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1323.791474
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "e36a86538828c9b9bd80a5f5199894c29b474c8ad6695a62396e1ab9c4c02f2e",
+      "resources": {
+        "userSeconds": 0.55,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 84596,
+        "wallSeconds": 1.48,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 9,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1012.948275,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 827.6851079999999,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1170.916189
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "442450811b8934e16d2b3f54f903c9638a3f299c6265a79878af20d0201a745b",
+      "resources": {
+        "userSeconds": 0.4,
+        "systemSeconds": 0.07,
+        "maxRssKiB": 84956,
+        "wallSeconds": 1.35,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 10,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1277.6342510000002,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 959.961988,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1465.775771
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "00b9bd0d8c095e1084274deb4aa2dc6ad45046df270cf350c9c7e8429787c3f1",
+      "resources": {
+        "userSeconds": 0.44,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 84504,
+        "wallSeconds": 1.63,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 11,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 953.632699,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 657.48841,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1184.181596
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "c993c1a6ff93a010f9a244aa150546050dc1c2bd5ff1eb4e1b89cd0ccc84822a",
+      "resources": {
+        "userSeconds": 0.57,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 84712,
+        "wallSeconds": 1.4,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 12,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 874.074724,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 660.6617930000001,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1066.535308
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "a6a3534794f547ca34dcbe7d8c9a30498e517cafd37b424e7fcbdc306ef600f7",
+      "resources": {
+        "userSeconds": 0.6,
+        "systemSeconds": 0.12,
+        "maxRssKiB": 84656,
+        "wallSeconds": 1.31,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 13,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 817.6378990000001,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 635.392702,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 967.919211
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "e7dca0913a82677311dc815488d85bd40702dd7258a914ac72ead13dbbeea293",
+      "resources": {
+        "userSeconds": 0.37,
+        "systemSeconds": 0.08,
+        "maxRssKiB": 85048,
+        "wallSeconds": 1.21,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 14,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1062.4319580000001,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 774.336226,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1241.2234
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "99f33d2dd87c9d72e7784f28426f9d3f3a6ee3646953e159605f6b1f363a6cf7",
+      "resources": {
+        "userSeconds": 0.49,
+        "systemSeconds": 0.09,
+        "maxRssKiB": 84136,
+        "wallSeconds": 1.35,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 15,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1112.547114,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 893.436512,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1269.1580330000002
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "4b68c9760e35035da70819ba57f0c993f62c1c9edb8dcce47734b3977e2ecfea",
+      "resources": {
+        "userSeconds": 0.41,
+        "systemSeconds": 0.07,
+        "maxRssKiB": 85472,
+        "wallSeconds": 1.45,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 16,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1309.924303,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 935.823692,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1533.923709
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "73cf385ea7a37bae6f3fd13a7113f45f7ded36c5e61f3b6834a0bdb1c7e57c6c",
+      "resources": {
+        "userSeconds": 0.49,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 84460,
+        "wallSeconds": 1.66,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 17,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 931.6447529999999,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 709.323751,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1082.200563
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "e0c6260f6b5fd44797a93564cb33719188c61333cafc16d416ccd7229d480dea",
+      "resources": {
+        "userSeconds": 0.38,
+        "systemSeconds": 0.08,
+        "maxRssKiB": 84792,
+        "wallSeconds": 1.33,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 18,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 906.5922950000001,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 659.794456,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1065.702972
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "3fae0e87928e47eddeada3469629d148591de38685deb4d827ce205dae71621a",
+      "resources": {
+        "userSeconds": 0.33,
+        "systemSeconds": 0.07,
+        "maxRssKiB": 84708,
+        "wallSeconds": 1.17,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 19,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1033.1827269999999,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 708.651785,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1188.483715
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "335f9b63162b3f2b48f1049fd1c813b397f6f7d1cfd8e68ae20c5ee4dc5755bf",
+      "resources": {
+        "userSeconds": 0.29,
+        "systemSeconds": 0.06,
+        "maxRssKiB": 84756,
+        "wallSeconds": 1.29,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 20,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1735.4861019999998,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 1327.7415509999998,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1955.318871
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "34db146bca224f85c8449e6c8cb6b78ef1e9a5291cf879a2e897b1e0a193930c",
+      "resources": {
+        "userSeconds": 0.54,
+        "systemSeconds": 0.09,
+        "maxRssKiB": 84952,
+        "wallSeconds": 2.07,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 21,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1141.810693,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 944.1802809999999,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1288.9820320000001
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "4edb9e596f2510b77b6ada1ba7e0c9f59deeb9669a52e10389fa634313ccd25d",
+      "resources": {
+        "userSeconds": 0.35,
+        "systemSeconds": 0.04,
+        "maxRssKiB": 85024,
+        "wallSeconds": 1.4,
+        "exitCode": 0
+      }
+    },
+    {
+      "index": 22,
+      "exploratory": false,
+      "started": true,
+      "ok": true,
+      "exitCode": 0,
+      "result": {
+        "catalogProof": false,
+        "decodedFrames": 240000,
+        "experiment": "production-direct-youtube-foreground-v1",
+        "failure": null,
+        "firstPcmFromStartMs": 1008.632281,
+        "ok": true,
+        "origin": "direct_youtube",
+        "physicalAudibilityMeasured": false,
+        "qualification": false,
+        "resolveMs": 741.790833,
+        "videoId": "kzrZXghhy1k",
+        "wallMs": 1198.9890579999999
+      },
+      "helperPreparationEvents": 0,
+      "extractorEvents": 0,
+      "logSha256": "6c026f780d5c7057a0c3b176fca72977312e0fd4329e8d1a839e3c6b7ef57f1d",
+      "resources": {
+        "userSeconds": 0.54,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 84328,
+        "wallSeconds": 1.31,
+        "exitCode": 0
+      }
+    }
+  ],
+  "summary": {
+    "measuredPlanned": 20,
+    "measuredStarted": 20,
+    "measuredPassed": 20,
+    "measuredFailed": 0,
+    "firstPcmFromStartMs": {
+      "count": 20,
+      "median": 1031.024543,
+      "p95NearestRank": 1309.924303,
+      "worst": 1735.4861019999998
+    },
+    "resolutionMs": {
+      "count": 20,
+      "median": 771.787328,
+      "p95NearestRank": 959.961988,
+      "worst": 1327.7415509999998
+    },
+    "processCpuSeconds": {
+      "count": 20,
+      "median": 0.485,
+      "p95NearestRank": 0.6799999999999999,
+      "worst": 0.72
+    },
+    "maxProcessRssKiB": {
+      "count": 20,
+      "median": 84710.0,
+      "p95NearestRank": 85048,
+      "worst": 85472
+    },
+    "helperPreparationEvents": 0,
+    "extractorEvents": 0
+  }
+}

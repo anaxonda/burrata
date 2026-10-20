@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "scope": "two explicit anonymous WEB_REMIX search POSTs only; feasibility while a separate root Rust compilation was ongoing; not latency qualification",
+  "dateUtc": "2026-10-20T03:23:20.350279+00:00",
+  "limits": {
+    "maxRequests": 2,
+    "timeoutSecondsPerRequest": 8,
+    "maxResponseBytes": 1048576,
+    "redirects": "disabled",
+    "cookiesOrAuth": "none",
+    "tlsVerification": "urllib default enabled"
+  },
+  "requests": [
+    {
+      "query": "John Denver Matthew",
+      "startedAtUtc": "2026-10-20T03:23:18.201040+00:00",
+      "endpointHost": "music.youtube.com",
+      "requestBytes": 178,
+      "clientName": "WEB_REMIX",
+      "clientVersion": "1.20250101.01.00",
+      "elapsedMs": 840.424,
+      "httpStatus": 200,
+      "contentType": "application/json",
+      "responseBytesRead": 683754,
+      "responseSha256": "703dee7491a10ddde4195ffa91b06ffd6b5eeee9c38f511437f6129e16482e23",
+      "bodyWithinLimit": true,
+      "structuralCounts": {
+        "videoIdCandidates": 260,
+        "musicResponsiveListItemRenderers": 80,
+        "artistTypedRuns": 41,
+        "fixedColumns": 0,
+        "continuationCommands": 1
+      },
+      "items": [
+        {
+          "videoId": "uZGRATckoBM",
+          "title": "Matthew",
+          "artist": "John Denver",
+          "durationSeconds": 228
+        },
+        {
+          "videoId": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "artist": "John Denver",
+          "durationSeconds": 232
+        },
+        {
+          "videoId": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "artist": "John Denver",
+          "durationSeconds": 254
+        },
+        {
+          "videoId": "dz8j2IV1DM0",
+          "title": "Forest Lawn (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "artist": "John Denver",
+          "durationSeconds": 184
+        },
+        {
+          "videoId": "VSWgV1UVblc",
+          "title": "Cool an' Green an' Shady",
+          "artist": "John Denver",
+          "durationSeconds": 190
+        },
+        {
+          "videoId": "lf_xz5k2z5s",
+          "title": "Isabel",
+          "artist": "John Denver",
+          "durationSeconds": 205
+        },
+        {
+          "videoId": "l7aZaznFj7U",
+          "title": "Rusty Green (Studio Outtake - 1969)",
+          "artist": "John Denver",
+          "durationSeconds": 130
+        },
+        {
+          "videoId": "5STI7Rmqesc",
+          "title": "Matthew",
+          "artist": "Rex Daisy, Steeplejack",
+          "durationSeconds": 263
+        },
+        {
+          "videoId": "M_iJJ8xDZq8",
+          "title": "Back Home Again",
+          "artist": "John Denver",
+          "durationSeconds": 286
+        },
+        {
+          "videoId": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "artist": "John Denver",
+          "durationSeconds": 231
+        }
+      ],
+      "parsedItemCount": 10,
+      "failureCode": null
+    },
+    {
+      "query": "Pengus Victory Lap",
+      "startedAtUtc": "2026-10-20T03:23:19.105102+00:00",
+      "endpointHost": "music.youtube.com",
+      "requestBytes": 177,
+      "clientName": "WEB_REMIX",
+      "clientVersion": "1.20250101.01.00",
+      "elapsedMs": 1187.449,
+      "httpStatus": 200,
+      "contentType": "application/json",
+      "responseBytesRead": 692962,
+      "responseSha256": "fe61969e1474cf7cbdb404374379a42648c217d343b18ea0724884d2fac5235f",
+      "bodyWithinLimit": true,
+      "structuralCounts": {
+        "videoIdCandidates": 260,
+        "musicResponsiveListItemRenderers": 80,
+        "artistTypedRuns": 49,
+        "fixedColumns": 0,
+        "continuationCommands": 1
+      },
+      "items": [
+        {
+          "videoId": "A9RbAbr9pVE",
+          "title": "Victory Lap (feat. Tragedy Khadafi & Intelligent Hoodlum)",
+          "artist": "Kin-G Tha Heterosapien",
+          "durationSeconds": 237
+        },
+        {
+          "videoId": "kfKCl5YmQsE",
+          "title": "Victory Lap (feat. Sa-Roc, Seuss Mace & Indigenous Cats)",
+          "artist": "Gifted Youngstaz",
+          "durationSeconds": 203
+        },
+        {
+          "videoId": "ftdAKZ_YHSs",
+          "title": "Victory Lap (feat. Elliot Noo$e)",
+          "artist": "RePete",
+          "durationSeconds": 127
+        },
+        {
+          "videoId": "oSAZCqVP1kE",
+          "title": "Victory Lap",
+          "artist": "Puntin",
+          "durationSeconds": 157
+        },
+        {
+          "videoId": "1DkWYc_vXBk",
+          "title": "The Victory Lap",
+          "artist": "Twindog",
+          "durationSeconds": 171
+        },
+        {
+          "videoId": "YNNrwTe0L-o",
+          "title": "VICTORY LAP / FAGGOT",
+          "artist": "LENNY",
+          "durationSeconds": 140
+        },
+        {
+          "videoId": "oJKetQwiS2A",
+          "title": "Victory Lap",
+          "artist": "YungRukki",
+          "durationSeconds": 177
+        },
+        {
+          "videoId": "4rPBnwkFT04",
+          "title": "Victory Lap (I'm Speeding)",
+          "artist": "DAN:EZ",
+          "durationSeconds": 210
+        },
+        {
+          "videoId": "56YsbcHywqU",
+          "title": "Victory Lap",
+          "artist": "Jop Govers, Wux",
+          "durationSeconds": 125
+        },
+        {
+          "videoId": "pccbdw2wcKc",
+          "title": "Victory Lap (feat. Cayte Lee)",
+          "artist": "Ryan Oakes",
+          "durationSeconds": 196
+        }
+      ],
+      "parsedItemCount": 10,
+      "failureCode": null
+    }
+  ]
+}

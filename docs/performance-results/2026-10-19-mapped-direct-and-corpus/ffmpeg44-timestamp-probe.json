@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "probe": "opus-webm-one-second-output-timestamp-normalization",
+  "ffmpegVersion": "ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers",
+  "fixtureBytes": 48711,
+  "remuxBytes": 50221,
+  "expectedF32Samples": 96000,
+  "defaultF32Samples": 95376,
+  "asetptsF32Samples": 96000,
+  "scope": "offline test fixture, one-second FFmpeg CLI counts; no runtime mutation",
+  "ci": {
+    "runId": 39362685380,
+    "jobId": 118432246938,
+    "headSha": "6cf533cae1a5c64051bd4ae7c1201705a76d17b1",
+    "runUrl": "https://github.com/anaxonda/burrata/actions/runs/39362685380",
+    "jobLog": "/tmp/ci-39362685380-linux-probe.log",
+    "jobName": "Checks (ubuntu-22.04)",
+    "capturedAtUtc": "2026-10-20T03:09:46Z"
+  }
+}

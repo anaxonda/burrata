@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "scope": "two explicit anonymous WEB_REMIX search POSTs only; feasibility while a separate root Rust compilation was ongoing; not latency qualification",
+  "dateUtc": "2026-10-20T03:22:09.415216+00:00",
+  "limits": {
+    "maxRequests": 2,
+    "timeoutSecondsPerRequest": 8,
+    "maxResponseBytes": 1048576,
+    "redirects": "disabled",
+    "cookiesOrAuth": "none",
+    "tlsVerification": "urllib default enabled"
+  },
+  "requests": [
+    {
+      "query": "John Denver Matthew",
+      "startedAtUtc": "2026-10-20T03:22:09.395417+00:00",
+      "endpointHost": "music.youtube.com",
+      "requestBytes": 178,
+      "clientName": "WEB_REMIX",
+      "clientVersion": "1.20250101.01.00",
+      "failureCode": "TRANSPORT_ERROR",
+      "elapsedMs": 8.415,
+      "httpStatus": null,
+      "contentType": null,
+      "responseBytesRead": 0,
+      "responseSha256": null,
+      "bodyWithinLimit": true
+    },
+    {
+      "query": "Pengus Victory Lap",
+      "startedAtUtc": "2026-10-20T03:22:09.414831+00:00",
+      "endpointHost": "music.youtube.com",
+      "requestBytes": 177,
+      "clientName": "WEB_REMIX",
+      "clientVersion": "1.20250101.01.00",
+      "failureCode": "TRANSPORT_ERROR",
+      "elapsedMs": 0.374,
+      "httpStatus": null,
+      "contentType": null,
+      "responseBytesRead": 0,
+      "responseSha256": null,
+      "bodyWithinLimit": true
+    }
+  ]
+}
