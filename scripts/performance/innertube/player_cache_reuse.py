@@ -81,12 +81,13 @@ def run(output: Path, track: dict, *, node: Path = NODE, worker: Path = WORKER,
 
     outer_start = time.monotonic()
     outer_deadline = outer_start + outer_s
+    # Required live dependency metadata must fail before allocating run scratch.
+    package = json.loads((HERE / "node_modules/youtubei.js/package.json").read_text(encoding="utf-8"))
     run_scratch = tempfile.TemporaryDirectory(prefix="burrata-player-cache-pairs-")
     run_root = Path(run_scratch.name)
     shared_data = run_root / "shared-data"
     shared_data.mkdir(mode=0o700)
     rows: list[dict] = []
-    package = json.loads((HERE / "node_modules/youtubei.js/package.json").read_text(encoding="utf-8"))
 
     def checkpoint(status="running"):
         artifact = {

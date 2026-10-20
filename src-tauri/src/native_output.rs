@@ -5271,6 +5271,11 @@ mod tests {
                             server_bounded_range.clone(),
                         );
                         clients.push(thread::spawn(move || {
+                            // Accepted sockets can inherit O_NONBLOCK from the listener on
+                            // macOS. This fixture reads the request with blocking read_exact.
+                            stream
+                                .set_nonblocking(false)
+                                .expect("configure accepted seek fixture socket as blocking");
                             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
                             stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
                             let mut request = Vec::new();
@@ -6111,6 +6116,13 @@ mod validation_handoff_diagnostic {
                             let (bytes, stop, requests) =
                                 (bytes.clone(), worker_stop.clone(), worker_requests.clone());
                             clients.push(thread::spawn(move || {
+                                // The listener is polled in nonblocking mode; normalize each
+                                // accepted socket before the fixture performs blocking reads.
+                                socket
+                                    .set_nonblocking(false)
+                                    .expect(
+                                        "configure accepted diagnostic fixture socket as blocking",
+                                    );
                                 let _ = socket.set_read_timeout(Some(Duration::from_secs(2)));
                                 let _ = socket.set_write_timeout(Some(Duration::from_secs(2)));
                                 let mut header = Vec::new(); let mut byte = [0];

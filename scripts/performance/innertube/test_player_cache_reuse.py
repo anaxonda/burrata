@@ -3,7 +3,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import player_cache_reuse as driver
 from player_cache_reuse import clear_session_cache, player_cache_inventory, run, session_cache_path
 from serial_same_worker import HERE
 
@@ -43,9 +45,14 @@ class PlayerCacheReuseTests(unittest.TestCase):
                 encoding="utf-8")
             manifest = json.loads((HERE / "fixtures/transport-music-tracks.json").read_text(encoding="utf-8"))
             track = next(row for row in manifest if row["name"] == "matthew")
-            result = run(output, track, node=Path(sys.executable), worker=worker,
-                         pairs=1, outer_s=10, request_s=2)
+            package = root / "node_modules/youtubei.js/package.json"
+            package.parent.mkdir(parents=True)
+            package.write_text('{"version":"offline-fixture"}', encoding="utf-8")
+            with patch.object(driver, "HERE", root):
+                result = run(output, track, node=Path(sys.executable), worker=worker,
+                             pairs=1, outer_s=10, request_s=2)
             self.assertEqual(result["status"], "complete")
+            self.assertEqual(result["youtubeiJsVersion"], "offline-fixture")
             self.assertEqual(len(result["attempts"]), 3)  # one cache warmup plus paired attempts
             warmup, first, second = result["attempts"]
             self.assertEqual(warmup["arm"], "shared_player_cache")
@@ -61,6 +68,20 @@ class PlayerCacheReuseTests(unittest.TestCase):
             self.assertEqual(shared["cachePlayerRecordsAfter"], 1)
             self.assertEqual(fresh["cachePlayerRecordsBefore"], 0)
             self.assertEqual(len(result["driverSha256"]), 64)
+
+    def test_missing_dependency_metadata_remains_an_error_before_worker_or_scratch_creation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            manifest = json.loads((HERE / "fixtures/transport-music-tracks.json").read_text(encoding="utf-8"))
+            track = next(row for row in manifest if row["name"] == "matthew")
+            with patch.object(driver, "HERE", root), \
+                    patch.object(driver.subprocess, "Popen") as launch, \
+                    patch.object(driver.tempfile, "TemporaryDirectory") as scratch:
+                with self.assertRaises(FileNotFoundError):
+                    run(root / "unused.json", track, pairs=1, outer_s=10)
+            launch.assert_not_called()
+            scratch.assert_not_called()
+            self.assertFalse((root / "unused.json").exists())
 
 
 if __name__ == "__main__":

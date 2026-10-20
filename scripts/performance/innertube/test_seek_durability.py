@@ -4,7 +4,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import seek_durability as driver
 from seek_durability import POSITIONS, run, validate_tracks
 from serial_same_worker import HERE
 
@@ -13,6 +15,12 @@ class SeekDurabilityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        package = self.root / "research/node_modules/youtubei.js/package.json"
+        package.parent.mkdir(parents=True)
+        package.write_text('{"version":"offline-fixture"}', encoding="utf-8")
+        self.research = patch.object(driver, "HERE", self.root / "research")
+        self.research.start()
+        self.addCleanup(self.research.stop)
         self.worker = self.root / "fake_worker.py"
         self.manifest = json.loads((HERE / "fixtures/transport-music-tracks.json").read_text(encoding="utf-8"))
         metadata = {row["videoId"]: {"title": row["titleNeedle"], "channel": row["channelNeedle"],
@@ -36,6 +44,7 @@ class SeekDurabilityTests(unittest.TestCase):
         result = run(output, self.manifest, node=Path(sys.executable), worker=self.worker,
                      repetitions=1, outer_s=10, request_s=1)
         self.assertEqual(result["status"], "complete")
+        self.assertEqual(result["youtubeiJsVersion"], "offline-fixture")
         self.assertEqual(len(result["attempts"]), 9)
         self.assertTrue(all(row["durabilityEligible"] for row in result["attempts"]))
         self.assertEqual([row["positionLabel"] for row in result["attempts"][:3]], [p[0] for p in POSITIONS])
@@ -48,10 +57,20 @@ class SeekDurabilityTests(unittest.TestCase):
         result = run(output, self.manifest, node=Path(sys.executable), worker=self.worker,
                      repetitions=1, full_recording=True, outer_s=10, request_s=1)
         self.assertEqual(result["mode"], "full-source-decode")
+        self.assertEqual(result["youtubeiJsVersion"], "offline-fixture")
         self.assertEqual(len(result["attempts"]), 3)
         self.assertTrue(all(row["durabilityEligible"] and row["fullPcmDurationMatched"]
                             for row in result["attempts"]))
         self.assertEqual([row["decodedAudioMs"] for row in result["attempts"]], [228000, 251000, 288000])
+
+    def test_missing_dependency_metadata_remains_an_error_before_worker_start(self):
+        output = self.root / "unused.json"
+        with patch.object(driver, "HERE", self.root / "missing-research"), \
+                patch.object(driver.subprocess, "Popen") as launch:
+            with self.assertRaises(FileNotFoundError):
+                run(output, self.manifest, repetitions=1, outer_s=10)
+        launch.assert_not_called()
+        self.assertFalse(output.exists())
 
     def test_manifest_full_source_limit_and_repetition_bounds(self):
         original = json.loads(json.dumps(self.manifest))

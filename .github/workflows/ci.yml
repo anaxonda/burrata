@@ -51,9 +51,12 @@ jobs:
           $ffmpegDirectory = $ffmpegExecutables[0].DirectoryName
           $ffmpegDirectory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $env:Path = "$ffmpegDirectory;$env:Path"
-          $resolvedFfmpeg = (Get-Command ffmpeg.exe -CommandType Application).Source
-          if (-not [string]::Equals($resolvedFfmpeg, $ffmpegExecutables[0].FullName, [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "FFmpeg still resolves through a launcher instead of the package executable"
+          $resolvedFfmpegCommands = @(Get-Command ffmpeg.exe -CommandType Application)
+          $resolvedFfmpeg = if ($resolvedFfmpegCommands.Count -gt 0) { $resolvedFfmpegCommands[0].Source } else { '<not found>' }
+          $expectedFfmpeg = [System.IO.Path]::GetFullPath($ffmpegExecutables[0].FullName)
+          $actualFfmpeg = if ($resolvedFfmpeg -ne '<not found>') { [System.IO.Path]::GetFullPath($resolvedFfmpeg) } else { $resolvedFfmpeg }
+          if (-not [string]::Equals($actualFfmpeg, $expectedFfmpeg, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "FFmpeg first resolves to '$actualFfmpeg'; expected package executable '$expectedFfmpeg'"
           }
       - run: npm ci
       - name: Check installed-smoke path handling
