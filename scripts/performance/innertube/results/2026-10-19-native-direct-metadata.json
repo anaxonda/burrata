@@ -1,0 +1,79 @@
+{
+  "schema": "native-direct-metadata-observations-v1",
+  "qualification": false,
+  "scope": "Three fixed public IDs, fresh anonymous visitor per request, one reusable reqwest client; metadata and URL selection only, no decode, device output or catalog proof",
+  "timingOrigin": "resolve invocation, excludes client construction/test process startup",
+  "sourceSha256AtTest": "316666886071eb7d316be83b696c4b1a14bb1bf98a5711343e4fb520f071cc1e",
+  "testBinarySha256AtTest": "54096cac1c19953dc9c01fe8643e05d32f505fd439c58acec940518650df0533",
+  "originalSafeLogSha256": "c1a1883fa9dfa59166b47ca2395f04c80638e00d3f35b195eb00100c0e658670",
+  "rows": [
+    {
+      "decodeAttempted": false,
+      "experiment": "native-direct-metadata-v1",
+      "metadata": {
+        "approximateDurationMs": 227801.0,
+        "codec": "audio/webm; codecs=\"opus\"",
+        "contentLength": 3845541,
+        "durationSeconds": 228.0,
+        "expiresInMs": 21540000.0,
+        "formatId": 251,
+        "metadataMatched": true,
+        "profile": "VISIONOS_0_1",
+        "qualification": false,
+        "resolutionMs": 650.538875,
+        "stages": {
+          "player": 259.23658700000004,
+          "visitorServiceWorker": 389.524822
+        },
+        "videoId": "uZGRATckoBM"
+      },
+      "ok": true
+    },
+    {
+      "decodeAttempted": false,
+      "experiment": "native-direct-metadata-v1",
+      "metadata": {
+        "approximateDurationMs": 250041.0,
+        "codec": "audio/webm; codecs=\"opus\"",
+        "contentLength": 4316912,
+        "durationSeconds": 250.0,
+        "expiresInMs": 21540000.0,
+        "formatId": 251,
+        "metadataMatched": true,
+        "profile": "VISIONOS_0_1",
+        "qualification": false,
+        "resolutionMs": 212.76434,
+        "stages": {
+          "player": 99.142959,
+          "visitorServiceWorker": 111.339338
+        },
+        "videoId": "hRNx674Z4QE"
+      },
+      "ok": true
+    },
+    {
+      "decodeAttempted": false,
+      "experiment": "native-direct-metadata-v1",
+      "metadata": {
+        "approximateDurationMs": 288021.0,
+        "codec": "audio/webm; codecs=\"opus\"",
+        "contentLength": 4683906,
+        "durationSeconds": 288.0,
+        "expiresInMs": 21540000.0,
+        "formatId": 251,
+        "metadataMatched": true,
+        "profile": "VISIONOS_0_1",
+        "qualification": false,
+        "resolutionMs": 286.988661,
+        "stages": {
+          "player": 115.822311,
+          "visitorServiceWorker": 168.99050400000002
+        },
+        "videoId": "YoHI6frgjz4"
+      },
+      "ok": true
+    }
+  ],
+  "passed": 3,
+  "attempted": 3
+}

@@ -1,0 +1,171 @@
+{
+  "schema": "native-opus-route-three-paired-summary-v1",
+  "qualification": false,
+  "scope": "Three same-resolved-URL, same format 251 paired decoder-route observations; independent access validation precedes each arm; no end-to-end startup, audible-output, catalog/acoustic or production qualification.",
+  "sourceLog": {
+    "path": "2026-10-19-native-opus-route-three.log",
+    "sha256": "bd211b4c688765a8fb0d0a7bf28369bb21f76fde4308dcbfd892ca81a29c17de"
+  },
+  "parsedRowsArtifact": "2026-10-19-native-opus-route-three-rows.json",
+  "provenance": {
+    "implementationCommitReportedByRoot": "96fc8c9",
+    "binarySha256ReportedByRoot": "f93ed01073ca91b4f059c65462266159b62df2f3ed1ce1d5cacaa9a94d312ea5",
+    "binaryHashVerification": "Supplied by root; not independently rehashed while the next live benchmark was running.",
+    "buildSourceCaveat": "After compilation, lib.rs library declaration ordering/formatting changed. Root reports all implementation bodies match commit 96fc8c9. The compiled binary is not claimed to represent a byte-identical snapshot of the later whole working tree.",
+    "defaultSuiteReportedByRoot": {
+      "passed": 1285,
+      "failed": 0,
+      "ignored": 30
+    },
+    "focusedHarnessResultFromLog": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filteredOut": 1314,
+      "elapsedSeconds": 10.72
+    }
+  },
+  "counts": {
+    "pairs": 3,
+    "eligiblePairs": 3,
+    "arms": 6,
+    "eligibleArms": 6,
+    "warmups": 0,
+    "repetitionsReportedByHarness": 3
+  },
+  "design": {
+    "orders": [
+      "AB",
+      "BA",
+      "AB"
+    ],
+    "armA": "legacy-native-probe",
+    "armB": "direct-ffmpeg",
+    "sameResolvedUrlWithinEachPair": true,
+    "formatId": 251,
+    "codec": "audio/webm; codecs=\"opus\"",
+    "sourceProfile": "VISIONOS_0_1",
+    "httpClientReused": true,
+    "accessValidationBeforeEachArm": true,
+    "perArmBudgetSeconds": 19,
+    "decodedFramesPerArm": 240000,
+    "sampleRate": 48000,
+    "channels": 2
+  },
+  "timingDefinitions": {
+    "firstPcmFromArmMs": "Begins after common resolution; equals this arm access validation plus this arm decoder route through first PCM. Each arm has its own access validation.",
+    "decoderFirstPcmMs": "PCM sub-result firstPcmMs, after arm access validation; legacy includes its failed native setup and FFmpeg fallback.",
+    "commonResolutionMs": "Resolved once per pair and shared by both routes; reported separately, not an independently repeated resolver arm.",
+    "pairedDeltaSign": "direct-ffmpeg minus legacy-native-probe; negative favors the direct arm in these observations.",
+    "noFullStartupMetric": "No total startup value is synthesized by adding shared resolution to the sequential arm measurements. Device/mixer, queue, app startup and catalog selection are not measured."
+  },
+  "pairs": [
+    {
+      "pairIndex": 0,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "eligible": true,
+      "commonResolutionMs": 651.582906,
+      "legacyFirstPcmFromArmMs": 2348.5113810000003,
+      "directFirstPcmFromArmMs": 1029.414315,
+      "directMinusLegacyFirstPcmFromArmMs": -1319.0970660000003,
+      "legacyMinusDirectFirstPcmFromArmMs": 1319.0970660000003,
+      "legacyAccessMs": 280.395602,
+      "directAccessMs": 663.355504,
+      "legacyDecoderFirstPcmMs": 2068.115779,
+      "directDecoderFirstPcmMs": 366.058811,
+      "directMinusLegacyDecoderFirstPcmMs": -1702.0569680000003,
+      "legacyFailedNativeAttemptDurationMs": 1522,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276,
+      "audibility": "not measured by a physical device"
+    },
+    {
+      "pairIndex": 1,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "eligible": true,
+      "commonResolutionMs": 559.081555,
+      "legacyFirstPcmFromArmMs": 1626.4276830000001,
+      "directFirstPcmFromArmMs": 770.086521,
+      "directMinusLegacyFirstPcmFromArmMs": -856.3411620000002,
+      "legacyMinusDirectFirstPcmFromArmMs": 856.3411620000002,
+      "legacyAccessMs": 180.202849,
+      "directAccessMs": 519.182515,
+      "legacyDecoderFirstPcmMs": 1446.224834,
+      "directDecoderFirstPcmMs": 250.904006,
+      "directMinusLegacyDecoderFirstPcmMs": -1195.3208280000001,
+      "legacyFailedNativeAttemptDurationMs": 1248,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06,
+      "audibility": "near-silent excerpt in both arms; audibility not established"
+    },
+    {
+      "pairIndex": 2,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "eligible": true,
+      "commonResolutionMs": 255.880069,
+      "legacyFirstPcmFromArmMs": 1954.396401,
+      "directFirstPcmFromArmMs": 593.256954,
+      "directMinusLegacyFirstPcmFromArmMs": -1361.139447,
+      "legacyMinusDirectFirstPcmFromArmMs": 1361.139447,
+      "legacyAccessMs": 236.815045,
+      "directAccessMs": 248.991499,
+      "legacyDecoderFirstPcmMs": 1717.581356,
+      "directDecoderFirstPcmMs": 344.265455,
+      "directMinusLegacyDecoderFirstPcmMs": -1373.315901,
+      "legacyFailedNativeAttemptDurationMs": 1518,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551,
+      "audibility": "not measured by a physical device"
+    }
+  ],
+  "pairedFirstPcmFromArmDeltaMs": {
+    "count": 3,
+    "median": -1319.0970660000003,
+    "minimum": -1361.139447,
+    "maximum": -856.3411620000002,
+    "interpretation": "Observed within-pair route timing only; n=3 across different source IDs, with one pair per source. No population p95 or universal latency claim."
+  },
+  "commonResolutionMsSeparately": {
+    "perPair": [
+      651.582906,
+      559.081555,
+      255.880069
+    ],
+    "median": 559.081555
+  },
+  "pcmScope": {
+    "allArmsProducedFiveSeconds": true,
+    "reportedRmsMatchedWithinEachPair": true,
+    "sampleEqualityCaveat": "Equal frame count and RMS do not establish byte-identical waveforms, recording equivalence, or audibility.",
+    "posoNearSilentRms": 6.800830258338166e-06,
+    "posoCaveat": "The first five-second Poso excerpt is near-silent in both arms (RMS about 6.8e-6). PCM production must not be equated with audible playback; this observation alone does not imply wrong recording."
+  },
+  "limitations": [
+    "All three legacy arms report a decoder_setup failed native attempt before FFmpeg; direct arms skip that attempt. Other per-arm I/O/access differences remain.",
+    "Independent access checks and sequential execution can vary; connection/HTTP client state is reused, and AB/BA/AB does not remove every order or source confound.",
+    "No physical device, mixer timing, audible-output assertion, resource-accounting comparison or full-recording test is present in this paired log.",
+    "The next larger live cohort is separate and is not included or pooled into this three-pair summary.",
+    "Zero FFmpeg byte counters in the decoder telemetry do not measure zero network transfer; no transferred-byte comparison is available here."
+  ]
+}

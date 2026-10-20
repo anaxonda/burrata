@@ -1,0 +1,72 @@
+{
+  "schema": "burrata.next-preparation-process-attribution/v1",
+  "kind": "single-read-only-process-snapshot-during-the-six-arm-run",
+  "runtimeResult": true,
+  "isolatedProfileVerified": true,
+  "verification": "The app's XDG_DATA_HOME pointed to an isolated temporary profile with the exact isolation marker. Other environment values were discarded; no command arguments were read.",
+  "processIdsRetained": false,
+  "attemptOrdinal": null,
+  "counts": {
+    "nativeAppRoots": 1,
+    "verifiedNodeHelpers": 1,
+    "verifiedFfmpegHelpers": 1,
+    "verifiedWebKitProcesses": 2,
+    "totalObservedProcesses": 5
+  },
+  "processes": [
+    {
+      "relationship": "app_root",
+      "comm": "burrata",
+      "executableBasename": "burrata",
+      "cpuTicks": 1460,
+      "rssBytes": 270159872,
+      "originalComponent": "app"
+    },
+    {
+      "relationship": "direct_child",
+      "comm": "MainThread",
+      "executableBasename": "node",
+      "cpuTicks": 224,
+      "rssBytes": 244346880,
+      "originalComponent": "app",
+      "verifiedRole": "Node helper; exact script was not inspected"
+    },
+    {
+      "relationship": "direct_child",
+      "comm": "ffmpeg",
+      "executableBasename": "ffmpeg",
+      "cpuTicks": 3,
+      "rssBytes": 19513344,
+      "originalComponent": "helper"
+    },
+    {
+      "relationship": "direct_child",
+      "comm": "WebKitWebProces",
+      "executableBasename": "WebKitWebProcess",
+      "cpuTicks": 487,
+      "rssBytes": 289013760,
+      "originalComponent": "webview"
+    },
+    {
+      "relationship": "direct_child",
+      "comm": "WebKitNetworkPr",
+      "executableBasename": "WebKitNetworkProcess",
+      "cpuTicks": 43,
+      "rssBytes": 68403200,
+      "originalComponent": "webview"
+    }
+  ],
+  "finding": "The original comm-only rule places unrecognized descendants in app. MainThread therefore counted a proven Node helper's CPU and RSS as app resources.",
+  "consequences": {
+    "originalAppHelperSplitReliable": false,
+    "historicalNativeAppOnlyPeaksRecoverable": false,
+    "combinedSampledTreeTotalsPreservedByRelabeling": true,
+    "combinedPeakRule": "Sum all component values at each original sample timestamp, then take the maximum; do not sum separate component maxima."
+  },
+  "limitations": [
+    "This is one instantaneous observation, not a per-process history or a phase-linked peak measurement.",
+    "Executable basename establishes Node identity, not which script or job it ran. It does not prove a frozen extractor was the unidentified process.",
+    "CPU tick counts are cumulative process counters at the snapshot, not interval CPU percentages.",
+    "The original six-arm report is retained unchanged. No classifier fix or rerun was performed while archiving it."
+  ]
+}

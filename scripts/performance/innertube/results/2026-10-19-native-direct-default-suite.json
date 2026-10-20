@@ -1,0 +1,10 @@
+{
+  "scope": "Full default native test runner; loopback permitted; opt-in live tests remain ignored; before direct Opus routing change",
+  "passed": 1279,
+  "failed": 0,
+  "ignored": 29,
+  "seconds": 20.13,
+  "binarySha256": "7ecced7ccf726d6744b99929d2b78d8c6eff7168a21848fe602a916acc7eecc4",
+  "rawLogSha256": "09c92df275c349cd57a53a568ac4ba23124626bdb205901717202ae01723036d",
+  "command": ".cache/verification-target/debug/deps/burrata_lib-65c253e8a3a5ca30"
+}

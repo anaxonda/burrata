@@ -1,0 +1,9 @@
+
+running 1 test
+test youtube_direct_experiment::tests::live_three_public_ids_metadata_only ... {"decodeAttempted":false,"experiment":"native-direct-metadata-v1","metadata":{"approximateDurationMs":227801.0,"codec":"audio/webm; codecs=\"opus\"","contentLength":3845541,"durationSeconds":228.0,"expiresInMs":21540000.0,"formatId":251,"metadataMatched":true,"profile":"VISIONOS_0_1","qualification":false,"resolutionMs":650.538875,"stages":{"player":259.23658700000004,"visitorServiceWorker":389.524822},"videoId":"uZGRATckoBM"},"ok":true}
+{"decodeAttempted":false,"experiment":"native-direct-metadata-v1","metadata":{"approximateDurationMs":250041.0,"codec":"audio/webm; codecs=\"opus\"","contentLength":4316912,"durationSeconds":250.0,"expiresInMs":21540000.0,"formatId":251,"metadataMatched":true,"profile":"VISIONOS_0_1","qualification":false,"resolutionMs":212.76434,"stages":{"player":99.142959,"visitorServiceWorker":111.339338},"videoId":"hRNx674Z4QE"},"ok":true}
+{"decodeAttempted":false,"experiment":"native-direct-metadata-v1","metadata":{"approximateDurationMs":288021.0,"codec":"audio/webm; codecs=\"opus\"","contentLength":4683906,"durationSeconds":288.0,"expiresInMs":21540000.0,"formatId":251,"metadataMatched":true,"profile":"VISIONOS_0_1","qualification":false,"resolutionMs":286.988661,"stages":{"player":115.822311,"visitorServiceWorker":168.99050400000002},"videoId":"YoHI6frgjz4"},"ok":true}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1303 filtered out; finished in 1.15s
+

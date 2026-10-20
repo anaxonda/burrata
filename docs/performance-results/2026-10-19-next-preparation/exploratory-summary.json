@@ -1,0 +1,516 @@
+{
+  "schema": "burrata.next-preparation-archive-summary/v1",
+  "exploratory": true,
+  "qualification": false,
+  "promoted": false,
+  "original": {
+    "file": "exploratory-original.json",
+    "bytes": 3991255,
+    "sha256": "c57ef84dda35a9f0697ca5438a1f4866d1afdabbca2c4bb548819206092a649d"
+  },
+  "binarySha256": "fdfe126c306f8157f239bb22d4228848a0e1ba7368938017140aa45a615e8c0c",
+  "driverSha256": "8529e9f1f793be1f670860bc7f3b1cb636d5474ba53976c9007758b263ce7c53",
+  "observerSha256": "83115ec1292430580dd7c2f13d76961a934fd8f97089c9d6a0088ade716d16ed",
+  "source": {
+    "provider": "youtube",
+    "videoId": "uZGRATckoBM",
+    "formatId": "140",
+    "independentDurationSeconds": 228
+  },
+  "result": "Six eligible natural transitions with successful owned cleanup; this three-pair run shows no handoff benefit from the 45-second window and does not support changing the 30-second policy.",
+  "groups": [
+    {
+      "windowSeconds": 30,
+      "attempted": 3,
+      "eligible": 3,
+      "handoffDelayMs": {
+        "observations": [
+          79,
+          187,
+          -41
+        ],
+        "median": 79,
+        "p95": null
+      },
+      "sampledTreeCpuSeconds": {
+        "observations": [
+          27.41,
+          28.37,
+          27.86
+        ],
+        "median": 27.86
+      },
+      "preparationRemainingEstimateSeconds": [
+        30.102,
+        29.881,
+        30.074
+      ],
+      "preparedReaderQueuedAgeAtAdoptionMs": [
+        21415,
+        21720,
+        21804
+      ]
+    },
+    {
+      "windowSeconds": 45,
+      "attempted": 3,
+      "eligible": 3,
+      "handoffDelayMs": {
+        "observations": [
+          213,
+          135,
+          288
+        ],
+        "median": 213,
+        "p95": null
+      },
+      "sampledTreeCpuSeconds": {
+        "observations": [
+          29.73,
+          27.22,
+          29.47
+        ],
+        "median": 29.47
+      },
+      "preparationRemainingEstimateSeconds": [
+        45.037,
+        44.773,
+        45.236
+      ],
+      "preparedReaderQueuedAgeAtAdoptionMs": [
+        36227,
+        35751,
+        36584
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "pair": 1,
+      "handoff45Minus30Ms": 134,
+      "sampledTreeCpu45Minus30Seconds": 2.32,
+      "sameSourceAndFormat": true
+    },
+    {
+      "pair": 2,
+      "handoff45Minus30Ms": -52,
+      "sampledTreeCpu45Minus30Seconds": -1.15,
+      "sameSourceAndFormat": true
+    },
+    {
+      "pair": 3,
+      "handoff45Minus30Ms": 329,
+      "sampledTreeCpu45Minus30Seconds": 1.61,
+      "sameSourceAndFormat": true
+    }
+  ],
+  "attempts": [
+    {
+      "ordinal": 1,
+      "pair": 1,
+      "windowSeconds": 30,
+      "eligible": true,
+      "cleanupCompleted": true,
+      "sourceVideoId": "uZGRATckoBM",
+      "selectedFormatId": "140",
+      "observedHandoffDelayMs": 79,
+      "preparationRemainingEstimateSeconds": 30.102,
+      "preparedReaderQueuedAgeAtAdoptionMs": 21415,
+      "sustainedNextSeconds": 5.061950113378685,
+      "originalFailure": null,
+      "sampledTreeCpuSeconds": 27.41,
+      "sampledTreePeakCpuPercentOneCore": 293.51111610813507,
+      "sampledTreePeakRssBytes": 1286000640,
+      "samples": 270,
+      "sampleSpanSeconds": 66.393,
+      "observedSampleIntervalMs": {
+        "median": 244,
+        "worst": 335
+      },
+      "combinedTreeResourcePhases": [
+        {
+          "phase": "control_setup",
+          "component": "combined_tree",
+          "samples": 6,
+          "sampledCpuMs": 2060.0,
+          "peakCpuPercentOneCore": 293.51111610813507,
+          "peakRssBytes": 631267328
+        },
+        {
+          "phase": "steady_before_preparation",
+          "component": "combined_tree",
+          "samples": 123,
+          "sampledCpuMs": 10660.0,
+          "peakCpuPercentOneCore": 216.60895424492097,
+          "peakRssBytes": 753958912
+        },
+        {
+          "phase": "preparation_while_control_plays",
+          "component": "combined_tree",
+          "samples": 121,
+          "sampledCpuMs": 13030.0,
+          "peakCpuPercentOneCore": 221.16283804689044,
+          "peakRssBytes": 1286000640
+        },
+        {
+          "phase": "transition_first_second",
+          "component": "combined_tree",
+          "samples": 4,
+          "sampledCpuMs": 560.0,
+          "peakCpuPercentOneCore": 69.53518760997639,
+          "peakRssBytes": 897626112
+        },
+        {
+          "phase": "next_sustained",
+          "component": "combined_tree",
+          "samples": 16,
+          "sampledCpuMs": 1100.0,
+          "peakCpuPercentOneCore": 45.86885817499735,
+          "peakRssBytes": 898527232
+        }
+      ]
+    },
+    {
+      "ordinal": 2,
+      "pair": 1,
+      "windowSeconds": 45,
+      "eligible": true,
+      "cleanupCompleted": true,
+      "sourceVideoId": "uZGRATckoBM",
+      "selectedFormatId": "140",
+      "observedHandoffDelayMs": 213,
+      "preparationRemainingEstimateSeconds": 45.037,
+      "preparedReaderQueuedAgeAtAdoptionMs": 36227,
+      "sustainedNextSeconds": 5.061950113378685,
+      "originalFailure": null,
+      "sampledTreeCpuSeconds": 29.73,
+      "sampledTreePeakCpuPercentOneCore": 251.66661417576154,
+      "sampledTreePeakRssBytes": 1315508224,
+      "samples": 270,
+      "sampleSpanSeconds": 66.598,
+      "observedSampleIntervalMs": {
+        "median": 245,
+        "worst": 354
+      },
+      "combinedTreeResourcePhases": [
+        {
+          "phase": "control_setup",
+          "component": "combined_tree",
+          "samples": 6,
+          "sampledCpuMs": 2310.0,
+          "peakCpuPercentOneCore": 242.28003946486098,
+          "peakRssBytes": 634826752
+        },
+        {
+          "phase": "steady_before_preparation",
+          "component": "combined_tree",
+          "samples": 60,
+          "sampledCpuMs": 8520.0,
+          "peakCpuPercentOneCore": 223.23072131385246,
+          "peakRssBytes": 749555712
+        },
+        {
+          "phase": "preparation_while_control_plays",
+          "component": "combined_tree",
+          "samples": 182,
+          "sampledCpuMs": 17180.0,
+          "peakCpuPercentOneCore": 251.66661417576154,
+          "peakRssBytes": 1315508224
+        },
+        {
+          "phase": "transition_first_second",
+          "component": "combined_tree",
+          "samples": 5,
+          "sampledCpuMs": 620.0,
+          "peakCpuPercentOneCore": 78.92542715291583,
+          "peakRssBytes": 896888832
+        },
+        {
+          "phase": "next_sustained",
+          "component": "combined_tree",
+          "samples": 17,
+          "sampledCpuMs": 1100.0,
+          "peakCpuPercentOneCore": 44.815255647695324,
+          "peakRssBytes": 897503232
+        }
+      ]
+    },
+    {
+      "ordinal": 3,
+      "pair": 2,
+      "windowSeconds": 45,
+      "eligible": true,
+      "cleanupCompleted": true,
+      "sourceVideoId": "uZGRATckoBM",
+      "selectedFormatId": "140",
+      "observedHandoffDelayMs": 135,
+      "preparationRemainingEstimateSeconds": 44.773,
+      "preparedReaderQueuedAgeAtAdoptionMs": 35751,
+      "sustainedNextSeconds": 5.015510204081633,
+      "originalFailure": null,
+      "sampledTreeCpuSeconds": 27.22,
+      "sampledTreePeakCpuPercentOneCore": 242.14721406739946,
+      "sampledTreePeakRssBytes": 1260572672,
+      "samples": 271,
+      "sampleSpanSeconds": 66.403,
+      "observedSampleIntervalMs": {
+        "median": 244.0,
+        "worst": 311
+      },
+      "combinedTreeResourcePhases": [
+        {
+          "phase": "control_setup",
+          "component": "combined_tree",
+          "samples": 6,
+          "sampledCpuMs": 1740.0,
+          "peakCpuPercentOneCore": 238.34609330726988,
+          "peakRssBytes": 636280832
+        },
+        {
+          "phase": "steady_before_preparation",
+          "component": "combined_tree",
+          "samples": 62,
+          "sampledCpuMs": 6230.0,
+          "peakCpuPercentOneCore": 217.95648799554834,
+          "peakRssBytes": 721215488
+        },
+        {
+          "phase": "preparation_while_control_plays",
+          "component": "combined_tree",
+          "samples": 183,
+          "sampledCpuMs": 17770.0,
+          "peakCpuPercentOneCore": 242.14721406739946,
+          "peakRssBytes": 1260572672
+        },
+        {
+          "phase": "transition_first_second",
+          "component": "combined_tree",
+          "samples": 4,
+          "sampledCpuMs": 470.0,
+          "peakCpuPercentOneCore": 83.75162033646968,
+          "peakRssBytes": 892125184
+        },
+        {
+          "phase": "next_sustained",
+          "component": "combined_tree",
+          "samples": 16,
+          "sampledCpuMs": 1010.0,
+          "peakCpuPercentOneCore": 43.80841889163946,
+          "peakRssBytes": 891265024
+        }
+      ]
+    },
+    {
+      "ordinal": 4,
+      "pair": 2,
+      "windowSeconds": 30,
+      "eligible": true,
+      "cleanupCompleted": true,
+      "sourceVideoId": "uZGRATckoBM",
+      "selectedFormatId": "140",
+      "observedHandoffDelayMs": 187,
+      "preparationRemainingEstimateSeconds": 29.881,
+      "preparedReaderQueuedAgeAtAdoptionMs": 21720,
+      "sustainedNextSeconds": 5.036734693877551,
+      "originalFailure": null,
+      "sampledTreeCpuSeconds": 28.37,
+      "sampledTreePeakCpuPercentOneCore": 252.3138169833859,
+      "sampledTreePeakRssBytes": 1302970368,
+      "samples": 273,
+      "sampleSpanSeconds": 66.62,
+      "observedSampleIntervalMs": {
+        "median": 245.0,
+        "worst": 303
+      },
+      "combinedTreeResourcePhases": [
+        {
+          "phase": "control_setup",
+          "component": "combined_tree",
+          "samples": 6,
+          "sampledCpuMs": 2220.0,
+          "peakCpuPercentOneCore": 237.2564605715453,
+          "peakRssBytes": 677318656
+        },
+        {
+          "phase": "steady_before_preparation",
+          "component": "combined_tree",
+          "samples": 124,
+          "sampledCpuMs": 11750.0,
+          "peakCpuPercentOneCore": 251.15461629624633,
+          "peakRssBytes": 756875264
+        },
+        {
+          "phase": "preparation_while_control_plays",
+          "component": "combined_tree",
+          "samples": 122,
+          "sampledCpuMs": 12700.0,
+          "peakCpuPercentOneCore": 252.3138169833859,
+          "peakRssBytes": 1302970368
+        },
+        {
+          "phase": "transition_first_second",
+          "component": "combined_tree",
+          "samples": 4,
+          "sampledCpuMs": 480.0,
+          "peakCpuPercentOneCore": 112.53189310086528,
+          "peakRssBytes": 913530880
+        },
+        {
+          "phase": "next_sustained",
+          "component": "combined_tree",
+          "samples": 17,
+          "sampledCpuMs": 1220.0,
+          "peakCpuPercentOneCore": 50.64349100045631,
+          "peakRssBytes": 915746816
+        }
+      ]
+    },
+    {
+      "ordinal": 5,
+      "pair": 3,
+      "windowSeconds": 30,
+      "eligible": true,
+      "cleanupCompleted": true,
+      "sourceVideoId": "uZGRATckoBM",
+      "selectedFormatId": "140",
+      "observedHandoffDelayMs": -41,
+      "preparationRemainingEstimateSeconds": 30.074,
+      "preparedReaderQueuedAgeAtAdoptionMs": 21804,
+      "sustainedNextSeconds": 5.061950113378685,
+      "originalFailure": null,
+      "sampledTreeCpuSeconds": 27.86,
+      "sampledTreePeakCpuPercentOneCore": 246.46126377919146,
+      "sampledTreePeakRssBytes": 1347637248,
+      "samples": 273,
+      "sampleSpanSeconds": 66.42,
+      "observedSampleIntervalMs": {
+        "median": 244.0,
+        "worst": 275
+      },
+      "combinedTreeResourcePhases": [
+        {
+          "phase": "control_setup",
+          "component": "combined_tree",
+          "samples": 5,
+          "sampledCpuMs": 1560.0,
+          "peakCpuPercentOneCore": 244.1515302055596,
+          "peakRssBytes": 677687296
+        },
+        {
+          "phase": "steady_before_preparation",
+          "component": "combined_tree",
+          "samples": 124,
+          "sampledCpuMs": 11520.0,
+          "peakCpuPercentOneCore": 213.87282632326668,
+          "peakRssBytes": 758591488
+        },
+        {
+          "phase": "preparation_while_control_plays",
+          "component": "combined_tree",
+          "samples": 123,
+          "sampledCpuMs": 13100.0,
+          "peakCpuPercentOneCore": 246.46126377919146,
+          "peakRssBytes": 1347637248
+        },
+        {
+          "phase": "transition_first_second",
+          "component": "combined_tree",
+          "samples": 4,
+          "sampledCpuMs": 440.0,
+          "peakCpuPercentOneCore": 65.18952901622008,
+          "peakRssBytes": 912596992
+        },
+        {
+          "phase": "next_sustained",
+          "component": "combined_tree",
+          "samples": 17,
+          "sampledCpuMs": 1240.0,
+          "peakCpuPercentOneCore": 39.88862489645458,
+          "peakRssBytes": 913149952
+        }
+      ]
+    },
+    {
+      "ordinal": 6,
+      "pair": 3,
+      "windowSeconds": 45,
+      "eligible": true,
+      "cleanupCompleted": true,
+      "sourceVideoId": "uZGRATckoBM",
+      "selectedFormatId": "140",
+      "observedHandoffDelayMs": 288,
+      "preparationRemainingEstimateSeconds": 45.236,
+      "preparedReaderQueuedAgeAtAdoptionMs": 36584,
+      "sustainedNextSeconds": 5.015510204081632,
+      "originalFailure": null,
+      "sampledTreeCpuSeconds": 29.47,
+      "sampledTreePeakCpuPercentOneCore": 246.77903897530308,
+      "sampledTreePeakRssBytes": 1313046528,
+      "samples": 271,
+      "sampleSpanSeconds": 66.69,
+      "observedSampleIntervalMs": {
+        "median": 247.0,
+        "worst": 340
+      },
+      "combinedTreeResourcePhases": [
+        {
+          "phase": "control_setup",
+          "component": "combined_tree",
+          "samples": 6,
+          "sampledCpuMs": 1870.0,
+          "peakCpuPercentOneCore": 213.4383158912978,
+          "peakRssBytes": 702529536
+        },
+        {
+          "phase": "steady_before_preparation",
+          "component": "combined_tree",
+          "samples": 60,
+          "sampledCpuMs": 7620.0,
+          "peakCpuPercentOneCore": 236.86862378036707,
+          "peakRssBytes": 776130560
+        },
+        {
+          "phase": "preparation_while_control_plays",
+          "component": "combined_tree",
+          "samples": 183,
+          "sampledCpuMs": 17790.0,
+          "peakCpuPercentOneCore": 246.77903897530308,
+          "peakRssBytes": 1313046528
+        },
+        {
+          "phase": "transition_first_second",
+          "component": "combined_tree",
+          "samples": 5,
+          "sampledCpuMs": 830.0,
+          "peakCpuPercentOneCore": 106.21305770510232,
+          "peakRssBytes": 938184704
+        },
+        {
+          "phase": "next_sustained",
+          "component": "combined_tree",
+          "samples": 17,
+          "sampledCpuMs": 1360.0,
+          "peakCpuPercentOneCore": 46.772309387095355,
+          "peakRssBytes": 937979904
+        }
+      ]
+    }
+  ],
+  "attribution": {
+    "componentSplitsReliable": false,
+    "reason": "An observed MainThread direct child had executable basename node and 244,346,880 bytes RSS; comm-only rules classified it as app.",
+    "combinedTreeMetricsUsable": true,
+    "calculation": "Sum component CPU/RSS at each resourceSamples timestamp, then take maxima; never sum component maxima."
+  },
+  "limitations": [
+    "Three observations per arm; no p95, significance, qualification, release or production-policy promotion.",
+    "Handoff delay is a 100 ms MCP polling/forecast estimate, not physical audibility or sample-level gaplessness; -41 ms is retained as forecast/poll noise.",
+    "Each arm used a fresh isolated debug app/profile and one 90 s local control with one setup seek to 30 s, followed by the same explicit public source and five seconds of advancing native playhead.",
+    "This is not a cold provider-startup benchmark: initial discovery before the setup seek may warm the same source, and OS/provider caches outside each profile are not declared cold.",
+    "App/helper component CPU and RSS are unreliable; exact native-app-only historical peaks cannot be reconstructed from these aggregate-only samples.",
+    "CPU 100% means one logical core. The configured 200 ms sleep produced median observed sample intervals of 244\u2013247 ms; short-lived/reparented helpers may be missed, and the first sighting of a process establishes a CPU baseline.",
+    "Combined RSS sums resident sets and can double-count shared pages; it is neither PSS nor proof of a native-app memory leak.",
+    "Vite, the MCP observer and external applications are outside the sampled app tree. Network wire bytes and signed URL expiry were not measured.",
+    "Earlier preparation held a queued reader about 15 s longer. Queue age is not signed URL age or remaining lifetime; no expiry/cancel/reorder stress qualification was performed."
+  ]
+}

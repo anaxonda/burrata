@@ -1,0 +1,811 @@
+{
+  "schema": "native-opus-route-twenty-paired-summary-v1",
+  "qualification": false,
+  "harnessOverallPassed": false,
+  "processExitCodeReportedByRoot": 101,
+  "scope": "Twenty measured same-URL, same-format paired native decoder-route observations plus three separately retained warmup requests. No end-to-end startup, provider reliability, audible-output or production qualification.",
+  "sourceLog": {
+    "path": "2026-10-19-native-opus-route-twenty.log",
+    "sha256": "0f1001bf9960f389ed8e8296abc0ed2301de5e7a1f1643b60a6d852d6c0aa1bb"
+  },
+  "parsedRowsArtifact": "2026-10-19-native-opus-route-twenty-rows.json",
+  "provenance": {
+    "implementationCommitReportedByRoot": "96fc8c9",
+    "binarySha256ReportedByRoot": "f93ed01073ca91b4f059c65462266159b62df2f3ed1ce1d5cacaa9a94d312ea5",
+    "binaryHashVerification": "Supplied by root; not independently rehashed while the next live benchmark was running.",
+    "buildSourceCaveat": "After compilation, lib.rs library declaration ordering/formatting changed. Root reports all implementation bodies match commit 96fc8c9. The compiled binary is not claimed to represent a byte-identical snapshot of the later whole working tree.",
+    "defaultSuiteReportedByRoot": {
+      "passed": 1285,
+      "failed": 0,
+      "ignored": 30
+    },
+    "focusedHarnessResultFromLog": {
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "filteredOut": 1314,
+      "elapsedSeconds": 65.28
+    },
+    "processExitCodeReportedByRoot": 101,
+    "harnessOverallPassed": false,
+    "assertionFailure": {
+      "scope": "warmup-success assertion after measured rows were emitted",
+      "expectedSuccessfulWarmups": 3,
+      "actualSuccessfulWarmups": 2,
+      "reason": "failed warmups retained above"
+    }
+  },
+  "denominators": {
+    "allPairRequests": 23,
+    "successfulPairRequestsAcrossWarmupsAndMeasured": 22,
+    "failedCommonResolutionRequests": 1,
+    "warmupRequests": 3,
+    "successfulWarmups": 2,
+    "failedWarmups": 1,
+    "measuredPairRequests": 20,
+    "successfulMeasuredPairs": 20,
+    "plannedArmsAcrossAllRequests": 46,
+    "armsActuallyStartedAndEligible": 44,
+    "armsNotStartedAfterCommonFailure": 2,
+    "measuredArmsStartedAndEligible": 40,
+    "allRequestSourceCounts": {
+      "matthew": 8,
+      "poso-lyric-video": 8,
+      "timmy-topic": 7
+    },
+    "measuredPairSourceCounts": {
+      "matthew": 7,
+      "poso-lyric-video": 7,
+      "timmy-topic": 6
+    },
+    "interpretation": "20/20 applies only to measured pairs after warmups. The entire harness failed its 3/3-warmup assertion and exited 101; do not call the overall run passed or infer 100% provider reliability."
+  },
+  "retainedCommonFailures": [
+    {
+      "pairIndex": 0,
+      "warmup": true,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "failure": "PLAYER_HTTP_ERROR",
+      "stage": "player",
+      "httpStatus": null,
+      "commonResolutionMs": 305.451971,
+      "armsStarted": 0,
+      "cause": "HTTP status and underlying cause not retained"
+    }
+  ],
+  "design": {
+    "armA": "legacy-native-probe",
+    "armB": "direct-ffmpeg",
+    "measuredOrderCounts": {
+      "BA": 10,
+      "AB": 10
+    },
+    "sameResolvedUrlWithinEverySuccessfulPair": true,
+    "independentAccessValidationBeforeEachArm": true,
+    "formatId": 251,
+    "codec": "audio/webm; codecs=\"opus\"",
+    "httpClientReused": true,
+    "perArmBudgetSeconds": 19
+  },
+  "timingScope": {
+    "quantileMethod": "Median averages the middle two for even n. Nearest-rank p95 is sorted[ceil(0.95*n)-1] without interpolation; rank19/20 per measured arm. Warmups are excluded from these quantiles.",
+    "firstPcmFromArmMs": "Arm access validation plus decoder route to first PCM, after common source resolution. It does not include independently repeated resolution, app startup, catalog search, mixer or device output.",
+    "decoderFirstPcmMs": "After independent arm access validation; legacy includes its failed native decoder setup and FFmpeg fallback.",
+    "commonResolutionMs": "Resolved once per pair and shared by both arms; reported separately. No full-startup metric is synthesized.",
+    "signedDelta": "direct-ffmpeg minus legacy-native-probe; negative favors direct in this sample. An upper signed delta is less favorable for direct; it is not an upper quantile of positive savings."
+  },
+  "measuredArmStatistics": {
+    "legacy-native-probe": {
+      "firstPcmFromArmMs": {
+        "count": 20,
+        "median": 1838.035522,
+        "p95NearestRank": 2198.385476,
+        "p95Rank": 19,
+        "minimum": 1584.366399,
+        "maximum": 2567.101435,
+        "worstUpperValue": 2567.101435
+      },
+      "accessMs": {
+        "count": 20,
+        "median": 194.78564,
+        "p95NearestRank": 405.253258,
+        "p95Rank": 19,
+        "minimum": 98.405453,
+        "maximum": 460.141838,
+        "worstUpperValue": 460.141838
+      },
+      "decoderFirstPcmMs": {
+        "count": 20,
+        "median": 1643.353907,
+        "p95NearestRank": 1940.465695,
+        "p95Rank": 19,
+        "minimum": 1455.745906,
+        "maximum": 2106.959597,
+        "worstUpperValue": 2106.959597
+      },
+      "armWallMs": {
+        "count": 20,
+        "median": 1984.591246,
+        "p95NearestRank": 2347.230022,
+        "p95Rank": 19,
+        "minimum": 1732.40607,
+        "maximum": 2716.218827,
+        "worstUpperValue": 2716.218827
+      }
+    },
+    "direct-ffmpeg": {
+      "firstPcmFromArmMs": {
+        "count": 20,
+        "median": 412.433572,
+        "p95NearestRank": 577.289343,
+        "p95Rank": 19,
+        "minimum": 214.798845,
+        "maximum": 1339.07998,
+        "worstUpperValue": 1339.07998
+      },
+      "accessMs": {
+        "count": 20,
+        "median": 210.72301,
+        "p95NearestRank": 298.64104,
+        "p95Rank": 19,
+        "minimum": 68.906611,
+        "maximum": 779.723563,
+        "worstUpperValue": 779.723563
+      },
+      "decoderFirstPcmMs": {
+        "count": 20,
+        "median": 212.102823,
+        "p95NearestRank": 322.594242,
+        "p95Rank": 19,
+        "minimum": 104.107086,
+        "maximum": 559.356417,
+        "worstUpperValue": 559.356417
+      },
+      "armWallMs": {
+        "count": 20,
+        "median": 560.069789,
+        "p95NearestRank": 736.920404,
+        "p95Rank": 19,
+        "minimum": 375.644712,
+        "maximum": 1524.054699,
+        "worstUpperValue": 1524.054699
+      }
+    }
+  },
+  "measuredPairedStatistics": {
+    "directMinusLegacyFirstPcmFromArmMs": {
+      "count": 20,
+      "median": -1374.190313,
+      "p95NearestRank": -1089.681351,
+      "p95Rank": 19,
+      "minimum": -2352.30259,
+      "maximum": -859.305496,
+      "worstUpperValue": -859.305496
+    },
+    "legacyMinusDirectFirstPcmSavingsMs": {
+      "count": 20,
+      "median": 1374.190313,
+      "p95NearestRank": 1648.184199,
+      "p95Rank": 19,
+      "minimum": 859.305496,
+      "maximum": 2352.30259,
+      "worstUpperValue": 2352.30259
+    },
+    "directMinusLegacyAccessMs": {
+      "count": 20,
+      "median": 36.638376,
+      "p95NearestRank": 127.427997,
+      "p95Rank": 19,
+      "minimum": -355.473688,
+      "maximum": 521.803782,
+      "worstUpperValue": 521.803782
+    },
+    "directMinusLegacyDecoderFirstPcmMs": {
+      "count": 20,
+      "median": -1422.423964,
+      "p95NearestRank": -1247.275832,
+      "p95Rank": 19,
+      "minimum": -1996.828902,
+      "maximum": -1181.205858,
+      "worstUpperValue": -1181.205858
+    }
+  },
+  "measuredCommonResolutionMsSeparate": {
+    "count": 20,
+    "median": 220.671458,
+    "p95NearestRank": 505.543452,
+    "p95Rank": 19,
+    "minimum": 170.78846,
+    "maximum": 702.692803,
+    "worstUpperValue": 702.692803
+  },
+  "allCommonResolutionMsIncludingFailedWarmup": {
+    "count": 23,
+    "median": 229.901729,
+    "p95NearestRank": 702.692803,
+    "p95Rank": 22,
+    "minimum": 170.78846,
+    "maximum": 789.402055,
+    "worstUpperValue": 789.402055
+  },
+  "measuredPairs": [
+    {
+      "pairIndex": 3,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 188.717629,
+      "legacyFirstPcmFromArmMs": 1806.1141159999997,
+      "directFirstPcmFromArmMs": 268.966676,
+      "directMinusLegacyFirstPcmFromArmMs": -1537.1474399999997,
+      "legacyMinusDirectFirstPcmSavingsMs": 1537.1474399999997,
+      "directMinusLegacyAccessMs": -72.51366600000001,
+      "directMinusLegacyDecoderFirstPcmMs": -1464.633774,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276
+    },
+    {
+      "pairIndex": 4,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 205.75445100000002,
+      "legacyFirstPcmFromArmMs": 1584.366399,
+      "directFirstPcmFromArmMs": 494.68504799999994,
+      "directMinusLegacyFirstPcmFromArmMs": -1089.6813510000002,
+      "legacyMinusDirectFirstPcmSavingsMs": 1089.6813510000002,
+      "directMinusLegacyAccessMs": 91.52450700000001,
+      "directMinusLegacyDecoderFirstPcmMs": -1181.205858,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    },
+    {
+      "pairIndex": 5,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 180.735253,
+      "legacyFirstPcmFromArmMs": 1726.036707,
+      "directFirstPcmFromArmMs": 374.665265,
+      "directMinusLegacyFirstPcmFromArmMs": -1351.3714420000001,
+      "legacyMinusDirectFirstPcmSavingsMs": 1351.3714420000001,
+      "directMinusLegacyAccessMs": 61.544516,
+      "directMinusLegacyDecoderFirstPcmMs": -1412.9159579999998,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551
+    },
+    {
+      "pairIndex": 6,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 231.36437,
+      "legacyFirstPcmFromArmMs": 1682.496536,
+      "directFirstPcmFromArmMs": 369.891451,
+      "directMinusLegacyFirstPcmFromArmMs": -1312.6050850000001,
+      "legacyMinusDirectFirstPcmSavingsMs": 1312.6050850000001,
+      "directMinusLegacyAccessMs": 88.54698500000002,
+      "directMinusLegacyDecoderFirstPcmMs": -1401.15207,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276
+    },
+    {
+      "pairIndex": 7,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 193.251082,
+      "legacyFirstPcmFromArmMs": 1970.1401859999999,
+      "directFirstPcmFromArmMs": 463.823858,
+      "directMinusLegacyFirstPcmFromArmMs": -1506.3163279999999,
+      "legacyMinusDirectFirstPcmSavingsMs": 1506.3163279999999,
+      "directMinusLegacyAccessMs": -68.03243500000002,
+      "directMinusLegacyDecoderFirstPcmMs": -1438.283893,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    },
+    {
+      "pairIndex": 8,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 702.692803,
+      "legacyFirstPcmFromArmMs": 2567.101435,
+      "directFirstPcmFromArmMs": 214.798845,
+      "directMinusLegacyFirstPcmFromArmMs": -2352.3025900000002,
+      "legacyMinusDirectFirstPcmSavingsMs": 2352.3025900000002,
+      "directMinusLegacyAccessMs": -355.47368800000004,
+      "directMinusLegacyDecoderFirstPcmMs": -1996.828902,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551
+    },
+    {
+      "pairIndex": 9,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 170.78846000000001,
+      "legacyFirstPcmFromArmMs": 1694.938362,
+      "directFirstPcmFromArmMs": 477.382816,
+      "directMinusLegacyFirstPcmFromArmMs": -1217.555546,
+      "legacyMinusDirectFirstPcmSavingsMs": 1217.555546,
+      "directMinusLegacyAccessMs": 29.720285999999987,
+      "directMinusLegacyDecoderFirstPcmMs": -1247.275832,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276
+    },
+    {
+      "pairIndex": 10,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 211.441187,
+      "legacyFirstPcmFromArmMs": 1903.8150110000001,
+      "directFirstPcmFromArmMs": 255.63081200000002,
+      "directMinusLegacyFirstPcmFromArmMs": -1648.184199,
+      "legacyMinusDirectFirstPcmSavingsMs": 1648.184199,
+      "directMinusLegacyAccessMs": -221.236373,
+      "directMinusLegacyDecoderFirstPcmMs": -1426.947826,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    },
+    {
+      "pairIndex": 11,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 272.565622,
+      "legacyFirstPcmFromArmMs": 2085.688037,
+      "directFirstPcmFromArmMs": 577.2893429999999,
+      "directMinusLegacyFirstPcmFromArmMs": -1508.398694,
+      "legacyMinusDirectFirstPcmSavingsMs": 1508.398694,
+      "directMinusLegacyAccessMs": 44.454913999999974,
+      "directMinusLegacyDecoderFirstPcmMs": -1552.8536080000001,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551
+    },
+    {
+      "pairIndex": 12,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 229.901729,
+      "legacyFirstPcmFromArmMs": 1861.045697,
+      "directFirstPcmFromArmMs": 353.702852,
+      "directMinusLegacyFirstPcmFromArmMs": -1507.3428450000001,
+      "legacyMinusDirectFirstPcmSavingsMs": 1507.3428450000001,
+      "directMinusLegacyAccessMs": -89.44274399999998,
+      "directMinusLegacyDecoderFirstPcmMs": -1417.9001010000002,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276
+    },
+    {
+      "pairIndex": 13,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 210.500849,
+      "legacyFirstPcmFromArmMs": 1789.3101869999998,
+      "directFirstPcmFromArmMs": 425.52568800000006,
+      "directMinusLegacyFirstPcmFromArmMs": -1363.7844989999999,
+      "legacyMinusDirectFirstPcmSavingsMs": 1363.7844989999999,
+      "directMinusLegacyAccessMs": 127.42799700000003,
+      "directMinusLegacyDecoderFirstPcmMs": -1491.2124959999999,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    },
+    {
+      "pairIndex": 14,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 200.062644,
+      "legacyFirstPcmFromArmMs": 1863.7832489999998,
+      "directFirstPcmFromArmMs": 228.199303,
+      "directMinusLegacyFirstPcmFromArmMs": -1635.5839459999997,
+      "legacyMinusDirectFirstPcmSavingsMs": 1635.5839459999997,
+      "directMinusLegacyAccessMs": 19.801929000000015,
+      "directMinusLegacyDecoderFirstPcmMs": -1655.385875,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551
+    },
+    {
+      "pairIndex": 15,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 196.683164,
+      "legacyFirstPcmFromArmMs": 1613.623339,
+      "directFirstPcmFromArmMs": 460.188443,
+      "directMinusLegacyFirstPcmFromArmMs": -1153.434896,
+      "legacyMinusDirectFirstPcmSavingsMs": 1153.434896,
+      "directMinusLegacyAccessMs": 98.627128,
+      "directMinusLegacyDecoderFirstPcmMs": -1252.0620239999998,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276
+    },
+    {
+      "pairIndex": 16,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 247.458618,
+      "legacyFirstPcmFromArmMs": 1764.786443,
+      "directFirstPcmFromArmMs": 399.341456,
+      "directMinusLegacyFirstPcmFromArmMs": -1365.4449869999999,
+      "legacyMinusDirectFirstPcmSavingsMs": 1365.4449869999999,
+      "directMinusLegacyAccessMs": 98.851784,
+      "directMinusLegacyDecoderFirstPcmMs": -1464.296771,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    },
+    {
+      "pairIndex": 17,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 249.26022700000001,
+      "legacyFirstPcmFromArmMs": 1976.520352,
+      "directFirstPcmFromArmMs": 363.198982,
+      "directMinusLegacyFirstPcmFromArmMs": -1613.3213700000001,
+      "legacyMinusDirectFirstPcmSavingsMs": 1613.3213700000001,
+      "directMinusLegacyAccessMs": -115.41731200000001,
+      "directMinusLegacyDecoderFirstPcmMs": -1497.904058,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551
+    },
+    {
+      "pairIndex": 18,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 255.707439,
+      "legacyFirstPcmFromArmMs": 1890.6685120000002,
+      "directFirstPcmFromArmMs": 520.388315,
+      "directMinusLegacyFirstPcmFromArmMs": -1370.280197,
+      "legacyMinusDirectFirstPcmSavingsMs": 1370.280197,
+      "directMinusLegacyAccessMs": 43.556466,
+      "directMinusLegacyDecoderFirstPcmMs": -1413.836663,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276
+    },
+    {
+      "pairIndex": 19,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 260.82397699999996,
+      "legacyFirstPcmFromArmMs": 1666.7694310000002,
+      "directFirstPcmFromArmMs": 288.66900200000003,
+      "directMinusLegacyFirstPcmFromArmMs": -1378.100429,
+      "legacyMinusDirectFirstPcmSavingsMs": 1378.100429,
+      "directMinusLegacyAccessMs": -61.95582499999999,
+      "directMinusLegacyDecoderFirstPcmMs": -1316.144604,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    },
+    {
+      "pairIndex": 20,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 200.242787,
+      "legacyFirstPcmFromArmMs": 2198.385476,
+      "directFirstPcmFromArmMs": 1339.07998,
+      "directMinusLegacyFirstPcmFromArmMs": -859.305496,
+      "legacyMinusDirectFirstPcmSavingsMs": 859.305496,
+      "directMinusLegacyAccessMs": 521.803782,
+      "directMinusLegacyDecoderFirstPcmMs": -1381.109278,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551
+    },
+    {
+      "pairIndex": 21,
+      "track": "matthew",
+      "videoId": "uZGRATckoBM",
+      "warmup": false,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 505.54345199999995,
+      "legacyFirstPcmFromArmMs": 2086.0602790000003,
+      "directFirstPcmFromArmMs": 532.8990610000001,
+      "directMinusLegacyFirstPcmFromArmMs": -1553.1612180000002,
+      "legacyMinusDirectFirstPcmSavingsMs": 1553.1612180000002,
+      "directMinusLegacyAccessMs": -106.61221799999998,
+      "directMinusLegacyDecoderFirstPcmMs": -1446.549,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.03783505478946276
+    },
+    {
+      "pairIndex": 22,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": false,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 244.546884,
+      "legacyFirstPcmFromArmMs": 1815.0253470000002,
+      "directFirstPcmFromArmMs": 451.437414,
+      "directMinusLegacyFirstPcmFromArmMs": -1363.5879330000002,
+      "legacyMinusDirectFirstPcmSavingsMs": 1363.5879330000002,
+      "directMinusLegacyAccessMs": 47.522309999999976,
+      "directMinusLegacyDecoderFirstPcmMs": -1411.110243,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    }
+  ],
+  "successfulWarmupPairs": [
+    {
+      "pairIndex": 1,
+      "track": "poso-lyric-video",
+      "videoId": "hRNx674Z4QE",
+      "warmup": true,
+      "order": [
+        "direct-ffmpeg",
+        "legacy-native-probe"
+      ],
+      "commonResolutionMs": 227.50208,
+      "legacyFirstPcmFromArmMs": 1892.782671,
+      "directFirstPcmFromArmMs": 517.965522,
+      "directMinusLegacyFirstPcmFromArmMs": -1374.817149,
+      "legacyMinusDirectFirstPcmSavingsMs": 1374.817149,
+      "directMinusLegacyAccessMs": 32.666949999999986,
+      "directMinusLegacyDecoderFirstPcmMs": -1407.484099,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 6.800830258338166e-06
+    },
+    {
+      "pairIndex": 2,
+      "track": "timmy-topic",
+      "videoId": "YoHI6frgjz4",
+      "warmup": true,
+      "order": [
+        "legacy-native-probe",
+        "direct-ffmpeg"
+      ],
+      "commonResolutionMs": 789.402055,
+      "legacyFirstPcmFromArmMs": 2446.584151,
+      "directFirstPcmFromArmMs": 570.25415,
+      "directMinusLegacyFirstPcmFromArmMs": -1876.330001,
+      "legacyMinusDirectFirstPcmSavingsMs": 1876.330001,
+      "directMinusLegacyAccessMs": -146.33496399999999,
+      "directMinusLegacyDecoderFirstPcmMs": -1729.9950370000001,
+      "decodedFramesPerArm": 240000,
+      "decodedAudioMsPerArm": 5000,
+      "sameReportedRms": true,
+      "pcmRmsBothArms": 0.2199665643369551
+    }
+  ],
+  "perSourceMeasured": {
+    "matthew": {
+      "count": 7,
+      "legacyFirstPcmFromArmMs": {
+        "count": 7,
+        "median": 1806.114116,
+        "p95NearestRank": 2086.060279,
+        "p95Rank": 7,
+        "minimum": 1613.623339,
+        "maximum": 2086.060279,
+        "worstUpperValue": 2086.060279
+      },
+      "directFirstPcmFromArmMs": {
+        "count": 7,
+        "median": 460.188443,
+        "p95NearestRank": 532.899061,
+        "p95Rank": 7,
+        "minimum": 268.966676,
+        "maximum": 532.899061,
+        "worstUpperValue": 532.899061
+      },
+      "directMinusLegacyFirstPcmFromArmMs": {
+        "count": 7,
+        "median": -1370.280197,
+        "p95NearestRank": -1153.434896,
+        "p95Rank": 7,
+        "minimum": -1553.161218,
+        "maximum": -1153.434896,
+        "worstUpperValue": -1153.434896
+      }
+    },
+    "poso-lyric-video": {
+      "count": 7,
+      "legacyFirstPcmFromArmMs": {
+        "count": 7,
+        "median": 1789.310187,
+        "p95NearestRank": 1970.140186,
+        "p95Rank": 7,
+        "minimum": 1584.366399,
+        "maximum": 1970.140186,
+        "worstUpperValue": 1970.140186
+      },
+      "directFirstPcmFromArmMs": {
+        "count": 7,
+        "median": 425.525688,
+        "p95NearestRank": 494.685048,
+        "p95Rank": 7,
+        "minimum": 255.630812,
+        "maximum": 494.685048,
+        "worstUpperValue": 494.685048
+      },
+      "directMinusLegacyFirstPcmFromArmMs": {
+        "count": 7,
+        "median": -1365.444987,
+        "p95NearestRank": -1089.681351,
+        "p95Rank": 7,
+        "minimum": -1648.184199,
+        "maximum": -1089.681351,
+        "worstUpperValue": -1089.681351
+      }
+    },
+    "timmy-topic": {
+      "count": 6,
+      "legacyFirstPcmFromArmMs": {
+        "count": 6,
+        "median": 2031.104194,
+        "p95NearestRank": 2567.101435,
+        "p95Rank": 6,
+        "minimum": 1726.036707,
+        "maximum": 2567.101435,
+        "worstUpperValue": 2567.101435
+      },
+      "directFirstPcmFromArmMs": {
+        "count": 6,
+        "median": 368.932123,
+        "p95NearestRank": 1339.07998,
+        "p95Rank": 6,
+        "minimum": 214.798845,
+        "maximum": 1339.07998,
+        "worstUpperValue": 1339.07998
+      },
+      "directMinusLegacyFirstPcmFromArmMs": {
+        "count": 6,
+        "median": -1560.860032,
+        "p95NearestRank": -859.305496,
+        "p95Rank": 6,
+        "minimum": -2352.30259,
+        "maximum": -859.305496,
+        "worstUpperValue": -859.305496
+      }
+    }
+  },
+  "pcmChecks": {
+    "all44StartedArmsEligible": true,
+    "all40MeasuredArmsDecodedFrames": 240000,
+    "decodedAudioMsPerArm": 5000,
+    "channels": 2,
+    "sampleRate": 48000,
+    "reportedRmsExactlyEqualWithinAll22SuccessfulPairs": true,
+    "legacyFailedNativeSetupAttemptsIn20MeasuredPairs": 20,
+    "posoRmsBothArms": 6.800830258338166e-06,
+    "audibilityCaveat": "Poso first five seconds are near-silent (RMS about 6.8e-6) in both arms. Equal frame count and RMS do not establish byte-identical samples, audibility or recording equivalence; near silence alone does not identify a wrong recording."
+  },
+  "limitations": [
+    "The failed first warmup is retained and counted among all 23 attempted pairs; it is not silently discarded or converted into an arm failure.",
+    "Measured requests reuse an HTTP client and rotate only three public source IDs; host/network/CDN state and sequential order can affect access and decode timings.",
+    "Per-source n=7/7/6 is small; its nearest-rank p95 equals its observed maximum. Overall sample quantiles are descriptive and do not establish population tail guarantees.",
+    "Common resolution is shared, not independently repeated per arm, so this does not compare full startup latency.",
+    "No CPU/RSS comparison, real-time soak, full-recording decode or physical-device timing is present in this paired log.",
+    "Zero FFmpeg byte counters are not a measure of zero network transfer. No provider HTTP-status cause can be inferred for the failed warmup.",
+    "The earlier three-pair experiment remains separate and is not pooled into these twenty measured pairs.",
+    "Same resolved URL is a harness-reported control; signed URLs are intentionally absent from the retained log and derived files."
+  ]
+}

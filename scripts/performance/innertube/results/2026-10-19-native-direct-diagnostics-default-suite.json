@@ -1,0 +1,16 @@
+{
+  "scope": "Full default native suite after test-only HTTP status/private identity diagnostics. Opt-in live/provider/hardware tests remain ignored; not production direct HTTP integration.",
+  "passed": 1288,
+  "failed": 0,
+  "ignored": 30,
+  "seconds": 19.37,
+  "binarySha256": "118976536b4775e01e7af3b8ec6eab3d1456a149d162f5ac486a3d863eaf85d5",
+  "rawLog": "2026-10-19-native-direct-diagnostics-default-suite.log",
+  "rawLogSha256": "79175fb392a8aea382fe1d61747cd7f0c29bffa6298d06a5a0828df952190cdb",
+  "sourceHashes": {
+    "src-tauri/src/youtube_direct_experiment.rs": "f87351a5cad66016ca6a9da5fac1334d159a4a2696e854aab6b86e97466f33fd",
+    "src-tauri/src/youtube_direct_pair_tests.rs": "733147fc709c8797a3e0d2030cb078c3a2cde37c8d589e7e6509e41bb37b9aab",
+    "src-tauri/src/lib.rs": "ff0cbdacb5e123897f04b1ed9564d7c756c65760c18aebeefec9ac1a544a4504"
+  },
+  "qualification": false
+}

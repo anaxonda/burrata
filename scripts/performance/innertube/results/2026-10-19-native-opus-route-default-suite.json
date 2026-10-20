@@ -1,0 +1,13 @@
+{
+  "scope": "Full default native test runner after default Opus routing correction; loopback permitted; opt-in live tests ignored. Historical pre-diagnostics checkpoint, not current working tree.",
+  "implementationCommit": "96fc8c9",
+  "buildSourceCaveat": "Implementation bodies match commit; lib.rs module ordering/format changed after compilation. No byte-identical full-source snapshot claim.",
+  "passed": 1285,
+  "failed": 0,
+  "ignored": 30,
+  "seconds": 20.55,
+  "binarySha256": "f93ed01073ca91b4f059c65462266159b62df2f3ed1ce1d5cacaa9a94d312ea5",
+  "rawLogSha256": "09f6b3dfc89e1797edab0c70c222465a293154e834f8b953e5c020596677dcd7",
+  "command": ".cache/verification-target/debug/deps/burrata_lib-65c253e8a3a5ca30",
+  "liveProviderQualification": false
+}
