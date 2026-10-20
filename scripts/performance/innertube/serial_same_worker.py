@@ -39,6 +39,15 @@ SAFE_FIELDS = {
 }
 
 
+def file_sha256(path: Path) -> str:
+    """Hash tool binaries in bounded chunks, including on Python 3.10 runners."""
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def preflight() -> dict:
     """Check the real default local assets without starting the worker or network."""
     bgutil = ROOT / "src-tauri/resources/youtube-support/bgutil/server/build/session_manager.js"

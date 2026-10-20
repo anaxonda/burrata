@@ -9380,6 +9380,20 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     async fn assert_outer_drop_kills_helper_descendant(parent_exits_first: bool, cancelled: bool) {
+        assert_outer_drop_kills_helper_descendant_with_spawn_retry(
+            parent_exits_first,
+            cancelled,
+            false,
+        )
+        .await;
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn assert_outer_drop_kills_helper_descendant_with_spawn_retry(
+        parent_exits_first: bool,
+        cancelled: bool,
+        force_busy_spawn: bool,
+    ) {
         let directory = tempfile::tempdir().unwrap();
         let marker = directory.path().join("processes");
         // Even the unfixed regression fixture self-terminates within two seconds.
@@ -9390,6 +9404,15 @@ mod tests {
             if parent_exits_first { "exit 0" } else { "wait" },
         );
         let (_tool_directory, settings) = fake_tool(&script);
+        // Holding this executable open for writing deterministically makes
+        // Linux reject the first exec with ETXTBSY. Releasing it after the
+        // initial poll exercises readiness through the async retry boundary.
+        let busy_writer = force_busy_spawn.then(|| {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&settings.yt_dlp_path)
+                .unwrap()
+        });
         let (_inner_stop, inner_cancel) = idle_cancel();
         let inner_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         let mut inner = Box::pin(run_tool_until(
@@ -9400,6 +9423,10 @@ mod tests {
             |_| {},
         ));
         assert!(poll_once(&mut inner).is_pending());
+        if force_busy_spawn {
+            assert!(!marker.exists(), "busy fixture must not have launched yet");
+        }
+        drop(busy_writer);
         let pids = tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 if let Ok(text) = std::fs::read_to_string(&marker) {
@@ -9413,7 +9440,17 @@ mod tests {
                         }
                     }
                 }
-                tokio::time::sleep(Duration::from_millis(5)).await;
+                // The first poll may suspend during the supported spawn retry,
+                // before any process exists. Drive it with the real task waker
+                // while waiting for readiness rather than assuming Pending
+                // proves that the shell already started.
+                tokio::select! {
+                    result = &mut inner => panic!(
+                        "fixture tool completed before readiness (success={})",
+                        result.is_ok()
+                    ),
+                    _ = tokio::time::sleep(Duration::from_millis(5)) => {},
+                }
             }
         })
         .await
@@ -9462,6 +9499,12 @@ mod tests {
     #[tokio::test]
     async fn outer_cancellation_drop_kills_live_helper_process_group() {
         assert_outer_drop_kills_helper_descendant(false, true).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn outer_cancellation_drop_drives_spawn_retry_before_helper_readiness() {
+        assert_outer_drop_kills_helper_descendant_with_spawn_retry(false, true, true).await;
     }
 
     #[cfg(target_os = "linux")]

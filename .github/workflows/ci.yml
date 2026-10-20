@@ -39,7 +39,22 @@ jobs:
         run: brew install ffmpeg
       - name: Install FFmpeg on Windows
         if: runner.os == 'Windows'
-        run: choco install ffmpeg --no-progress --yes
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress --yes
+          if ($LASTEXITCODE -notin @(0, 3010)) { throw "FFmpeg installation failed" }
+          # Child cancellation must target the decoder, not Chocolatey's shim
+          # process, which can keep a separate FFmpeg child and its pipes alive.
+          $ffmpegPackageRoot = Join-Path $env:ChocolateyInstall 'lib/ffmpeg/tools'
+          $ffmpegExecutables = @(Get-ChildItem $ffmpegPackageRoot -Recurse -File -Filter ffmpeg.exe)
+          if ($ffmpegExecutables.Count -ne 1) { throw "Expected one real FFmpeg package executable" }
+          $ffmpegDirectory = $ffmpegExecutables[0].DirectoryName
+          $ffmpegDirectory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:Path = "$ffmpegDirectory;$env:Path"
+          $resolvedFfmpeg = (Get-Command ffmpeg.exe -CommandType Application).Source
+          if (-not [string]::Equals($resolvedFfmpeg, $ffmpegExecutables[0].FullName, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "FFmpeg still resolves through a launcher instead of the package executable"
+          }
       - run: npm ci
       - name: Check installed-smoke path handling
         run: python scripts/release/test_smoke_installed.py

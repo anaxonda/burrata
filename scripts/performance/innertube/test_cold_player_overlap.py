@@ -1,4 +1,5 @@
 """Offline subprocess fixtures for the cold-player A/B driver; no provider calls."""
+import hashlib
 import json
 import os
 import sys
@@ -33,6 +34,16 @@ sys.stdin.read()
 
 @unittest.skipUnless(os.name == 'posix', 'driver uses POSIX process groups')
 class ColdPlayerDriverTests(unittest.TestCase):
+    def test_source_hashes_support_python310_without_file_digest_and_preserve_exact_bytes(self):
+        with tempfile.TemporaryDirectory(prefix='cold-player-hashes-') as scratch:
+            source = Path(scratch) / 'fixture-tool'
+            for payload in [b'', b'exact\x00bytes\r\n', bytes(range(256)) * 8193]:
+                source.write_bytes(payload)
+                with patch.object(hashlib, 'file_digest', create=True,
+                                  side_effect=AssertionError('file_digest requires Python 3.11')), \
+                        patch.object(driver, 'SOURCE_FILES', [source]):
+                    self.assertEqual(driver.hashes(), {source.name: hashlib.sha256(payload).hexdigest()})
+
     def exercise(self, directory, behavior='pass'):
         worker = directory / 'worker.mjs'
         worker.write_text(FIXTURE.replace('BEHAVIOR', behavior))

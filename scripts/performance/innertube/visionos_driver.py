@@ -2,7 +2,6 @@
 """Opt-in, bounded fresh-process VISIONOS diagnostics; importing makes no requests."""
 from __future__ import annotations
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -12,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from serial_same_worker import BoundedLineReader, ProtocolError, terminate_group, validate_tracks
+from serial_same_worker import BoundedLineReader, ProtocolError, terminate_group, validate_tracks, file_sha256
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
@@ -135,8 +134,7 @@ def plan_requests(tracks, mode, attempts=20):
 def hashes(manifest):
     result = {}
     for path in [*SOURCE_FILES, manifest]:
-        with path.open('rb') as source:
-            result[str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else path.name] = hashlib.file_digest(source, 'sha256').hexdigest()
+        result[str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else path.name] = file_sha256(path)
     return result
 
 

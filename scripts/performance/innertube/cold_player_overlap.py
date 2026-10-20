@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Six anonymous fixed-format cold requests; no invocation runs on import."""
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -14,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 HERE = ROOT / 'scripts/performance/innertube'
 sys.path.insert(0, str(HERE))
-from serial_same_worker import BoundedLineReader, ProtocolError, safe_response, terminate_group, preflight
+from serial_same_worker import BoundedLineReader, ProtocolError, safe_response, terminate_group, preflight, file_sha256
 
 VIDEO = 'uZGRATckoBM'
 CODEC = 'audio/webm; codecs="opus"'
@@ -28,8 +27,7 @@ def hashes():
     result = {}
     for path in SOURCE_FILES:
         key = str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else path.name
-        with path.open('rb') as source:
-            result[key] = hashlib.file_digest(source, 'sha256').hexdigest()
+        result[key] = file_sha256(path)
     return result
 
 def run(output):

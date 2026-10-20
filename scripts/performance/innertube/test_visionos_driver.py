@@ -1,4 +1,5 @@
 """Offline subprocess fixtures; no provider, decoder or account access."""
+import hashlib
 import json
 import os
 import sys
@@ -43,6 +44,21 @@ time.sleep(60)
 
 @unittest.skipUnless(os.name == 'posix', 'POSIX process-group driver')
 class VisionosDriverTests(unittest.TestCase):
+    def test_source_and_manifest_hashes_support_python310_without_file_digest(self):
+        with tempfile.TemporaryDirectory(prefix='visionos-hashes-') as scratch:
+            source = Path(scratch) / 'fixture-tool'
+            manifest = Path(scratch) / 'tracks.json'
+            payload = bytes(range(256)) * 8193
+            source.write_bytes(payload)
+            manifest.write_bytes(b'{"exact":"manifest bytes"}\n')
+            with patch.object(hashlib, 'file_digest', create=True,
+                              side_effect=AssertionError('file_digest requires Python 3.11')), \
+                    patch.object(driver, 'SOURCE_FILES', [source]):
+                self.assertEqual(driver.hashes(manifest), {
+                    source.name: hashlib.sha256(payload).hexdigest(),
+                    manifest.name: hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                })
+
     def exercise(self, directory, behavior='pass', mode='durability', attempts=20, **kwargs):
         worker = directory / 'fixture.py'; worker.write_text(FIXTURE.replace('BEHAVIOR', behavior))
         manifest = directory / 'tracks.json'; manifest.write_bytes(driver.MANIFEST.read_bytes())
