@@ -54,6 +54,18 @@ async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refr
         Ok("1"),
         "requires explicit direct resolver opt-in"
     );
+    let repetitions = std::env::var("BURRATA_DIRECT_YOUTUBE_MAPPED_REPETITIONS")
+        .ok()
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .expect("repetition count must be an integer")
+        })
+        .unwrap_or(1);
+    assert!(
+        (1..=23).contains(&repetitions),
+        "repetitions must be 1..=23"
+    );
 
     // Reuse the existing catalog fixture, preserving its original 222.426s
     // duration. Live search may choose a different valid recording, so the
@@ -184,94 +196,100 @@ async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refr
         "proofVersion":2,"elapsedMs":first_ms})
     );
 
-    let second_started = Instant::now();
-    let second_deadline = PlaybackDeadline::at(
-        (tokio::time::Instant::now() + Duration::from_secs(20)).min(global_deadline),
-    );
-    let second = tokio::time::timeout_at(
-        global_deadline,
-        resolve_with_trace_context_excluding_until_attempt_limit(
-            &store,
-            &manager,
-            &track,
-            None,
+    for trial_index in 1..=repetitions {
+        let second_started = Instant::now();
+        let second_deadline = PlaybackDeadline::at(
+            (tokio::time::Instant::now() + Duration::from_secs(20)).min(global_deadline),
+        );
+        let second = tokio::time::timeout_at(
+            global_deadline,
+            resolve_with_trace_context_excluding_until_attempt_limit(
+                &store,
+                &manager,
+                &track,
+                None,
+                cancel.clone(),
+                Some(format!("native-mapped-direct-live-trial-{trial_index}")),
+                None,
+                None,
+                &[],
+                second_deadline,
+                2,
+            ),
+        )
+        .await;
+        let second_ms = second_started.elapsed().as_secs_f64() * 1000.0;
+        let second = match second {
+            Ok(Ok(resolved)) => resolved,
+            Ok(Err(error)) => {
+                eprintln!(
+                    "{}",
+                    json!({"experiment":"mapped-direct-youtube-v2-live",
+                    "phase":"mapped_direct_resolution","trialIndex":trial_index,
+                    "exploratory":trial_index <= 3,"ok":false,
+                    "failureCode":safe_failure_code(&error),"elapsedMs":second_ms})
+                );
+                panic!("mapped direct resolution failed; fixed failure evidence retained");
+            }
+            Err(_) => {
+                eprintln!(
+                    "{}",
+                    json!({"experiment":"mapped-direct-youtube-v2-live",
+                    "phase":"mapped_direct_resolution","trialIndex":trial_index,
+                    "exploratory":trial_index <= 3,"ok":false,
+                    "failureCode":"GLOBAL_DEADLINE","elapsedMs":second_ms})
+                );
+                panic!("mapped direct resolution exceeded the 60 second test deadline");
+            }
+        };
+        let exact_direct_source = second.origin == ResolvedSourceOrigin::DirectYoutube
+            && second.candidate.as_ref().is_some_and(|candidate| {
+                candidate.id == format!("youtube:{}", anchors.video_id)
+                    && candidate.chapters.is_none()
+                    && candidate.source_metadata.is_none()
+            });
+        if !exact_direct_source {
+            eprintln!(
+                "{}",
+                json!({"experiment":"mapped-direct-youtube-v2-live",
+                "phase":"mapped_direct_resolution","trialIndex":trial_index,
+                "exploratory":trial_index <= 3,"ok":false,
+                "origin":if second.origin == ResolvedSourceOrigin::DirectYoutube {"direct_youtube"} else {"existing"},
+                "failureCode":"MAPPED_DIRECT_FELL_BACK","elapsedMs":second_ms})
+            );
+            panic!("stored v2 mapping did not produce the direct source");
+        }
+
+        let pcm = crate::native_output::direct_pcm_experiment::collect_until(
+            second.source,
+            0.0,
+            5.0,
+            started + Duration::from_secs(60),
             cancel.clone(),
-            Some("native-mapped-direct-live-second".into()),
-            None,
-            None,
-            &[],
-            second_deadline,
-            2,
-        ),
-    )
-    .await;
-    let second_ms = second_started.elapsed().as_secs_f64() * 1000.0;
-    let second = match second {
-        Ok(Ok(resolved)) => resolved,
-        Ok(Err(error)) => {
-            eprintln!(
-                "{}",
-                json!({"experiment":"mapped-direct-youtube-v2-live",
-                "phase":"mapped_direct_resolution","ok":false,
-                "failureCode":safe_failure_code(&error),"elapsedMs":second_ms})
-            );
-            panic!("mapped direct resolution failed; fixed failure evidence retained");
-        }
-        Err(_) => {
-            eprintln!(
-                "{}",
-                json!({"experiment":"mapped-direct-youtube-v2-live",
-                "phase":"mapped_direct_resolution","ok":false,
-                "failureCode":"GLOBAL_DEADLINE","elapsedMs":second_ms})
-            );
-            panic!("mapped direct resolution exceeded the 60 second test deadline");
-        }
-    };
-    let exact_direct_source = second.origin == ResolvedSourceOrigin::DirectYoutube
-        && second.candidate.as_ref().is_some_and(|candidate| {
-            candidate.id == format!("youtube:{}", anchors.video_id)
-                && candidate.chapters.is_none()
-                && candidate.source_metadata.is_none()
-        });
-    if !exact_direct_source {
+        )
+        .await;
+        let after = mapping_timestamps(&database_path, &track.id, &fingerprint);
+        let ttl_unchanged = after == before;
+        let pcm_ok = pcm.ok && pcm.decoded_frames >= 240_000 && pcm.first_pcm_ms.is_some();
+        let ok = ttl_unchanged && pcm_ok;
         eprintln!(
             "{}",
             json!({"experiment":"mapped-direct-youtube-v2-live",
-            "phase":"mapped_direct_resolution","ok":false,
-            "origin":if second.origin == ResolvedSourceOrigin::DirectYoutube {"direct_youtube"} else {"existing"},
-            "failureCode":"MAPPED_DIRECT_FELL_BACK","elapsedMs":second_ms})
+            "phase":"mapped_direct_decode_and_ttl","trialIndex":trial_index,
+            "exploratory":trial_index <= 3,"ok":ok,"origin":"direct_youtube",
+            "resolveMs":second_ms,"decodeFirstPcmMs":pcm.first_pcm_ms,
+            "decodedFrames":pcm.decoded_frames,"mappingTtlUnchanged":ttl_unchanged,
+            "failureCode":if ok {Value::Null} else {json!(if !ttl_unchanged {"MAPPING_TTL_REFRESHED"} else {"DECODE_FAILED"})},
+            "wallMs":started.elapsed().as_secs_f64()*1000.0,
+            "qualification":false,"physicalAudibilityMeasured":false,"proofVersion":2})
         );
-        panic!("stored v2 mapping did not produce the direct source");
+        assert!(
+            ttl_unchanged,
+            "direct playback must not refresh mapping TTL"
+        );
+        assert!(
+            pcm_ok,
+            "mapped direct source must decode five seconds of audio"
+        );
     }
-
-    let pcm = crate::native_output::direct_pcm_experiment::collect_until(
-        second.source,
-        0.0,
-        5.0,
-        started + Duration::from_secs(60),
-        cancel,
-    )
-    .await;
-    let after = mapping_timestamps(&database_path, &track.id, &fingerprint);
-    let ttl_unchanged = after == before;
-    let pcm_ok = pcm.ok && pcm.decoded_frames >= 240_000 && pcm.first_pcm_ms.is_some();
-    let ok = ttl_unchanged && pcm_ok;
-    eprintln!(
-        "{}",
-        json!({"experiment":"mapped-direct-youtube-v2-live",
-        "phase":"mapped_direct_decode_and_ttl","ok":ok,"origin":"direct_youtube",
-        "resolveMs":second_ms,"firstPcmFromStartMs":pcm.first_pcm_ms.map(|first|second_ms+first),
-        "decodedFrames":pcm.decoded_frames,"mappingTtlUnchanged":ttl_unchanged,
-        "failureCode":if ok {Value::Null} else {json!(if !ttl_unchanged {"MAPPING_TTL_REFRESHED"} else {"DECODE_FAILED"})},
-        "wallMs":started.elapsed().as_secs_f64()*1000.0,
-        "qualification":false,"physicalAudibilityMeasured":false,"proofVersion":2})
-    );
-    assert!(
-        ttl_unchanged,
-        "direct playback must not refresh mapping TTL"
-    );
-    assert!(
-        pcm_ok,
-        "mapped direct source must decode five seconds of audio"
-    );
 }
