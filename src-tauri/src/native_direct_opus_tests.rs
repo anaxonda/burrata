@@ -446,6 +446,50 @@ fn ffmpeg_setup_phase_excludes_injected_failed_native_time() {
     };
     let fixture = Fixture::create();
     let source = fixture.source(fixture.webm_path.to_string_lossy().into_owned());
+    // Run the exact decoder argv independently of the pipe reader below. This
+    // distinguishes FFmpeg timestamp/trimming behavior from sample collection.
+    let cli = Command::new(&source.ffmpeg)
+        .args([
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-rw_timeout",
+            "5000000",
+            "-i",
+        ])
+        .arg(&source.input)
+        .args([
+            "-t",
+            "1",
+            "-vn",
+            "-f",
+            "f32le",
+            "-acodec",
+            "pcm_f32le",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "pipe:1",
+        ])
+        .output()
+        .expect("run FFmpeg CLI fixture diagnostic");
+    assert!(
+        cli.status.success(),
+        "FFmpeg CLI fixture diagnostic failed: {}",
+        String::from_utf8_lossy(&cli.stderr)
+    );
+    let cli_float_samples = cli.stdout.len() / std::mem::size_of::<f32>();
+    let cli_version = Command::new(&source.ffmpeg)
+        .arg("-version")
+        .output()
+        .expect("read FFmpeg fixture diagnostic version");
+    let cli_version = String::from_utf8_lossy(&cli_version.stdout)
+        .lines()
+        .next()
+        .unwrap_or("FFmpeg version unavailable")
+        .to_owned();
     let diagnostics = Arc::new(Mutex::new(None));
     // Inject an earlier diagnostic origin; this is not a measured delay or a
     // timeout. The old bug counted this native phase twice as FFmpeg setup.
@@ -484,7 +528,8 @@ fn ffmpeg_setup_phase_excludes_injected_failed_native_time() {
     .unwrap();
     assert_eq!(
         rx.into_iter().map(|block| block.len()).sum::<usize>(),
-        96_000
+        96_000,
+        "FFmpeg CLI delivered {cli_float_samples} f32 samples from the same source and argv; {cli_version}"
     );
     let decoder = diagnostics.lock().unwrap().clone().unwrap();
     assert!(decoder.first_decoded_block_ms.unwrap() >= failed_ms);

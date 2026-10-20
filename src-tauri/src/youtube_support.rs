@@ -1725,7 +1725,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(failure.contains("Compatibility probe failed"));
+        assert!(
+            failure.contains("Compatibility probe failed"),
+            "candidate failure came from an unexpected stage: {failure}"
+        );
         assert!(failure.contains("mock YouTube extraction failure"));
         assert_eq!(manager.active_executable(), active);
         assert_eq!(
