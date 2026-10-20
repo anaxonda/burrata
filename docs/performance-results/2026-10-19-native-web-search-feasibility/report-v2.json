@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 2,
+  "scope": "same two explicit anonymous YouTube WEB videos-only search POSTs as v1; parse up to all 20 renderer rows; feasibility during concurrent root Rust compilation; not latency qualification or playback acceptance",
+  "requestSetId": "burrata-web-search-2026-10-19-JD-Matthew-Pengus-Victory-Lap-v2",
+  "requestIds": [
+    "JD-Matthew",
+    "Pengus-Victory-Lap"
+  ],
+  "dateUtc": "2026-10-20T04:11:52.971043+00:00",
+  "limits": {
+    "maxRequests": 2,
+    "requestsUsed": 2,
+    "timeoutSecondsPerRequest": 8,
+    "maxResponseBytes": 1048576,
+    "maxParsedVideoRenderersPerRequest": 20,
+    "redirects": "disabled",
+    "cookiesOrAuth": "none",
+    "tlsVerification": "urllib default enabled"
+  },
+  "sourceProfiles": {
+    "searchParams": "pinned yt-dlp YoutubeSearchIE videos-only EgIQAfABAQ==",
+    "clientVersion": "checked-in youtubei.js 18.1.0 WEB profile"
+  },
+  "requests": [
+    {
+      "query": "John Denver Matthew",
+      "startedAtUtc": "2026-10-20T04:11:50.553694+00:00",
+      "endpointHost": "www.youtube.com",
+      "requestBytes": 152,
+      "clientName": "WEB",
+      "clientVersion": "2.20260623.01.00",
+      "params": "EgIQAfABAQ==",
+      "elapsedMs": 1132.269,
+      "httpStatus": 200,
+      "contentType": "application/json",
+      "responseBytesRead": 306319,
+      "responseSha256": "03c56f96670c42d2f74124aa11ea7e63b7c50ee1b6f6e789aef1ff99baa685a7",
+      "bodyWithinLimit": true,
+      "structuralCounts": {
+        "videoRenderer": 20,
+        "continuationItems": 1,
+        "itemSectionRenderers": 1
+      },
+      "items": [
+        {
+          "videoId": "uZGRATckoBM",
+          "title": "Matthew",
+          "durationSeconds": 228,
+          "uploader": "John Denver"
+        },
+        {
+          "videoId": "RPhUYD1jkbI",
+          "title": "John Denver - Matthew (Live at Farm Aid 1990)",
+          "durationSeconds": 232,
+          "uploader": "Farm Aid"
+        },
+        {
+          "videoId": "wKPmoLxAqCM",
+          "title": "John Denver.... Matthew",
+          "durationSeconds": 216,
+          "uploader": "TheRehove"
+        },
+        {
+          "videoId": "XiZIdJZvAjU",
+          "title": "Matthew (Live at the Universal Amphitheatre, Los Angeles, CA - August/September 1974)",
+          "durationSeconds": 232,
+          "uploader": "John Denver"
+        },
+        {
+          "videoId": "FRP_lYROd-I",
+          "title": "John Denver - Matthew",
+          "durationSeconds": 216,
+          "uploader": "Scottie Lore"
+        },
+        {
+          "videoId": "dRuvGUMDmCs",
+          "title": "John Denver - Matthew (With Introduction)",
+          "durationSeconds": 281,
+          "uploader": "Jan Hammer"
+        },
+        {
+          "videoId": "B0ZHzdqJqsw",
+          "title": "Matthew (alternate version)",
+          "durationSeconds": 231,
+          "uploader": "John Denver"
+        },
+        {
+          "videoId": "8ixJBqmyNRQ",
+          "title": "Matthew (Live 1995)",
+          "durationSeconds": 254,
+          "uploader": "John Denver"
+        },
+        {
+          "videoId": "i-UoVWRZimc",
+          "title": "John Denver- Matthew (1981 Japan)",
+          "durationSeconds": 223,
+          "uploader": "U^U"
+        },
+        {
+          "videoId": "8Hqx-_GQsD4",
+          "title": "Mathew - by John Denver",
+          "durationSeconds": 361,
+          "uploader": "The Waddington Brothers"
+        },
+        {
+          "videoId": "eTs0J0NR3Q8",
+          "title": "John Denver: Matthew (1974)",
+          "durationSeconds": 272,
+          "uploader": "The World of John Denver"
+        },
+        {
+          "videoId": "ps9X-DXUFGY",
+          "title": "JOHN DENVER - MATTHEW.",
+          "durationSeconds": 225,
+          "uploader": "Electricchris1"
+        },
+        {
+          "videoId": "7zynorOnTXk",
+          "title": "Matthew JOHN DENVER",
+          "durationSeconds": 222,
+          "uploader": "sunryse111"
+        },
+        {
+          "videoId": "ZTRFbsaCY4w",
+          "title": "John Denver / Matthew [1975]",
+          "durationSeconds": 238,
+          "uploader": "M masassa"
+        },
+        {
+          "videoId": "D3O4QZSHigY",
+          "title": "John Denver's Matthew by Bobby Coolures",
+          "durationSeconds": 237,
+          "uploader": "Cool13Bobby"
+        },
+        {
+          "videoId": "M5NPZmqTOOU",
+          "title": "At 78, Annie Denver Confirmed The Rumor About John Denver",
+          "durationSeconds": 1834,
+          "uploader": "The Secret"
+        },
+        {
+          "videoId": "dM9lHTjt-mk",
+          "title": "John Denver Ukulele Play Along Practice \"Matthew\"",
+          "durationSeconds": 230,
+          "uploader": "ukulele plus"
+        },
+        {
+          "videoId": "nJqtHS6KLGk",
+          "title": "Matthew (Live at Five Seasons Center, Cedar Rapids, IA - December 1987)",
+          "durationSeconds": 294,
+          "uploader": "John Denver"
+        },
+        {
+          "videoId": "aRon9yw9H_A",
+          "title": "How to play the intro to John Denver's \"Matthew.\"",
+          "durationSeconds": 204,
+          "uploader": "Gordon Lustig"
+        },
+        {
+          "videoId": "fGHGdjf62aw",
+          "title": "John Denver Matthew KARAOKE",
+          "durationSeconds": 223,
+          "uploader": "Dinosaur Karaoke"
+        }
+      ],
+      "parsedItemCount": 20,
+      "failureCode": null
+    },
+    {
+      "query": "Pengus Victory Lap",
+      "startedAtUtc": "2026-10-20T04:11:51.802772+00:00",
+      "endpointHost": "www.youtube.com",
+      "requestBytes": 151,
+      "clientName": "WEB",
+      "clientVersion": "2.20260623.01.00",
+      "params": "EgIQAfABAQ==",
+      "elapsedMs": 1060.951,
+      "httpStatus": 200,
+      "contentType": "application/json",
+      "responseBytesRead": 271150,
+      "responseSha256": "09de8fc186aec9164c839bdf62b77aa4eff93de36f60c9b95cab8ccc208a2312",
+      "bodyWithinLimit": true,
+      "structuralCounts": {
+        "videoRenderer": 20,
+        "continuationItems": 1,
+        "itemSectionRenderers": 1
+      },
+      "items": [
+        {
+          "videoId": "kzrZXghhy1k",
+          "title": "Pengus - Victory Lap",
+          "durationSeconds": 261,
+          "uploader": "Retro-Synthレトロシンセ"
+        },
+        {
+          "videoId": "HIf6jYeRfyg",
+          "title": "Blue And Orange Army's Inagural Playoff Victory Lap: May 7, 2013",
+          "durationSeconds": 371,
+          "uploader": "NYIslander12"
+        },
+        {
+          "videoId": "WdcC2xbdh3I",
+          "title": "Pengus - Sturmfrei - Miami Vice",
+          "durationSeconds": 247,
+          "uploader": "Crockettontheshore"
+        },
+        {
+          "videoId": "hz-8vTy7lSY",
+          "title": "Victory Lap: New York Islanders Playoffs Edition",
+          "durationSeconds": 269,
+          "uploader": "Patrick Lehmann"
+        },
+        {
+          "videoId": "ZFOw2xJI-Xw",
+          "title": "Little Red Wings fan takes victory lap",
+          "durationSeconds": 38,
+          "uploader": "HockeyArchive"
+        },
+        {
+          "videoId": "Qvf9d3-gUJc",
+          "title": "Pengus - Fat Cats",
+          "durationSeconds": 192,
+          "uploader": "neros77"
+        },
+        {
+          "videoId": "I2BF-012JrA",
+          "title": "ＶＩＣＴＯＲＹ ＬＡＰ ＨＯＭＥＲ - ファットマンは実行します",
+          "durationSeconds": 58,
+          "uploader": "Haddock"
+        },
+        {
+          "videoId": "h5CGZ3BnhNY",
+          "title": "Pens 5 - Sens 1",
+          "durationSeconds": 183,
+          "uploader": "Wilkes-Barre/Scranton Penguins"
+        },
+        {
+          "videoId": "358lsDRHl0U",
+          "title": "Pengus - Sturmfrei",
+          "durationSeconds": 253,
+          "uploader": "Retro-Synthレトロシンセ"
+        },
+        {
+          "videoId": "FcfHKKraY6I",
+          "title": "MLP- Equestria Girls Season 2 'Best in Show- The Victory Lap'",
+          "durationSeconds": 134,
+          "uploader": "Beast Master"
+        },
+        {
+          "videoId": "oiGvajNS_m8",
+          "title": "Pengus & Perfect Science - Nose Dive",
+          "durationSeconds": 288,
+          "uploader": "Pash Bridges"
+        },
+        {
+          "videoId": "5213uRBpJD0",
+          "title": "Pengus - Hacker Fugitive (ft. Perfect Science)",
+          "durationSeconds": 339,
+          "uploader": "James"
+        },
+        {
+          "videoId": "ovybzevDd3A",
+          "title": "victory lap (cover)",
+          "durationSeconds": 206,
+          "uploader": "Harvey Mosteller"
+        },
+        {
+          "videoId": "NXun6Ue5pgA",
+          "title": "Penguins Victory Lap over the Defending 2 Time Stanley Cup Champions! +NHL Season Predictions",
+          "durationSeconds": 1504,
+          "uploader": "LCMuscles28"
+        },
+        {
+          "videoId": "ChNt9PDcnRI",
+          "title": "Pengus & Perfect Science - Nose Dive (available on vinyl)",
+          "durationSeconds": 124,
+          "uploader": "Gustav Eriksson"
+        },
+        {
+          "videoId": "WYsKcXEgUf4",
+          "title": "Pengus - Tsar Bomba",
+          "durationSeconds": 275,
+          "uploader": "Gustav Eriksson"
+        },
+        {
+          "videoId": "HvCfN7p-QVQ",
+          "title": "Pengus, Perfect Science - Nose Dive",
+          "durationSeconds": 294,
+          "uploader": "Retro-Synthレトロシンセ"
+        },
+        {
+          "videoId": "iKyAc45kvZg",
+          "title": "Last Time That I Checc'd (feat. YG)",
+          "durationSeconds": 226,
+          "uploader": "Nipsey Hussle"
+        },
+        {
+          "videoId": "p2QFV3V6kPM",
+          "title": "Pengus - Rethroo",
+          "durationSeconds": 204,
+          "uploader": "Gustav Eriksson"
+        },
+        {
+          "videoId": "FJuGmu9T8AE",
+          "title": "Teemu Selanne named all three stars in last game, takes final lap with Giguere",
+          "durationSeconds": 223,
+          "uploader": "CBSEyeOnHockey"
+        }
+      ],
+      "parsedItemCount": 20,
+      "failureCode": null
+    }
+  ]
+}
