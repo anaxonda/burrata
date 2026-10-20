@@ -69,6 +69,7 @@ pub enum MatchReason {
     PermissionRestricted,
     PreviewTooShort,
     ConflictingRequestIdentifiers,
+    TitleCreditHintUnverified,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -442,7 +443,111 @@ fn version_kind(value: &str) -> String {
         String::new()
     }
 }
+fn difficulty_label(value: &str) -> Option<&'static str> {
+    let normalized = norm(value);
+    let normalized = normalized
+        .strip_suffix(" difficulty")
+        .unwrap_or(normalized.as_str());
+    match normalized {
+        "easy" => Some("easy"),
+        "normal" => Some("normal"),
+        "hard" => Some("hard"),
+        "insane" => Some("insane"),
+        "expert" => Some("expert"),
+        "nightmare" => Some("nightmare"),
+        "extreme" => Some("extreme"),
+        _ => None,
+    }
+}
+fn level_work(value: &str) -> Option<(String, String)> {
+    let lower = value.to_ascii_lowercase();
+    let after = lower.strip_prefix("level ")?;
+    let count = after.chars().take_while(char::is_ascii_digit).count();
+    if count == 0 {
+        return None;
+    }
+    let level = after[..count].to_owned();
+    let remainder = value["level ".len() + count..].trim_start();
+    let work = remainder
+        .strip_prefix('-')
+        .or_else(|| remainder.strip_prefix(':'))?
+        .trim()
+        .to_owned();
+    (!work.is_empty()).then_some((level, work))
+}
+fn album_prefix_matches(album: &str, candidate_prefix: &str) -> bool {
+    let album = norm(album);
+    let prefix = norm(candidate_prefix);
+    let album_words = album.split_whitespace().collect::<Vec<_>>();
+    let prefix_words = prefix.split_whitespace().collect::<Vec<_>>();
+    prefix_words.len() >= 2
+        && prefix_words.len() <= album_words.len()
+        && album_words[..prefix_words.len()] == prefix_words[..]
+}
+fn contextual_game_level_title(track: &Track, candidate: &str) -> Option<String> {
+    let requested = parse_title(&track.title);
+    let (requested_level, requested_work) = level_work(&requested.title)?;
+    let requested_difficulty = difficulty_label(requested.version.as_deref()?)?;
+    let album = track.album.as_deref()?;
+    let lower = candidate.to_ascii_lowercase();
+    let mut search_from = 0;
+    while let Some(relative) = lower[search_from..].find("level ") {
+        let start = search_from + relative;
+        let end = candidate[start..]
+            .find('-')
+            .map(|offset| start + offset)
+            .or_else(|| candidate[start..].find(':').map(|offset| start + offset))?;
+        let prefix = candidate[..start].trim_end();
+        if !album_prefix_matches(album, prefix) {
+            search_from = start + "level ".len();
+            continue;
+        }
+        let level_text = candidate[start..end].to_owned() + " - placeholder";
+        let (level, _) = level_work(&level_text)?;
+        if level != requested_level {
+            return None;
+        }
+        let mut suffix = candidate[end + 1..].trim();
+        let Some((before_difficulty, difficulty_text)) = suffix.rsplit_once('|') else {
+            return None;
+        };
+        let actual_difficulty = difficulty_label(difficulty_text.trim())?;
+        if actual_difficulty != requested_difficulty {
+            return None;
+        }
+        suffix = before_difficulty.trim();
+        if let Some((before_hint, hint)) = suffix.rsplit_once(" (by ") {
+            if hint.ends_with(')') {
+                suffix = before_hint.trim();
+            }
+        }
+        let actual_work = crate::matching::normalize_title_ignoring_intraword_apostrophes(suffix);
+        let expected_work =
+            crate::matching::normalize_title_ignoring_intraword_apostrophes(&requested_work);
+        if actual_work != expected_work {
+            return None;
+        }
+        return Some(format!(
+            "Level {requested_level} - {requested_work} ({})",
+            requested.version?
+        ));
+    }
+    None
+}
+fn unverified_by_credit_hint(raw: &str) -> Option<String> {
+    let lower = raw.to_ascii_lowercase();
+    let marker = "(by ";
+    let start = lower.find(marker)? + marker.len();
+    let end = raw[start..].find(')')? + start;
+    let name = raw[start..end].trim();
+    (!name.is_empty()).then(|| name.to_owned())
+}
 fn semantic_version(title: &str, version: &str) -> String {
+    if level_work(&parse_title(title).title).is_some() {
+        if let Some(difficulty) = difficulty_label(version) {
+            return format!("{difficulty} difficulty");
+        }
+    }
     let normalized = crate::matching::normalize_version_for_title(title, version);
     if matches!(
         normalized.as_str(),
@@ -628,8 +733,12 @@ pub fn assess(
         .unwrap_or(&candidate.title);
     let wanted_title = base_title(&request_title.title);
     let known_label = track.label.as_deref().or(meta["label"].as_str());
-    let candidate_title =
-        caption_track_title(raw_candidate, &wanted_title, &candidate.title, known_label);
+    let contextual_title = contextual_game_level_title(track, raw_candidate)
+        .or_else(|| contextual_game_level_title(track, &candidate.title));
+    let contextual_game_title = contextual_title.is_some();
+    let candidate_title = contextual_title.unwrap_or_else(|| {
+        caption_track_title(raw_candidate, &wanted_title, &candidate.title, known_label)
+    });
     let requested_version = track
         .version
         .as_deref()
@@ -800,6 +909,18 @@ pub fn assess(
         && artists == Comparison::Agree
         && (requested_guests.is_empty() || guests == Comparison::Agree)
         && version != Comparison::Conflict;
+    let contextual_game_runtime_plausible = contextual_game_title
+        && title == Comparison::Agree
+        && target_runtime
+            .zip(candidate_runtime)
+            .is_some_and(|(expected, actual)| {
+                let tolerance = if level == MatchLevel::Flexible {
+                    15.0_f64.max((expected * 0.15).min(45.0))
+                } else {
+                    2.0_f64.max(expected * 0.02)
+                };
+                (expected - actual).abs() <= tolerance
+            });
     let preview_too_short = candidate_runtime.is_some_and(|d| d <= 30.0)
         && target_runtime.is_none_or(|d| d > 30.0)
         || meta["isPreview"].as_bool() == Some(true) && target_runtime.is_none_or(|d| d > 30.0);
@@ -842,6 +963,11 @@ pub fn assess(
             || guests == Comparison::Agree
             || guests == Comparison::Unknown);
     let mut reasons = Vec::new();
+    if unverified_by_credit_hint(raw_candidate).is_some()
+        || unverified_by_credit_hint(&candidate.title).is_some()
+    {
+        reasons.push(MatchReason::TitleCreditHintUnverified);
+    }
     for (c, r) in [
         (title, MatchReason::TitleAgrees),
         (artists, MatchReason::ArtistAgrees),
@@ -969,6 +1095,11 @@ pub fn assess(
         relationship = MatchRelationship::Unresolved;
     }
     let action = if hard_conflict {
+        MatchAction::Reject
+    } else if contextual_game_title
+        && stage == MatchStage::Search
+        && !contextual_game_runtime_plausible
+    {
         MatchAction::Reject
     } else if stage == MatchStage::Search {
         if title == Comparison::Agree && artists != Comparison::Conflict {
@@ -1318,6 +1449,108 @@ mod tests {
         assert_eq!(
             assess(&t, &too_far, MatchLevel::Balanced, MatchStage::Resolved).action,
             MatchAction::Reject
+        );
+    }
+
+    #[test]
+    fn game_level_caption_is_contextual_title_evidence_not_artist_proof() {
+        let mut t = track();
+        t.artist = "Pengus".into();
+        t.title = "Level 2 - Miami (Insane)".into();
+        t.album = Some("Neon Drive Game Soundtrack".into());
+        t.duration_seconds = Some(98.0);
+        t.isrc = None;
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            title: "Miami (by Pengus) | Insane Difficulty".into(),
+            duration_seconds: Some(110.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"NEON DRIVE Level 2 - Miami (by Pengus) | Insane Difficulty",
+                "catalogTitle":"NEON DRIVE Level 2 - Miami (by Pengus) | Insane Difficulty",
+                "duration":110.0,
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata"
+            })),
+            ..Candidate::default()
+        };
+        let search = assess(&t, &candidate, MatchLevel::Flexible, MatchStage::Search);
+        assert_eq!(search.action, MatchAction::Inspect);
+        assert_eq!(search.dimensions.title, Comparison::Agree);
+        assert_eq!(search.dimensions.version, Comparison::Agree);
+        assert_eq!(search.dimensions.artists, Comparison::Unknown);
+        assert!(search
+            .reasons
+            .contains(&MatchReason::TitleCreditHintUnverified));
+        assert_ne!(search.relationship, MatchRelationship::Exact);
+
+        let resolved = assess(&t, &candidate, MatchLevel::Flexible, MatchStage::Resolved);
+        assert_ne!(resolved.action, MatchAction::Accept);
+
+        let mut wrong_album = t.clone();
+        wrong_album.album = Some("Unrelated Game Soundtrack".into());
+        assert_eq!(
+            assess(
+                &wrong_album,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Search
+            )
+            .action,
+            MatchAction::Reject
+        );
+        let wrong_level = Candidate {
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"NEON DRIVE Level 3 - Miami (by Pengus) | Insane Difficulty",
+                "duration":110.0
+            })),
+            ..candidate.clone()
+        };
+        assert_eq!(
+            assess(&t, &wrong_level, MatchLevel::Flexible, MatchStage::Search).action,
+            MatchAction::Reject
+        );
+        let wrong_difficulty = Candidate {
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"NEON DRIVE Level 2 - Miami (by Pengus) | Hard Difficulty",
+                "duration":110.0
+            })),
+            ..candidate.clone()
+        };
+        assert_eq!(
+            assess(
+                &t,
+                &wrong_difficulty,
+                MatchLevel::Flexible,
+                MatchStage::Search
+            )
+            .action,
+            MatchAction::Reject
+        );
+        let no_runtime = Candidate {
+            duration_seconds: None,
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"NEON DRIVE Level 2 - Miami (by Pengus) | Insane Difficulty"
+            })),
+            ..candidate
+        };
+        assert_eq!(
+            assess(&t, &no_runtime, MatchLevel::Flexible, MatchStage::Search).action,
+            MatchAction::Reject
+        );
+    }
+
+    #[test]
+    fn game_difficulty_normalization_does_not_relabel_ordinary_mix_versions() {
+        assert_eq!(
+            semantic_version("Level 2 - Miami (Hard)", "Hard"),
+            semantic_version("Level 2 - Miami (Hard Difficulty)", "Hard Difficulty")
+        );
+        assert_ne!(
+            semantic_version("Song", "Hard Mix"),
+            semantic_version("Song", "Hard Difficulty")
         );
     }
     #[test]

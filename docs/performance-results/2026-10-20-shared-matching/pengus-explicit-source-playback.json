@@ -1,0 +1,199 @@
+{
+  "success": true,
+  "samples": [
+    {
+      "trackId": "youtube:kZHXnY5lh2I",
+      "status": "playing",
+      "source": {
+        "provider": "youtube",
+        "id": "youtube:kZHXnY5lh2I"
+      },
+      "media": {
+        "buffered": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "currentTime": 40.370355,
+        "duration": 110.039365079,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      }
+    },
+    {
+      "trackId": "youtube:kZHXnY5lh2I",
+      "status": "playing",
+      "source": {
+        "provider": "youtube",
+        "id": "youtube:kZHXnY5lh2I"
+      },
+      "media": {
+        "buffered": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "currentTime": 41.384581,
+        "duration": 110.039365079,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      }
+    },
+    {
+      "trackId": "youtube:kZHXnY5lh2I",
+      "status": "playing",
+      "source": {
+        "provider": "youtube",
+        "id": "youtube:kZHXnY5lh2I"
+      },
+      "media": {
+        "buffered": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "currentTime": 42.399907,
+        "duration": 110.039365079,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      }
+    },
+    {
+      "trackId": "youtube:kZHXnY5lh2I",
+      "status": "playing",
+      "source": {
+        "provider": "youtube",
+        "id": "youtube:kZHXnY5lh2I"
+      },
+      "media": {
+        "buffered": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "currentTime": 43.42164,
+        "duration": 110.039365079,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      }
+    },
+    {
+      "trackId": "youtube:kZHXnY5lh2I",
+      "status": "playing",
+      "source": {
+        "provider": "youtube",
+        "id": "youtube:kZHXnY5lh2I"
+      },
+      "media": {
+        "buffered": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "currentTime": 44.440048,
+        "duration": 110.039365079,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      }
+    },
+    {
+      "trackId": "youtube:kZHXnY5lh2I",
+      "status": "playing",
+      "source": {
+        "provider": "youtube",
+        "id": "youtube:kZHXnY5lh2I"
+      },
+      "media": {
+        "buffered": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "currentTime": 45.452845,
+        "duration": 110.039365079,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            110.039365079
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      }
+    }
+  ],
+  "buildSha256": "575c391f0642d250d32f416860f81f403366bdee98892a71c983bc7d0c5a4a49",
+  "qualificationScope": "Explicitly selected YouTube upload playback only; not automatic matching or proof of equivalence to the 98-second catalog recording"
+}

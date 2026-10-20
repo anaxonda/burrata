@@ -1,0 +1,317 @@
+{
+  "sourceId": "musicbrainz",
+  "query": "artist:Pengus AND recording:\"Level 2\"",
+  "title": "Level 2 - Miami (Insane)",
+  "chosen": {
+    "title": "Level 2 - Miami (Insane)",
+    "artist": "Pengus",
+    "durationSeconds": 98,
+    "sourceId": "musicbrainz"
+  },
+  "success": false,
+  "samples": [
+    {
+      "elapsedMs": 382,
+      "trackId": "traxsource:14798487",
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {}
+    },
+    {
+      "elapsedMs": 1597,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 2815,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 4032,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 5245,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 6457,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 7673,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 8886,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 10097,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 11309,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 12525,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 13737,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 14945,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 16156,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 17366,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 18577,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 19787,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 20998,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {
+        "currentTime": null,
+        "duration": null,
+        "paused": null,
+        "readyState": null,
+        "errorCode": null
+      }
+    }
+  ],
+  "matchingLevel": "flexible",
+  "originalSettingRestored": true,
+  "observationNote": "No source was accepted. The state lastResolvedSource field can retain a previous track source; it is not evidence that this failed request resolved to that source."
+}

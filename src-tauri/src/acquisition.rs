@@ -133,10 +133,10 @@ fn artifact_track_for_match(
                 (!names.is_empty()).then(|| names.join(", "))
             })
         });
-    if let Some(artist) =
-        actual_artist.filter(|_| track.provenance["manualFields"]["artist"] != true)
-    {
-        artifact.artist = artist.trim().to_owned();
+    if !already_actual_source && track.provenance["manualFields"]["artist"] != true {
+        artifact.artist = actual_artist
+            .map(|artist| artist.trim().to_owned())
+            .unwrap_or_default();
     }
     if track.provenance["manualFields"]["version"] != true {
         artifact.version = metadata["version"]
@@ -144,6 +144,72 @@ fn artifact_track_for_match(
             .or(metadata["mix"].as_str())
             .map(str::to_owned)
             .or_else(|| crate::recording_identity::parse_title(actual_title).version);
+    }
+    if !already_actual_source {
+        // A different recording must not inherit the requested catalog's
+        // release identity. Keep explicit user edits, use fresh source
+        // metadata when available, and clear automatic values when absent.
+        if track.provenance["manualFields"]["album"] != true {
+            artifact.album = metadata["album"]
+                .as_str()
+                .map(str::trim)
+                .filter(|album| !album.is_empty())
+                .map(str::to_owned);
+        }
+        if track.provenance["manualFields"]["albumArtist"] != true {
+            artifact.album_artist = metadata["albumArtist"]
+                .as_str()
+                .map(str::trim)
+                .filter(|artist| !artist.is_empty())
+                .map(str::to_owned);
+        }
+        if track.provenance["manualFields"]["isrc"] != true {
+            artifact.isrc = metadata["isrc"]
+                .as_str()
+                .and_then(crate::recording_identity::normalize_isrc);
+        }
+        if track.provenance["manualFields"]["releaseDate"] != true {
+            artifact.release_date = None;
+        }
+        if track.provenance["manualFields"]["recordingDate"] != true {
+            artifact.recording_date = None;
+        }
+        if track.provenance["manualFields"]["catalogNumber"] != true {
+            artifact.catalog_number = None;
+        }
+        if track.provenance["manualFields"]["label"] != true {
+            artifact.label = None;
+        }
+        if track.provenance["manualFields"]["genre"] != true {
+            artifact.genre = None;
+            artifact.normalized_genre = None;
+        }
+        if track.provenance["manualFields"]["bpm"] != true {
+            artifact.bpm = None;
+        }
+        if track.provenance["manualFields"]["key"] != true {
+            artifact.key = None;
+        }
+        if track.provenance["manualFields"]["remixers"] != true {
+            artifact.remixers = None;
+        }
+        if track.provenance["manualFields"]["trackNumber"] != true {
+            artifact.track_number = None;
+        }
+        if track.provenance["manualFields"]["trackTotal"] != true {
+            artifact.track_total = None;
+        }
+        if track.provenance["manualFields"]["discNumber"] != true {
+            artifact.disc_number = None;
+        }
+        if track.provenance["manualFields"]["discTotal"] != true {
+            artifact.disc_total = None;
+        }
+        // The old cover belongs to the requested recording. Use the selected
+        // source thumbnail when available, or leave artwork unset.
+        if track.provenance["manualFields"]["artwork"] != true {
+            artifact.artwork_url = candidate.artwork_url.clone();
+        }
     }
     if !already_actual_source {
         artifact.provider = candidate.provider.clone();
@@ -1145,6 +1211,12 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
         if let Some(value) = metadata_text(&info[key]).filter(|value| value.len() <= 512) {
             source_metadata.insert(key.into(), Value::String(value));
         }
+    }
+    if let Some(value) = metadata_text(&info["album_artist"])
+        .or_else(|| metadata_text(&info["albumArtist"]))
+        .filter(|value| value.len() <= 512)
+    {
+        source_metadata.insert("albumArtist".into(), Value::String(value));
     }
     if let Some(isrc) = info["isrc"]
         .as_str()
@@ -7373,6 +7445,7 @@ mod tests {
                 "track":"Song (Live)",
                 "artists":["Artist", "Guest Artist"],
                 "album":"Live at the Hall",
+                "album_artist":"Live Ensemble",
                 "version":"Live",
                 "isrc":"USABC2600001",
                 "duration":180.0,
@@ -7390,6 +7463,7 @@ mod tests {
         );
         assert_eq!(metadata["artistCount"], 2);
         assert_eq!(metadata["album"], "Live at the Hall");
+        assert_eq!(metadata["albumArtist"], "Live Ensemble");
         assert_eq!(metadata["version"], "Live");
         assert_eq!(metadata["views"], 27);
     }
@@ -7402,6 +7476,9 @@ mod tests {
         requested.provider_id = "spotify-track-id".into();
         requested.artist = "Requested Artist".into();
         requested.title = "Requested Title".into();
+        requested.album = Some("Requested Album".into());
+        requested.album_artist = Some("Requested Album Artist".into());
+        requested.isrc = Some("USABC2600001".into());
         let candidate = Candidate {
             id: "youtube:live-video-id".into(),
             provider: "youtube".into(),
@@ -7410,7 +7487,10 @@ mod tests {
             source_metadata: Some(serde_json::json!({
                 "catalogTitle":"Song (Live)",
                 "artist":"Requested Artist",
-                "version":"Live"
+                "version":"Live",
+                "album":"Live at the Hall",
+                "albumArtist":"Live Ensemble",
+                "isrc":"USXYZ2600002"
             })),
             ..Candidate::default()
         };
@@ -7423,6 +7503,9 @@ mod tests {
         .unwrap();
         assert_eq!(artifact.title, "Song (Live)");
         assert_eq!(artifact.version.as_deref(), Some("Live"));
+        assert_eq!(artifact.album.as_deref(), Some("Live at the Hall"));
+        assert_eq!(artifact.album_artist.as_deref(), Some("Live Ensemble"));
+        assert_eq!(artifact.isrc.as_deref(), Some("USXYZ2600002"));
         assert_eq!(artifact.provider, "youtube");
         assert_eq!(artifact.provider_id, "live-video-id");
         assert_ne!(artifact.id, requested.id);
@@ -7451,6 +7534,104 @@ mod tests {
     }
 
     #[test]
+    fn alternative_without_fresh_release_identity_clears_catalog_values_but_keeps_manual_edits() {
+        let mut requested = Track {
+            id: "spotify:requested".into(),
+            provider: "spotify".into(),
+            provider_id: "requested".into(),
+            title: "Requested title".into(),
+            artist: "Requested artist".into(),
+            album: Some("Requested album".into()),
+            album_artist: Some("Requested album artist".into()),
+            release_date: Some("2021-05-06".into()),
+            recording_date: Some("2021".into()),
+            catalog_number: Some("CAT-123".into()),
+            label: Some("Requested label".into()),
+            genre: Some("Requested genre".into()),
+            normalized_genre: Some("requested-genre".into()),
+            bpm: Some(128.0),
+            key: Some("8A".into()),
+            remixers: Some(vec!["Requested remixer".into()]),
+            track_number: Some(7),
+            disc_number: Some(2),
+            artwork_url: Some("https://example.test/manual-cover.jpg".into()),
+            isrc: Some("USABC2600001".into()),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:alternative".into(),
+            provider: "youtube".into(),
+            url: "https://youtube.com/watch?v=alternative".into(),
+            title: "Actual title (Live)".into(),
+            source_metadata: Some(serde_json::json!({
+                "catalogTitle":"Actual title (Live)",
+                "resolvedProviderId":"alternative"
+            })),
+            ..Candidate::default()
+        };
+        let artifact = artifact_track_for_match(
+            &requested,
+            &candidate,
+            crate::recording_match::MatchRelationship::Alternative,
+            true,
+        )
+        .unwrap();
+        assert_eq!(artifact.album, None);
+        assert_eq!(artifact.album_artist, None);
+        assert_eq!(artifact.isrc, None);
+        assert_eq!(artifact.artist, "");
+        assert_eq!(artifact.release_date, None);
+        assert_eq!(artifact.recording_date, None);
+        assert_eq!(artifact.catalog_number, None);
+        assert_eq!(artifact.label, None);
+        assert_eq!(artifact.genre, None);
+        assert_eq!(artifact.normalized_genre, None);
+        assert_eq!(artifact.bpm, None);
+        assert_eq!(artifact.key, None);
+        assert_eq!(artifact.remixers, None);
+        assert_eq!(artifact.track_number, None);
+        assert_eq!(artifact.disc_number, None);
+        assert_eq!(artifact.artwork_url, None);
+
+        requested.provenance = serde_json::json!({"manualFields":{
+            "album":true,"albumArtist":true,"isrc":true,
+            "releaseDate":true,"recordingDate":true,"catalogNumber":true,
+            "label":true,"genre":true,"bpm":true,"key":true,"remixers":true,
+            "trackNumber":true,"discNumber":true,"artwork":true
+        }});
+        let manually_tagged = artifact_track_for_match(
+            &requested,
+            &candidate,
+            crate::recording_match::MatchRelationship::Alternative,
+            true,
+        )
+        .unwrap();
+        assert_eq!(manually_tagged.album.as_deref(), Some("Requested album"));
+        assert_eq!(
+            manually_tagged.album_artist.as_deref(),
+            Some("Requested album artist")
+        );
+        assert_eq!(manually_tagged.isrc.as_deref(), Some("USABC2600001"));
+        assert_eq!(manually_tagged.release_date.as_deref(), Some("2021-05-06"));
+        assert_eq!(manually_tagged.recording_date.as_deref(), Some("2021"));
+        assert_eq!(manually_tagged.catalog_number.as_deref(), Some("CAT-123"));
+        assert_eq!(manually_tagged.label.as_deref(), Some("Requested label"));
+        assert_eq!(manually_tagged.genre.as_deref(), Some("Requested genre"));
+        assert_eq!(manually_tagged.bpm, Some(128.0));
+        assert_eq!(manually_tagged.key.as_deref(), Some("8A"));
+        assert_eq!(
+            manually_tagged.remixers.as_ref().unwrap(),
+            &vec!["Requested remixer".to_owned()]
+        );
+        assert_eq!(manually_tagged.track_number, Some(7));
+        assert_eq!(manually_tagged.disc_number, Some(2));
+        assert_eq!(
+            manually_tagged.artwork_url.as_deref(),
+            Some("https://example.test/manual-cover.jpg")
+        );
+    }
+
+    #[test]
     fn explicit_audio_search_source_keeps_its_own_canonical_identity() {
         let requested = Track {
             id: "youtube:live-video-id".into(),
@@ -7459,6 +7640,8 @@ mod tests {
             source_url: "https://youtube.com/watch?v=live-video-id".into(),
             title: "Song (Live)".into(),
             artist: "Artist".into(),
+            album: Some("Live Album".into()),
+            isrc: Some("USABC2600001".into()),
             provenance: serde_json::json!({
                 "sourceKind":"audioSearch",
                 "downloadMatchingLevel":"balanced"
@@ -7485,6 +7668,9 @@ mod tests {
         .unwrap();
         assert_eq!(artifact.id, requested.id);
         assert_eq!(artifact.provider_id, requested.provider_id);
+        assert_eq!(artifact.album.as_deref(), Some("Live Album"));
+        assert_eq!(artifact.isrc.as_deref(), Some("USABC2600001"));
+        assert_eq!(artifact.artist, "Artist");
         assert_eq!(
             artifact.provenance["requestedTrackIdentity"]["originalId"],
             requested.id

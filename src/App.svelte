@@ -424,7 +424,8 @@
     if (stableDuration !== null && Number.isFinite(stableDuration) && stableDuration > 0) {
       // Keep seeks inside a known source boundary. A small margin avoids a
       // browser treating an exact-duration seek as an ended stream.
-      target = Math.min(target, Math.max(0, stableDuration - 0.05));
+      const chapterEnd = playingTrack?.playbackRange?.endTime;
+      target = Math.min(target, chapterEnd === stableDuration ? stableDuration : Math.max(0, stableDuration - 0.05));
     }
     webviewBufferingRecovery.reset();
     nextCandidatePrefetch.cancel();
@@ -2247,7 +2248,10 @@
       });
     }
     if (!stillCurrent() || !previewRequests.isCurrent(request) || player !== audio) return;
-    const limit = stableWebviewSeekLimit(player) ?? 0;
+    // Recovery validation retains the finite media bound for legacy sources
+    // that provide neither resolver nor catalog duration. Ordinary seeks do
+    // not treat this potentially changing estimate as a stable bound.
+    const limit = stableWebviewSeekLimit(player) ?? (Number.isFinite(player.duration) ? player.duration : 0);
     if (target > 0 && (!limit || target < limit - 1)) {
       try { seekWebviewAudio(player,target,false); position = target; } catch { /* Some remote streams cannot seek yet. */ }
     }
@@ -3433,7 +3437,8 @@
       /(?:manifest|level|audioTrack|frag|key)Load(?:Error|TimeOut)/i.test(lastHlsFailure);
     const currentTime = requestedRecoveryPosition ?? ownedSeek?.target ?? node.currentTime;
     const range = track.playbackRange;
-    const sourceDuration = stableWebviewSourceDuration(track, source, node);
+    const sourceDuration = stableWebviewSourceDuration(track, source, node) ??
+      (Number.isFinite(node.duration) && node.duration > 0 ? node.duration : null);
     const upperBound = range?.endTime ?? sourceDuration;
     const lowerBound = range?.startTime ?? 0;
     const resumeLimit = Number(upperBound);

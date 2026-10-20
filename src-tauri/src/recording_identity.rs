@@ -280,6 +280,30 @@ pub struct ParsedRecordingTitle {
     pub version: Option<String>,
     pub soundtrack: Option<String>,
 }
+fn game_level_difficulty(base: &str, label: &str) -> bool {
+    let lower = base.trim().to_ascii_lowercase();
+    let Some(after_level) = lower.strip_prefix("level ") else {
+        return false;
+    };
+    let digit_count = after_level.chars().take_while(char::is_ascii_digit).count();
+    if digit_count == 0 {
+        return false;
+    }
+    let remainder = after_level[digit_count..].trim_start();
+    if !(remainder.starts_with('-') || remainder.starts_with(':'))
+        || remainder[1..].trim().is_empty()
+    {
+        return false;
+    }
+    let mut difficulty = crate::matching::normalize(label);
+    if let Some(prefix) = difficulty.strip_suffix(" difficulty") {
+        difficulty = prefix.to_owned();
+    }
+    matches!(
+        difficulty.as_str(),
+        "easy" | "normal" | "hard" | "insane" | "expert" | "nightmare" | "extreme"
+    )
+}
 /// Only explicit trailing labels are split. Work/movement names, dedications
 /// and ambiguous parentheses remain part of the title. Original tags are kept.
 pub fn parse_title(value: &str) -> ParsedRecordingTitle {
@@ -291,6 +315,13 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
     };
     if value.len() > 2048 {
         return result;
+    }
+    if let Some((base, label)) = crate::matching::split_balanced_trailing_parenthetical(value) {
+        if game_level_difficulty(base, label) {
+            result.title = base.trim().to_owned();
+            result.version = Some(label.trim().to_owned());
+            return result;
+        }
     }
     let bracketed = crate::matching::split_balanced_trailing_parenthetical(value)
         .or_else(|| value.strip_suffix(']').and_then(|s| s.rsplit_once(" [")));
@@ -370,6 +401,21 @@ mod tests {
             assert!(parsed.version.is_none());
         }
         assert_eq!(parse_title("Diaraby (w/ )").title, "Diaraby (w/ )");
+    }
+    #[test]
+    fn game_level_difficulty_is_version_only_in_level_track_context() {
+        let parsed = parse_title("Level 2 - Miami (Insane)");
+        assert_eq!(parsed.title, "Level 2 - Miami");
+        assert_eq!(parsed.version.as_deref(), Some("Insane"));
+        let parsed = parse_title("Level 2 - Miami (Insane Difficulty)");
+        assert_eq!(parsed.title, "Level 2 - Miami");
+        assert_eq!(parsed.version.as_deref(), Some("Insane Difficulty"));
+        let ordinary = parse_title("Song (Insane)");
+        assert_eq!(ordinary.title, "Song (Insane)");
+        assert!(ordinary.version.is_none());
+        let non_level = parse_title("Miami - Level 2 (Insane)");
+        assert_eq!(non_level.title, "Miami - Level 2 (Insane)");
+        assert!(non_level.version.is_none());
     }
     #[test]
     fn complete_album_mapping_requires_every_unique_timeline() {
