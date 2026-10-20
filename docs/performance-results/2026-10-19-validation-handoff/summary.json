@@ -1,0 +1,257 @@
+{
+  "completed": true,
+  "normalRows": 18,
+  "safeguardRows": 6,
+  "groups": [
+    {
+      "rttMs": 0,
+      "arm": "separate_preflight_then_production_decode",
+      "n": 3,
+      "medianFirstPcmMs": 50.34,
+      "medianValidationPreparationMs": 2.78,
+      "requests": [
+        3,
+        3,
+        3
+      ],
+      "headRequests": [
+        2,
+        2,
+        2
+      ],
+      "tailRequests": [
+        1,
+        1,
+        1
+      ],
+      "duplicateRequestedBytes": [
+        2048,
+        2048,
+        2048
+      ],
+      "medianServerAcceptedBytes": 59392,
+      "pcmSamples": [
+        12000,
+        12000,
+        12000
+      ]
+    },
+    {
+      "rttMs": 0,
+      "arm": "owned_validated_reader_handoff",
+      "n": 3,
+      "medianFirstPcmMs": 424.57,
+      "medianValidationPreparationMs": 416.83,
+      "requests": [
+        3,
+        3,
+        3
+      ],
+      "headRequests": [
+        1,
+        1,
+        1
+      ],
+      "tailRequests": [
+        1,
+        1,
+        1
+      ],
+      "duplicateRequestedBytes": [
+        1399084,
+        1399084,
+        1399084
+      ],
+      "medianServerAcceptedBytes": 1456428,
+      "pcmSamples": [
+        12000,
+        12000,
+        12000
+      ]
+    },
+    {
+      "rttMs": 40,
+      "arm": "separate_preflight_then_production_decode",
+      "n": 3,
+      "medianFirstPcmMs": 139.16,
+      "medianValidationPreparationMs": 43.38,
+      "requests": [
+        3,
+        3,
+        3
+      ],
+      "headRequests": [
+        2,
+        2,
+        2
+      ],
+      "tailRequests": [
+        1,
+        1,
+        1
+      ],
+      "duplicateRequestedBytes": [
+        2048,
+        2048,
+        2048
+      ],
+      "medianServerAcceptedBytes": 75776,
+      "pcmSamples": [
+        12000,
+        12000,
+        12000
+      ]
+    },
+    {
+      "rttMs": 40,
+      "arm": "owned_validated_reader_handoff",
+      "n": 3,
+      "medianFirstPcmMs": 544.54,
+      "medianValidationPreparationMs": 542.8,
+      "requests": [
+        3,
+        3,
+        3
+      ],
+      "headRequests": [
+        1,
+        1,
+        1
+      ],
+      "tailRequests": [
+        1,
+        1,
+        1
+      ],
+      "duplicateRequestedBytes": [
+        1399084,
+        1399084,
+        1399084
+      ],
+      "medianServerAcceptedBytes": 1603884,
+      "pcmSamples": [
+        12000,
+        12000,
+        12000
+      ]
+    },
+    {
+      "rttMs": 100,
+      "arm": "separate_preflight_then_production_decode",
+      "n": 3,
+      "medianFirstPcmMs": 245.61,
+      "medianValidationPreparationMs": 102.89,
+      "requests": [
+        3,
+        3,
+        3
+      ],
+      "headRequests": [
+        2,
+        2,
+        2
+      ],
+      "tailRequests": [
+        1,
+        1,
+        1
+      ],
+      "duplicateRequestedBytes": [
+        2048,
+        2048,
+        2048
+      ],
+      "medianServerAcceptedBytes": 83968,
+      "pcmSamples": [
+        12000,
+        12000,
+        12000
+      ]
+    },
+    {
+      "rttMs": 100,
+      "arm": "owned_validated_reader_handoff",
+      "n": 3,
+      "medianFirstPcmMs": 720.89,
+      "medianValidationPreparationMs": 717.8,
+      "requests": [
+        3,
+        3,
+        3
+      ],
+      "headRequests": [
+        1,
+        1,
+        1
+      ],
+      "tailRequests": [
+        1,
+        1,
+        1
+      ],
+      "duplicateRequestedBytes": [
+        1399084,
+        1399084,
+        1399084
+      ],
+      "medianServerAcceptedBytes": 1849644,
+      "pcmSamples": [
+        12000,
+        12000,
+        12000
+      ]
+    }
+  ],
+  "safeguards": [
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "fault": "WrongTailRange",
+      "ok": false,
+      "pcmSamples": 0,
+      "httpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "fault": "WrongTailRange",
+      "ok": false,
+      "pcmSamples": 0,
+      "httpFailures": 1
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "fault": "TruncatedTail",
+      "ok": false,
+      "pcmSamples": 0,
+      "httpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "fault": "TruncatedTail",
+      "ok": false,
+      "pcmSamples": 0,
+      "httpFailures": 3
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "fault": "CorruptAudio",
+      "ok": false,
+      "pcmSamples": 0,
+      "httpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "fault": "CorruptAudio",
+      "ok": false,
+      "pcmSamples": 0,
+      "httpFailures": 0
+    }
+  ],
+  "unguardedControl": {
+    "ok": true,
+    "firstPcmMs": 508.268716,
+    "requestCount": 6,
+    "tailRequests": 4,
+    "httpFailures": 3,
+    "pcmSamples": 12000
+  }
+}

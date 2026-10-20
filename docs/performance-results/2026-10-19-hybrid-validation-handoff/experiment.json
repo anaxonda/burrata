@@ -1,0 +1,1942 @@
+{
+  "completed": true,
+  "limitations": [
+    "Initial response uses native complete-resource 200/206 validation, expected total and audio MIME, not a synthetic bounded-206 head response",
+    "Exactly 1024 prefix bytes are retained and rewound in the same BufReader; later complete-body errors remain native transport errors",
+    "Strict tail uses unchanged production bounded range/length/body checks",
+    "Local 15-second PCM WAV, no trailing container metadata dependency, no audio device or live source",
+    "Server accepted bytes are successful server writes, not client-received or first-PCM byte counts",
+    "Three trials per simulated RTT are diagnostic only"
+  ],
+  "safeguards": [
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": null,
+      "duplicateRequestedBytes": 0,
+      "enforceValidationResponseErrors": true,
+      "failure": "Audio source returned an inconsistent byte range",
+      "fault": "WrongTailRange",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": null,
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "failure": "Audio source returned an inconsistent byte range",
+      "fault": "WrongTailRange",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 8192,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": null,
+      "duplicateRequestedBytes": 0,
+      "enforceValidationResponseErrors": true,
+      "failure": "Audio stream could not deliver audio bytes",
+      "fault": "TruncatedTail",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 256,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": null,
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "failure": "Audio stream could not deliver audio bytes",
+      "fault": "TruncatedTail",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 16384,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 256,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "ffmpeg",
+        "decoderReused": false,
+        "inputContentLength": null,
+        "readerReused": false,
+        "sampleRate": 48000,
+        "totalDurationSeconds": null
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "failure": "audio decoder rejected input (The format of the data has not been recognized.); ffmpeg fallback failed: could not start ffmpeg (\"diagnostic-ffmpeg-unavailable\"): Permission denied (os error 13)",
+      "fault": "CorruptAudio",
+      "firstPcmMs": null,
+      "initialByteRequests": 2,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1089536,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": null,
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "failure": "The format of the data has not been recognized.",
+      "fault": "CorruptAudio",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 1081344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": null,
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "failure": "Failed to fetch: Native HTTP byte range: 200 response unexpectedly contains Content-Range",
+      "fault": "WrongInitialRange",
+      "firstPcmMs": null,
+      "initialByteRequests": 2,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 8192,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "requiredRejectionBeforePcm": false,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": null,
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "failure": "Failed to fetch: Native HTTP byte range: 200 response unexpectedly contains Content-Range",
+      "fault": "WrongInitialRange",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 8192,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 0,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 1
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 38,
+        "inputContentLength": 1440045,
+        "readerReused": false,
+        "readerSetupMs": 29,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "fault": "WrongInitialLength",
+      "firstPcmMs": 50.73265,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "requiredRejectionBeforePcm": false,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 12.041069
+      },
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": null,
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "failure": "fixture length mismatch",
+      "fault": "WrongInitialLength",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 8192,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "text/html",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 39,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 30,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "fault": "InitialHtml",
+      "firstPcmMs": 51.930231,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "requiredRejectionBeforePcm": false,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 12.00215
+      },
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": null,
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "failure": "fixture MIME mismatch",
+      "fault": "InitialHtml",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 8192,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": null,
+      "duplicateRequestedBytes": 0,
+      "enforceValidationResponseErrors": true,
+      "failure": "Audio stream could not deliver audio bytes",
+      "fault": "TruncatedPrefix",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 256,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": null,
+      "duplicateRequestedBytes": 1440812,
+      "enforceValidationResponseErrors": true,
+      "failure": "Hybrid initial response failed before handoff",
+      "fault": "TruncatedPrefix",
+      "firstPcmMs": null,
+      "initialByteRequests": 1,
+      "ok": false,
+      "pcmSamples": 0,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 256,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 32768,
+          "end": 1440043,
+          "ranged": true,
+          "start": 256
+        }
+      ],
+      "requiredRejectionBeforePcm": true,
+      "tailRequests": 1,
+      "validationObservedHttpFailures": 1
+    }
+  ],
+  "schemaVersion": 1,
+  "scope": "cfg(test) only; owned initial native reader with retained 1024-byte prefix and independent production strict bounded tail probe in parallel; no production change",
+  "trials": [
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 33,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 23,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 36.103714000000004,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 2.467738
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 4,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 391.55145400000004,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 49152,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": 0.6640590000000001,
+        "ownedReaderSetupMs": 19.004195000000003,
+        "validationAndPreparationMs": 387.018875
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 0,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 30.177607,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 49152,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": 0.420261,
+        "ownedReaderSetupMs": 20.583707,
+        "validationAndPreparationMs": 29.153809
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 1,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 391.11918000000003,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 49152,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": 0.534698,
+        "ownedReaderSetupMs": 19.139895,
+        "validationAndPreparationMs": 389.413832
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 1,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 40.359751,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": 0.185479,
+        "ownedReaderSetupMs": 31.370718,
+        "validationAndPreparationMs": 39.054352
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 34,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 25,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 36.384839,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 2.066111
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 0,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 29.311372,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 49152,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": 0.19581700000000002,
+        "ownedReaderSetupMs": 19.794939,
+        "validationAndPreparationMs": 28.300510000000003
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 31,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 22,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 33.997652,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 2.047017
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 3,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 400.581272,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 49152,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 0,
+      "stages": {
+        "ownedDecoderSetupMs": 0.938921,
+        "ownedReaderSetupMs": 20.210143,
+        "validationAndPreparationMs": 396.66887099999997
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 9,
+        "firstDecodedBlockMs": 74,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 61,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 116.66577699999999,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 81920,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 42.013413
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 0,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 511.547513,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 196608,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": 0.618803,
+        "ownedReaderSetupMs": 60.370924,
+        "validationAndPreparationMs": 510.55354200000005
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 3,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 75.598378,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 73728,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": 0.735588,
+        "ownedReaderSetupMs": 63.860451,
+        "validationAndPreparationMs": 72.030704
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 0,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 511.52796700000005,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 204800,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": 0.23198700000000003,
+        "ownedReaderSetupMs": 58.819191,
+        "validationAndPreparationMs": 510.46768899999995
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 0,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 69.579537,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 49152,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": 0.196647,
+        "ownedReaderSetupMs": 60.496273,
+        "validationAndPreparationMs": 68.59143900000001
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 71,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 62,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 113.590491,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 41.972538
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 1,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 72.28077400000001,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": 0.354468,
+        "ownedReaderSetupMs": 62.807424,
+        "validationAndPreparationMs": 71.10439000000001
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 72,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 63,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 114.538163,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 57344,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 41.970189999999995
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 3,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 523.512703,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 204800,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 40,
+      "stages": {
+        "ownedDecoderSetupMs": 0.8774050000000001,
+        "ownedReaderSetupMs": 65.63358199999999,
+        "validationAndPreparationMs": 519.9367259999999
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 165,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 152,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 269.36540799999995,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 81920,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 104.020402
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 1,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 691.464344,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 442368,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": 0.201123,
+        "ownedReaderSetupMs": 121.635725,
+        "validationAndPreparationMs": 690.196598
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 3,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 136.29960599999998,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 81920,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": 0.883791,
+        "ownedReaderSetupMs": 123.405664,
+        "validationAndPreparationMs": 132.310135
+      },
+      "tailRequests": 1,
+      "trial": 0,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 1,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 699.0936370000001,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 442368,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": 0.34659399999999996,
+        "ownedReaderSetupMs": 118.533888,
+        "validationAndPreparationMs": 697.864861
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 5,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 136.31585099999998,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 98304,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": 0.7044389999999999,
+        "ownedReaderSetupMs": 123.020466,
+        "validationAndPreparationMs": 131.048048
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 158,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 148,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 262.651748,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 65536,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 103.56955099999999
+      },
+      "tailRequests": 1,
+      "trial": 1,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_prefix_parallel_strict_tail",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 0,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1024,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 139.817901,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 2,
+      "requests": [
+        {
+          "accepted_body_bytes": 49152,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": 0.18043,
+        "ownedReaderSetupMs": 130.72964100000002,
+        "validationAndPreparationMs": 138.852629
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "separate_preflight_then_production_decode",
+      "decoder": {
+        "bytesRead": 8192,
+        "bytesReceived": 40960,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": "audio/wav",
+        "decoderKind": "rodio",
+        "decoderReused": false,
+        "decoderSetupMs": 8,
+        "firstDecodedBlockMs": 139,
+        "inputContentLength": 1440044,
+        "readerReused": false,
+        "readerSetupMs": 126,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 2048,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 242.093434,
+      "initialByteRequests": 2,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1023,
+          "ranged": true,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 90112,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": null,
+        "ownedReaderSetupMs": null,
+        "validationAndPreparationMs": 102.704916
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    },
+    {
+      "arm": "owned_validated_reader_handoff",
+      "decoder": {
+        "bytesRead": 0,
+        "bytesReceived": 0,
+        "channels": 1,
+        "codecHint": null,
+        "contentRangeTotal": null,
+        "contentType": null,
+        "decoderKind": "rodio",
+        "decoderReused": true,
+        "firstDecodedBlockMs": 4,
+        "inputContentLength": null,
+        "readerReused": true,
+        "sampleRate": 48000,
+        "totalDurationSeconds": 15.0
+      },
+      "duplicateRequestedBytes": 1399084,
+      "enforceValidationResponseErrors": true,
+      "firstPcmMs": 701.853067,
+      "initialByteRequests": 1,
+      "ok": true,
+      "pcmSamples": 12000,
+      "requestCount": 3,
+      "requests": [
+        {
+          "accepted_body_bytes": 450560,
+          "end": 1440043,
+          "ranged": false,
+          "start": 0
+        },
+        {
+          "accepted_body_bytes": 1024,
+          "end": 1440043,
+          "ranged": true,
+          "start": 1439020
+        },
+        {
+          "accepted_body_bytes": 1398060,
+          "end": 1439019,
+          "ranged": true,
+          "start": 40960
+        }
+      ],
+      "simulatedHandshakeRttMs": 100,
+      "stages": {
+        "ownedDecoderSetupMs": 0.687755,
+        "ownedReaderSetupMs": 120.063333,
+        "validationAndPreparationMs": 697.49046
+      },
+      "tailRequests": 1,
+      "trial": 2,
+      "validationObservedHttpFailures": 0
+    }
+  ]
+}

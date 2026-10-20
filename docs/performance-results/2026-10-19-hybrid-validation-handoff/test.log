@@ -1,0 +1,6 @@
+
+running 1 test
+test native_output::validation_handoff_diagnostic::compare_preflight_same_reader_and_hybrid_handoff ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1296 filtered out; finished in 10.78s
+

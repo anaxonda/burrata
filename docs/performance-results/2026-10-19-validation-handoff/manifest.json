@@ -1,0 +1,14 @@
+{
+  "artifacts": {
+    "README.md": "b4f1b5ba7db44e20651a201577c343c490d770e3701d87a699526d1e152e8d48",
+    "experiment.json": "47c83d16f9761961177091c8527ebd9ed755c43093bb95d658199634e70a3fc1",
+    "first-failure.json": "b65d8c10bb1c605f97909f36ba2ffce0f857a6960778d5a0b60fbb3f204315ff",
+    "first-failure.log": "fbd2a395e361abdd7d89f3d6be78dffbabafba0a63ae85bcac129d900f79e79c",
+    "summary.json": "8acc7c6e30125632eba54021e992a4252f86f1b6a1deb59efd82d349cf9326dd"
+  },
+  "sourceHashesAtArchival": {
+    "src-tauri/src/native_output.rs": "41c8f1fc66ebe1b30960062deadf59c7d4bd76af1a86d3647d60ea2f22e5905d",
+    "src-tauri/src/acquisition.rs": "3dc6bb59bc2211b3605eaefd49548327555bf0a291315dddd6495362314b0074",
+    "src-tauri/src/playback_sources.rs": "5c7d4fd22550e8db4190a1069bfbece41f384d9581b3750d6f441a3b10216621"
+  }
+}

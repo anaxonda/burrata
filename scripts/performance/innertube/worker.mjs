@@ -21,9 +21,11 @@ const tokenManager = createTokenManager();
 const tokenMode = process.env.BURRATA_BENCH_TOKEN_MODE ?? 'bgutil';
 if (!['bgutil', 'none'].includes(tokenMode)) throw new Error('Unsupported experimental token mode');
 const parallelPlayer = process.env.BURRATA_BENCH_PARALLEL_PLAYER === '1';
+const allowFullRecording = process.env.BURRATA_BENCH_FULL_RECORDING === '1';
 let createClientFactory;
 const execute = createPrototype({
   clientName,
+  allowFullRecording,
   ensureToken: tokenMode === 'bgutil' ? tokenManager.ensure : undefined,
   applyCachedToken: tokenMode === 'bgutil' ? tokenManager.applyCached : undefined,
   async createClient(options) {

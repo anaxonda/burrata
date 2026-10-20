@@ -75,8 +75,25 @@ jobs:
           bash scripts/dev/tests/process-profile-guard.test.sh
           bash scripts/dev/tests/isolated-music-root.test.sh
           bash scripts/dev/tests/automation-ready.test.sh
+      - name: Check compiled frontend readiness fixtures
+        timeout-minutes: 2
+        run: node --test --test-timeout=30000 scripts/dev/tests/verify-frontend-modules.test.mjs
+      - name: Check anonymous player preparation and profile fixtures
+        timeout-minutes: 2
+        run: node --test --test-timeout=30000 scripts/performance/innertube/client_factory.test.mjs scripts/performance/innertube/visionos_probe.test.mjs
       - name: Check isolated InnerTube prototype without provider requests
-        run: node --test scripts/performance/innertube/core.test.mjs
+        # Decoder accounting uses Python resource/wait4 and a /bin/sh fixture.
+        # Token fixtures also use POSIX file-URL pathnames for their fake module.
+        if: runner.os != 'Windows'
+        timeout-minutes: 3
+        run: node --test --test-timeout=30000 scripts/performance/innertube/core.test.mjs scripts/performance/innertube/token.test.mjs
+      - name: Check offline InnerTube experiment driver fixtures
+        # Fake subprocesses exercise POSIX groups and select on pipe descriptors.
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        env:
+          PYTHONPATH: scripts/performance/innertube
+        run: python3 -m unittest test_player_cache_reuse test_seek_durability test_cold_player_overlap test_visionos_driver
       - run: npm run check
       - run: npm test
       - run: npm run test:extension

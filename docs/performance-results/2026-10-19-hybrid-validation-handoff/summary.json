@@ -1,0 +1,178 @@
+{
+  "sourceReport": "experiment.json",
+  "groups": [
+    {
+      "simulatedHandshakeRttMs": 0,
+      "arm": "owned_prefix_parallel_strict_tail",
+      "n": 3,
+      "firstPcmMsMedian": 30.177607,
+      "serverAcceptedBodyBytesMedian": 50176,
+      "requestCounts": [
+        2
+      ],
+      "initialByteRequestCounts": [
+        1
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 0,
+      "arm": "owned_validated_reader_handoff",
+      "n": 3,
+      "firstPcmMsMedian": 391.55145400000004,
+      "serverAcceptedBodyBytesMedian": 1448236,
+      "requestCounts": [
+        3
+      ],
+      "initialByteRequestCounts": [
+        1
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 0,
+      "arm": "separate_preflight_then_production_decode",
+      "n": 3,
+      "firstPcmMsMedian": 36.103714000000004,
+      "serverAcceptedBodyBytesMedian": 59392,
+      "requestCounts": [
+        3
+      ],
+      "initialByteRequestCounts": [
+        2
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 40,
+      "arm": "owned_prefix_parallel_strict_tail",
+      "n": 3,
+      "firstPcmMsMedian": 72.28077400000001,
+      "serverAcceptedBodyBytesMedian": 58368,
+      "requestCounts": [
+        2
+      ],
+      "initialByteRequestCounts": [
+        1
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 40,
+      "arm": "owned_validated_reader_handoff",
+      "n": 3,
+      "firstPcmMsMedian": 511.547513,
+      "serverAcceptedBodyBytesMedian": 1603884,
+      "requestCounts": [
+        3
+      ],
+      "initialByteRequestCounts": [
+        1
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 40,
+      "arm": "separate_preflight_then_production_decode",
+      "n": 3,
+      "firstPcmMsMedian": 114.538163,
+      "serverAcceptedBodyBytesMedian": 59392,
+      "requestCounts": [
+        3
+      ],
+      "initialByteRequestCounts": [
+        2
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 100,
+      "arm": "owned_prefix_parallel_strict_tail",
+      "n": 3,
+      "firstPcmMsMedian": 136.31585099999998,
+      "serverAcceptedBodyBytesMedian": 82944,
+      "requestCounts": [
+        2
+      ],
+      "initialByteRequestCounts": [
+        1
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 100,
+      "arm": "owned_validated_reader_handoff",
+      "n": 3,
+      "firstPcmMsMedian": 699.0936370000001,
+      "serverAcceptedBodyBytesMedian": 1841452,
+      "requestCounts": [
+        3
+      ],
+      "initialByteRequestCounts": [
+        1
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    },
+    {
+      "simulatedHandshakeRttMs": 100,
+      "arm": "separate_preflight_then_production_decode",
+      "n": 3,
+      "firstPcmMsMedian": 262.651748,
+      "serverAcceptedBodyBytesMedian": 83968,
+      "requestCounts": [
+        3
+      ],
+      "initialByteRequestCounts": [
+        2
+      ],
+      "tailRequestCounts": [
+        1
+      ],
+      "pcmSampleCounts": [
+        12000
+      ]
+    }
+  ],
+  "normalRows": 27,
+  "safeguardRows": 14
+}

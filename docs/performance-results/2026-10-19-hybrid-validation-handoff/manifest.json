@@ -1,0 +1,26 @@
+{
+  "capturedDate": "2026-10-19",
+  "scope": "cfg(test) diagnostic only; hybrid experiment; earlier negative evidence unchanged",
+  "artifacts": {
+    "README.md": {
+      "sha256": "2daf938a458eb54aea09844da82519de6bc1a408d1422b947ade9b3bb0a8e480",
+      "bytes": 6427
+    },
+    "experiment.json": {
+      "sha256": "986e8e729fda07e26d6b52d9abc61cb6bf241cf51020e53e0a646223dc2ba264",
+      "bytes": 52729
+    },
+    "summary.json": {
+      "sha256": "4740b6012e07a601f167093b464b80452211650c647730cdc4a58bdc0da5a1a1",
+      "bytes": 3704
+    },
+    "test.log": {
+      "sha256": "86ab899ab81c05b2b71d5ae2c449e72b116230b8d0a5f895d86d25271c0171e3",
+      "bytes": 223
+    }
+  },
+  "sourceHashesAtArchival": {
+    "src-tauri/src/acquisition.rs": "3a1fd3291a258252d7188ba16753e230a3093bd65ceb567f38ab71b63e82adbf",
+    "src-tauri/src/native_output.rs": "772eba1cb6eff76402bc0051c7b18a1fe08103db8d8833bcd57186c250f24310"
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "qualification": false,
+  "profileId": "VISIONOS_0_1",
+  "constructionVersion": "innertubex-93b-profile-meld-9c3-anonymous-visitor-v3",
+  "transportParity": false,
+  "comparisonScope": "pinned InnerTubeX profile plus separately pinned Meld application defaults; not full Meld transport or lifecycle",
+  "sourcePins": {
+    "meldHeaderDefaults": "9c3dfc8618625a94e7019fbb0f3e31f2c87f74e9",
+    "meldOriginalComparison": "1ded7122ee0bd166bd703bfe3b63d233af8b7dcd",
+    "innertubex": "93b650b877530738cbc4d2183b4322b77bb9033e",
+    "innertubexArchiveSha256": "ba9519a7851131aa93094c4b5a0dfb1ee238f8a0975a85274c9892cb412cbcc2",
+    "clientModelSha256": "694d66a4c8dc4f9c67b1abc971835ddbd5d09022de8b286a986ad5039b846d90",
+    "playbackCatalogSha256": "ab204b0ee78c87d4c7e9f4e82171d6c399b2013bd08942f4dae6846611e3af54"
+  },
+  "tokenWork": "not-requested",
+  "playerJavaScript": "not-requested",
+  "visitorContext": "anonymous-source-service-worker; ephemeral-no-session-cache",
+  "scope": "anonymous explicit provider ID; five-second PCM excerpt; not full-recording, acoustic, catalog or device qualification",
+  "stages": {
+    "visitorServiceWorker": 293.682703,
+    "player": 243.824414,
+    "parse": 3.6598529999999982,
+    "format": 1.1810369999999466,
+    "decode": 468.23692100000005
+  },
+  "id": "visionos-v3-visitor-matthew-251",
+  "requestedVideoId": "uZGRATckoBM",
+  "requestedFormatId": 251,
+  "requestHeaderNames": [
+    "Accept",
+    "Accept-Language",
+    "Cache-Control",
+    "Content-Type",
+    "Origin",
+    "Referer",
+    "User-Agent",
+    "X-Goog-Api-Format-Version",
+    "X-Goog-Visitor-Id",
+    "X-Origin",
+    "X-YouTube-Client-Name",
+    "X-YouTube-Client-Version"
+  ],
+  "visitorAttempts": [
+    {
+      "source": "service-worker",
+      "headerNames": [
+        "Accept",
+        "Accept-Language",
+        "Cache-Control",
+        "User-Agent"
+      ],
+      "found": true,
+      "httpStatus": 200
+    }
+  ],
+  "stage": "decode",
+  "httpStatus": 200,
+  "playabilityStatus": "OK",
+  "playabilityCategory": "OK",
+  "availableFormats": [
+    {
+      "formatId": 139,
+      "codec": "audio/mp4; codecs=\"mp4a.40.5\"",
+      "directUrlPresent": true,
+      "cipherPresent": false,
+      "contentLength": 1390818,
+      "approximateDurationMs": 227852
+    },
+    {
+      "formatId": 140,
+      "codec": "audio/mp4; codecs=\"mp4a.40.2\"",
+      "directUrlPresent": true,
+      "cipherPresent": false,
+      "contentLength": 3689699,
+      "approximateDurationMs": 227786
+    },
+    {
+      "formatId": 249,
+      "codec": "audio/webm; codecs=\"opus\"",
+      "directUrlPresent": true,
+      "cipherPresent": false,
+      "contentLength": 1487765,
+      "approximateDurationMs": 227801
+    },
+    {
+      "formatId": 250,
+      "codec": "audio/webm; codecs=\"opus\"",
+      "directUrlPresent": true,
+      "cipherPresent": false,
+      "contentLength": 1970857,
+      "approximateDurationMs": 227801
+    },
+    {
+      "formatId": 251,
+      "codec": "audio/webm; codecs=\"opus\"",
+      "directUrlPresent": true,
+      "cipherPresent": false,
+      "contentLength": 3845541,
+      "approximateDurationMs": 227801
+    }
+  ],
+  "returnedVideoId": "uZGRATckoBM",
+  "metadata": {
+    "videoId": "uZGRATckoBM",
+    "titlePresent": true,
+    "authorPresent": true,
+    "durationSeconds": 228,
+    "matchesExpectedMetadata": true
+  },
+  "formatId": 251,
+  "codec": "audio/webm; codecs=\"opus\"",
+  "expiresInMs": 21540000,
+  "contentLength": 3845541,
+  "approximateDurationMs": 227801,
+  "mediaHeaderNames": [],
+  "identityMatchesRequestedId": true,
+  "firstPcmMs": 318.5402260000001,
+  "decodedFrames": 240000,
+  "decodedAudioMs": 5000,
+  "decodeWallMs": 466.27078700000015,
+  "decoderCpuMs": 99.81199999999998,
+  "decoderMaxRssBytes": 19177472,
+  "accountingWrapperCpuMs": 35.763999999999996,
+  "accountingWrapperMaxRssBytes": 19689472,
+  "firstPcmFromCommandMs": 863.2831570000001,
+  "ok": true,
+  "wallMs": 1013.079416,
+  "launchToCleanupMs": 1076.727
+}

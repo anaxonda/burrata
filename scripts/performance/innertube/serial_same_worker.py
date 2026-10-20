@@ -7,6 +7,7 @@ intentionally opt-in by the caller; unit tests use local fixture processes.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -32,6 +33,9 @@ SAFE_FIELDS = {
     "refreshedAfterDenial", "tokenCacheHit", "tokenExpiresInMs",
     "tokenHelperCpuMs", "tokenHelperMaxRssBytes", "tokenBindings",
     "identityScope", "recordingVerified", "manifestExpiresInMs", "wallMs", "headerNames", "providerMetadata", "playbackPreparation",
+    "helperCpuMs", "helperRssBytes", "helperMaxRssBytes", "decoderCpuMs", "decoderMaxRssBytes",
+    "accountingWrapperCpuMs", "accountingWrapperMaxRssBytes", "totalCpuMs", "decodedFrames",
+    "firstPcmMs", "decoderAccounting",
 }
 
 
@@ -95,6 +99,14 @@ def safe_response(raw: bytes, expected_id: str) -> dict:
     if not isinstance(value, dict) or value.get("id") != expected_id:
         raise ProtocolError("response identity mismatch")
     safe = {key: value[key] for key in SAFE_FIELDS if key in value}
+    numeric_fields = {"preparedMs", "extractionMs", "firstPcmFromCommandMs", "decodedAudioMs", "decodeWallMs",
+                      "tokenExpiresInMs", "tokenHelperCpuMs", "tokenHelperMaxRssBytes", "manifestExpiresInMs",
+                      "wallMs", "helperCpuMs", "helperRssBytes", "helperMaxRssBytes", "decoderCpuMs",
+                      "decoderMaxRssBytes", "accountingWrapperCpuMs", "accountingWrapperMaxRssBytes",
+                      "totalCpuMs", "decodedFrames", "firstPcmMs"}
+    for key in numeric_fields & safe.keys():
+        if not isinstance(safe[key], (int, float)) or isinstance(safe[key], bool) or safe[key] < 0:
+            safe.pop(key)
     # Stage names and values are numeric timings; reject any unexpected shape.
     if "stages" in safe and (not isinstance(safe["stages"], dict) or
                              any(not isinstance(v, (int, float)) for v in safe["stages"].values())):
@@ -106,6 +118,10 @@ def safe_response(raw: bytes, expected_id: str) -> dict:
                 (key != "mode" and not isinstance(value, (int, float)) and value is not None)
                 for key, value in prep.items()):
             safe.pop("playbackPreparation")
+    if safe.get("decoderAccounting") != "wait4-reaped-command-tree":
+        safe.pop("decoderAccounting", None)
+    if "ok" in safe and not isinstance(safe["ok"], bool):
+        safe.pop("ok")
     for key in ("codec", "failure", "stage", "clientName", "identityScope"):
         if key in safe and not isinstance(safe[key], str):
             safe.pop(key)
@@ -169,9 +185,19 @@ def validate_tracks(tracks: list[dict]) -> None:
         names.add(row["name"]); ids.add(row["videoId"])
 
 
+def validate_run_limits(triplets: int, total_s: float, request_s: float = PER_REQUEST_S) -> None:
+    if isinstance(triplets, bool) or not isinstance(triplets, int) or not 1 <= triplets <= 20:
+        raise ValueError("triplets must be an integer from 1 through 20")
+    if isinstance(total_s, bool) or not isinstance(total_s, (int, float)) or not 1 <= total_s <= 600:
+        raise ValueError("total budget must be between 1 and 600 seconds")
+    if isinstance(request_s, bool) or not isinstance(request_s, (int, float)) or not 0 < request_s <= 20:
+        raise ValueError("per-request budget must be greater than 0 and at most 20 seconds")
+
+
 def run(output: Path, tracks: list[dict], *, node: Path = NODE, worker: Path = WORKER,
-        total_s: float = OUTER_S, request_s: float = PER_REQUEST_S) -> dict:
+        total_s: float = OUTER_S, request_s: float = PER_REQUEST_S, triplets: int = 3) -> dict:
     validate_tracks(tracks)
+    validate_run_limits(triplets, total_s)
     outer_start = time.monotonic()
     outer_deadline = outer_start + total_s
     rows: list[dict] = []
@@ -180,6 +206,7 @@ def run(output: Path, tracks: list[dict], *, node: Path = NODE, worker: Path = W
                   "scope": "anonymous MWEB; three explicit public source IDs; no catalog/acoustic equivalence implied",
                   "timingOrigin": "worker firstPcmFromCommandMs begins on JSONL receipt; requestReceiptToResponseMs begins before write; process launch excluded from worker field",
                   "formatId": 251, "perRequestBudgetMs": round(request_s * 1000),
+                  "requestedTriplets": triplets, "driverSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                   "outerBudgetMs": round(total_s * 1000),
                   "totalWallMs": round((time.monotonic() - outer_start) * 1000, 3), "requests": rows}
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -212,9 +239,10 @@ def run(output: Path, tracks: list[dict], *, node: Path = NODE, worker: Path = W
         assert proc.stdin is not None and proc.stdout is not None
         return scratch, proc, BoundedLineReader(proc.stdout.fileno())
 
-    for triplet_index, track in enumerate(tracks):
+    for triplet_index in range(triplets):
         if time.monotonic() >= outer_deadline:
             break
+        track = tracks[triplet_index % len(tracks)]
         cross_track = tracks[(triplet_index + 1) % len(tracks)]
         plan = [(track, "cold"), (track, "same_id_warm"), (cross_track, "different_id_warm")]
         request_prefix = f"triplet-{triplet_index + 1}-{track['name']}"
@@ -300,6 +328,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--preflight", action="store_true", help="check default local assets only; no worker or network")
     parser.add_argument("--manifest", type=Path, help="JSON array of exactly three unique {name,videoId,formatId:251} rows")
+    parser.add_argument("--triplets", type=int, default=3, help="number of cold/same-ID-warm/different-ID-warm triplets (1..20)")
+    parser.add_argument("--total-budget-seconds", type=float, default=OUTER_S, help="whole-run deadline (1..600 seconds)")
     args = parser.parse_args()
     if args.preflight:
         result = preflight()
@@ -308,7 +338,11 @@ def main() -> None:
     if not args.manifest:
         parser.error("--manifest is required for live transport experiments")
     tracks = json.loads(args.manifest.read_text(encoding="utf-8"))
-    result = run(args.output, tracks)
+    try:
+        validate_run_limits(args.triplets, args.total_budget_seconds)
+    except ValueError as exc:
+        parser.error(str(exc))
+    result = run(args.output, tracks, triplets=args.triplets, total_s=args.total_budget_seconds)
     print(json.dumps({"output": str(args.output), "requestCount": len(result["requests"]),
                       "statuses": [row["status"] for row in result["requests"]]}))
 

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "qualification": false,
+  "profileId": "VISIONOS_0_1",
+  "constructionVersion": "innertubex-93b-profile-meld-9c3-defaults-v2",
+  "transportParity": false,
+  "comparisonScope": "pinned InnerTubeX profile plus separately pinned Meld application defaults; not full Meld transport or lifecycle",
+  "sourcePins": {
+    "meldHeaderDefaults": "9c3dfc8618625a94e7019fbb0f3e31f2c87f74e9",
+    "meldOriginalComparison": "1ded7122ee0bd166bd703bfe3b63d233af8b7dcd",
+    "innertubex": "93b650b877530738cbc4d2183b4322b77bb9033e",
+    "innertubexArchiveSha256": "ba9519a7851131aa93094c4b5a0dfb1ee238f8a0975a85274c9892cb412cbcc2",
+    "clientModelSha256": "694d66a4c8dc4f9c67b1abc971835ddbd5d09022de8b286a986ad5039b846d90",
+    "playbackCatalogSha256": "ab204b0ee78c87d4c7e9f4e82171d6c399b2013bd08942f4dae6846611e3af54"
+  },
+  "tokenWork": "not-requested",
+  "playerJavaScript": "not-requested",
+  "visitorContext": "omitted-nullable-profile; no-session-fetch",
+  "scope": "anonymous explicit provider ID; five-second PCM excerpt; not full-recording, acoustic, catalog or device qualification",
+  "stages": {
+    "player": 352.728577,
+    "parse": 5.454633999999999,
+    "format": 0.40802099999996244
+  },
+  "id": "visionos-v2-timmy-251",
+  "requestedVideoId": "YoHI6frgjz4",
+  "requestedFormatId": 251,
+  "requestHeaderNames": [
+    "Accept",
+    "Accept-Language",
+    "Cache-Control",
+    "Content-Type",
+    "Origin",
+    "Referer",
+    "User-Agent",
+    "X-Goog-Api-Format-Version",
+    "X-Origin",
+    "X-YouTube-Client-Name",
+    "X-YouTube-Client-Version"
+  ],
+  "stage": "parse",
+  "httpStatus": 200,
+  "playabilityStatus": "UNPLAYABLE",
+  "playabilityCategory": "UNCLASSIFIED_REJECTION",
+  "availableFormats": [],
+  "ok": false,
+  "failure": "PLAYABILITY_REJECTED",
+  "wallMs": 360.243753,
+  "launchToCleanupMs": 475.55
+}

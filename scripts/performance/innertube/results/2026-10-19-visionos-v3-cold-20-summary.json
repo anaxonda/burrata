@@ -1,0 +1,176 @@
+{
+  "schema": "visionos-v3-cold-20-observational-summary-v1",
+  "qualification": false,
+  "scope": "Twenty fresh-process anonymous source-context calls over three explicit public uploads; five-second PCM; no production, acoustic/catalog or physical-device qualification.",
+  "artifacts": {
+    "matthew-midpoint-repeat": {
+      "path": "2026-10-19-visionos-v3-matthew-midpoint-repeat.json",
+      "sha256": "fcd01ceacd4ddb34e4c34f16398ea314204fe87b42709c7f66620a4a3d914236"
+    },
+    "cold-20": {
+      "path": "2026-10-19-visionos-v3-cold-20.json",
+      "sha256": "27a622ff474f5de9eb54c20997994b1adf439310793b32cb65fdd2f309ee68c0"
+    }
+  },
+  "sample": {
+    "planned": 20,
+    "completed": 20,
+    "eligible": 20,
+    "failures": 0,
+    "automaticRetries": 0,
+    "perTrackCounts": {
+      "matthew": 7,
+      "poso-lyric-video": 7,
+      "timmy-topic": 6
+    },
+    "freshProcessPerCall": true,
+    "sourceContext": "service-worker on all twenty calls",
+    "formatId": 251,
+    "codec": "audio/webm; codecs=\"opus\"",
+    "pcmFramesPerCall": 240000
+  },
+  "timing": {
+    "metric": "firstPcmFromCommandMs",
+    "units": "milliseconds",
+    "origin": "Probe function entry after input JSON parsing through first PCM; includes context lookup, player, format and decoder startup; excludes process launch, module import and input parsing.",
+    "quantiles": "Median is average of middle two for even n; p95 is sorted[ceil(0.95*n)-1], without interpolation. These are descriptive sample statistics, not population guarantees.",
+    "overall": {
+      "count": 20,
+      "median": 920.137855,
+      "p95NearestRank": 1427.55956,
+      "p95Rank": 19,
+      "worst": 2351.132232
+    },
+    "perTrack": {
+      "matthew": {
+        "count": 7,
+        "median": 928.545585,
+        "p95NearestRank": 1367.197526,
+        "p95Rank": 7,
+        "worst": 1367.197526
+      },
+      "poso-lyric-video": {
+        "count": 7,
+        "median": 842.734455,
+        "p95NearestRank": 2351.132232,
+        "p95Rank": 7,
+        "worst": 2351.132232
+      },
+      "timmy-topic": {
+        "count": 6,
+        "median": 894.476966,
+        "p95NearestRank": 1427.55956,
+        "p95Rank": 6,
+        "worst": 1427.55956
+      }
+    },
+    "worstRequestId": "visionos-11-poso-lyric-video-cold",
+    "driverTotalWallMs": 29489.131,
+    "launchInclusiveMetricCaveat": "launchToResponseMs ends after excerpt decode; launchToCleanupMs also includes cleanup. Neither is launch-inclusive time to first PCM."
+  },
+  "resourceAccounting": {
+    "completeRows": 20,
+    "cpuUnits": "milliseconds of CPU, not elapsed wall time",
+    "cpuScope": "helperCpuMs is Node process CPU from probe entry through completion; decoderCpuMs is FFmpeg child CPU from wait4; accountingWrapperCpuMs is its Python measurement wrapper. totalCpuMs sums those three. Driver Python CPU, Node process/module startup before probe entry, OS/provider work and any physical audio output are excluded.",
+    "cpu": {
+      "totalCpuMs": {
+        "count": 20,
+        "median": 343.5075,
+        "p95NearestRank": 473.305,
+        "p95Rank": 19,
+        "worst": 519.954
+      },
+      "helperCpuMs": {
+        "count": 20,
+        "median": 241.9335,
+        "p95NearestRank": 306.791,
+        "p95Rank": 19,
+        "worst": 386.274
+      },
+      "decoderCpuMs": {
+        "count": 20,
+        "median": 50.9725,
+        "p95NearestRank": 126.571,
+        "p95Rank": 19,
+        "worst": 163.688
+      },
+      "accountingWrapperCpuMs": {
+        "count": 20,
+        "median": 43.963,
+        "p95NearestRank": 72.674,
+        "p95Rank": 19,
+        "worst": 79.397
+      }
+    },
+    "rssUnits": "bytes",
+    "rssScope": "Per-process high-water RSS: helperMaxRssBytes is Node lifetime peak (includes module startup), decoderMaxRssBytes is wait4 child peak, and accountingWrapperMaxRssBytes is the wrapper peak. Peaks may occur at different times and must not be summed as concurrent whole-pipeline memory. Driver/native application/device memory is not measured.",
+    "rss": {
+      "helperMaxRssBytes": {
+        "count": 20,
+        "median": 98473984.0,
+        "p95NearestRank": 99176448,
+        "p95Rank": 19,
+        "worst": 99373056
+      },
+      "decoderMaxRssBytes": {
+        "count": 20,
+        "median": 21313536.0,
+        "p95NearestRank": 21790720,
+        "p95Rank": 19,
+        "worst": 21798912
+      },
+      "accountingWrapperMaxRssBytes": {
+        "count": 20,
+        "median": 19976192.0,
+        "p95NearestRank": 20455424,
+        "p95Rank": 19,
+        "worst": 20467712
+      }
+    }
+  },
+  "durabilityContext": {
+    "originalArtifact": "2026-10-19-visionos-v3-durability.json",
+    "originalEligible": 11,
+    "originalCalls": 12,
+    "originalFullEligible": 3,
+    "originalFullCalls": 3,
+    "originalSeekEligible": 8,
+    "originalSeekCalls": 9,
+    "originalFailure": {
+      "track": "matthew",
+      "phase": "seek-50",
+      "failure": "NETWORK_FAILED",
+      "stage": "player",
+      "networkCause": "not captured"
+    },
+    "separateRepeat": {
+      "calls": 1,
+      "eligible": 1,
+      "positionSeconds": 114,
+      "decodedFrames": 240000,
+      "firstPcmFromCommandMs": 2269.771379
+    },
+    "denominatorPolicy": "The separately successful repeat does not replace the original durability failure or turn 11/12 into 12/12. Cold20 is a separate observational cohort."
+  },
+  "sourceSha256": {
+    "scripts/performance/innertube/visionos_driver.py": "023726f2ce34a4af6dcf4933a97d08e0eff5615fc3b81a194057b62ba575b06e",
+    "scripts/performance/innertube/serial_same_worker.py": "e26fe1b1ff75da860133020e816a30c4a23aff355c6d203c65a770de3905cc25",
+    "scripts/performance/innertube/visionos_probe.mjs": "0671f81e24f645bae7c00077dc0f7c8f1ade66df87f4ffb87cdf99ba694981dc",
+    "scripts/performance/innertube/core.mjs": "1f339d41573bc3a21f88cf158ddbce26ea73422d0df88f12b8c36f0772f6b150",
+    "scripts/performance/innertube/budget.mjs": "47bc7af4f0e5d32a593c17d083ba1ca0bda4044dc09e79c8ff3f7c1227c150f1",
+    "scripts/performance/innertube/measure_child.py": "e120b1ea31167014e17369ab1dddcff739d5ec47a32fad8635ac14bca05331ef",
+    "scripts/performance/innertube/fixtures/visionos-01-source-request.json": "5c732f4384c3968e426a325e08defa4042db6a52df0fcec949882b0f0f2bd61e",
+    "scripts/performance/innertube/fixtures/visionos-01-anonymous-visitor-source.json": "1539dd1adc062daad995a47660f49c4fb5d0be28d891caffb8570f7dc9b32d7e",
+    "src-tauri/resources/tools/x86_64-unknown-linux-gnu/node": "7fde7b8afa198da66257f42ee2001d874c7355631e6d1579a5fb5ef1f246df4c",
+    "src-tauri/resources/tools/x86_64-unknown-linux-gnu/ffmpeg": "e17253d50522cf5f9b52aabd9faba42cac164c1682a61029b53c957c6f2b1f33",
+    "scripts/performance/innertube/fixtures/transport-music-tracks.json": "470e6a1dfcae3637fe01987a1410a497903b2d69b3d23c737bfa19aaf1d016b8"
+  },
+  "repeatAndColdSourceHashesIdentical": true,
+  "limitations": [
+    "Only three public uploads on one host/network and one short run; seven/seven/six calls per source.",
+    "No automatic retries were enabled, and the prior player-request transport failure remains retained.",
+    "Fresh helper processes are not OS-wide DNS/TLS/CDN cold conditions; shared host/network caches may persist.",
+    "Five-second cold excerpts are separate from three duration-counted full-source checks; neither is real-time playback or a device soak.",
+    "No matched randomized MWEB or production comparison; no release or native-resolver promotion from this summary."
+  ]
+}

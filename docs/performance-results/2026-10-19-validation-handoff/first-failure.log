@@ -1,0 +1,17 @@
+
+running 1 test
+
+thread 'native_output::validation_handoff_diagnostic::compare_preflight_and_owned_validated_reader_handoff' (4172590) panicked at src/native_output.rs:6099:17:
+assertion `left == right` failed: invalid fixture must not qualify: {"arm":"owned_validated_reader_handoff","decoder":{"bytesRead":0,"bytesReceived":0,"channels":1,"codecHint":null,"contentRangeTotal":null,"contentType":null,"decoderKind":"rodio","decoderReused":true,"firstDecodedBlockMs":4,"inputContentLength":null,"readerReused":true,"sampleRate":48000,"totalDurationSeconds":15.0},"duplicateRequestedBytes":1400620,"firstPcmMs":531.914803,"initialByteRequests":1,"ok":true,"pcmSamples":12000,"requestCount":6,"requests":[{"accepted_body_bytes":90112,"end":1440043,"ranged":false,"start":0},{"accepted_body_bytes":256,"end":1440043,"ranged":true,"start":1439020},{"accepted_body_bytes":1398060,"end":1439019,"ranged":true,"start":40960},{"accepted_body_bytes":256,"end":1440043,"ranged":true,"start":1439276},{"accepted_body_bytes":256,"end":1440043,"ranged":true,"start":1439532},{"accepted_body_bytes":256,"end":1440043,"ranged":true,"start":1439788}],"stages":{"ownedDecoderSetupMs":0.941597,"ownedReaderSetupMs":73.25391,"validationAndPreparationMs":526.974823},"tailRequests":4}
+  left: Bool(true)
+ right: false
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test native_output::validation_handoff_diagnostic::compare_preflight_and_owned_validated_reader_handoff ... FAILED
+
+failures:
+
+failures:
+    native_output::validation_handoff_diagnostic::compare_preflight_and_owned_validated_reader_handoff
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1294 filtered out; finished in 11.51s
+

@@ -19,7 +19,10 @@ export function playbackHeaders(client) {
   return headers;
 }
 
-export async function decodePcm(input, { position = 0, seconds = 5, ffmpeg = 'ffmpeg', headers = {}, signal } = {}) {
+export async function decodePcm(input, { position = 0, seconds = 5, minimumDecodedSeconds, ffmpeg = 'ffmpeg', headers = {}, signal } = {}) {
+  const minimumSeconds = minimumDecodedSeconds ?? seconds - 0.1;
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 601 || !Number.isFinite(minimumSeconds) ||
+      minimumSeconds < 0 || minimumSeconds > seconds) throw failure('INVALID_PLAYBACK_REQUEST', 'decode');
   signal?.throwIfAborted();
   const started = performance.now();
   const allowedHeaders = new Set(['accept', 'accept-language', 'dnt', 'origin', 'referer', 'user-agent']);
@@ -63,7 +66,7 @@ export async function decodePcm(input, { position = 0, seconds = 5, ffmpeg = 'ff
     });
     const decodedFrames = Math.floor(bytes / 8);
     if (!decodedFrames) throw failure('NO_PCM', 'decode');
-    if (decodedFrames < (seconds - 0.1) * 48000) throw failure('SHORT_AUDIO', 'decode');
+    if (decodedFrames < minimumSeconds * 48000) throw failure('SHORT_AUDIO', 'decode');
     usage = JSON.parse(await readFile(accounting, 'utf8'));
     return { firstPcmMs, decodedFrames, decodedAudioMs: decodedFrames / 48, decodeWallMs: performance.now() - started,
       decoderCpuMs: usage.childCpuMs, decoderMaxRssBytes: usage.childMaxRssBytes,
@@ -85,7 +88,7 @@ export async function atStage(stage, operation, stages) {
   finally { if (stages) stages[stage] = (stages[stage] ?? 0) + performance.now() - started; }
 }
 
-export function createPrototype({ createClient, decode = decodePcm, ensureToken, applyCachedToken, now = Date.now, clientName = 'WEB' }) {
+export function createPrototype({ createClient, decode = decodePcm, ensureToken, applyCachedToken, allowFullRecording = false, now = Date.now, clientName = 'WEB' }) {
   let clientPromise;
   const infoCache = new Map();
   return async function execute(request, { signal, started = performance.now() } = {}) {
@@ -98,7 +101,11 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
         if (typeof request.query !== 'string' || !request.query.trim() || request.query.length > 500) throw failure('INVALID_QUERY');
       } else if (!/^[A-Za-z0-9_-]{11}$/.test(request.videoId ?? '') || request.expectedVideoId !== request.videoId ||
                  !Number.isFinite(request.position ?? 0) || (request.position ?? 0) < 0 ||
-                 !Number.isFinite(request.seconds ?? 5) || (request.seconds ?? 5) < 5 || (request.seconds ?? 5) > 30 ||
+                 !Number.isFinite(request.seconds ?? 5) || (request.seconds ?? 5) < 5 ||
+                 (request.fullRecording !== undefined && typeof request.fullRecording !== 'boolean') ||
+                 (request.fullRecording === true && !allowFullRecording) ||
+                 (request.fullRecording === true && (request.seconds ?? 5) > 600) ||
+                 (request.fullRecording !== true && (request.seconds ?? 5) > 30) ||
                  (request.formatId !== undefined && (!Number.isInteger(request.formatId) || request.formatId < 1 || request.formatId > 999_999))) {
         throw failure('INVALID_PLAYBACK_REQUEST');
       }
@@ -158,6 +165,15 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
         selectedInfo = info;
         const actualId = info.basic_info?.id;
         if (actualId !== request.videoId) throw failure('RECORDING_MISMATCH', 'extraction');
+        let decodeSeconds = request.seconds ?? 5;
+        let minimumDecodedSeconds = decodeSeconds - 0.1;
+        if (request.fullRecording === true) {
+          const sourceDuration = info.basic_info?.duration;
+          if (!Number.isFinite(sourceDuration) || sourceDuration < 5 || sourceDuration > 600 ||
+              Math.abs(sourceDuration - request.seconds) > 1) throw failure('RECORDING_MISMATCH', 'extraction');
+          decodeSeconds = sourceDuration + 1;
+          minimumDecodedSeconds = sourceDuration - 1;
+        }
         // Missing expiry cannot justify caching a signed manifest.
         const providerExpiry = info.streaming_data?.expires instanceof Date ? info.streaming_data.expires.getTime() - 30_000 : null;
         expires = Number.isFinite(providerExpiry) ? providerExpiry : now();
@@ -186,7 +202,8 @@ export function createPrototype({ createClient, decode = decodePcm, ensureToken,
           if (expires <= now()) infoCache.delete(request.videoId);
           else if (infoCache.has(request.videoId)) infoCache.get(request.videoId).expires = expires;
           decodeStarted = performance.now();
-          audio = await stage('decode', () => decode(stream, { position: request.position ?? 0, seconds: request.seconds ?? 5, headers, signal: budget.signal }));
+          audio = await stage('decode', () => decode(stream, { position: request.position ?? 0, seconds: decodeSeconds,
+            minimumDecodedSeconds, headers, signal: budget.signal }));
           break;
         } catch (error) {
           infoCache.delete(request.videoId);

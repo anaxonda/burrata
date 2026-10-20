@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from serial_same_worker import (BoundedLineReader, HERE, NODE, ROOT, WORKER, ProtocolError,
-                                preflight, run, safe_response, terminate_group, validate_tracks)
+                                preflight, run, safe_response, terminate_group, validate_run_limits, validate_tracks)
 
 
 class ProtocolTests(unittest.TestCase):
@@ -58,10 +58,23 @@ class ProtocolTests(unittest.TestCase):
     def test_response_allowlist_drops_urls_and_tokens(self):
         raw = json.dumps({"id": "a", "ok": True, "formatId": 251,
                           "url": "https://signed.example/?secret=x", "poToken": "secret",
-                          "stages": {"token": 1.2}}).encode()
+                          "stages": {"token": 1.2}, "helperCpuMs": 1.25,
+                          "decoderCpuMs": 3.5, "decoderAccounting": "wait4-reaped-command-tree",
+                          "accountingWrapperMaxRssBytes": 4096}).encode()
         safe = safe_response(raw, "a")
         self.assertEqual(safe, {"id": "a", "ok": True, "formatId": 251,
-                                "stages": {"token": 1.2}})
+                                "stages": {"token": 1.2}, "helperCpuMs": 1.25,
+                                "decoderCpuMs": 3.5, "decoderAccounting": "wait4-reaped-command-tree",
+                                "accountingWrapperMaxRssBytes": 4096})
+        invalid = safe_response(json.dumps({"id": "b", "decoderCpuMs": -1,
+                                            "helperRssBytes": True, "decoderAccounting": "secret"}).encode(), "b")
+        self.assertEqual(invalid, {"id": "b"})
+
+    def test_triplet_and_outer_deadline_limits(self):
+        for triplets, seconds in ((0, 20), (21, 20), (1, 0), (1, 601)):
+            with self.assertRaises(ValueError):
+                validate_run_limits(triplets, seconds)
+        validate_run_limits(20, 600)
 
     def test_driver_sends_each_request_after_previous_response(self):
         with tempfile.TemporaryDirectory() as td:
@@ -79,15 +92,17 @@ class ProtocolTests(unittest.TestCase):
                        "codec": 'audio/webm; codecs="opus"'} for n, vid in
                       [("alpha", "abcdefghijk"), ("bravo", "bcdefghijkl"), ("charlie", "cdefghijklm")]]
             result = run(output, tracks, node=Path(sys.executable), worker=worker,
-                         total_s=5, request_s=1)
-            self.assertEqual([r["status"] for r in result["requests"]], ["completed"] * 9)
+                         total_s=5, request_s=1, triplets=4)
+            self.assertEqual([r["status"] for r in result["requests"]], ["completed"] * 12)
             self.assertTrue(all("requestReceiptToResponseMs" in r for r in result["requests"]))
             self.assertEqual([r["role"] for r in result["requests"][:3]],
                              ["cold", "same_id_warm", "different_id_warm"])
             self.assertEqual([r["role"] for r in result["requests"][3:6]],
                              ["cold", "same_id_warm", "different_id_warm"])
             self.assertTrue(all(r["formatMatched"] for r in result["requests"]))
-            self.assertEqual(len(json.loads(output.read_text())["requests"]), 9)
+            self.assertEqual(len(json.loads(output.read_text())["requests"]), 12)
+            self.assertEqual(result["requestedTriplets"], 4)
+            self.assertEqual(len(result["driverSha256"]), 64)
 
     def test_spawn_failure_writes_structured_artifact(self):
         with tempfile.TemporaryDirectory() as td:

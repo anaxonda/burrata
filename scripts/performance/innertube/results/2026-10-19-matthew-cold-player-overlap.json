@@ -1,0 +1,405 @@
+{
+  "schema": "innertube-cold-player-overlap-v1",
+  "qualification": false,
+  "status": "completed",
+  "preflight": {
+    "ok": true,
+    "checks": {
+      "repoRoot": true,
+      "bundledNode": true,
+      "bundledNodeExec": true,
+      "worker": true,
+      "ffmpeg": true,
+      "bgutil": true,
+      "packageLock": true
+    }
+  },
+  "sourceSha256": {
+    "scripts/performance/innertube/cold_player_overlap.py": "e24969b433fad4fe2c86ac9c38d08b8d31d8892b27d1e276c11622e7819cb49e",
+    "scripts/performance/innertube/serial_same_worker.py": "fe14397cd781b28cd8bd812b23a87604cc9873529ac05b2081fd6dfdae519952",
+    "scripts/performance/innertube/worker.mjs": "e8b4f452916eb91e028a314ec9e8785efdc3a43ce6325ab062a60f06a349d807",
+    "scripts/performance/innertube/core.mjs": "9e3c37c227f47370f10f0e07d01c97a46df36e290f62e55f5cdb310db5340d4a",
+    "scripts/performance/innertube/client_factory.mjs": "f029131b9db0eecafa356be4da3792cc55d0bd4ca0900b2b1c947f13f21102fd",
+    "scripts/performance/innertube/token.mjs": "0a427c937b5289d39e1055a87f8873dce31dc017833154d05dd3f4fa0ab8c6b3",
+    "scripts/performance/innertube/token_child.mjs": "4ededfd3c47ab6bd80f17dad0fa9d1e8b2431aefd8530a2629353fa123ca0efb",
+    "scripts/performance/innertube/package-lock.json": "854da520b3cdd15f03021a280bf1a78b041e02daa880dab3965a80c80e519f18",
+    "src-tauri/resources/tools/x86_64-unknown-linux-gnu/node": "7fde7b8afa198da66257f42ee2001d874c7355631e6d1579a5fb5ef1f246df4c",
+    "src-tauri/resources/tools/x86_64-unknown-linux-gnu/ffmpeg": "e17253d50522cf5f9b52aabd9faba42cac164c1682a61029b53c957c6f2b1f33"
+  },
+  "scope": "anonymous exact public source ID; decoder-only five-second excerpt; no catalog/acoustic/device claim",
+  "videoId": "uZGRATckoBM",
+  "formatId": 251,
+  "codec": "audio/webm; codecs=\"opus\"",
+  "clientName": "MWEB",
+  "warmups": 0,
+  "order": [
+    "AB",
+    "BA",
+    "AB"
+  ],
+  "perAttemptBudgetMs": 20000,
+  "outerBudgetMs": 140000,
+  "startupPolicy": "fresh worker and task XDG/cache for every attempt; HOME unchanged",
+  "timingOrigin": "firstPcmFromCommandMs is worker JSONL-receipt to first PCM and excludes process launch; processLaunchToResponseMs includes launch but ends after five-second excerpt; no derived launch-inclusive first PCM",
+  "totalWallMs": 32798.022,
+  "requests": [
+    {
+      "id": "cold-pair-1-0",
+      "pair": 1,
+      "arm": "sequential",
+      "eligible": false,
+      "stages": {
+        "session": 2524.563885,
+        "sessionWait": 2524.41818,
+        "playbackPreparation": 0.5058160000003227,
+        "token": 2501.2690209999996,
+        "extraction": 152.24657399999978,
+        "format": 0.45283699999981764,
+        "decipher": 0.3188749999999345
+      },
+      "failure": "PROVIDER_FAILED",
+      "ok": false,
+      "stage": "decipher",
+      "accountingComplete": false,
+      "metadataMatched": false,
+      "status": "completed",
+      "processLaunchToResponseMs": 5228.126,
+      "cleanupCompleted": true
+    },
+    {
+      "id": "cold-pair-1-1",
+      "pair": 1,
+      "arm": "parallel-player",
+      "eligible": true,
+      "stages": {
+        "session": 760.231449,
+        "sessionWait": 760.0599490000001,
+        "playbackPreparation": 1521.6429090000001,
+        "token": 2523.282294,
+        "extraction": 188.56811400000015,
+        "format": 1.5600390000004154,
+        "decipher": 22.24750099999983,
+        "decode": 473.45273899999984
+      },
+      "providerMetadata": {
+        "videoId": "uZGRATckoBM",
+        "title": "Matthew",
+        "channel": "John Denver - Topic",
+        "durationSeconds": 228
+      },
+      "wallMs": 3971.7955389999997,
+      "manifestExpiresInMs": 299502,
+      "playbackPreparation": {
+        "mode": "parallel-player",
+        "sessionContextMs": 358.64111599999995,
+        "playerMs": 1860.856801,
+        "readyMs": 1880.5274479999998
+      },
+      "preparedMs": 761.656682,
+      "tokenHelperMaxRssBytes": 242302976,
+      "tokenExpiresInMs": 21599997,
+      "tokenCacheHit": false,
+      "extractionMs": 212.68863199999987,
+      "tokenHelperCpuMs": 2478.839,
+      "decodeWallMs": 471.7008860000001,
+      "decodedAudioMs": 5000,
+      "clientName": "MWEB",
+      "codec": "audio/webm; codecs=\"opus\"",
+      "infoCacheHit": false,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "refreshedAfterDenial": false,
+      "firstPcmFromCommandMs": 3821.0311819999997,
+      "recordingVerified": true,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "formatId": 251,
+      "headerNames": [
+        "accept",
+        "accept-language",
+        "dnt",
+        "origin",
+        "referer",
+        "user-agent"
+      ],
+      "ok": true,
+      "accountingComplete": true,
+      "metadataMatched": true,
+      "status": "completed",
+      "processLaunchToResponseMs": 4019.096,
+      "cleanupCompleted": true
+    },
+    {
+      "id": "cold-pair-2-1",
+      "pair": 2,
+      "arm": "parallel-player",
+      "eligible": true,
+      "stages": {
+        "session": 780.738694,
+        "sessionWait": 780.648999,
+        "playbackPreparation": 1444.4017830000003,
+        "token": 2397.519112,
+        "extraction": 176.892425,
+        "format": 1.367200000000139,
+        "decipher": 23.216832000000068,
+        "decode": 490.082684
+      },
+      "providerMetadata": {
+        "videoId": "uZGRATckoBM",
+        "title": "Matthew",
+        "channel": "John Denver - Topic",
+        "durationSeconds": 228
+      },
+      "wallMs": 3872.564785,
+      "manifestExpiresInMs": 299485,
+      "playbackPreparation": {
+        "mode": "parallel-player",
+        "sessionContextMs": 385.312483,
+        "playerMs": 1809.9536219999998,
+        "readyMs": 1830.15755
+      },
+      "preparedMs": 782.218914,
+      "tokenHelperMaxRssBytes": 239853568,
+      "tokenExpiresInMs": 21599994,
+      "tokenCacheHit": false,
+      "extractionMs": 201.80831200000011,
+      "tokenHelperCpuMs": 2336.516,
+      "decodeWallMs": 487.5318259999999,
+      "decodedAudioMs": 5000,
+      "clientName": "MWEB",
+      "codec": "audio/webm; codecs=\"opus\"",
+      "infoCacheHit": false,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "refreshedAfterDenial": false,
+      "firstPcmFromCommandMs": 3690.5642399999997,
+      "recordingVerified": true,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "formatId": 251,
+      "headerNames": [
+        "accept",
+        "accept-language",
+        "dnt",
+        "origin",
+        "referer",
+        "user-agent"
+      ],
+      "ok": true,
+      "accountingComplete": true,
+      "metadataMatched": true,
+      "status": "completed",
+      "processLaunchToResponseMs": 3923.584,
+      "cleanupCompleted": true
+    },
+    {
+      "id": "cold-pair-2-0",
+      "pair": 2,
+      "arm": "sequential",
+      "eligible": true,
+      "stages": {
+        "session": 2282.155777,
+        "sessionWait": 2282.0337059999997,
+        "playbackPreparation": 0.5405509999995957,
+        "token": 2250.822913,
+        "extraction": 190.16735299999982,
+        "format": 1.105914999999186,
+        "decipher": 20.398255000000063,
+        "decode": 463.1437999999998
+      },
+      "providerMetadata": {
+        "videoId": "uZGRATckoBM",
+        "title": "Matthew",
+        "channel": "John Denver - Topic",
+        "durationSeconds": 228
+      },
+      "wallMs": 5209.9251030000005,
+      "manifestExpiresInMs": 299515,
+      "playbackPreparation": {
+        "mode": "sequential",
+        "sdkCreateMs": 1861.0322939999999,
+        "readyMs": 1861.1229190000001
+      },
+      "preparedMs": 2283.553535,
+      "tokenHelperMaxRssBytes": 242348032,
+      "tokenExpiresInMs": 21599998,
+      "tokenCacheHit": false,
+      "extractionMs": 211.9457910000001,
+      "tokenHelperCpuMs": 2091.738,
+      "decodeWallMs": 461.5797499999999,
+      "decodedAudioMs": 5000,
+      "clientName": "MWEB",
+      "codec": "audio/webm; codecs=\"opus\"",
+      "infoCacheHit": false,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "refreshedAfterDenial": false,
+      "firstPcmFromCommandMs": 5065.358997,
+      "recordingVerified": true,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "formatId": 251,
+      "headerNames": [
+        "accept",
+        "accept-language",
+        "dnt",
+        "origin",
+        "referer",
+        "user-agent"
+      ],
+      "ok": true,
+      "accountingComplete": true,
+      "metadataMatched": true,
+      "status": "completed",
+      "processLaunchToResponseMs": 5287.029,
+      "cleanupCompleted": true
+    },
+    {
+      "id": "cold-pair-3-0",
+      "pair": 3,
+      "arm": "sequential",
+      "eligible": true,
+      "stages": {
+        "session": 2257.451963,
+        "sessionWait": 2257.321683,
+        "playbackPreparation": 0.4877510000001166,
+        "token": 4829.665654,
+        "extraction": 457.257756,
+        "format": 0.5148719999997411,
+        "decipher": 15.639635999999882,
+        "decode": 679.0047059999997
+      },
+      "providerMetadata": {
+        "videoId": "uZGRATckoBM",
+        "title": "Matthew",
+        "channel": "John Denver - Topic",
+        "durationSeconds": 228
+      },
+      "wallMs": 8242.497330999999,
+      "manifestExpiresInMs": 299305,
+      "playbackPreparation": {
+        "mode": "sequential",
+        "sdkCreateMs": 1835.0409409999997,
+        "readyMs": 1835.1331859999998
+      },
+      "preparedMs": 2258.793087,
+      "tokenHelperMaxRssBytes": 240877568,
+      "tokenExpiresInMs": 21599994,
+      "tokenCacheHit": false,
+      "extractionMs": 473.70784399999957,
+      "tokenHelperCpuMs": 2119.533,
+      "decodeWallMs": 676.0963830000001,
+      "decodedAudioMs": 5000,
+      "clientName": "MWEB",
+      "codec": "audio/webm; codecs=\"opus\"",
+      "infoCacheHit": false,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "refreshedAfterDenial": false,
+      "firstPcmFromCommandMs": 8061.072746000001,
+      "recordingVerified": true,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "formatId": 251,
+      "headerNames": [
+        "accept",
+        "accept-language",
+        "dnt",
+        "origin",
+        "referer",
+        "user-agent"
+      ],
+      "ok": true,
+      "accountingComplete": true,
+      "metadataMatched": true,
+      "status": "completed",
+      "processLaunchToResponseMs": 8317.383,
+      "cleanupCompleted": true
+    },
+    {
+      "id": "cold-pair-3-1",
+      "pair": 3,
+      "arm": "parallel-player",
+      "eligible": true,
+      "stages": {
+        "session": 811.5146589999999,
+        "sessionWait": 811.339881,
+        "playbackPreparation": 1445.2626000000002,
+        "token": 2578.154514,
+        "extraction": 196.62912000000006,
+        "format": 1.097283999999945,
+        "decipher": 21.8292449999999,
+        "decode": 502.4227470000001
+      },
+      "providerMetadata": {
+        "videoId": "uZGRATckoBM",
+        "title": "Matthew",
+        "channel": "John Denver - Topic",
+        "durationSeconds": 228
+      },
+      "wallMs": 4115.635622999999,
+      "manifestExpiresInMs": 299474,
+      "playbackPreparation": {
+        "mode": "parallel-player",
+        "sessionContextMs": 378.613434,
+        "playerMs": 1795.75468,
+        "readyMs": 1824.3320259999998
+      },
+      "preparedMs": 813.5371610000001,
+      "tokenHelperMaxRssBytes": 243613696,
+      "tokenExpiresInMs": 21599993,
+      "tokenCacheHit": false,
+      "extractionMs": 220.00259499999947,
+      "tokenHelperCpuMs": 2343.802,
+      "decodeWallMs": 497.82335200000034,
+      "decodedAudioMs": 5000,
+      "clientName": "MWEB",
+      "codec": "audio/webm; codecs=\"opus\"",
+      "infoCacheHit": false,
+      "tokenBindings": {
+        "player": "visitorData",
+        "gvs": "videoId"
+      },
+      "refreshedAfterDenial": false,
+      "firstPcmFromCommandMs": 3947.4014240000006,
+      "recordingVerified": true,
+      "identityScope": "explicit-provider-video-id; not acoustic verification",
+      "formatId": 251,
+      "headerNames": [
+        "accept",
+        "accept-language",
+        "dnt",
+        "origin",
+        "referer",
+        "user-agent"
+      ],
+      "ok": true,
+      "accountingComplete": true,
+      "metadataMatched": true,
+      "status": "completed",
+      "processLaunchToResponseMs": 4190.902,
+      "cleanupCompleted": true
+    }
+  ],
+  "pairs": [
+    {
+      "pair": 1,
+      "eligible": false,
+      "parallelMinusSequentialFirstPcmMs": null
+    },
+    {
+      "pair": 2,
+      "eligible": true,
+      "parallelMinusSequentialFirstPcmMs": -1374.795
+    },
+    {
+      "pair": 3,
+      "eligible": true,
+      "parallelMinusSequentialFirstPcmMs": -4113.671
+    }
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "source": "scripts/performance/innertube/results/2026-10-19-transport-format251-20triplets.json",
+  "status": "complete",
+  "percentileMethod": "nearest rank",
+  "scope": "20 sequential cold/replay/new-video triplets, explicit IDs, pinned Opus 251, decoder PCM only",
+  "validation": {
+    "rawRows": 60,
+    "completed": 60,
+    "transportEligible": 60,
+    "accountingComplete": 60,
+    "metadataAndIdentityMatched": 60,
+    "strictFormatAndCodecMatched": 60,
+    "fiveSecondPcmRows": 60,
+    "commonHeaderNames": ["accept", "accept-language", "dnt", "origin", "referer", "user-agent"]
+  },
+  "resourceAccounting": {
+    "units": "raw bytes; narrative MB values use decimal conversion",
+    "nodeWorker": "helperMaxRssBytes is a per-worker lifetime maximum; helperRssBytes is a per-request current RSS sample",
+    "tokenHelper": "tokenHelperMaxRssBytes measures the separate BgUtils process",
+    "decoder": "decoderMaxRssBytes measures the separate FFmpeg child",
+    "aggregation": "These are separate-process maxima from sequential attempts, not a simultaneous process-tree RSS measurement; do not add them",
+    "peakWorkerMaxRssBytesAcrossRows": 500916224,
+    "peakTokenHelperMaxRssBytesAcrossRows": 275496960,
+    "peakDecoderMaxRssBytesAcrossRows": 23941120
+  },
+  "paths": {
+    "cold": {
+      "attempts": 20,
+      "successes": 20,
+      "firstPcmMs": {
+        "median": 5069.583609,
+        "p95": 7336.576107,
+        "worst": 7519.8392220000005
+      },
+      "metrics": {
+        "totalCpuMs": {
+          "median": 5224.2294999999995,
+          "max": 5836.995
+        },
+        "helperRssBytes": {
+          "median": 455145472.0,
+          "max": 493707264
+        },
+        "helperMaxRssBytes": {
+          "median": 455145472.0,
+          "max": 493707264
+        },
+        "tokenHelperMaxRssBytes": {
+          "median": 273051648.0,
+          "max": 275496960
+        },
+        "decoderMaxRssBytes": {
+          "median": 21319680.0,
+          "max": 23941120
+        }
+      }
+    },
+    "replay": {
+      "attempts": 20,
+      "successes": 20,
+      "firstPcmMs": {
+        "median": 343.37433550000014,
+        "p95": 364.29916799999955,
+        "worst": 439.9048189999994
+      },
+      "metrics": {
+        "totalCpuMs": {
+          "median": 171.15699999999998,
+          "max": 227.474
+        },
+        "helperRssBytes": {
+          "median": 457627648.0,
+          "max": 496984064
+        },
+        "helperMaxRssBytes": {
+          "median": 457627648.0,
+          "max": 496984064
+        },
+        "tokenHelperMaxRssBytes": {
+          "median": 273051648.0,
+          "max": 275496960
+        },
+        "decoderMaxRssBytes": {
+          "median": 21184512.0,
+          "max": 21807104
+        }
+      }
+    },
+    "warm_new_video": {
+      "attempts": 20,
+      "successes": 20,
+      "firstPcmMs": {
+        "median": 543.0229885000003,
+        "p95": 814.5469929999999,
+        "worst": 993.6583609999998
+      },
+      "metrics": {
+        "totalCpuMs": {
+          "median": 197.45549999999997,
+          "max": 281.2160000000001
+        },
+        "helperRssBytes": {
+          "median": 460593152.0,
+          "max": 500916224
+        },
+        "helperMaxRssBytes": {
+          "median": 460593152.0,
+          "max": 500916224
+        },
+        "tokenHelperMaxRssBytes": {
+          "median": 273051648.0,
+          "max": 275496960
+        },
+        "decoderMaxRssBytes": {
+          "median": 20363264.0,
+          "max": 21635072
+        }
+      }
+    }
+  }
+}

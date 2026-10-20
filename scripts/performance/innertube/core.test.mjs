@@ -109,6 +109,29 @@ test('cached token application waits for a fast player and the slower token mint
   assert.equal(applied, true);
 });
 
+test('full-recording request requires diagnostic opt-in and remains capped at 600 seconds', async () => {
+  let clients = 0, seen;
+  const createClient = async () => { clients++; return { session: { player: {} }, async getBasicInfo() {
+    return { basic_info: { id: 'abcdefghijk', title: 'Fixture Track', author: 'Fixture Topic', duration: 301 },
+      streaming_data: { expires: new Date(Date.now() + 90_000) },
+      chooseFormat: () => ({ itag: 251, mime_type: 'audio/webm; codecs="opus"', decipher: async () => 'https://cdn.example/audio' }) };
+  } }; };
+  const decode = async (_input, options) => { seen = options; return { firstPcmMs: 1, decodedFrames: 301 * 48000,
+    decodedAudioMs: 301000 }; };
+  const normal = createPrototype({ createClient, decode });
+  await assert.rejects(normal({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk',
+    seconds: 301, fullRecording: true, budgetMs: 1000 }), error => error.code === 'INVALID_PLAYBACK_REQUEST');
+  assert.equal(clients, 0);
+
+  const diagnostic = createPrototype({ createClient, decode, allowFullRecording: true });
+  const result = await diagnostic({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk',
+    seconds: 301, fullRecording: true, budgetMs: 1000 });
+  assert.equal(seen.seconds, 302); assert.equal(seen.minimumDecodedSeconds, 300);
+  assert.equal(result.decodedAudioMs, 301000);
+  await assert.rejects(diagnostic({ action: 'play', videoId: 'abcdefghijk', expectedVideoId: 'abcdefghijk',
+    seconds: 601, fullRecording: true, budgetMs: 1000 }), error => error.code === 'INVALID_PLAYBACK_REQUEST');
+});
+
 test('search candidates remain unverified and invalid requests do not initialize a client', async () => {
   const { execute, calls } = fake();
   await assert.rejects(execute({ action: 'play', videoId: 'bad', budgetMs: 1000 }));
@@ -144,6 +167,14 @@ test('FFmpeg probe decodes five seconds of real PCM rather than accepting extrac
       headers: { 'user-agent': 'offline-test-agent', 'accept-language': '*', referer: 'https://www.youtube.com/' } });
     assert.ok(result.decodedFrames >= 239900 && result.decodedFrames <= 240100);
     assert.ok(result.firstPcmMs >= 0);
+    // A 7.8s declaration with one-second allowance accepts this 8s PCM result.
+    const endTolerance = await decodePcm(fixture, { seconds: 8.8, minimumDecodedSeconds: 6.8 });
+    assert.ok(endTolerance.decodedAudioMs >= 8000);
+    // The same 8s preview is rejected for a 60s full source (minimum 59s).
+    await assert.rejects(decodePcm(fixture, { seconds: 61, minimumDecodedSeconds: 59 }), error => error.code === 'SHORT_AUDIO');
+    // Invalid thresholds fail before FFmpeg is spawned.
+    await assert.rejects(decodePcm(fixture, { seconds: 5, minimumDecodedSeconds: 6,
+      ffmpeg: '/does-not-exist/ffmpeg' }), error => error.code === 'INVALID_PLAYBACK_REQUEST');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

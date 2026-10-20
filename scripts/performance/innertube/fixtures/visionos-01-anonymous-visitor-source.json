@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "repository": "MetrolistGroup/innertubex",
+    "commit": "93b650b877530738cbc4d2183b4322b77bb9033e",
+    "path": "src/commonMain/kotlin/com/metrolist/innertubex/InnerTube.kt",
+    "sha256": "25b3a4a0d0a44b3b694fe24a1a183e62802e3efa85da6fb81974ec3b93c108b0",
+    "sourceExcerpt": "    private suspend fun fetchFreshVisitorDataNetwork(requestSession: SessionSnapshot): String? =\n        try {\n            val startTime = Clock.System.now().toEpochMilliseconds()\n            logger.d(TAG, \"fetchFreshVisitorData start\")\n            val serviceWorkerData =\n                try {\n                    val response =\n                        executeRequest(operation = \"fetchFreshVisitorData\", requireSuccess = false) {\n                            httpClient.get(VISITOR_DATA_URL) {\n                                header(\"User-Agent\", YouTubeClient.USER_AGENT_WEB)\n                                header(HttpHeaders.Accept, \"application/json,text/plain,*/*\")\n                                header(\n                                    HttpHeaders.AcceptLanguage,\n                                    requestSession.locale.acceptLanguageHeader(),\n                                )\n                            }\n                        }\n                    if (response.status.value in 200..299) {\n                        parseServiceWorkerVisitorData(response.bodyAsTextLimited(MAX_VISITOR_RESPONSE_BYTES))\n                    } else {\n                        response.bodyAsChannel().cancel(null)\n                        null\n                    }\n                } catch (error: CancellationException) {\n                    throw error\n                } catch (error: Exception) {\n                    logger.d(TAG, \"service-worker visitor data unavailable (${error.logType()})\")\n                    null\n                }\n            val data =\n                serviceWorkerData\n                    ?: fetchHomepageVisitorData(requestSession)\n            if (!data.isNullOrBlank()) {\n                publishSession(requestSession, requestSession.copy(visitorData = data))\n            }\n            val elapsed = Clock.System.now().toEpochMilliseconds() - startTime\n            logger.d(\n                TAG,\n                \"fetchFreshVisitorData success hasVisitorData=${!data.isNullOrBlank()} source=${if (serviceWorkerData != null) \"service-worker\" else \"homepage\"} elapsed=${elapsed}ms\",\n            )\n            data\n        } catch (e: CancellationException) {\n            throw e\n        } catch (e: Exception) {\n            logger.w(TAG, \"fetchFreshVisitorData failed (${e.logType()})\")\n            null\n        }\n\n    private suspend fun fetchHomepageVisitorData(requestSession: SessionSnapshot): String? {\n        val response =\n            executeRequest(operation = \"fetchFreshVisitorData\", requireSuccess = false) {\n                httpClient.get(ORIGIN_MUSIC) {\n                    header(\"User-Agent\", YouTubeClient.USER_AGENT_WEB)\n                    header(HttpHeaders.Accept, \"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\")\n                    header(\n                        HttpHeaders.AcceptLanguage,\n                        requestSession.locale.acceptLanguageHeader(),\n                    )\n                }\n            }\n        if (response.status.value !in 200..299) {\n            response.bodyAsChannel().cancel(null)\n            return null\n        }\n        return VISITOR_DATA_REGEX\n            .find(response.bodyAsTextLimited(MAX_VISITOR_RESPONSE_BYTES))\n            ?.groupValues\n            ?.get(1)\n    }\n\n    private fun parseServiceWorkerVisitorData(responseText: String): String? =\n        runCatching {\n            Json\n                .parseToJsonElement(responseText.substringAfter('\\n').trimStart())\n                .jsonArray[0]\n                .jsonArray[2]\n                .jsonArray[0]\n                .jsonArray[0]\n                .jsonArray[13]\n                .jsonPrimitive\n                .contentOrNull\n                ?.takeIf { it.isNotBlank() }\n        }.getOrNull()",
+    "webUserAgentSourceLine": "const val USER_AGENT_WEB = \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0\"",
+    "clientModelSha256": "694d66a4c8dc4f9c67b1abc971835ddbd5d09022de8b286a986ad5039b846d90"
+  },
+  "syntheticVisitor": "synthetic_fixture_visitor_only",
+  "request": {
+    "videoId": "uZGRATckoBM",
+    "expectedVideoId": "uZGRATckoBM",
+    "formatId": 251,
+    "budgetMs": 19000,
+    "hl": "en",
+    "gl": "US",
+    "visitorMode": "anonymous-source"
+  },
+  "expectedLookups": [
+    {
+      "source": "service-worker",
+      "stage": "visitorServiceWorker",
+      "endpoint": "https://www.youtube.com/sw.js_data",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Accept": "application/json,text/plain,*/*"
+      }
+    },
+    {
+      "source": "music-homepage",
+      "stage": "visitorHomepage",
+      "endpoint": "https://music.youtube.com",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      }
+    }
+  ]
+}

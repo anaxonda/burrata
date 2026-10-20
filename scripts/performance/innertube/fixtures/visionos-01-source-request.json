@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "constructionVersion": "innertubex-93b-profile-meld-9c3-defaults-v2",
+  "license": "Source excerpts are attributed to GPL-3.0 upstream projects; see pinned repository licenses. This is a diagnostic fixture, not imported production code.",
+  "provenance": [
+    {
+      "repository": "MetrolistGroup/innertubex",
+      "commit": "93b650b877530738cbc4d2183b4322b77bb9033e",
+      "path": "src/commonMain/kotlin/com/metrolist/innertubex/models/YouTubeClient.kt",
+      "sha256": "694d66a4c8dc4f9c67b1abc971835ddbd5d09022de8b286a986ad5039b846d90",
+      "sourceExcerpt": "    fun toContext(\n        locale: YouTubeLocale,\n        visitorData: String?,\n        dataSyncId: String?,\n    ) = Context(\n        thirdParty = if (isEmbedded) Context.ThirdParty(embedUrl = \"https://www.reddit.com/\") else null,\n        client =\n            Context.Client(\n                clientName = clientName,\n                clientVersion = clientVersion,\n                userAgent = if (includeUserAgentInContext) userAgent else null,\n                osName = osName,\n                osVersion = osVersion,\n                deviceMake = deviceMake,\n                deviceModel = deviceModel,\n                androidSdkVersion = androidSdkVersion,\n                platform = platform,\n                gl = locale.gl,\n                hl = locale.hl,\n                visitorData = visitorData,\n            ),\n        user =\n            Context.User(\n                onBehalfOfUser = if (loginSupported) dataSyncId else null,\n            ),\n    )\n\n        val VISIONOS_0_1 =\n            YouTubeClient(\n                clientName = \"VISIONOS\",\n                clientVersion = \"0.1\",\n                clientId = \"101\",\n                userAgent =\n                    \"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 \" +\n                        \"(KHTML, like Gecko) Version/17.5 Safari/605.1.15\",\n                osName = \"VISION_OS\",\n                osVersion = \"1.3\",\n                deviceMake = \"Apple\",\n                deviceModel = \"RealityDevice14,1\",\n                platform = \"MOBILE\",\n                friendlyName = \"visionOS 0.1\",\n                loginSupported = false,\n                useSignatureTimestamp = false,\n                useMusicPlayerEndpoint = true,\n                skipPlayerResponseValidation = true,\n            )\n\n"
+    },
+    {
+      "repository": "MetrolistGroup/innertubex",
+      "commit": "93b650b877530738cbc4d2183b4322b77bb9033e",
+      "path": "src/commonMain/kotlin/com/metrolist/innertubex/models/Context.kt",
+      "sha256": "32fb1bd54cb0e82c85623db1c5cae5ae3a9aa5806a937f094ecf06c21a868851",
+      "sourceExcerpt": "package com.metrolist.innertubex.models\n\nimport kotlinx.serialization.Serializable\n\n@Serializable\ndata class Context(\n    val client: Client,\n    val thirdParty: ThirdParty? = null,\n    val request: Request = Request(),\n    val user: User = User(),\n) {\n    @Serializable\n    data class Client(\n        val clientName: String,\n        val clientVersion: String,\n        val userAgent: String? = null,\n        val osName: String? = null,\n        val osVersion: String? = null,\n        val deviceMake: String? = null,\n        val deviceModel: String? = null,\n        val androidSdkVersion: String? = null,\n        val platform: String? = null,\n        val gl: String,\n        val hl: String,\n        val visitorData: String?,\n    )\n\n    @Serializable\n    data class ThirdParty(\n        val embedUrl: String,\n    )\n\n    @Serializable\n    data class Request(\n        val internalExperimentFlags: List<String> = emptyList(),\n        val useSsl: Boolean = true,\n    )\n\n    @Serializable\n    data class User(\n        val lockedSafetyMode: Boolean = false,\n        val onBehalfOfUser: String? = null,\n    )\n}\n"
+    },
+    {
+      "repository": "MetrolistGroup/innertubex",
+      "commit": "93b650b877530738cbc4d2183b4322b77bb9033e",
+      "path": "src/commonMain/kotlin/com/metrolist/innertubex/models/body/PlayerBody.kt",
+      "sha256": "30f9a4d6098dd9a7b9786584ee023be5ec675320489a1cd4c049c0dc8477700e",
+      "sourceExcerpt": "package com.metrolist.innertubex.models.body\n\nimport com.metrolist.innertubex.models.Context\nimport kotlinx.serialization.Serializable\n\n@Serializable\ninternal data class PlayerBody(\n    val context: Context,\n    val videoId: String,\n    val playlistId: String? = null,\n    val playbackContext: PlaybackContext? = null,\n    val thirdParty: ThirdParty? = null,\n    val serviceIntegrityDimensions: ServiceIntegrityDimensions? = null,\n    val contentCheckOk: Boolean,\n    val racyCheckOk: Boolean,\n    val videoCheckOk: Boolean? = null,\n) {\n    @Serializable\n    data class PlaybackContext(\n        val contentPlaybackContext: ContentPlaybackContext,\n    ) {\n        @Serializable\n        data class ContentPlaybackContext(\n            val html5Preference: String? = null,\n            val signatureTimestamp: Int? = null,\n            val encryptedHostFlags: String? = null,\n        )\n    }\n\n    @Serializable\n    data class ServiceIntegrityDimensions(\n        val poToken: String,\n    )\n\n    @Serializable\n    data class ThirdParty(\n        val embedUrl: String,\n    )\n}\n"
+    },
+    {
+      "repository": "MetrolistGroup/innertubex",
+      "commit": "93b650b877530738cbc4d2183b4322b77bb9033e",
+      "path": "src/commonMain/kotlin/com/metrolist/innertubex/InnerTube.kt",
+      "sha256": "25b3a4a0d0a44b3b694fe24a1a183e62802e3efa85da6fb81974ec3b93c108b0",
+      "sourceExcerpt": "    private fun YouTubeLocale.acceptLanguageHeader(): String {\n        val languageTag = hl.replace('_', '-')\n        val regionalTag = if ('-' in languageTag) languageTag else \"$languageTag-$gl\"\n        return \"$regionalTag,${languageTag.substringBefore('-')};q=0.9\"\n    }\n\n    private fun HttpRequestBuilder.ytClient(\n        client: YouTubeClient,\n        session: SessionSnapshot,\n        setLogin: Boolean = false,\n        visitorData: String? = session.visitorData,\n        includeAccountCookies: Boolean = true,\n    ) {\n        val endpoint = url.encodedPath.removePrefix(\"/\")\n        val (apiBase, origin, referer) =\n            when {\n                endpoint == \"player\" && client.useMusicPlayerEndpoint -> {\n                    Triple(API_BASE_MUSIC, ORIGIN_MUSIC, REFERER_MUSIC)\n                }\n\n                client.clientName == \"WEB_REMIX\" -> {\n                    Triple(API_BASE_MUSIC, ORIGIN_MUSIC, REFERER_MUSIC)\n                }\n\n                client.clientName == \"WEB_CREATOR\" -> {\n                    Triple(API_BASE_STUDIO, ORIGIN_STUDIO, REFERER_STUDIO)\n                }\n\n                client.clientName == \"MWEB\" -> {\n                    Triple(API_BASE_MWEB, ORIGIN_MWEB, REFERER_MWEB)\n                }\n\n                else -> {\n                    Triple(API_BASE_WWW, ORIGIN_WWW, REFERER_WWW)\n                }\n            }\n        val requestReferer = if (client.isEmbedded) \"https://www.reddit.com/\" else referer\n\n        contentType(ContentType.Application.Json)\n        headers {\n            append(\"X-Goog-Api-Format-Version\", \"1\")\n            append(\"X-YouTube-Client-Name\", client.clientId)\n            append(\"X-YouTube-Client-Version\", client.clientVersion)\n            append(\"Origin\", origin)\n            append(\"X-Origin\", origin)\n            append(\"Referer\", requestReferer)\n            append(\n                \"Accept-Language\",\n                session.locale.acceptLanguageHeader(),\n            )\n            visitorData?.let { append(\"X-Goog-Visitor-Id\", it) }\n            if (client.loginSupported && includeAccountCookies) {\n                val effectiveCookie = injectPrefCookie(session.cookie, session.locale.hl, session.locale.gl)\n                append(HttpHeaders.Cookie, effectiveCookie)\n            }\n            if (setLogin && client.loginSupported && !session.cookie.isNullOrBlank()) {\n                append(\"X-Goog-AuthUser\", session.authUser)\n                val sapisid = session.sapisid\n                if (!sapisid.isNullOrBlank()) {\n                    val currentTime = Clock.System.now().toEpochMilliseconds() / 1000\n                    val sapisidHash = sha1(\"$currentTime $sapisid $origin\")\n                    append(\"Authorization\", \"SAPISIDHASH ${currentTime}_$sapisidHash\")\n                }\n            }\n        }\n\n        url(\"$apiBase/$endpoint\")\n        parameter(\"prettyPrint\", false)\n        userAgent(client.userAgent)\n    }\n\n    internal suspend fun playerWithSession(\n        client: YouTubeClient,\n        videoId: String,\n        playlistId: String?,\n        signatureTimestamp: Int?,\n        poToken: String?,\n        requestVisitorData: String?,\n        requestSession: SessionSnapshot,\n        encryptedHostFlags: String? = null,\n    ): HttpResponse {\n        val visitorDataForRequest = requestVisitorData ?: requestSession.visitorData\n        val requestClient =\n            if (\"{language}\" in client.userAgent) {\n                client.copy(userAgent = client.userAgent.replace(\"{language}\", requestSession.locale.hl))\n            } else {\n                client\n            }\n        return executeRequest(operation = \"player:${client.clientName}\") {\n            val startTime = Clock.System.now().toEpochMilliseconds()\n            val hasCookie = !requestSession.cookie.isNullOrBlank()\n            val hasSapisid = !requestSession.sapisid.isNullOrBlank()\n            val authHeaderEligible = client.loginSupported\n            val hasDataSync = !requestSession.dataSyncId.isNullOrBlank()\n            logger.d(\n                TAG,\n                \"player request client=${client.clientName} version=${client.clientVersion} \" +\n                    \"poToken=${poToken != null} sts=${signatureTimestamp != null} \" +\n                    \"loginSupported=${client.loginSupported} loginRequired=${client.loginRequired} \" +\n                    \"hasCookie=$hasCookie hasSapisid=$hasSapisid authEligible=$authHeaderEligible hasDataSync=$hasDataSync\",\n            )\n            val response =\n                httpClient.post(\"player\") {\n                    ytClient(requestClient, requestSession, setLogin = true, visitorData = visitorDataForRequest)\n                    setBody(\n                        PlayerBody(\n                            context =\n                                requestClient.toContext(\n                                    requestSession.locale,\n                                    visitorDataForRequest,\n                                    requestSession.dataSyncId.takeIf { client.loginSupported },\n                                ),\n                            videoId = videoId,\n                            playlistId = playlistId,\n                            playbackContext =\n                                if (client.useSignatureTimestamp || client.isEmbedded) {\n                                    PlayerBody.PlaybackContext(\n                                        PlayerBody.PlaybackContext.ContentPlaybackContext(\n                                            html5Preference =\n                                                \"HTML5_PREF_WANTS\".takeUnless { client.useMusicPlayerEndpoint },\n                                            signatureTimestamp = signatureTimestamp.takeIf { client.useSignatureTimestamp },\n                                            encryptedHostFlags = encryptedHostFlags.takeIf { client.isEmbedded },\n                                        ),\n                                    )\n                                } else {\n                                    null\n                                },\n                            thirdParty =\n                                if (client.isEmbedded) {\n                                    PlayerBody.ThirdParty(embedUrl = \"https://www.youtube.com/embed/$videoId\")\n                                } else {\n                                    null\n                                },\n                            serviceIntegrityDimensions =\n                                if (poToken != null) {\n                                    PlayerBody.ServiceIntegrityDimensions(poToken)\n                                } else {\n                                    null\n                                },\n                            contentCheckOk = true,\n                            racyCheckOk = true,\n                            videoCheckOk = true.takeUnless { client.useMusicPlayerEndpoint },\n                        ),\n                    )\n                    userAgent(requestClient.userAgent)\n                }\n            val elapsed = Clock.System.now().toEpochMilliseconds() - startTime\n            logger.d(TAG, \"player response client=${client.clientName} elapsed=${elapsed}ms\")\n            response\n        }\n    }\n\n    suspend fun mediaContentLength(\n        url: String,\n        requestHeaders: Map<String, String>,\n    ): Long? =\n        try {\n            val mediaUrl = validatedMediaUrl(url)\n            httpClient\n                .head(mediaUrl) {\n                    requestHeaders.forEach { (name, value) ->\n                        if (name.lowercase() in MEDIA_REQUEST_HEADERS) header(name, value)\n                    }\n                }.contentLength()\n                ?.takeIf { it > 0L }\n        } catch (e: CancellationException) {\n            throw e\n        } catch (_: Exception) {\n            null\n        }\n\n"
+    },
+    {
+      "repository": "FrancescoGrazioso/Meld",
+      "commit": "9c3dfc8618625a94e7019fbb0f3e31f2c87f74e9",
+      "path": "innertube/src/main/kotlin/com/metrolist/innertube/InnerTube.kt",
+      "sha256": "3d981b55d4e47a49bb0dca53df0eb9bfd659f0abe2f356059da983ecde30f3a1",
+      "sourceExcerpt": "    @OptIn(ExperimentalSerializationApi::class)\n    private fun createClient() =\n        HttpClient(OkHttp) {\n            // InnerTubeX handles endpoint-specific status validation and transient retries.\n            expectSuccess = false\n\n            install(ContentNegotiation) {\n                json(\n                    Json {\n                        ignoreUnknownKeys = true\n                        explicitNulls = false\n                        encodeDefaults = true\n                    },\n                )\n            }\n\n            install(ContentEncoding) {\n                gzip(0.9F)\n                deflate(0.8F)\n            }\n\n            engine {\n                config {\n                    connectionPool(okhttp3.ConnectionPool(10, 5, TimeUnit.MINUTES))\n                    connectTimeout(30, TimeUnit.SECONDS)\n                    readTimeout(60, TimeUnit.SECONDS)\n                    writeTimeout(60, TimeUnit.SECONDS)\n                    protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))\n                    retryOnConnectionFailure(true)\n                    cache(okhttp3.Cache(File(System.getProperty(\"java.io.tmpdir\"), \"http_cache\"), 50L * 1024L * 1024L))\n                    configuredProxy?.let(::proxy)\n                    configuredProxyAuth?.let { auth ->\n                        proxyAuthenticator { _, response ->\n                            response.request\n                                .newBuilder()\n                                .header(\"Proxy-Authorization\", auth)\n                                .build()\n                        }\n                    }\n                }\n            }\n\n            install(HttpTimeout) {\n                requestTimeoutMillis = 60_000\n                connectTimeoutMillis = 30_000\n                socketTimeoutMillis = 60_000\n            }\n\n            defaultRequest {\n                url(\"https://music.youtube.com/youtubei/v1/\")\n                header(\"Accept\", \"application/json\")\n                header(\"Cache-Control\", \"no-cache\")\n            }\n        }\n\n",
+      "attribution": "SHA256 matches clean tracked file at this local Git revision. Original 1ded raw-capture assertion is not relied upon for this fixture."
+    }
+  ],
+  "request": {
+    "videoId": "uZGRATckoBM",
+    "expectedVideoId": "uZGRATckoBM",
+    "formatId": 251,
+    "budgetMs": 19000,
+    "hl": "en",
+    "gl": "US"
+  },
+  "expected": {
+    "endpoint": "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+    "headers": {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Cache-Control": "no-cache",
+      "X-Goog-Api-Format-Version": "1",
+      "X-YouTube-Client-Name": "101",
+      "X-YouTube-Client-Version": "0.1",
+      "Origin": "https://music.youtube.com",
+      "X-Origin": "https://music.youtube.com",
+      "Referer": "https://music.youtube.com/",
+      "Accept-Language": "en-US,en;q=0.9",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
+    },
+    "body": {
+      "context": {
+        "client": {
+          "clientName": "VISIONOS",
+          "clientVersion": "0.1",
+          "osName": "VISION_OS",
+          "osVersion": "1.3",
+          "deviceMake": "Apple",
+          "deviceModel": "RealityDevice14,1",
+          "platform": "MOBILE",
+          "gl": "US",
+          "hl": "en"
+        },
+        "request": {
+          "internalExperimentFlags": [],
+          "useSsl": true
+        },
+        "user": {
+          "lockedSafetyMode": false
+        }
+      },
+      "videoId": "uZGRATckoBM",
+      "contentCheckOk": true,
+      "racyCheckOk": true
+    }
+  }
+}

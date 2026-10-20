@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "qualification": false,
+  "profileId": "VISIONOS_0_1",
+  "sourcePins": {
+    "meld": "1ded7122ee0bd166bd703bfe3b63d233af8b7dcd",
+    "innertubex": "93b650b877530738cbc4d2183b4322b77bb9033e",
+    "innertubexArchiveSha256": "ba9519a7851131aa93094c4b5a0dfb1ee238f8a0975a85274c9892cb412cbcc2",
+    "clientModelSha256": "694d66a4c8dc4f9c67b1abc971835ddbd5d09022de8b286a986ad5039b846d90",
+    "playbackCatalogSha256": "ab204b0ee78c87d4c7e9f4e82171d6c399b2013bd08942f4dae6846611e3af54"
+  },
+  "tokenWork": "not-requested",
+  "playerJavaScript": "not-requested",
+  "visitorContext": "omitted-nullable-profile; no-session-fetch",
+  "scope": "anonymous explicit provider ID; five-second PCM excerpt; not full-recording, acoustic, catalog or device qualification",
+  "stages": {
+    "player": 311.37332899999996,
+    "parse": 4.81139300000001,
+    "format": 0.41669899999999416
+  },
+  "id": "visionos-01-matthew-251",
+  "requestedVideoId": "uZGRATckoBM",
+  "requestedFormatId": 251,
+  "requestHeaderNames": [
+    "Accept-Language",
+    "Content-Type",
+    "Origin",
+    "Referer",
+    "User-Agent",
+    "X-Goog-Api-Format-Version",
+    "X-Origin",
+    "X-YouTube-Client-Name",
+    "X-YouTube-Client-Version"
+  ],
+  "stage": "parse",
+  "httpStatus": 200,
+  "playabilityStatus": "UNPLAYABLE",
+  "availableFormats": [],
+  "ok": false,
+  "failure": "PLAYABILITY_REJECTED",
+  "wallMs": 318.163993,
+  "launchToCleanupMs": 439.923
+}
