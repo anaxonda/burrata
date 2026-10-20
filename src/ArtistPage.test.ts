@@ -596,3 +596,38 @@ describe("catalog artist history snapshots",()=>{
     providerNavigationSnapshots.clear();
   });
 });
+
+describe("artist discography ordering", () => {
+  it("loads later release pages before ordering albums by full release date", async () => {
+    const ref = artist("paged-discography", "Paged Discography");
+    const datedRelease = (id: string, title: string, date: string) => {
+      const item = release(id, title, `https://musicbrainz.org/release/${id}`, "Album");
+      item.releaseDate = date;
+      item.year = Number(date.slice(0, 4));
+      return item;
+    };
+    const firstPage = emptyReleasePage(ref.artist.id, [
+      datedRelease("older", "Older Album", "2013-06-01"),
+    ], "page-2");
+    const getArtistReleases = vi.fn(async (_artist: { id: string }, cursor?: string | null) => {
+      expect(cursor).toBe("page-2");
+      return emptyReleasePage(ref.artist.id, [
+        datedRelease("newest", "Newest Album", "2018-12-01"),
+        datedRelease("earlier-2018", "Earlier 2018 Album", "2018-02-01"),
+      ]);
+    });
+    const target = render({
+      initialArtistRef: ref.artist,
+      initialSection: "releases",
+      getArtistProfile: async () => profile(ref, firstPage),
+      getArtistReleases,
+    });
+
+    await settle();
+
+    const albumTitles = [...target.querySelectorAll(".release-list article strong")]
+      .map((element) => element.textContent?.trim());
+    expect(getArtistReleases).toHaveBeenCalledOnce();
+    expect(albumTitles).toEqual(["Newest Album", "Earlier 2018 Album", "Older Album"]);
+  });
+});

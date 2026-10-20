@@ -387,6 +387,7 @@ mod tests {
 
     fn track(artist: &str, title: &str) -> RadioTrackMetadata {
         RadioTrackMetadata {
+            identifiers: None,
             station_id: "test".into(),
             artist: artist.into(),
             title: title.into(),

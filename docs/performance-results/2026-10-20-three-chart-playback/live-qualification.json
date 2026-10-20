@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-20",
+  "buildSha256": "10b969b8a65ae38fdc38337df8dc3823cea7a5a9d88723dc70f1437d880b18ce",
+  "engine": "webview",
+  "qualification": "Original saved playlist IDs, automatic source selection, both natural-end transitions exercised by seeking near track end; no manual source pins or saved-tag edits. Functional Linux observation, not a statistical startup benchmark or speaker-audibility test.",
+  "nativeTests": {
+    "passed": 1394,
+    "failed": 0,
+    "ignored": 35
+  },
+  "samples": [
+    {
+      "sample": "first",
+      "trackId": "traxsource:15057930",
+      "currentIndex": 0,
+      "queueTotal": 3,
+      "currentTimeSeconds": 22.116008,
+      "durationSeconds": 493.795555555,
+      "paused": false,
+      "errorCode": null,
+      "readyState": 4,
+      "resolvedSourceId": "youtube:mVvwOJJRwXo"
+    },
+    {
+      "sample": "second",
+      "trackId": "traxsource:15019328",
+      "currentIndex": 1,
+      "queueTotal": 3,
+      "currentTimeSeconds": 36.862342,
+      "durationSeconds": 347.393741496,
+      "paused": false,
+      "errorCode": null,
+      "readyState": 4,
+      "resolvedSourceId": "youtube:Se4-OPD-nEs"
+    },
+    {
+      "sample": "third",
+      "trackId": "traxsource:14798487",
+      "currentIndex": 2,
+      "queueTotal": 3,
+      "currentTimeSeconds": 179.005697,
+      "durationSeconds": 330.3735,
+      "paused": false,
+      "errorCode": null,
+      "readyState": 4,
+      "resolvedSourceId": "youtube:iHugvFBKbF0"
+    }
+  ],
+  "resolutions": [
+    {
+      "sourceResolutionMs": 9125,
+      "success": true
+    },
+    {
+      "sourceResolutionMs": 6072,
+      "success": true
+    },
+    {
+      "sourceResolutionMs": 6053,
+      "success": true
+    }
+  ]
+}

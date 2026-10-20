@@ -138,6 +138,26 @@ describe("DirectoryBrowser", () => {
     expect(target.querySelector('[aria-label="Play Track"]')).not.toBeNull();
   });
 
+  it("uses playlist rows for audio while preserving unavailable-file rows in the mixed directory order", async () => {
+    const unavailable: DirectoryAudioFile = { path: "/home/test/Music/Unindexed.flac", name: "Unindexed.flac", track: null };
+    const call = vi.fn(async (command: string) => {
+      if (command === "list_directory_browser_roots") return [root];
+      if (command === "browse_directory_browser") return browse({ files: [file, unavailable], total: 2 });
+      throw Error(`Unexpected ${command}`);
+    });
+    const { target } = render(call); await settle();
+
+    expect(target.querySelector(".track-list-viewport")?.classList.contains("playlist")).toBe(true);
+    const rows = [...target.querySelectorAll<HTMLLIElement>(".shared-track-list > li")];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.querySelector(".position-play")?.getAttribute("aria-label")).toBe("Play Track");
+    expect(rows[0]?.querySelector(".track-position")?.textContent).toBe("1");
+    expect(rows[1]?.classList.contains("track-status-row")).toBe(true);
+    expect(rows[1]?.getAttribute("role")).toBe("status");
+    expect(rows[1]?.textContent).toContain("Unindexed.flac");
+    expect(rows[1]?.querySelector(".position-play")).toBeNull();
+  });
+
   it("ignores a stale directory response after an external location change",async()=>{
     let finish!:(page:DirectoryBrowsePage)=>void;
     const state=writable({rootId:root.id,relativePath:"Old"});const model=fromStore(state);
@@ -269,6 +289,20 @@ describe("DirectoryBrowser", () => {
     target.querySelectorAll<HTMLButtonElement>(".shared-track-list .track-title")[1]!.click();
     expect(onPlayFile).toHaveBeenLastCalledWith(duplicate, duplicate.track);
     expect(call).toHaveBeenCalledWith("browse_directory_browser", expect.objectContaining({ rootId: root.id, relativePath: "", offset: 1, limit: 200, sortField: "filename", sortDirection: "asc" }));
+  });
+
+  it("opens an indexed local recording's album from its album name", async () => {
+    const albumTrack = { ...track, album: "Local Album" };
+    const albumFile = { ...file, track: albumTrack };
+    const call = vi.fn(async (command: string) => {
+      if (command === "list_directory_browser_roots") return [root];
+      if (command === "browse_directory_browser") return browse({ files: [albumFile] });
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const onTrackAlbum = vi.fn();
+    const { target } = render(call, vi.fn(), { onTrackAlbum }); await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Open album Local Album"]')!.click();
+    expect(onTrackAlbum).toHaveBeenCalledWith(albumTrack);
   });
 
   it("keeps unindexed files visible but unavailable for playback until scanning indexes them", async () => {

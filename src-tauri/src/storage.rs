@@ -69,6 +69,23 @@ pub struct VerifiedPlaybackSource {
     pub permanent_url: String,
     pub verification_proof: Option<serde_json::Value>,
 }
+
+/// Cached provider evidence scoped to one requested recording identity and one
+/// stable provider object. Callers must run the current evaluator again before
+/// using the evidence to accept a source.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchingEvidenceRecord {
+    pub schema_version: u32,
+    pub evaluator_version: String,
+    pub requested_track_id: String,
+    pub requested_fingerprint: String,
+    pub source_provider: String,
+    pub source_id: String,
+    pub policy: crate::recording_match::MatchLevel,
+    pub relationship: crate::recording_match::MatchRelationship,
+    pub evidence: serde_json::Value,
+}
 #[derive(Debug, Clone)]
 pub struct AnalysisQueueAsset {
     pub rowid: i64,
@@ -960,6 +977,65 @@ impl Store {
         }
         Ok(Some(decode(payload)?))
     }
+
+    /// Find only cached raw MusicBrainz artist profiles whose canonical name or
+    /// alias exactly matches the supplied bounded name. This is a scoped read;
+    /// it does not expose general provider-cache enumeration.
+    pub fn cached_musicbrainz_artist_profiles_for_name(
+        &self,
+        name: &str,
+    ) -> Result<Vec<serde_json::Value>> {
+        let name = name.trim();
+        if name.is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
+            return Ok(Vec::new());
+        }
+        let conn = self.lock_connection()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT payload FROM provider_cache
+                 WHERE namespace='artists.profile.musicbrainz'
+                   AND julianday(expires_at)>julianday('now')
+                   AND json_valid(payload)
+                   AND (lower(trim(json_extract(payload,'$.name')))=lower(?1)
+                     OR EXISTS(SELECT 1 FROM json_each(payload,'$.aliases') a
+                       WHERE lower(trim(CASE WHEN a.type='object' THEN json_extract(a.value,'$.name') WHEN a.type='text' THEN a.value ELSE NULL END))=lower(?1)))
+                 LIMIT 3",
+            )
+            .map_err(err)?;
+        let rows = stmt
+            .query_map([name], |row| row.get::<_, String>(0))
+            .map_err(err)?;
+        let wanted = name.to_lowercase();
+        let mut profiles = std::collections::BTreeMap::<String, serde_json::Value>::new();
+        for row in rows {
+            let Ok(payload) = row else { continue };
+            let Ok(profile) = serde_json::from_str::<serde_json::Value>(&payload) else {
+                continue;
+            };
+            let Some(id) = profile["id"].as_str().filter(|id| !id.is_empty()) else {
+                continue;
+            };
+            let matches = profile["name"]
+                .as_str()
+                .is_some_and(|candidate| candidate.trim().to_lowercase() == wanted)
+                || profile["aliases"].as_array().is_some_and(|aliases| {
+                    aliases.iter().any(|alias| {
+                        alias
+                            .as_str()
+                            .or_else(|| alias["name"].as_str())
+                            .is_some_and(|candidate| candidate.trim().to_lowercase() == wanted)
+                    })
+                });
+            if matches {
+                profiles.entry(id.to_owned()).or_insert(profile);
+                if profiles.len() >= 3 {
+                    break;
+                }
+            }
+        }
+        Ok(profiles.into_values().collect())
+    }
+
     pub fn set_provider_cache(
         &self,
         namespace: &str,
@@ -986,6 +1062,137 @@ impl Store {
             .map_err(err)?;
         Ok(())
     }
+
+    fn matching_evidence_cache_key(
+        requested_track_id: &str,
+        requested_fingerprint: &str,
+        source_provider: &str,
+        source_id: &str,
+        evaluator_version: &str,
+        policy: crate::recording_match::MatchLevel,
+    ) -> Result<String> {
+        if requested_track_id.trim().is_empty()
+            || requested_track_id.len() > 512
+            || !requested_track_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'/' | b'_' | b'-' | b'.'))
+            || requested_fingerprint.len() != 64
+            || !requested_fingerprint.bytes().all(|b| b.is_ascii_hexdigit())
+            || !matches!(source_provider, "youtube" | "soundcloud")
+            || !stable_provider_id(source_provider, source_id)
+            || evaluator_version.trim().is_empty()
+            || evaluator_version.len() > 128
+        {
+            return Err("Matching evidence identity is invalid".into());
+        }
+        let identity = serde_json::to_vec(&(
+            1u32,
+            requested_track_id,
+            requested_fingerprint.to_ascii_lowercase(),
+            source_provider,
+            source_id,
+            evaluator_version,
+            policy,
+        ))
+        .map_err(err)?;
+        use sha2::{Digest, Sha256};
+        Ok(format!("{:x}", Sha256::digest(identity)))
+    }
+
+    fn matching_evidence_has_no_secrets(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Object(map) => map.iter().all(|(key, value)| {
+                let key = key.to_ascii_lowercase();
+                ![
+                    "url",
+                    "uri",
+                    "token",
+                    "cookie",
+                    "authorization",
+                    "headers",
+                    "secret",
+                ]
+                .iter()
+                .any(|blocked| key.contains(blocked))
+                    && Self::matching_evidence_has_no_secrets(value)
+            }),
+            serde_json::Value::Array(values) => {
+                values.iter().all(Self::matching_evidence_has_no_secrets)
+            }
+            serde_json::Value::String(text) => {
+                let text = text.to_ascii_lowercase();
+                !text.contains("http://") && !text.contains("https://")
+            }
+            _ => true,
+        }
+    }
+
+    /// Store source matching evidence under requested identity, source identity,
+    /// evaluator version, and policy. The cached assessment is never an accept
+    /// decision; callers re-run their evaluator when it is read.
+    pub fn save_matching_evidence(&self, record: &MatchingEvidenceRecord) -> Result<()> {
+        if record.schema_version != 1
+            || record.requested_fingerprint.len() != 64
+            || !Self::matching_evidence_has_no_secrets(&record.evidence)
+        {
+            return Err("Matching evidence is invalid or contains sensitive source data".into());
+        }
+        let key = Self::matching_evidence_cache_key(
+            &record.requested_track_id,
+            &record.requested_fingerprint,
+            &record.source_provider,
+            &record.source_id,
+            &record.evaluator_version,
+            record.policy,
+        )?;
+        self.set_provider_cache(
+            "playback.matching-evidence.v1",
+            &key,
+            &serde_json::to_value(record).map_err(err)?,
+            45 * 86400,
+        )
+    }
+
+    pub fn get_matching_evidence(
+        &self,
+        requested_track_id: &str,
+        requested_fingerprint: &str,
+        source_provider: &str,
+        source_id: &str,
+        evaluator_version: &str,
+        policy: crate::recording_match::MatchLevel,
+    ) -> Result<Option<MatchingEvidenceRecord>> {
+        let key = Self::matching_evidence_cache_key(
+            requested_track_id,
+            requested_fingerprint,
+            source_provider,
+            source_id,
+            evaluator_version,
+            policy,
+        )?;
+        let Some(value) = self.get_provider_cache("playback.matching-evidence.v1", &key)? else {
+            return Ok(None);
+        };
+        let record: MatchingEvidenceRecord = match serde_json::from_value(value) {
+            Ok(record) => record,
+            Err(_) => return Ok(None),
+        };
+        if record.schema_version != 1
+            || record.requested_track_id != requested_track_id
+            || !record
+                .requested_fingerprint
+                .eq_ignore_ascii_case(requested_fingerprint)
+            || record.source_provider != source_provider
+            || record.source_id != source_id
+            || record.evaluator_version != evaluator_version
+            || record.policy != policy
+            || !Self::matching_evidence_has_no_secrets(&record.evidence)
+        {
+            return Ok(None);
+        }
+        Ok(Some(record))
+    }
+
     /// Retain identity evidence independently of its refresh age. Callers must
     /// store and validate their own provenance, fingerprint and fetchedAt.
     /// Unlike ordinary provider responses this evidence never expires by age.
@@ -5429,6 +5636,7 @@ fn finish_hydration(
                 .join("-")
         });
     }
+    crate::recording_identity::hydrate_identifiers(&mut track);
     Ok(track)
 }
 
@@ -12378,6 +12586,136 @@ mod tests {
         assert!(reopened
             .set_retained_provider_cache("unrelated", "key", &serde_json::json!({}))
             .is_err());
+    }
+
+    fn sample_matching_evidence(
+        policy: crate::recording_match::MatchLevel,
+    ) -> MatchingEvidenceRecord {
+        MatchingEvidenceRecord {
+            schema_version: 1,
+            evaluator_version: "recording-match-v1".into(),
+            requested_track_id: "spotify:track:requested".into(),
+            requested_fingerprint: "a".repeat(64),
+            source_provider: "youtube".into(),
+            source_id: "abcdefghijk".into(),
+            policy,
+            relationship: crate::recording_match::MatchRelationship::Probable,
+            evidence: serde_json::json!({"title":"Song","artist":"Artist"}),
+        }
+    }
+
+    #[test]
+    fn matching_evidence_isolated_by_policy_identity_and_evaluator() {
+        let (_dir, store) = db();
+        let record = sample_matching_evidence(crate::recording_match::MatchLevel::Flexible);
+        store.save_matching_evidence(&record).unwrap();
+        assert!(store
+            .get_matching_evidence(
+                &record.requested_track_id,
+                &record.requested_fingerprint,
+                &record.source_provider,
+                &record.source_id,
+                &record.evaluator_version,
+                crate::recording_match::MatchLevel::Exact,
+            )
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_matching_evidence(
+                &record.requested_track_id,
+                &"b".repeat(64),
+                &record.source_provider,
+                &record.source_id,
+                &record.evaluator_version,
+                record.policy,
+            )
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_matching_evidence(
+                &record.requested_track_id,
+                &record.requested_fingerprint,
+                &record.source_provider,
+                &record.source_id,
+                "recording-match-v2",
+                record.policy,
+            )
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            store
+                .get_matching_evidence(
+                    &record.requested_track_id,
+                    &record.requested_fingerprint,
+                    &record.source_provider,
+                    &record.source_id,
+                    &record.evaluator_version,
+                    record.policy,
+                )
+                .unwrap(),
+            Some(record)
+        );
+    }
+
+    #[test]
+    fn matching_evidence_rejects_legacy_schema_and_secret_urls() {
+        let (_dir, store) = db();
+        let mut record = sample_matching_evidence(crate::recording_match::MatchLevel::Balanced);
+        record.schema_version = 0;
+        assert!(store.save_matching_evidence(&record).is_err());
+        record.schema_version = 1;
+        record.evidence["streamUrl"] = serde_json::json!("https://example.test/audio");
+        assert!(store.save_matching_evidence(&record).is_err());
+    }
+
+    #[test]
+    fn cached_musicbrainz_profiles_match_exact_names_and_aliases_with_ambiguity_bound() {
+        let (_dir, store) = db();
+        for (id, name, aliases) in [
+            (
+                "one",
+                "Canonical",
+                serde_json::json!([{"name":"Stage Name"}]),
+            ),
+            ("two", "Stage Name", serde_json::json!([])),
+            ("three", "Another", serde_json::json!(["Stage Name"])),
+            ("four", "Fourth", serde_json::json!([{"name":"Stage Name"}])),
+            ("unrelated", "Stage Name Deluxe", serde_json::json!([])),
+        ] {
+            store
+                .set_retained_provider_cache(
+                    "artists.profile.musicbrainz",
+                    id,
+                    &serde_json::json!({"id":id,"name":name,"aliases":aliases}),
+                )
+                .unwrap();
+        }
+        let matches = store
+            .cached_musicbrainz_artist_profiles_for_name(" stage name ")
+            .unwrap();
+        assert_eq!(matches.len(), 3);
+        assert!(matches.iter().all(|profile| {
+            profile["name"]
+                .as_str()
+                .unwrap()
+                .eq_ignore_ascii_case("stage name")
+                || profile["aliases"].as_array().is_some_and(|aliases| {
+                    aliases.iter().any(|alias| {
+                        alias
+                            .as_str()
+                            .or_else(|| alias["name"].as_str())
+                            .is_some_and(|value| value.eq_ignore_ascii_case("stage name"))
+                    })
+                })
+        }));
+        assert!(store
+            .cached_musicbrainz_artist_profiles_for_name("Stage Name Deluxe Extra")
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .cached_musicbrainz_artist_profiles_for_name(&"x".repeat(201))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

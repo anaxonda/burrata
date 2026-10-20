@@ -112,6 +112,16 @@ describe("TrackList", () => {
     expect(onPlay).toHaveBeenCalledWith(tracks[0], tracks, 0); expect(onFavorite).toHaveBeenCalledWith(tracks[0]); expect(onDownload).toHaveBeenCalledWith(tracks[0]);
   });
 
+  it("opens the exact track's album from its inline album name", () => {
+    const onAlbum = vi.fn(), onRowSelect = vi.fn();
+    const target = render({ onAlbum, onRowSelect });
+    const albumLink = target.querySelector<HTMLButtonElement>('.album-link[aria-label="Open album Album"]')!;
+    expect(albumLink.textContent).toBe("Album");
+    albumLink.click();
+    expect(onAlbum).toHaveBeenCalledWith(tracks[0]);
+    expect(onRowSelect).not.toHaveBeenCalled();
+  });
+
   it("announces the current row and exposes buffering and selection states", async () => {
     const onSelect = vi.fn();
     const target = render({ playingTrackId: "track-1", bufferingTrackId: "track-1", selectedTrackIds: ["track-1"], onSelect });

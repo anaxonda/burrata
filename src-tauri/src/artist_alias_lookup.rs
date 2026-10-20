@@ -16,6 +16,8 @@ use std::{
 };
 use tokio::sync::watch;
 
+const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v4";
+
 struct Flight {
     id: uuid::Uuid,
     users: AtomicUsize,
@@ -39,6 +41,19 @@ fn fingerprint(track: &Track) -> String {
         .unwrap_or_else(|_| format!("{:x}", Sha256::digest(track.id.as_bytes())))
 }
 
+fn negative_cache_key(original: &Track, hydrated: &Track) -> Option<String> {
+    if original.provider == "spotify" {
+        // A Spotify no-match is meaningful only for a complete, verified
+        // catalog identity. Bind it to the hydrated track fingerprint so a
+        // later artist-ID/ISRC enrichment cannot inherit an older negative.
+        let identity = crate::artist_credit_aliases::spotify_artist_credit_fingerprint(hydrated)?;
+        let bytes = serde_json::to_vec(&identity).ok()?;
+        Some(format!("spotify:{:x}", Sha256::digest(bytes)))
+    } else {
+        Some(fingerprint(original))
+    }
+}
+
 pub(crate) fn enabled() -> bool {
     std::env::var("BURRATA_ARTIST_ALIAS_DISCOVERY").as_deref() != Ok("0")
 }
@@ -52,9 +67,12 @@ pub(crate) async fn lookup(
 ) -> Result<(), String> {
     let store = acquisition.alias_store();
     let hash = fingerprint(track);
-    if store
-        .get_provider_cache("artists.alias-discovery.negative.v2", &hash)?
-        .is_some()
+    // Non-Spotify sources already have complete source identity at this point.
+    // Spotify must hydrate before consulting a negative cache entry.
+    if track.provider != "spotify"
+        && store
+            .get_provider_cache(NEGATIVE_CACHE_NAMESPACE, &hash)?
+            .is_some()
     {
         trace.event(
             "alias_lookup_skipped",
@@ -77,12 +95,31 @@ pub(crate) async fn lookup(
             _=wait_for_cancellation(stop.clone())=>Err("Cancelled".into()),
             _=tokio::time::sleep_until(worker_deadline.instant())=>Err("Alias discovery deadline exceeded".into()),
             result=async {
-                let hydrated=if track.provider=="spotify" && crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track).is_none() { acquisition.prepare_alias_track(&track,stop.clone(),worker_deadline.instant(),&worker_trace).await? } else {track.clone()};
+                let hydrated = if track.provider == "spotify" {
+                    if crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track).is_some() {
+                        track.clone()
+                    } else if let Some(cached) = crate::remote_playlists::read_alias_hydrated_track(&store, &track) {
+                        cached
+                    } else {
+                        acquisition.prepare_alias_track(&track,stop.clone(),worker_deadline.instant(),&worker_trace).await?
+                    }
+                } else {
+                    track.clone()
+                };
+                let negative_key = negative_cache_key(&track, &hydrated);
+                if let Some(key) = negative_key.as_deref() {
+                    if store.get_provider_cache(NEGATIVE_CACHE_NAMESPACE, key)?.is_some() {
+                        worker_trace.event("alias_lookup_skipped", &track.provider, json!({"reason":"negative_cache","identity":"complete"}));
+                        return Ok(());
+                    }
+                }
                 let report=crate::artist_alias_discovery::discover_verified_artist_aliases_traced(&store,&hydrated,worker_trace.clone()).await;
                 worker_trace.event("alias_discovery_work",&track.provider,json!({"metadataRequests":report.stats.requests,"bytes":report.stats.bytes,"queueMs":report.stats.queue_ms,"httpMs":report.stats.http_ms,"lastStatus":report.stats.last_status,"ok":report.result.is_ok()}));
                 report.result?;
                 if crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store,&track).has_verified_credit_sets() == false {
-                    store.set_provider_cache("artists.alias-discovery.negative.v2",&hash,&json!({"outcome":"no_verified_evidence"}),24*60*60)?;
+                    if let Some(key) = negative_key {
+                        store.set_provider_cache(NEGATIVE_CACHE_NAMESPACE,&key,&json!({"outcome":"no_verified_evidence","identity":"complete"}),24*60*60)?;
+                    }
                 }
                 Ok(())
             }=>result,
@@ -162,6 +199,69 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn spotify_track_with_artist_identity() -> Track {
+        let track_id = "0123456789012345678901";
+        let artist_id = "abcdefghijklmnopqrstuv";
+        let mut track = Track {
+            id: format!("spotify:{track_id}"),
+            provider: "spotify".into(),
+            provider_id: track_id.into(),
+            source_url: format!("https://open.spotify.com/track/{track_id}"),
+            title: "Example song".into(),
+            artist: "Example artist".into(),
+            duration_seconds: Some(180.0),
+            ..Track::default()
+        };
+        track.provenance = json!({
+            "catalog":{"verified":true,"provider":"spotify","providerId":track_id,
+                "artistCount":1,"artists":[{"provider":"spotify","id":artist_id,"name":"Example artist"}]},
+            "remoteCatalog":{"trackId":track_id,"title":"Example song","artist":"Example artist",
+                "durationSeconds":180.0,"artistCount":1,
+                "artistRefs":[{"provider":"spotify","id":artist_id,"name":"Example artist"}]}
+        });
+        track
+    }
+
+    #[test]
+    fn spotify_negative_cache_requires_complete_hydrated_identity() {
+        let mut incomplete = spotify_track_with_artist_identity();
+        incomplete.provenance = json!({});
+        assert!(negative_cache_key(&incomplete, &incomplete).is_none());
+
+        let complete = spotify_track_with_artist_identity();
+        assert!(negative_cache_key(&complete, &complete).is_some());
+    }
+
+    #[test]
+    fn spotify_negative_cache_is_bound_to_ordered_artist_identity() {
+        let original = spotify_track_with_artist_identity();
+        let mut changed = original.clone();
+        changed.provenance["catalog"]["artists"][0]["id"] = json!("zyxwvutsrqponmlkjihgfe");
+        changed.provenance["remoteCatalog"]["artistRefs"][0]["id"] =
+            json!("zyxwvutsrqponmlkjihgfe");
+
+        assert_ne!(
+            negative_cache_key(&original, &original),
+            negative_cache_key(&original, &changed)
+        );
+    }
+
+    #[test]
+    fn non_spotify_negative_cache_keeps_source_identity_key() {
+        let original = Track {
+            id: "radio_song:123".into(),
+            provider: "radio_song".into(),
+            title: "Example song".into(),
+            artist: "Example artist".into(),
+            ..Track::default()
+        };
+        assert_eq!(
+            negative_cache_key(&original, &original),
+            Some(fingerprint(&original))
+        );
+    }
+
     #[tokio::test]
     async fn shared_callers_cancel_independently_and_execute_once() {
         let key = uuid::Uuid::new_v4().to_string();

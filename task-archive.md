@@ -2,6 +2,14 @@
 
 Completed work moved from [todo.md](todo.md) on 2026-10-18. Entries retain their original evidence and qualification limits; historical build versions and running-app descriptions describe the verification at that time. Outstanding work remains in [todo.md](todo.md), including the linked pre-release snapshot.
 
+## Recording identity and catalog UI checkpoint — 2026-10-20
+
+- Preserved/canonicalized recording identifiers and complete provider credits; added recording-scoped duration/locale-credit evidence, conservative title parsing and bounded saved-radio source preparation. Removed the verification-method form from normal Track Info. Qualification details and limits remain in [recording identity](docs/recording-identity.md).
+- Nighttime now plays through automatic Bandcamp fallback from the real library. Independently qualified fresh Bandcamp access, a complete album crosswalk, PCM decoding and unchanged saved tags. Explicit label YouTube playback also succeeds, while its direct-resolver attempt falls back. [Evidence](docs/performance-results/2026-10-20-nighttime-catalog/README.md).
+- Fixed discography pagination and full-date sorting: the actual Nipsey page now loads 82 albums / 102 editions with 2026 entries first. Artist-page regressions pass 26 tests. Library-row title/Play actions explicitly snapshot the displayed queue and occurrence index; a same-occurrence source refresh receives one bounded retry.
+- Added catalog album lookup for audio-provider search rows with album/artist hints, safe ambiguity handling, approximate BPM/key formatting and empty-artist subtitle cleanup. Targeted UI suites pass 508 tests plus 20 TrackList tests; Svelte checks and production frontend build pass. Missing keys in the reported downloads were low-confidence analysis results, not skipped analysis.
+- Public release and the newest chart-track live verification remain pending in todo; these checkpoints do not assert that every reported source or physical platform is qualified.
+
 ## Demand-driven aliases and radio fixes — 2026-10-18
 
 - Implemented demand-driven verified artist aliases, permanent evidence retention with refresh rather than deletion, full artist-credit matching, shared cancellation/deadline/attempt bounds, provider hydration, and redacted timing/resource diagnostics. Native suite passes 1,146 cases. The specific Chalkias/Halkias Spotify recording binding remains unverified; artist aliases alone do not authorize a match. [Behavior](docs/playback-artist-aliases.md), [verification](docs/performance-results/2026-10-18-alias-radio/README.md).

@@ -15,7 +15,7 @@
   const PAGE_SIZE = 200;
   type Location = DirectoryBrowserLocation;
   type LocationChangeMeta = { reason: "user" | "registry"; previousSnapshot: DirectoryBrowserSnapshot };
-  let { call, location = null, rootRegistryRevision = 0, onLocationChange = (_location: Location | null, _meta: LocationChangeMeta) => {}, onRootsChanged = () => {}, onPlayFile = (_file: DirectoryAudioFile, _track: Track) => {}, onDownload, onFavorite, onQueue, onNext, onPlaylist, onArtist, onInfo, onContext, onAddSelectedToPlaylist, playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false }: {
+  let { call, location = null, rootRegistryRevision = 0, onLocationChange = (_location: Location | null, _meta: LocationChangeMeta) => {}, onRootsChanged = () => {}, onPlayFile = (_file: DirectoryAudioFile, _track: Track) => {}, onDownload, onFavorite, onQueue, onNext, onPlaylist, onArtist, onTrackAlbum, onInfo, onContext, onAddSelectedToPlaylist, playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false }: {
     location?: Location | null;
     rootRegistryRevision?: number;
     onLocationChange?: (location: Location | null, meta: LocationChangeMeta) => void;
@@ -24,7 +24,7 @@
     onPlayFile?: (file: DirectoryAudioFile, track: Track) => void;
     onDownload?: (track: Track) => void | Promise<void>; onFavorite?: (track: Track) => void | Promise<void>;
     onQueue?: (track: Track) => void | Promise<void>; onNext?: (track: Track) => void | Promise<void>;
-    onPlaylist?: (track: Track) => void | Promise<void>; onArtist?: (track: Track) => void | Promise<void>;
+    onPlaylist?: (track: Track) => void | Promise<void>; onArtist?: (track: Track) => void | Promise<void>; onTrackAlbum?: (track: Track) => void | Promise<void>;
     onInfo?: (track: Track) => void | Promise<void>; onContext?: (track: Track, event: MouseEvent) => void;
     onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
     playingTrack?: Track | null; bufferingTrack?: Track | null; playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
@@ -447,7 +447,7 @@
     {#if durationProblem}<p class="directory-error" role="alert">{durationProblem}</p>{/if}
     {#if loadingPage}<p class="directory-loading" role="status">Loading folder…</p>
     {:else if page}
-      {#if orderedRows.length}<TrackList tracks={indexedOccurrences.map(row => row.track)} {orderedRows} selectionContext={`directory:${selectedRootId}:${selectedRelativePath}`} selectionKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} selectionTracks={indexedOccurrences.map(row => row.track)} selectionTrackKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} listLabel="Audio files" onPlay={playOccurrence} {onDownload} {onFavorite} {onQueue} {onNext} {onPlaylist} {onArtist} {onInfo} {onContext} onAddSelectedToPlaylist={indexedOccurrences.length ? onAddSelectedToPlaylist : undefined} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} meta={(_track, index) => indexedOccurrences[index]?.file.name ?? ""} />{/if}
+      {#if orderedRows.length}<TrackList presentation="playlist" tracks={indexedOccurrences.map(row => row.track)} {orderedRows} selectionContext={`directory:${selectedRootId}:${selectedRelativePath}`} selectionKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} selectionTracks={indexedOccurrences.map(row => row.track)} selectionTrackKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} listLabel="Audio files" onPlay={playOccurrence} {onDownload} {onFavorite} {onQueue} {onNext} {onPlaylist} {onArtist} onAlbum={onTrackAlbum} {onInfo} {onContext} onAddSelectedToPlaylist={indexedOccurrences.length ? onAddSelectedToPlaylist : undefined} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} meta={(_track, index) => indexedOccurrences[index]?.file.name ?? ""} />{/if}
       {#if !page.files.length}<p class="directory-empty">No audio files match these filters.</p>{/if}
       {#if page.files.length < page.total}<div class="directory-load-more"><button type="button" disabled={loadingMore} onclick={() => void browseDirectory(page!.relativePath, true)}>{loadingMore ? "Loading…" : `Load more files (${page.total - page.files.length} remaining)`}</button></div>{/if}
     {:else if !error}<p class="directory-empty">Choose a folder to browse.</p>{/if}

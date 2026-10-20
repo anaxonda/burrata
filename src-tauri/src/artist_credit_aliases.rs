@@ -163,6 +163,29 @@ impl VerifiedCreditSet {
 }
 
 impl VerifiedPlaybackArtistAliases {
+    /// These variants come only from the private, account-fenced catalog
+    /// verification result, never from a saved provenance sidecar or uploader.
+    pub(crate) fn from_catalog_recording_variants(source: &Track, artists: &[String]) -> Self {
+        let mut result = Self {
+            source: Some(source.clone()),
+            ..Default::default()
+        };
+        for artist in artists
+            .iter()
+            .filter(|s| !s.is_empty() && s.len() <= 512)
+            .take(30)
+        {
+            let mut track = source.clone();
+            track.artist = artist.clone();
+            result.tracks.push(track);
+            result.credit_sets.push(VerifiedCreditSet {
+                names: vec![vec![artist.clone()]],
+                join_phrases: vec![String::new()],
+                isrc: None,
+            });
+        }
+        result
+    }
     pub(crate) fn has_verified_credit_sets(&self) -> bool {
         !self.credit_sets.is_empty()
     }
@@ -319,7 +342,8 @@ pub(crate) fn cached_verified_playback_artist_aliases(
         crate::artist_alias_discovery::cached_generic_isrc_authority_credit_choices(store, original)
     {
         if verified_recording_isrc.is_none() {
-            verified_recording_isrc = original.isrc.as_ref().map(|isrc| isrc.to_ascii_uppercase());
+            verified_recording_isrc =
+                crate::recording_identity::RecordingIdentity::from_track(original).isrc;
         }
         credit_sets.push(VerifiedCreditSet {
             names: choices.iter().map(|(names, _)| names.clone()).collect(),
@@ -574,12 +598,7 @@ pub(crate) fn spotify_artist_credit_fingerprint(
     let normalized_isrc = |value: Option<&str>| -> Option<Option<String>> {
         match value {
             None => Some(None),
-            Some(value)
-                if value.len() == 12 && value.bytes().all(|byte| byte.is_ascii_alphanumeric()) =>
-            {
-                Some(Some(value.to_ascii_uppercase()))
-            }
-            Some(_) => None,
+            Some(value) => crate::recording_identity::normalize_isrc(value).map(Some),
         }
     };
     let track_isrc = normalized_isrc(track.isrc.as_deref())?;
@@ -2003,6 +2022,7 @@ mod tests {
         // one, without mutating the saved row itself.
         track.isrc = None;
         store.save_track(&track).unwrap();
+        let saved_before = store.get_library_track(&track.id).unwrap().unwrap();
         let (recording, profile_a, mut profile_b) = recording_credit_fixture();
         profile_b["aliases"] = Value::Array(
             (0..40)
@@ -2057,8 +2077,8 @@ mod tests {
             .any(|alias| alias.artist == track.artist
                 && alias.isrc.as_deref() == Some("USABC2600001")));
         assert_eq!(
-            store.get_library_track(&track.id).unwrap().unwrap().isrc,
-            None
+            store.get_library_track(&track.id).unwrap().unwrap(),
+            saved_before
         );
         assert!(aliases
             .iter()

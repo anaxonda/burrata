@@ -125,6 +125,8 @@ impl From<RadioBrowserStation> for RadioStation {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RadioTrackMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifiers: Option<crate::recording_identity::RecognitionIdentifiers>,
     pub station_id: String,
     pub artist: String,
     pub title: String,
@@ -1153,6 +1155,7 @@ pub async fn get_radio_metadata(station_id: String) -> Result<RadioMetadata, Str
     let title = clean_radio_text(data.title);
     let now_playing = match (artist, title) {
         (Some(artist), Some(title)) => Some(RadioTrackMetadata {
+            identifiers: None,
             station_id: station_id.clone(),
             artist,
             title,

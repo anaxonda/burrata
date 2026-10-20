@@ -224,7 +224,10 @@ pub(crate) async fn discover_verified_artist_aliases(
         .await
 }
 async fn discover_inner(store: &Store, track: &Track) -> Result<(), String> {
-    if matches!(track.provider.as_str(), "beatport" | "traxsource" | "local") {
+    if matches!(
+        track.provider.as_str(),
+        "beatport" | "traxsource" | "local" | "radio_song"
+    ) {
         return discover_generic_isrc(store, track).await;
     }
 
@@ -1095,8 +1098,10 @@ mod provider_identity_tests {
 
 const GENERIC_ISRC_BINDING: &str = "artists.alias-discovery.generic-isrc-authority.v1";
 fn generic_source_fingerprint(track: &Track) -> Option<Value> {
-    if !matches!(track.provider.as_str(), "beatport" | "traxsource" | "local")
-        || track.id.is_empty()
+    if !matches!(
+        track.provider.as_str(),
+        "beatport" | "traxsource" | "local" | "radio_song"
+    ) || track.id.is_empty()
         || track.title.trim().is_empty()
         || track.artist.trim().is_empty()
         || track.version.is_some()
@@ -1104,17 +1109,15 @@ fn generic_source_fingerprint(track: &Track) -> Option<Value> {
     {
         return None;
     }
-    let isrc = track.isrc.as_deref()?;
-    if isrc.len() != 12
-        || !isrc.is_ascii()
-        || !isrc.as_bytes()[..2].iter().all(u8::is_ascii_alphabetic)
-        || !isrc.as_bytes()[2..5].iter().all(u8::is_ascii_alphanumeric)
-        || !isrc.as_bytes()[5..].iter().all(u8::is_ascii_digit)
-    {
+    let identity = crate::recording_identity::RecordingIdentity::from_track(track);
+    if identity.identifier_conflict {
         return None;
     }
-    let duration = track.duration_seconds?;
-    if !duration.is_finite() || duration <= 0.0 || duration > 86400.0 {
+    let isrc = identity.isrc?;
+    let duration = track.duration_seconds;
+    if duration
+        .is_some_and(|duration| !duration.is_finite() || duration <= 0.0 || duration > 86400.0)
+    {
         return None;
     }
     Some(
@@ -1123,8 +1126,40 @@ fn generic_source_fingerprint(track: &Track) -> Option<Value> {
 }
 fn saved_generic_fingerprint(store: &Store, track: &Track) -> Option<Value> {
     let fingerprint = generic_source_fingerprint(track)?;
-    let saved = store.get_library_track(&track.id).ok()??;
-    (generic_source_fingerprint(&saved).as_ref() == Some(&fingerprint)).then_some(fingerprint)
+    let saved = if track.provider == "radio_song" {
+        store.get_track(&track.id).ok()??
+    } else {
+        store.get_library_track(&track.id).ok()??
+    };
+    let saved_fingerprint = generic_source_fingerprint(&saved)?;
+    if saved_fingerprint == fingerprint {
+        return Some(fingerprint);
+    }
+    // A playback-only duration overlay must itself be bound to retained proof.
+    if saved.duration_seconds.is_some()
+        || saved.provenance["manualFields"]["durationSeconds"] == true
+    {
+        return None;
+    }
+    let mut original = track.clone();
+    original.duration_seconds = saved.duration_seconds;
+    if generic_source_fingerprint(&original).as_ref() != Some(&saved_fingerprint) {
+        return None;
+    }
+    let binding = store
+        .get_provider_cache(GENERIC_ISRC_BINDING, &track.id)
+        .ok()??;
+    if binding["version"] != 1 || binding["fingerprint"] != saved_fingerprint {
+        return None;
+    }
+    let raw = store
+        .get_provider_cache(
+            aliases::spotify_recording_credit_raw_cache_namespace(),
+            binding["recordingId"].as_str()?,
+        )
+        .ok()??;
+    (track.duration_seconds == Some(raw["length"].as_u64()? as f64 / 1000.0))
+        .then_some(saved_fingerprint)
 }
 fn full_credit_choices_match(choices: &[(Vec<String>, String)], artist: &str) -> bool {
     let artist = crate::matching::normalize(artist);
@@ -1182,24 +1217,25 @@ fn generic_recording_choices(
             recording_id,
         )
         .ok()??;
-    let duration = (track.duration_seconds? * 1000.0).round() as u64;
+    let duration = track.duration_seconds.map(|d| (d * 1000.0).round() as u64);
     if recording["id"].as_str() != Some(recording_id)
         || crate::matching::normalize(recording["title"].as_str()?)
             != crate::matching::normalize(&track.title)
         || recording["length"].as_u64()? == 0
-        || recording["length"].as_u64()?.abs_diff(duration) > 5000
+        || duration.is_some_and(|duration| {
+            recording["length"]
+                .as_u64()
+                .is_none_or(|length| length.abs_diff(duration) > 5000)
+        })
     {
         return None;
     }
     let isrcs = recording["isrcs"]
         .as_array()?
         .iter()
-        .map(Value::as_str)
-        .collect::<Option<Vec<_>>>()?
-        .into_iter()
-        .map(str::to_ascii_uppercase)
-        .collect::<BTreeSet<_>>();
-    if isrcs.len() != 1 || !isrcs.contains(&track.isrc.as_deref()?.to_ascii_uppercase()) {
+        .map(|value| crate::recording_identity::normalize_isrc(value.as_str()?))
+        .collect::<Option<BTreeSet<_>>>()?;
+    if !isrcs.contains(&crate::recording_identity::RecordingIdentity::from_track(track).isrc?) {
         return None;
     }
     let credits = recording["artist-credit"].as_array()?;
@@ -1321,6 +1357,31 @@ pub(crate) fn cached_generic_isrc_authority_credit_choices(
     }
     generic_recording_choices(store, track, &id)
 }
+/// Revalidate retained identifier evidence against the unchanged saved recording.
+/// This enriches only the playback copy, never user tags or history.
+pub(crate) fn cached_identifier_track(store: &Store, track: &Track) -> Option<Track> {
+    cached_generic_isrc_authority_credit_choices(store, track)?;
+    let binding = store
+        .get_provider_cache(GENERIC_ISRC_BINDING, &track.id)
+        .ok()??;
+    let id = binding["recordingId"].as_str()?;
+    let raw = store
+        .get_provider_cache(aliases::spotify_recording_credit_raw_cache_namespace(), id)
+        .ok()??;
+    let mut enriched = track.clone();
+    crate::recording_identity::hydrate_identifiers(&mut enriched);
+    if enriched.duration_seconds.is_none()
+        && enriched.provenance["manualFields"]["durationSeconds"] != true
+    {
+        let duration = raw["length"].as_u64()? as f64 / 1000.0;
+        if !(1.0..=86400.0).contains(&duration) {
+            return None;
+        }
+        enriched.duration_seconds = Some(duration);
+    }
+    Some(enriched)
+}
+
 async fn discover_generic_isrc(store: &Store, track: &Track) -> Result<(), String> {
     let Some(fingerprint) = saved_generic_fingerprint(store, track) else {
         return Ok(());
@@ -1342,11 +1403,9 @@ async fn discover_generic_isrc(store: &Store, track: &Track) -> Result<(), Strin
                 "query",
                 format!(
                     "isrc:{}",
-                    track
+                    crate::recording_identity::RecordingIdentity::from_track(track)
                         .isrc
-                        .as_deref()
                         .expect("validated ISRC")
-                        .to_ascii_uppercase()
                 ),
             ),
             ("limit", "5".into()),
@@ -1411,7 +1470,11 @@ mod generic_isrc_tests {
             source_url: format!("https://example.test/{provider}/123"),
             title: "A Song".into(),
             artist: "Source A feat. Guest".into(),
-            duration_seconds: Some(180.0),
+            duration_seconds: if provider == "radio_song" {
+                None
+            } else {
+                Some(180.0)
+            },
             isrc: Some("USABC2600001".into()),
             ..Track::default()
         };
@@ -1443,6 +1506,29 @@ mod generic_isrc_tests {
         store.set_retained_provider_cache(GENERIC_ISRC_BINDING,&track.id,&json!({"version":1,"fingerprint":generic_source_fingerprint(&track),"recordingId":RECORDING,"search":{"count":1,"recordings":[{"id":RECORDING}]},"fetchedAt":chrono::Utc::now().timestamp()})).unwrap();
         track
     }
+    #[test]
+    fn radio_isrc_can_establish_missing_duration_without_modifying_saved_tags() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("radio-isrc.sqlite")).unwrap();
+        let mut track = fixture(&store, "radio_song");
+        track.duration_seconds = None;
+        store.save_track(&track).unwrap();
+        store.set_retained_provider_cache(GENERIC_ISRC_BINDING,&track.id,&json!({"version":1,"fingerprint":generic_source_fingerprint(&track),"recordingId":RECORDING,"search":{"count":1,"recordings":[{"id":RECORDING}]}})).unwrap();
+        let enriched = cached_identifier_track(&store, &track).unwrap();
+        assert_eq!(enriched.duration_seconds, Some(180.0));
+        assert_eq!(
+            store
+                .get_library_track(&track.id)
+                .unwrap()
+                .unwrap()
+                .duration_seconds,
+            None
+        );
+        let mut wrong = track.clone();
+        wrong.isrc = Some("USABC2600002".into());
+        assert!(cached_identifier_track(&store, &wrong).is_none());
+    }
+
     #[test]
     fn imports_share_recording_scoped_alias_proof_without_spotify_ids() {
         let directory = tempfile::tempdir().unwrap();

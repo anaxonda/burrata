@@ -58,6 +58,12 @@ function parseJsonScripts(doc, selectors='script#__NEXT_DATA__,script[type="appl
   }
   return values;
 }
+function normalizedIsrc(value){
+  if(typeof value!=='string')return null;
+  const trimmed=value.trim().toUpperCase();
+  const code=/^[A-Z]{2}-[A-Z0-9]{3}-[0-9]{2}-[0-9]{5}$/.test(trimmed)?trimmed.replaceAll('-',''):trimmed;
+  return /^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/.test(code)?code:null;
+}
 function shazamTrack(value){
   const track=value?.track&&typeof value.track==='object'?value.track:value;
   const id=[track?.key,track?.id,track?.shazamId].map(value=>String(value??'').trim()).find(value=>/^\d{1,20}$/.test(value))||'';
@@ -69,7 +75,7 @@ function shazamTrack(value){
     .map(rankNumber).find(value=>value!==null);
   const href=track?.url??value?.url;
   if(!id||!rank||rank>10000||!title||!artist)return null;
-  return {id,title,artist,rank,href:typeof href==='string'?href:null,artwork:track?.images?.coverart??track?.images?.coverArt??null};
+  return {id,title,artist,rank,isrc:normalizedIsrc(track?.isrc),href:typeof href==='string'?href:null,artwork:track?.images?.coverart??track?.images?.coverArt??null};
 }
 function shazamJsonEntries(doc,url){
   const found=[],seen=new Set(),scripts=parseJsonScripts(doc);
@@ -82,7 +88,7 @@ function shazamJsonEntries(doc,url){
     for(const child of Object.values(value))walk(child,depth+1);
   };
   for(const value of scripts)walk(value);
-  return found.map(item=>entry(item.id,link(item.href,url)||`https://www.shazam.com/song/${item.id}`,item.artist,item.title,item.rank,{rank:item.rank,artworkUrl:link(item.artwork,url)}));
+  return found.map(item=>entry(item.id,link(item.href,url)||`https://www.shazam.com/song/${item.id}`,item.artist,item.title,item.rank,{rank:item.rank,artworkUrl:link(item.artwork,url),isrc:item.isrc}));
 }
 function shazamDomEntries(doc,url){
   const found=[],seen=new Set();

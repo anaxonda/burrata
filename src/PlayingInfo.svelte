@@ -3,7 +3,6 @@
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { metadataCount } from "./lib/provider-counts";
   import SourceLink from "./SourceLink.svelte";
-  import SpotifyRecordingIdentityAction from "./SpotifyRecordingIdentityAction.svelte";
   import { call } from "./lib/api";
   import PlaybackQuality from "./PlaybackQuality.svelte";
   import TrackFiles from "./TrackFiles.svelte";
@@ -30,7 +29,6 @@
     docked = false,
     activeChapter = "",
     onPlay,
-    onRetryPreview,
     onMoreInfo,
     onOpenMpv, onIdentifyRadio, onCancelIdentifyRadio, identifyingRadio = false, identifyProgress = 0,
     onFavorite,
@@ -58,7 +56,6 @@
     docked?: boolean;
     activeChapter?: string;
     onPlay?: () => void;
-    onRetryPreview?: () => void;
     onMoreInfo?: () => void;
     onOpenMpv?: () => void; onIdentifyRadio?: () => void; onCancelIdentifyRadio?: () => void; identifyingRadio?: boolean; identifyProgress?: number;
     onFavorite?: () => void;
@@ -97,11 +94,6 @@
     const streamUrl = safeHttpUrl(provenance.radioStreamUrl);
     const isRadio = provenance.sourceKind === "radio" || Boolean(streamUrl);
     return { isRadio, streamUrl, stationUrl: isRadio ? safeHttpUrl(track.sourceUrl) : "" };
-  });
-  const spotifyAlbumIdHint = $derived.by(() => {
-    if (track.provider !== "spotify" || !track.provenance || typeof track.provenance !== "object") return undefined;
-    const context = (track.provenance as { recordingContext?: { albumId?: unknown } }).recordingContext;
-    return typeof context?.albumId === "string" && /^[A-Za-z0-9]{22}$/.test(context.albumId) ? context.albumId : undefined;
   });
   const displayedStationName = $derived.by(() => {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
@@ -203,9 +195,6 @@
       {#if onOpenMpv}<button onclick={onOpenMpv}>Open in mpv</button>{/if}
       {#if onIdentifyRadio}<button disabled={identifyingRadio && !onCancelIdentifyRadio} onclick={identifyingRadio ? onCancelIdentifyRadio ?? onIdentifyRadio : onIdentifyRadio}>{identifyingRadio?onCancelIdentifyRadio?`Cancel capture · ${Math.floor(identifyProgress)} / 8 s`:"Identifying…":"Identify song"}</button>{/if}
       {#if !radioLinks.isRadio}<SourceLink {track} />{/if}
-      {#if track.provider === "spotify" && /^[A-Za-z0-9]{22}$/.test(track.providerId) && onRetryPreview}
-        {#key `${track.id}:${spotifyAlbumIdHint ?? ""}`}<SpotifyRecordingIdentityAction trackId={track.providerId} albumIdHint={spotifyAlbumIdHint} {call} onRetryPreview={onRetryPreview} />{/key}
-      {/if}
       {#if candidate?.url && /^https:\/\//.test(candidate.url)}
         <button onclick={() => void (sourceOpener ? sourceOpener(track, candidate!.url) : call("open_external_url", { url: candidate!.url }))}>Open {candidate.provider} source ↗</button>
       {/if}

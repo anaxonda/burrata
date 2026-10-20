@@ -63,12 +63,15 @@ export interface CandidatePreviewStatus {
   sessionId: string; sourceId: string; provider: string; paused: boolean; position: number; duration: number; canSeek: boolean; canVolume: boolean; error?: string | null; closed?: boolean;
 }
 export interface Preview {
+  matching?: {evaluatorVersion:string;level:"exact"|"balanced"|"flexible";assessment:{relationship:"exact"|"probable"|"alternative"|"unresolved"};resolvedRecording:{title:string;artist?:string|null;version?:string|null;sourceId:string}};
   sourceTransport?: string;
   sourceHeaderPolicy?: {headerCount:number;authorization:boolean;cookie:boolean;referer:boolean;origin:boolean;userAgent:boolean;other:boolean};
   sourceGeneration?: number;
   audioCodec?:string; audioBitrateKbps?:number; audioMimeType?:string;
   audioFormatId?:string; audioFormatHasVideo?:boolean; audioExpectedContentLength?:number;
   sessionId?: string; provider?: string; title?: string;
+  /** Resolved media duration in seconds, when the source has a stable duration. */
+  durationSeconds?: number | null;
   kind: string;
   url: string;
   canSeek: boolean;
@@ -204,6 +207,7 @@ export interface Collection {
 export interface Settings {
   musicDirectory: string;
   autoPreview: boolean;
+  matchingLevel?: "exact" | "balanced" | "flexible";
   pauseOnSourceOpen?: boolean;
   sourceOpenAtPosition?: boolean;
   previewDelayMs: number;
@@ -218,6 +222,8 @@ export interface Settings {
   streamingFallbackEnabled?: boolean;
   streamingFallbackDelayMs?: number;
   streamingFallbackSources?: string[];
+  bandcampFallbackEnabled?: boolean;
+  backgroundSourcePreparation?: boolean;
   downloadFallbackEnabled?: boolean;
   downloadFallbackSources?: string[];
   downloadFallbackAllowLossy?: boolean;

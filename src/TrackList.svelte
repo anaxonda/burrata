@@ -4,13 +4,15 @@
   import { call } from "./lib/api";
   import type { Track } from "./lib/types";
   import TrackMenu from "./TrackMenu.svelte";
+  import ArtworkImage from "./ArtworkImage.svelte";
+  import { trackArtworkSources } from "./lib/catalog-artwork";
   import { trackSource } from "./lib/source-link";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { playableDuration } from "./lib/track-sort";
   import { rowWindow } from "./lib/table";
 
   let {
-    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onInfo,
+    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo,
     onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, selectionContext, selectionKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, listLabel = "Tracks", initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default",
   }: {
     tracks: Track[];
@@ -22,6 +24,7 @@
     onQueue?: (track: Track) => void | Promise<void>;
     onPlaylist?: (track: Track) => void | Promise<void>;
     onArtist?: (track: Track) => void | Promise<void>;
+    onAlbum?: (track: Track) => void | Promise<void>;
     onInfo?: (track: Track) => void | Promise<void>;
     onContext?: (track: Track, event: MouseEvent) => void;
     onSelect?: (track: Track, event: MouseEvent, index: number) => void;
@@ -193,16 +196,16 @@
     <li data-track-index={index} class:current class:buffering class:paused={current && paused} class:selected={selectedTrackIds.includes(track.id) || selectedTrackId === track.id} title={timestamp?.(track, index)?.full} aria-current={current ? "true" : undefined} oncontextmenu={(event) => openActions(track, index, event)}>
       {#if showSelection && (onSelect || onAddSelectedToPlaylist)}<input class="select-track" type="checkbox" checked={selectedTrackIds.includes(track.id) || selectedTrackIds.includes(selectionKeys?.[index] ?? "") || selectedForPlaylist.includes(selectionKey(track,index))} aria-label={selectionLabel?.(track,index) ?? (onAddSelectedToPlaylist ? `Select ${track.title} for playlist` : `Select ${track.title}`)} onclick={(event) => { event.stopPropagation(); if (onSelect) onSelect(track, event, index); }} onchange={(event) => { event.stopPropagation(); if (onAddSelectedToPlaylist) togglePlaylistSelection(selectionKey(track,index)); }} />{/if}
       {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={`Play ${track.title}`} title="Play audio" onclick={() => onPlay?.(track, tracks, index)}>▶</button>{/if}</div>{/if}
-      {#if track.artworkUrl}<img class="artwork" src={track.artworkUrl} alt="" loading="lazy" />{:else}<span class="artwork placeholder" aria-hidden="true">♫</span>{/if}
+      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} /></span>
       {#if current}<span class="playback-state table-playback-state" class:status-buffering={buffering} role="status" aria-label={`${buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}`} title={`${buffering ? "Buffering" : paused ? "Paused" : "Playing"} · ${track.title}`} aria-live="polite">{buffering ? "…" : paused ? "Ⅱ" : "♫"}</span>{/if}
       <div class="track-copy">
         <button class="track-title" aria-label={`Play ${track.title}`} title={trackTitle?.(track, index) ?? track.title} onclick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey) onRowSelect?.(track, event, index); else onPlay?.(track, tracks, index); }}>
           <strong>{track.title}{#if track.version}<small>{" "}({track.version})</small>{/if}</strong>
         </button>
         <div class="track-subtitle">
-          {#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}
-          {#if track.album}<span class="album"> · {track.album}</span>{/if}
-          {#if meta?.(track, index)}<span> · {meta(track, index)}</span>{/if}
+          {#if track.artist}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}{/if}
+          {#if track.album}<span class="album">{track.artist ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} onclick={() => onAlbum?.(track)}>{track.album}</button>{:else}{track.album}{/if}</span>{/if}
+          {#if meta?.(track, index)}<span>{track.artist || track.album ? " · " : ""}{meta(track, index)}</span>{/if}
         </div>
         {#if presentation !== "playlist" && timestamp?.(track, index)}<time class="track-time" title={timestamp(track, index)?.full}>{timestamp(track, index)?.label}</time>{/if}
       </div>
@@ -232,12 +235,12 @@
     onDownload={onDownload ? () => onDownload(selected.track) : undefined} onDetails={onInfo ? () => onInfo(selected.track) : undefined}
     onArtist={onArtist ? () => onArtist(selected.track) : undefined} onOpenSource={() => void openTrackSource(selected.track)}
     onSelect={onSelect || onAddSelectedToPlaylist ? () => selectMenuTrack(selected.track, selected.index, selected.event) : undefined}
-    onGoToAlbumUnavailable={true} />
+    onGoToAlbum={onAlbum ? () => onAlbum(selected.track) : undefined} onGoToAlbumUnavailable={!onAlbum} />
 {/if}
 
 <style>
   .track-list-viewport{min-width:0}.track-list-viewport.virtualized{max-height:70vh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.track-list-viewport.virtualized .shared-track-list li:not(.virtual-spacer){box-sizing:border-box;height:var(--track-row-height,88px);max-height:var(--track-row-height,88px);overflow:hidden}.track-list-viewport.virtualized .track-subtitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis}.track-list-viewport.virtualized .track-time{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-list-viewport .virtual-spacer{display:block;padding:0!important;border:0!important;pointer-events:none}
-  .shared-track-list{list-style:none;margin:0;padding:0;min-width:0;container-type:inline-size}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.buffering .icon-action.play{animation:track-pulse 1s ease-in-out infinite alternate}.shared-track-list li.paused .icon-action.play{animation:none}@keyframes track-pulse{to{opacity:.45;transform:scale(.88)}}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.playback-state{flex:0 0 22px;text-align:center;color:var(--accent);font-size:15px;font-weight:700}.playback-state.status-buffering{animation:track-pulse 1s ease-in-out infinite alternate}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more-trigger{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;touch-action:manipulation}.icon-action:hover,.more-trigger:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}
+  .shared-track-list{list-style:none;margin:0;padding:0;min-width:0;container-type:inline-size}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.buffering .icon-action.play{animation:track-pulse 1s ease-in-out infinite alternate}.shared-track-list li.paused .icon-action.play{animation:none}@keyframes track-pulse{to{opacity:.45;transform:scale(.88)}}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.playback-state{flex:0 0 22px;text-align:center;color:var(--accent);font-size:15px;font-weight:700}.playback-state.status-buffering{animation:track-pulse 1s ease-in-out infinite alternate}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link,.album-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px;font:inherit;cursor:pointer}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more-trigger{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;touch-action:manipulation}.icon-action:hover,.more-trigger:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}
   .position-slot{position:relative;display:flex;flex:0 0 24px;align-items:center;justify-content:flex-end}.position-play{position:absolute;inset:0;display:none;padding:0;border:0;background:var(--surface);color:var(--accent);cursor:pointer}
   @media(min-width:641px){
     .playlist .shared-track-list li:not(.virtual-spacer){position:relative;box-sizing:border-box;height:60px;max-height:60px;gap:12px;padding:7px 10px;overflow:hidden}
@@ -247,11 +250,11 @@
     .playlist .playback-state{position:absolute;left:10px;width:24px;background:var(--surface);font-size:12px;pointer-events:none}.playlist li:hover .playback-state{opacity:0}.playlist .row-actions{gap:4px}.playlist .row-actions>.play{display:none}.playlist .icon-action,.playlist .more-trigger{width:28px;height:28px;border:0;border-radius:4px;font-size:17px}
     .playlist .playlist-time{flex:0 1 190px;min-width:0;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}.playlist .duration{font-size:11px}
   }
-  @media(max-width:640px){.shared-track-list li{gap:7px}.track-position{flex-basis:18px;font-size:10px}.artwork{flex-basis:36px;width:36px;height:36px}.duration{display:none}.track-title strong{font-size:12px}.track-subtitle{font-size:10px}.row-actions{gap:2px}}
+  @media(max-width:640px){.shared-track-list li{gap:7px}.track-position{flex-basis:18px;font-size:10px}.artwork{flex-basis:36px;width:36px;height:36px}.duration{display:none}.track-title strong{font-size:12px}.track-subtitle{font-size:10px}.row-actions{gap:2px}.playlist .row-actions>.play{display:none}}
   @media(max-width:450px){.artwork{flex-basis:32px;width:32px;height:32px}.shared-track-list li{gap:5px}.icon-action,.more-trigger{font-size:12px}}
   @container (max-width: 560px){.shared-track-list li{gap:7px}.track-title strong,.track-subtitle{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}.track-title strong{line-height:1.35}.track-subtitle{line-height:1.35}.duration{display:none}}
   @container (max-width: 560px){.playlist .playlist-time{display:none}.playlist .track-copy{flex:1 1 0;min-width:0}.playlist .track-title strong,.playlist .track-subtitle{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}.playlist .row-actions{flex:0 0 auto}}
-  @container (max-width: 430px){.shared-track-list li{gap:5px}.track-position,.artwork{display:none}.row-actions>.icon-action{display:none}.more-trigger{width:40px;height:40px}.row-actions{gap:2px}.track-copy{flex-basis:0}}
+  @container (max-width: 430px){.shared-track-list li{gap:5px}.track-position,.artwork{display:none}.playlist .track-position{display:block}.row-actions>.icon-action{display:none}.more-trigger{width:40px;height:40px}.row-actions{gap:2px}.track-copy{flex-basis:0}}
   @container (max-width: 350px){.row-actions{gap:1px}.track-title strong{font-size:12px}}
   @media(prefers-reduced-motion:reduce){.shared-track-list li.buffering .icon-action.play{animation:none}}
   .shared-track-list li.selected{outline:1px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}.select-track{flex:0 0 16px;width:16px;height:16px;margin:0;accent-color:var(--accent)}

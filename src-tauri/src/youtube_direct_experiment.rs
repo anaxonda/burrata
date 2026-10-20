@@ -1,6 +1,5 @@
-//! Bounded anonymous native HTTP transport. Default playback uses it only to
-//! recover HTTP 403 for a freshly verified exact source; first-choice startup
-//! use remains behind the playback-direct-youtube-experiment feature.
+//! Bounded anonymous HTTP transport for exact selected or previously verified
+//! YouTube sources, with helper fallback and verified-source HTTP 403 recovery.
 //! Mirrors the pinned VISIONOS_0_1 request/visitor fixtures; never claims catalog proof.
 use futures_util::StreamExt;
 use icu_normalizer::ComposingNormalizerBorrowed;

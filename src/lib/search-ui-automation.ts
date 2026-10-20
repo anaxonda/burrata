@@ -1,5 +1,5 @@
 export type AutomationSearchKind = "all" | "tracks" | "artists" | "albums" | "videos" | "playlists" | "profiles" | "channels";
-export type AutomationSearchSourceId = "all" | "library" | "musicbrainz" | "discogs" | "youtube" | "soundcloud" | "soulseek" | "monochrome" | "spotify";
+export type AutomationSearchSourceId = "all" | "library" | "musicbrainz" | "discogs" | "youtube" | "soundcloud" | "soulseek" | "monochrome" | "spotify" | "bandcamp";
 export type AutomationSearchStatus = "complete" | "failed" | "cancelled";
 export type AutomationSearchErrorCode = "no_sources" | "source_unavailable" | "request_failed" | "cancelled" | "invalid_request";
 

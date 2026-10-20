@@ -282,3 +282,9 @@ test('Beatport real row retains independent ranks when several recordings are re
  const second=liveBeatportRow.replaceAll('22357262','22357263').replace('>1</div>','>2</div>');
  const s=extract(doc(liveBeatportRow+second),beatportUrl);assert.deepEqual(s.entries.map(e=>e.rank),[1,2]);assert.deepEqual(s.entries.map(e=>e.providerId),['22357262','22357263']);
 });
+
+ test('Shazam import preserves a validated printed ISRC without inventing identifiers',()=>{
+  const make=isrc=>doc(`<h1>Top 200</h1><script type="application/json">${JSON.stringify({tracks:[{rank:1,key:'12345',title:'Nighttime in the Backyard',subtitle:'Lucas Santtana & Arto Lindsay',isrc}]})}</script>`);
+  assert.equal(extract(make('BR-L6M-09-00003'),'https://www.shazam.com/charts/top-200/world').entries[0].isrc,'BRL6M0900003');
+  assert.equal(extract(make('bad-code'),'https://www.shazam.com/charts/top-200/world').entries[0].isrc,null);
+ });

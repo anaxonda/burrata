@@ -3,7 +3,8 @@ use crate::models::{Candidate, Track};
 use std::{borrow::Cow, collections::HashSet};
 
 pub fn normalize(value: &str) -> String {
-    value
+    icu_normalizer::ComposingNormalizerBorrowed::new_nfc()
+        .normalize(value)
         .to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { ' ' })
@@ -19,6 +20,26 @@ pub fn normalize(value: &str) -> String {
 /// separators here.
 pub fn normalize_single_artist_name(value: &str) -> String {
     normalize(&value.replace('&', " and "))
+}
+
+/// Normalize apostrophe variants inside words before ordinary title
+/// normalization. Call this for recording titles only; artist credits retain
+/// their normal punctuation semantics.
+pub fn normalize_title_ignoring_intraword_apostrophes(value: &str) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    let mut normalized = String::with_capacity(value.len());
+    for (index, character) in chars.iter().copied().enumerate() {
+        if matches!(character, '\'' | '\u{2018}' | '\u{2019}')
+            && index > 0
+            && index + 1 < chars.len()
+            && chars[index - 1].is_alphanumeric()
+            && chars[index + 1].is_alphanumeric()
+        {
+            continue;
+        }
+        normalized.push(character);
+    }
+    normalize(&normalized)
 }
 
 /// Split one balanced parenthetical group at the end of a display string.
@@ -162,6 +183,30 @@ pub fn normalize_version(value: &str) -> String {
     normalize(trimmed)
 }
 
+/// Normalize a catalog version relative to its title. Some chart captures put
+/// the complete title in the version field before the actual mix label. Remove
+/// that repeated title while retaining any additional guest/remix wording.
+pub fn normalize_version_for_title(title: &str, version: &str) -> String {
+    let version = normalize_version(version);
+    if version.is_empty() {
+        return version;
+    }
+    let parsed_title = crate::recording_identity::parse_title(title);
+    let title = normalize(&parsed_title.title);
+    if title.is_empty() {
+        return version;
+    }
+    let prefix = format!("{title} ");
+    let Some(suffix) = version.strip_prefix(&prefix) else {
+        return version;
+    };
+    let suffix = suffix.trim();
+    if suffix.is_empty() {
+        return version;
+    }
+    suffix.to_owned()
+}
+
 fn coverage(needle: &str, haystack: &str) -> f64 {
     let words: HashSet<_> = needle.split_whitespace().collect();
     let hay: HashSet<_> = haystack.split_whitespace().collect();
@@ -202,11 +247,26 @@ fn contains_phrase(haystack: &str, phrase: &str) -> bool {
 
 /// Scores describe evidence, not a probability that an upload is correct or authorized.
 pub fn score_candidate(track: &Track, candidate: &mut Candidate) {
-    let title = normalize(&track.title);
-    let artist = normalize(&track.artist);
+    let parsed = crate::recording_identity::parse_title(&track.title);
+    let title = normalize(&parsed.title);
+    let mut artist = normalize(&track.artist);
+    if let Some(featured) = &parsed.featured_credit {
+        let featured = normalize(featured);
+        if !contains_phrase(&artist, &featured) {
+            artist.push(' ');
+            artist.push_str(&featured);
+        }
+    }
     let upload = normalize(&candidate.title);
     let uploader = normalize(candidate.uploader.as_deref().unwrap_or(""));
-    let expected = normalize_version(track.version.as_deref().unwrap_or(""));
+    let expected = normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed.version.as_deref())
+            .unwrap_or(""),
+    );
     let title_match = coverage(&title, &upload);
     let artist_match = coverage(&artist, &upload);
     let mut reasons = vec![
@@ -352,6 +412,20 @@ mod tests {
         let mut c = candidate("Artist One - Night Drive (Extended Mix)", 361.0);
         score_candidate(&track(), &mut c);
         assert_eq!(c.confidence, "high");
+    }
+    #[test]
+    fn repeated_title_in_captured_version_keeps_only_the_distinct_mix_label() {
+        let title = "(I'm Sick) I've Been Infected Wit House Musick (Remix)";
+        let version = "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)";
+        assert_eq!(
+            normalize_version_for_title(title, version),
+            "dj tai vocal remix"
+        );
+        assert_eq!(normalize_version_for_title("Untitled Dub 1", "(5:47)"), "");
+        assert_eq!(
+            normalize_version_for_title("Song", "Songbird Remix"),
+            "songbird remix"
+        );
     }
     #[test]
     fn radio_cannot_replace_extended() {

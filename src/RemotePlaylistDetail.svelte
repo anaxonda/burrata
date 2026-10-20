@@ -21,7 +21,7 @@
 
   let {
     provider, playlistUrl, call, onBack = () => {}, onImported = () => {}, onBrowseOwner,
-    onPlay, onQueue, onNext, onDownload, onFavorite, onPlaylist, onAddSelectedToPlaylist, onArtist, onInfo, onContext,
+    onPlay, onQueue, onNext, onDownload, onFavorite, onPlaylist, onAddSelectedToPlaylist, onArtist, onAlbum, onInfo, onContext,
     onQueueTracks, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false,
   }: {
     provider: Provider; playlistUrl: string;
@@ -31,7 +31,7 @@
     onPlay?: (track: Track, tracks: Track[], index: number) => void | Promise<void>;
     onQueue?: (track: Track) => void | Promise<void>; onNext?: (track: Track) => void | Promise<void>;
     onDownload?: (track: Track) => void | Promise<void>; onFavorite?: (track: Track) => void | Promise<void>;
-    onPlaylist?: (track: Track) => void | Promise<void>; onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>; onArtist?: (track: Track) => void | Promise<void>;
+    onPlaylist?: (track: Track) => void | Promise<void>; onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>; onArtist?: (track: Track) => void | Promise<void>; onAlbum?: (track: Track) => void | Promise<void>;
     onInfo?: (track: Track) => void | Promise<void>; onContext?: (track: Track, event: MouseEvent) => void;
     onQueueTracks?: (tracks: Track[], mode: "append" | "next") => void | Promise<void>;
     playingTrack?: Track | null; bufferingTrack?: Track | null;
@@ -344,7 +344,7 @@
   {#if error}<p class="remote-detail-error" role="alert">{error}</p>{/if}
   {#if notice}<p class="remote-detail-notice" role="status">{notice}</p>{/if}
   {#if adding && importProgress}<div class="remote-detail-progress" role="status"><span>Adding playlist · {progressCount()} of {importProgress.total ?? 1}</span><progress max={importProgress.total || 1} value={progressCount()}></progress><button onclick={() => void cancelImport()} disabled={cancelRequested}>{cancelRequested ? "Canceling…" : "Cancel import"}</button></div>{/if}
-  {#if tracks.length}<TrackList tracks={visibleTracks} selectionContext={`playlist:${provider}:${playlistUrl}`} selectionKeys={visibleOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks} selectionTrackKeys={tracks.map((_, index) => String(index))} listLabel={`${page?.title || "Remote playlist"} tracks`} meta={trackMeta} onPlay={onPlay} onQueue={onQueue} onNext={onNext} onDownload={onDownload} onFavorite={onFavorite} onPlaylist={onPlaylist} {onAddSelectedToPlaylist} onArtist={onArtist} onInfo={onInfo} onContext={onContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if !loading && !error && page}<p class="remote-detail-status">{emptyStateMessage}</p>{/if}
+  {#if tracks.length}<TrackList presentation="playlist" tracks={visibleTracks} selectionContext={`playlist:${provider}:${playlistUrl}`} selectionKeys={visibleOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks} selectionTrackKeys={tracks.map((_, index) => String(index))} listLabel={`${page?.title || "Remote playlist"} tracks`} meta={trackMeta} onPlay={onPlay} onQueue={onQueue} onNext={onNext} onDownload={onDownload} onFavorite={onFavorite} onPlaylist={onPlaylist} {onAddSelectedToPlaylist} onArtist={onArtist} onAlbum={onAlbum} onInfo={onInfo} onContext={onContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if !loading && !error && page}<p class="remote-detail-status">{emptyStateMessage}</p>{/if}
   {#if cursor}<button class="remote-detail-more" disabled={loadingMore} onclick={() => void browse(false)}>{loadingMore ? "Loading more…" : "Load more tracks"}</button>{/if}
   {#if page?.complete !== true && !cursor}<button class="remote-detail-retry primary" disabled={loading || loadingMore} onclick={retryPlaylistBrowse}>{loading ? "Retrying playlist…" : "Retry loading playlist"}</button>{/if}
 </section>

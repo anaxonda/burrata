@@ -1,0 +1,211 @@
+{
+  "createdAt": "2026-10-20T22:15:52.899Z",
+  "buildSha256": "b25ffaf6898b4d20e13d46a9c470865d02b04df0a3f2eba63c9994a6deed8a95",
+  "results": [
+    {
+      "name": "DJ Tai Vocal Remix",
+      "trackId": "traxsource:15057930",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 8315,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 493.795555555,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 0.072685,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9528,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 0.749062,
+          "duration": 493.795555555,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 1.315468,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false
+    },
+    {
+      "name": "Untitled Dub 1",
+      "trackId": "traxsource:15019328",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 6196,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 347.393741496,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 0.050998,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7412,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 0.248254,
+          "duration": 347.393741496,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 1.264986,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false
+    },
+    {
+      "name": "It's All About The Love For You",
+      "trackId": "traxsource:14798487",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 6221,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 330.28063492,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 0.053813,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7431,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 0.748162,
+          "duration": 330.28063492,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 1.278329,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false
+    },
+    {
+      "name": "Baba Extended Mix",
+      "trackId": "traxsource:15066872",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 8209,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 294.214512471,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 0.061731,
+            "duration": 294.214512471,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9434,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 0.505364,
+          "duration": 294.214512471,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "media": {
+            "currentTime": 1.300817,
+            "duration": 294.214512471,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false
+    }
+  ],
+  "qualificationStatus": "intermediate functional checkpoint; not release acceptance"
+}

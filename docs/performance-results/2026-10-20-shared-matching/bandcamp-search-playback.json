@@ -1,0 +1,138 @@
+{
+  "sourceId": "bandcamp",
+  "query": "Lucas Santtana Night-time in the backyard",
+  "title": "Night-time in the backyard",
+  "chosen": {
+    "title": "Night-time in the backyard",
+    "artist": "Lucas Santtana",
+    "durationSeconds": null,
+    "sourceId": "bandcamp"
+  },
+  "success": true,
+  "samples": [
+    {
+      "elapsedMs": 389,
+      "trackId": "traxsource:14798487",
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {}
+    },
+    {
+      "elapsedMs": 1621,
+      "trackId": "bandcamp:2065435071",
+      "status": "buffering",
+      "playerMessage": "Finding a verified playback source\u2026",
+      "source": {
+        "id": "youtube:iHugvFBKbF0",
+        "provider": "youtube"
+      },
+      "media": {}
+    },
+    {
+      "elapsedMs": 2838,
+      "trackId": "bandcamp:2065435071",
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "source": {
+        "id": "bandcamp:2065435071",
+        "provider": "bandcamp"
+      },
+      "media": {
+        "currentTime": 0.712483,
+        "duration": 197.76,
+        "paused": false,
+        "readyState": 4,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 4049,
+      "trackId": "bandcamp:2065435071",
+      "status": "playing",
+      "playerMessage": "Playing bandcamp audio",
+      "source": {
+        "id": "bandcamp:2065435071",
+        "provider": "bandcamp"
+      },
+      "media": {
+        "currentTime": 1.922006,
+        "duration": 197.76,
+        "paused": false,
+        "readyState": 4,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 5260,
+      "trackId": "bandcamp:2065435071",
+      "status": "playing",
+      "playerMessage": "Playing bandcamp audio",
+      "source": {
+        "id": "bandcamp:2065435071",
+        "provider": "bandcamp"
+      },
+      "media": {
+        "currentTime": 3.129063,
+        "duration": 197.76,
+        "paused": false,
+        "readyState": 4,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 6483,
+      "trackId": "bandcamp:2065435071",
+      "status": "playing",
+      "playerMessage": "Playing bandcamp audio",
+      "source": {
+        "id": "bandcamp:2065435071",
+        "provider": "bandcamp"
+      },
+      "media": {
+        "currentTime": 4.34755,
+        "duration": 197.76,
+        "paused": false,
+        "readyState": 4,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 7692,
+      "trackId": "bandcamp:2065435071",
+      "status": "playing",
+      "playerMessage": "Playing bandcamp audio",
+      "source": {
+        "id": "bandcamp:2065435071",
+        "provider": "bandcamp"
+      },
+      "media": {
+        "currentTime": 5.560561,
+        "duration": 197.76,
+        "paused": false,
+        "readyState": 4,
+        "errorCode": null
+      }
+    },
+    {
+      "elapsedMs": 8918,
+      "trackId": "bandcamp:2065435071",
+      "status": "playing",
+      "playerMessage": "Playing bandcamp audio",
+      "source": {
+        "id": "bandcamp:2065435071",
+        "provider": "bandcamp"
+      },
+      "media": {
+        "currentTime": 6.778054,
+        "duration": 197.76,
+        "paused": false,
+        "readyState": 4,
+        "errorCode": null
+      }
+    }
+  ]
+}

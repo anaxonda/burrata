@@ -299,6 +299,12 @@ pub fn source_registry(connections: &ConnectionManager) -> Result<Vec<SourceCapa
         cap("youtube", &["track", "video"], true, None),
         cap("soundcloud", &["track", "video"], true, None),
         cap(
+            "bandcamp",
+            &["track"],
+            true,
+            Some("Public track search; streaming availability is checked on the track page"),
+        ),
+        cap(
             "monochrome",
             &["track"],
             true,
@@ -354,6 +360,7 @@ fn cap(id: &str, kinds: &[&str], enabled: bool, detail: Option<&str>) -> SourceC
             "spotify" => "Spotify",
             "youtube" => "YouTube",
             "soundcloud" => "SoundCloud",
+            "bandcamp" => "Bandcamp",
             "soulseek" => "Soulseek",
             "monochrome" => "Monochrome",
             _ => id,
@@ -833,6 +840,17 @@ impl DiscoveryService {
                     // inventing an offset that the endpoint ignores.
                     note_monochrome_search_coverage(&mut out, raw_count, search_limit);
                     for (track, _) in tracks.into_iter().take(limit) {
+                        let track = self.store.cache_track(&track)?;
+                        out.results.push(track_result(source_id, track));
+                    }
+                }
+            }
+            "bandcamp" => {
+                if kind_ok(&request, "track") {
+                    let tracks = crate::providers::bandcamp::Bandcamp::new()
+                        .search_tracks(q)
+                        .await?;
+                    for track in tracks.into_iter().take(limit) {
                         let track = self.store.cache_track(&track)?;
                         out.results.push(track_result(source_id, track));
                     }
@@ -2040,6 +2058,7 @@ mod tests {
                 "discogs",
                 "youtube",
                 "soundcloud",
+                "bandcamp",
                 "monochrome",
                 "soulseek"
             ]
@@ -2051,6 +2070,12 @@ mod tests {
                 .unwrap()
                 .enabled
         );
+        let bandcamp = registry
+            .iter()
+            .find(|source| source.id == "bandcamp")
+            .unwrap();
+        assert!(bandcamp.enabled);
+        assert_eq!(bandcamp.kinds, vec!["track"]);
         assert!(
             !registry
                 .iter()

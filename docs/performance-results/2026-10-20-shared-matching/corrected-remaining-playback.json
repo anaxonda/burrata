@@ -1,0 +1,516 @@
+{
+  "createdAt": "2026-10-20T22:38:03.452Z",
+  "buildSha256": "575c391f0642d250d32f416860f81f403366bdee98892a71c983bc7d0c5a4a49",
+  "results": [
+    {
+      "name": "How Much Are They?",
+      "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 4304,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 290.573333333,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.068823,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5519,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 0.996349,
+          "duration": 290.573333333,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.279804,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6755,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 1.991097,
+          "duration": 290.573333333,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.505024,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7987,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 2.986457,
+          "duration": 290.573333333,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.733004,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9197,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 3.98309,
+          "duration": 290.573333333,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.945881,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10432,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 5.991511,
+          "duration": 290.573333333,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.178897,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+        "title": "How Much Are They?",
+        "artist": "Holger Czukay, Jah Wobble & Jaki Liebezeit",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3"
+      },
+      "afterIdentity": {
+        "id": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+        "title": "How Much Are They?",
+        "artist": "Holger Czukay, Jah Wobble & Jaki Liebezeit",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Mia Kokkini Triandafillia",
+      "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 7496,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 129.386916099,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.05831,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8708,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 0.253874,
+          "duration": 129.386916099,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.274795,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9919,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 1.254992,
+          "duration": 129.386916099,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.487505,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11229,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 3.255881,
+          "duration": 129.386916099,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.797224,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12440,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 4.256073,
+          "duration": 129.386916099,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 5.008858,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13650,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 5.256988,
+          "duration": 129.386916099,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.214801,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "afterIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Reckless",
+      "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 9175,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 138.533968253,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.042859,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10394,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 0.248925,
+          "duration": 138.533968253,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.276644,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11614,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 2.234361,
+          "duration": 138.533968253,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.487422,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12824,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 3.227728,
+          "duration": 138.533968253,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.691914,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 14051,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 4.227825,
+          "duration": 138.533968253,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.913313,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 15280,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 5.222618,
+          "duration": 138.533968253,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.150958,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+        "title": "Reckless",
+        "artist": "Nipsey Hussle,Bino Rideaux,Static Major",
+        "album": "Prolific",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "catalog",
+        "providerId": "discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35"
+      },
+      "afterIdentity": {
+        "id": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+        "title": "Reckless",
+        "artist": "Nipsey Hussle,Bino Rideaux,Static Major",
+        "album": "Prolific",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "catalog",
+        "providerId": "discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ]
+}

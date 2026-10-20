@@ -1,0 +1,241 @@
+{
+  "apple": {
+    "resultCount": 13,
+    "results": [
+      {
+        "wrapperType": "collection",
+        "collectionType": "Album",
+        "collectionId": 1677838121,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackCount": 12
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838122,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Super Violão Mashup",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 162147
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838123,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Who Can Say Which Way",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 161773
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838124,
+        "artistName": "Lucas Santtana & Arto Lindsay",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Nighttime in the Backyard",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 197760
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838125,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Cira, Regina e Nana",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 262520
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838336,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Recado para Pio Lobato",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 196813
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838337,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Hold me In",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 302133
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838338,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Amor em Jacumã",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 214267
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838339,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "I Can't Live Far from My Music",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 219573
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838340,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Cá Pra Nós",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 155493
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838341,
+        "artistName": "Lucas Santtana & Joao Brasil",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "O violão de Mario Bros",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 98080
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838342,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Ripple of the Water (Para Nana)",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 234053
+      },
+      {
+        "wrapperType": "track",
+        "kind": "song",
+        "collectionId": 1677838121,
+        "trackId": 1677838343,
+        "artistName": "Lucas Santtana",
+        "collectionName": "Sem Nostalgia",
+        "trackName": "Natureza No. 1 Em mi Maior",
+        "discCount": 1,
+        "discNumber": 1,
+        "trackCount": 12,
+        "trackTimeMillis": 146587
+      }
+    ]
+  },
+  "bandcamp": {
+    "artist": "Lucas Santtana",
+    "current": {
+      "type": "album",
+      "id": 139844721,
+      "title": "Sem Nostalgia (2021 repress)"
+    },
+    "trackinfo": [
+      {
+        "track_id": 3244631198,
+        "title": "Super Viola Mashup",
+        "duration": 162.147
+      },
+      {
+        "track_id": 2144957761,
+        "title": "Who can say which way",
+        "duration": 161.774
+      },
+      {
+        "track_id": 2065435071,
+        "title": "Night-time in the backyard",
+        "duration": 197.76
+      },
+      {
+        "track_id": 1444895617,
+        "title": "Cira, Regina e Nana",
+        "duration": 262.52
+      },
+      {
+        "track_id": 2273876493,
+        "title": "Recado pro Pio Lobato",
+        "duration": 196.814
+      },
+      {
+        "track_id": 240237239,
+        "title": "I can't live far from my music",
+        "duration": 219.574
+      },
+      {
+        "track_id": 1742755141,
+        "title": "Hold me in",
+        "duration": 302.134
+      },
+      {
+        "track_id": 753205551,
+        "title": "Amor em Jacuma",
+        "duration": 214.267
+      },
+      {
+        "track_id": 2125863788,
+        "title": "Ca pra nos",
+        "duration": 155.494
+      },
+      {
+        "track_id": 376120778,
+        "title": "O Violão de Mario Bros",
+        "duration": 98.0802
+      },
+      {
+        "track_id": 3958844894,
+        "title": "Ripple of the Water",
+        "duration": 234.054
+      },
+      {
+        "track_id": 2683261011,
+        "title": "Natureza 1#em mi maior",
+        "duration": 146.587
+      }
+    ]
+  }
+}

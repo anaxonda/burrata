@@ -155,6 +155,9 @@ describe("RemotePlaylistDetail", () => {
     expect(call).toHaveBeenCalledWith("browse_remote_playlist", expect.objectContaining({ provider: "spotify", playlistId: "https://open.spotify.com/playlist/remote-id", requestId: expect.any(String) }));
     expect(call).not.toHaveBeenCalledWith("import_remote_playlists", expect.anything());
     expect(target.textContent).toContain("Remote mix");
+    expect(target.querySelector(".track-list-viewport")?.classList.contains("playlist")).toBe(true);
+    expect(target.querySelectorAll(".position-play")).toHaveLength(2);
+    expect([...target.querySelectorAll(".track-position")].map(node => node.textContent)).toEqual(["1", "2"]);
     target.querySelector<HTMLButtonElement>('[aria-label="Play First track"]')!.click(); await settle();
     expect(onPlay).toHaveBeenCalledWith(rows[0], rows, 0);
     target.querySelector<HTMLButtonElement>('[aria-label="Play Second track"]')!.click(); await settle();

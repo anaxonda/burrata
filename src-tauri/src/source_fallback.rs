@@ -80,6 +80,26 @@ fn clean_title(raw: &str) -> String {
     normalized
 }
 
+fn clean_candidate_title_for_track(track: &Track, candidate: &Candidate) -> String {
+    clean_title(candidate_caption_without_known_label(track, candidate))
+}
+
+fn candidate_caption_without_known_label<'a>(track: &Track, candidate: &'a Candidate) -> &'a str {
+    let mut title = candidate.title.as_str();
+    if let Some(label) = track.label.as_deref().map(crate::matching::normalize) {
+        if !label.is_empty() {
+            if let Some((before, trailer)) = title.rsplit_once(" [") {
+                if trailer.ends_with(']')
+                    && crate::matching::normalize(&trailer[..trailer.len() - 1]) == label
+                {
+                    title = before;
+                }
+            }
+        }
+    }
+    title
+}
+
 /// Canonicalize common artist-credit joiners. Catalog services vary between
 /// `&`, `and`, and `feat.` when they flatten a multi-artist credit, while the
 /// order and the credited names still identify the same act.
@@ -236,6 +256,19 @@ fn original_or_unversioned(track: &Track) -> bool {
     })
 }
 
+pub(crate) fn playback_music_catalog_has_explicit_version(track: &Track) -> bool {
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let version = crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed_title.version.as_deref())
+            .unwrap_or(""),
+    );
+    !version.is_empty() && !matches!(version.as_str(), "original" | "original mix")
+}
+
 fn explicit_candidate_version_conflict(candidate: &Candidate) -> bool {
     candidate.reasons.iter().any(|reason| {
         let reason = crate::matching::normalize(reason);
@@ -283,6 +316,44 @@ fn verified_channel_matches_saved_artist(track: &Track, candidate: &Candidate) -
         && (normalized_channel == full_artist || normalized_channel == first_artist)
 }
 
+fn fresh_topic_credit_line_matches_saved_artist(
+    track: &Track,
+    candidate: &Candidate,
+    expected_title: &str,
+) -> bool {
+    let Some(metadata) = candidate.source_metadata.as_ref() else {
+        return false;
+    };
+    let channel = metadata["channel"].as_str().unwrap_or_default().trim();
+    let topic_artist = topic_channel_artist(channel);
+    let channel_id = metadata["channelId"].as_str().unwrap_or_default();
+    let credit = crate::matching::normalize(
+        metadata["descriptionCreditLine"]
+            .as_str()
+            .unwrap_or_default(),
+    );
+    let contains_phrase = |phrase: &str| {
+        let phrase = crate::matching::normalize(phrase);
+        !phrase.is_empty() && format!(" {credit} ").contains(&format!(" {phrase} "))
+    };
+    metadata["provider"].as_str() == Some("youtube")
+        && topic_artist.is_some()
+        && channel.len() <= 200
+        && topic_artist
+            .is_some_and(|topic_artist| topic_channel_matches_artist(track, topic_artist))
+        && channel_id.len() == 24
+        && channel_id.starts_with("UC")
+        && channel_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        && normalize_artist_credit(metadata["artist"].as_str().unwrap_or_default())
+            == normalize_artist_credit(&track.artist)
+        && contains_phrase(expected_title)
+        && explicit_credit_parts(&track.artist)
+            .iter()
+            .all(|artist| contains_phrase(artist))
+}
+
 fn verified_missing_duration_youtube_identity(track: &Track, candidate: &Candidate) -> bool {
     candidate.provider == "youtube"
         && candidate.permission != "restricted"
@@ -319,6 +390,11 @@ pub(crate) fn is_provisional_youtube_music_catalog_candidate(
         || candidate.permission == "restricted"
         || candidate.confidence == "low"
         || explicit_candidate_version_conflict(candidate)
+        || candidate
+            .reasons
+            .iter()
+            .any(|reason| reason.to_ascii_lowercase().contains("version conflicts"))
+        || explicit_candidate_version_conflict(candidate)
         || !original_or_unversioned(track)
         || !flat_chapterless_track(track, candidate)
         || !candidate
@@ -353,25 +429,49 @@ pub(crate) fn is_provisional_youtube_music_catalog_candidate(
 }
 
 /// Fresh yt-dlp structured fields can verify a title-only YouTube Music
-/// candidate, but only when all ordered artist credits exactly match the saved
-/// explicit comma/ampersand credit. Identical repeated artist entries are
-/// deduplicated; distinct extra or missing artists fail closed.
+/// candidate or a known-duration explicit mix. Every ordered artist credit
+/// must exactly match the saved explicit comma/ampersand credit. Identical
+/// repeated artist entries are deduplicated; distinct extra or missing artists
+/// fail closed.
 pub(crate) fn playback_music_catalog_recording_matches_verified_extractor(
     track: &Track,
     candidate: &Candidate,
 ) -> bool {
-    let normalized_title = crate::matching::normalize(&track.title);
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let version = crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed_title.version.as_deref())
+            .unwrap_or(""),
+    );
+    let explicit_version =
+        !version.is_empty() && !matches!(version.as_str(), "original" | "original mix");
+    let normalized_title = crate::matching::normalize(&parsed_title.title);
+    let expected_catalog_title = if explicit_version {
+        format!("{} {}", parsed_title.title, version)
+    } else {
+        parsed_title.title.clone()
+    };
     if candidate.provider != "youtube"
         || candidate.permission == "restricted"
         || candidate.confidence == "low"
         || explicit_candidate_version_conflict(candidate)
-        || !original_or_unversioned(track)
+        || (explicit_version && track.duration_seconds.is_none())
+        || (!explicit_version && !original_or_unversioned(track))
         || !flat_chapterless_track(track, candidate)
         || !candidate
             .duration_seconds
             .is_some_and(|duration| duration.is_finite() && duration > 30.0 && duration <= 86_400.0)
         || normalized_title.is_empty()
-        || !verified_channel_matches_saved_artist(track, candidate)
+        || !(verified_channel_matches_saved_artist(track, candidate)
+            || (explicit_version
+                && fresh_topic_credit_line_matches_saved_artist(
+                    track,
+                    candidate,
+                    &expected_catalog_title,
+                )))
     {
         return false;
     }
@@ -392,12 +492,17 @@ pub(crate) fn playback_music_catalog_recording_matches_verified_extractor(
     if metadata["provider"].as_str() != Some("youtube") {
         return false;
     }
-    if !youtube_catalog_title_matches(track, &candidate.title, &track.artist)
-        || !youtube_catalog_title_matches(
-            track,
-            metadata["track"].as_str().unwrap_or_default(),
-            &track.artist,
-        )
+    let title_matches = |actual: &str| {
+        if explicit_version {
+            let expected =
+                crate::matching::normalize(&format!("{} {}", parsed_title.title, version));
+            crate::matching::normalize(&clean_youtube_presentation(actual)) == expected
+        } else {
+            youtube_catalog_title_matches(track, actual, &track.artist)
+        }
+    };
+    if !title_matches(&candidate.title)
+        || !title_matches(metadata["track"].as_str().unwrap_or_default())
     {
         return false;
     }
@@ -488,6 +593,9 @@ fn monochrome_catalog_recording_matches(track: &Track, candidate: &Candidate) ->
     else {
         return false;
     };
+    if monochrome_explicit_guest_without_saved_duration_matches(track, candidate, catalog_title) {
+        return true;
+    }
     let catalog_title = crate::matching::normalize(catalog_title);
     let requested_title = crate::matching::normalize(&track.title);
     if catalog_title.is_empty()
@@ -520,7 +628,121 @@ fn monochrome_catalog_recording_matches(track: &Track, candidate: &Candidate) ->
                 .and_then(serde_json::Value::as_str),
         )
         .is_some_and(|(expected, actual)| {
-            !expected.is_empty() && !actual.is_empty() && !expected.eq_ignore_ascii_case(actual)
+            !expected.is_empty()
+                && !actual.is_empty()
+                && !crate::recording_identity::same_isrc(expected, actual)
+        })
+}
+
+fn monochrome_explicit_guest_without_saved_duration_matches(
+    track: &Track,
+    candidate: &Candidate,
+    catalog_title: &str,
+) -> bool {
+    if track.duration_seconds.is_some()
+        || track.playback_range.is_some()
+        || track.provenance["chapters"]
+            .as_array()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || candidate
+            .chapters
+            .as_ref()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || track
+            .version
+            .as_deref()
+            .is_some_and(|version| !version.trim().is_empty())
+        || candidate
+            .reasons
+            .iter()
+            .any(|reason| reason.to_ascii_lowercase().contains("version conflicts"))
+        || explicit_candidate_version_conflict(candidate)
+    {
+        return false;
+    }
+    let parsed = crate::recording_identity::parse_title(&track.title);
+    let Some(guest) = parsed.featured_credit.as_deref() else {
+        return false;
+    };
+    if parsed.version.is_some()
+        || crate::matching::normalize(parsed.title.trim()).is_empty()
+        || crate::matching::normalize(guest).is_empty()
+    {
+        return false;
+    }
+    let expected_catalog_title =
+        crate::matching::normalize(&format!("{} with {}", parsed.title, guest));
+    if expected_catalog_title.is_empty()
+        || crate::matching::normalize(catalog_title) != expected_catalog_title
+    {
+        return false;
+    }
+
+    let Some(metadata) = candidate.source_metadata.as_ref() else {
+        return false;
+    };
+    let Some((provider, provider_id)) = candidate.id.split_once(':') else {
+        return false;
+    };
+    if provider != "monochrome"
+        || metadata["provider"].as_str() != Some("monochrome")
+        || metadata["trackId"].as_str() != Some(provider_id)
+    {
+        return false;
+    }
+    let Some(raw_names) = metadata["artistNames"]
+        .as_array()
+        .filter(|names| !names.is_empty() && names.len() <= 8)
+    else {
+        return false;
+    };
+    let Some(observed) = raw_names
+        .iter()
+        .map(|name| name.as_str().map(str::trim).filter(|name| !name.is_empty()))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let primary = track.artist.trim();
+    if primary.is_empty() {
+        return false;
+    }
+    let normalized_guest = crate::matching::normalize_single_artist_name(guest);
+    let mut main_credit_options = vec![vec![primary.to_owned()]];
+    let split_credits = explicit_credit_parts(primary);
+    if split_credits.len() > 1 {
+        main_credit_options.push(split_credits);
+    }
+    let full_credit_matches = main_credit_options.into_iter().any(|mut expected| {
+        if !expected
+            .iter()
+            .any(|artist| crate::matching::normalize_single_artist_name(artist) == normalized_guest)
+        {
+            expected.push(guest.to_owned());
+        }
+        observed.len() == expected.len()
+            && observed.iter().zip(&expected).all(|(actual, wanted)| {
+                crate::matching::normalize_single_artist_name(actual)
+                    == crate::matching::normalize_single_artist_name(wanted)
+            })
+    });
+    if !full_credit_matches {
+        return false;
+    }
+    if candidate
+        .duration_seconds
+        .is_none_or(|duration| !duration.is_finite() || duration <= 30.0 || duration > 86_400.0)
+    {
+        return false;
+    }
+    !track
+        .isrc
+        .as_deref()
+        .zip(metadata["isrc"].as_str())
+        .is_some_and(|(expected, actual)| {
+            !expected.is_empty()
+                && !actual.is_empty()
+                && !crate::recording_identity::same_isrc(expected, actual)
         })
 }
 
@@ -539,6 +761,13 @@ fn recording_matches_with_duration_rounding(
             .reasons
             .iter()
             .any(|reason| reason.to_ascii_lowercase().contains("version conflicts"))
+    {
+        return false;
+    }
+    if candidate
+        .title
+        .to_ascii_lowercase()
+        .contains("official music video")
     {
         return false;
     }
@@ -603,24 +832,38 @@ fn recording_matches_with_duration_rounding(
         return false;
     }
     let artist = crate::matching::normalize(&track.artist);
-    let title = clean_title(&track.title);
-    let actual = clean_title(&candidate.title);
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let title = clean_title(if parsed_title.version.is_some() {
+        &parsed_title.title
+    } else {
+        &track.title
+    });
+    let actual = clean_candidate_title_for_track(track, candidate);
     if artist.is_empty() || title.is_empty() {
         return false;
     }
     let exact = actual == format!("{artist} {title}");
-    let version = crate::matching::normalize_version(track.version.as_deref().unwrap_or(""));
+    let version = crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed_title.version.as_deref())
+            .unwrap_or(""),
+    );
     let exact_with_requested_version =
         !version.is_empty() && actual == format!("{artist} {title} {version}");
     let version_ok = version.is_empty()
         || exact_with_requested_version
         || (matches!(version.as_str(), "original" | "original mix") && exact);
-    (exact || exact_with_requested_version)
-        && version_ok
-        && !candidate
-            .reasons
-            .iter()
-            .any(|r| r.contains("version conflicts"))
+    exact_flat_remix_credit_caption_matches(track, candidate)
+        || exact_default_original_vocal_caption_matches(track, candidate)
+        || ((exact || exact_with_requested_version)
+            && version_ok
+            && !candidate
+                .reasons
+                .iter()
+                .any(|r| r.contains("version conflicts")))
 }
 
 /// Search results keep the strict 5-second rule. Only full extractor metadata
@@ -636,12 +879,148 @@ fn playback_duration_matches(expected: f64, actual: f64, allow_integer_rounding:
 }
 
 fn requested_version_matches(track: &Track, candidate: &Candidate) -> bool {
-    let expected = crate::matching::normalize_version(track.version.as_deref().unwrap_or(""));
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let expected = crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed_title.version.as_deref())
+            .unwrap_or(""),
+    );
     if expected.is_empty() || matches!(expected.as_str(), "original" | "original mix") {
         return true;
     }
     let actual = crate::matching::normalize(&candidate.title);
     format!(" {actual} ").contains(&format!(" {expected} "))
+}
+
+/// Match flat captions that credit a requested remixer in the exact version
+/// name rather than in the performer prefix. This is intentionally exact: all
+/// other credited performers must remain in order before the title, the
+/// requested mix label must match in full, and only the track's exact label may
+/// be removed from a trailing bracket.
+fn exact_flat_remix_credit_caption_matches(track: &Track, candidate: &Candidate) -> bool {
+    if candidate.provider != "youtube"
+        || candidate.permission == "restricted"
+        || candidate.confidence == "low"
+        || explicit_candidate_version_conflict(candidate)
+        || !flat_chapterless_track(track, candidate)
+        || candidate
+            .reasons
+            .iter()
+            .any(|reason| reason.to_ascii_lowercase().contains("version conflicts"))
+    {
+        return false;
+    }
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let base_title = crate::matching::normalize(&parsed_title.title);
+    let version = crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed_title.version.as_deref())
+            .unwrap_or(""),
+    );
+    if parsed_title.featured_credit.is_some()
+        || base_title.is_empty()
+        || version.is_empty()
+        || !(version.ends_with(" remix") || version.ends_with(" mix"))
+    {
+        return false;
+    }
+
+    let actual = clean_candidate_title_for_track(track, candidate);
+    // This narrow rule is for comma-separated catalog artist credits. Other
+    // punctuation stays on the ordinary exact matching path.
+    let credits = track
+        .artist
+        .split(',')
+        .map(crate::matching::normalize)
+        .collect::<Vec<_>>();
+    if credits.len() < 2 || credits.iter().any(String::is_empty) {
+        return false;
+    }
+    for moved_index in 1..credits.len() {
+        let moved_credit = &credits[moved_index];
+        if !version.starts_with(&format!("{moved_credit} ")) {
+            continue;
+        }
+        let performers = credits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, credit)| (index != moved_index).then_some(credit.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if actual == format!("{performers} {base_title} {version}") {
+            return true;
+        }
+    }
+    false
+}
+
+fn exact_default_original_vocal_caption_matches(track: &Track, candidate: &Candidate) -> bool {
+    if candidate.provider != "youtube"
+        || candidate.permission == "restricted"
+        || candidate.confidence == "low"
+        || explicit_candidate_version_conflict(candidate)
+        || candidate
+            .reasons
+            .iter()
+            .any(|reason| reason.to_ascii_lowercase().contains("version conflicts"))
+        || !original_or_unversioned_or_vocal(track)
+        || crate::recording_identity::parse_title(&track.title)
+            .version
+            .is_some()
+        || !flat_chapterless_track(track, candidate)
+    {
+        return false;
+    }
+
+    let caption = candidate_caption_without_known_label(track, candidate);
+    let Some(caption) = strip_original_vocal_caption_suffix(caption) else {
+        return false;
+    };
+    let Some((actual_artists, actual_title)) = [" - ", " – ", " — ", " | ", "/"]
+        .iter()
+        .find_map(|separator| caption.split_once(separator))
+    else {
+        return false;
+    };
+    if normalize_artist_credit(&actual_artists) != normalize_artist_credit(&track.artist) {
+        return false;
+    }
+    crate::matching::normalize_title_ignoring_intraword_apostrophes(actual_title)
+        == crate::matching::normalize_title_ignoring_intraword_apostrophes(&track.title)
+}
+
+fn original_or_unversioned_or_vocal(track: &Track) -> bool {
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let version = crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed_title.version.as_deref())
+            .unwrap_or(""),
+    );
+    matches!(
+        version.as_str(),
+        "" | "original" | "original mix" | "original vocal"
+    )
+}
+
+fn strip_original_vocal_caption_suffix(value: &str) -> Option<&str> {
+    for suffix in ["(Original Vocal)", "[Original Vocal]"] {
+        if value
+            .get(value.len().saturating_sub(suffix.len())..)
+            .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix))
+        {
+            return Some(value[..value.len() - suffix.len()].trim_end());
+        }
+    }
+    None
 }
 
 /// Playback may use a verified full-length title containing an untranslated title
@@ -709,6 +1088,20 @@ fn playback_recording_matches_with_rounding(
     if recording_matches_with_duration_rounding(track, candidate, allow_integer_rounding) {
         return true;
     }
+    if exact_default_original_vocal_caption_matches(track, candidate)
+        && track
+            .duration_seconds
+            .zip(candidate.duration_seconds)
+            .is_some_and(|(expected, actual)| {
+                expected.is_finite()
+                    && expected > 0.0
+                    && actual.is_finite()
+                    && actual > 30.0
+                    && playback_duration_matches(expected, actual, allow_integer_rounding)
+            })
+    {
+        return true;
+    }
     if monochrome_catalog_recording_matches(track, candidate) {
         return true;
     }
@@ -731,7 +1124,7 @@ fn playback_recording_matches_with_rounding(
     let artist = crate::matching::normalize(&track.artist);
     let title = crate::matching::normalize(&track.title);
     let expected = format!("{artist} {title}");
-    let actual = clean_title(&candidate.title);
+    let actual = clean_candidate_title_for_track(track, candidate);
     let suffix = format!(" {expected}");
     let Some(prefix) = actual.strip_suffix(suffix.as_str()) else {
         return false;
@@ -809,17 +1202,59 @@ pub fn is_provisional_playback_candidate(track: &Track, candidate: &Candidate) -
         return true;
     }
 
+    if exact_flat_remix_credit_caption_matches(track, candidate)
+        && track
+            .duration_seconds
+            .zip(candidate.duration_seconds)
+            .is_some_and(|(expected, actual)| {
+                expected.is_finite()
+                    && expected > 0.0
+                    && actual.is_finite()
+                    && actual > 30.0
+                    && (expected - actual).abs() <= 7.0
+            })
+    {
+        return true;
+    }
+
+    if exact_default_original_vocal_caption_matches(track, candidate)
+        && track
+            .duration_seconds
+            .zip(candidate.duration_seconds)
+            .is_some_and(|(expected, actual)| {
+                expected.is_finite()
+                    && expected > 0.0
+                    && actual.is_finite()
+                    && actual > 30.0
+                    && (expected - actual).abs() <= 7.0
+            })
+    {
+        return true;
+    }
+
     if known_duration_youtube_complete_credit_matches(track, candidate, false) {
         return true;
     }
     let artist = crate::matching::normalize(&track.artist);
-    let title = crate::matching::normalize(&track.title);
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let title = crate::matching::normalize(if parsed_title.version.is_some() {
+        &parsed_title.title
+    } else {
+        &track.title
+    });
     if artist.is_empty() || title.is_empty() {
         return false;
     }
     let expected = format!("{artist} {title}");
-    let actual = clean_title(&candidate.title);
-    let version = crate::matching::normalize_version(track.version.as_deref().unwrap_or(""));
+    let actual = clean_candidate_title_for_track(track, candidate);
+    let version = crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed_title.version.as_deref())
+            .unwrap_or(""),
+    );
     let exact_requested_version = !version.is_empty() && actual == format!("{expected} {version}");
     let prefix = if actual == expected || exact_requested_version {
         ""
@@ -861,24 +1296,72 @@ pub fn is_provisional_playback_candidate(track: &Track, candidate: &Candidate) -
 pub fn is_topic_playback_candidate(track: &Track, candidate: &Candidate) -> bool {
     let inferred_track = crate::matching::ephemeral_playback_identity(track);
     let track = inferred_track.as_ref();
-    if candidate.provider != "youtube"
-        || candidate.permission == "restricted"
-        || !candidate
-            .uploader
-            .as_deref()
-            .is_some_and(|name| name.trim_end().ends_with("- Topic"))
-        || crate::matching::normalize(&candidate.title) != crate::matching::normalize(&track.title)
-        || track.version.as_deref().is_some_and(|version| {
-            let version = crate::matching::normalize_version(version);
-            !version.is_empty() && !matches!(version.as_str(), "original" | "original mix")
-        })
+    if candidate.provider != "youtube" || candidate.permission == "restricted" {
+        return false;
+    }
+    let Some(channel) = candidate.uploader.as_deref().and_then(topic_channel_artist) else {
+        return false;
+    };
+    if !topic_channel_matches_artist(track, channel)
+        || !flat_chapterless_track(track, candidate)
+        || explicit_candidate_version_conflict(candidate)
     {
+        return false;
+    }
+    let parsed_title = crate::recording_identity::parse_title(&track.title);
+    let explicit_version = playback_music_catalog_has_explicit_version(track);
+    let expected_title = if explicit_version {
+        let version = crate::matching::normalize_version_for_title(
+            &track.title,
+            track
+                .version
+                .as_deref()
+                .or(parsed_title.version.as_deref())
+                .unwrap_or(""),
+        );
+        format!("{} {}", parsed_title.title, version)
+    } else {
+        if !original_or_unversioned(track) {
+            return false;
+        }
+        track.title.clone()
+    };
+    if crate::matching::normalize(&candidate.title) != crate::matching::normalize(&expected_title) {
         return false;
     }
     let Some((expected, actual)) = track.duration_seconds.zip(candidate.duration_seconds) else {
         return false;
     };
-    expected.is_finite() && actual.is_finite() && expected > 0.0 && (expected - actual).abs() <= 2.0
+    expected.is_finite()
+        && actual.is_finite()
+        && expected > 0.0
+        && actual > 30.0
+        && (expected - actual).abs() <= 2.0
+}
+
+fn topic_channel_artist(channel: &str) -> Option<&str> {
+    let channel = channel.trim();
+    channel
+        .strip_suffix("- Topic")
+        .or_else(|| channel.strip_suffix(" - Topic"))
+        .or_else(|| channel.strip_suffix("-Topic"))
+        .map(str::trim)
+        .filter(|artist| !artist.is_empty())
+}
+
+fn topic_channel_matches_artist(track: &Track, topic_artist: &str) -> bool {
+    let topic_artist = crate::matching::normalize_single_artist_name(topic_artist);
+    !topic_artist.is_empty()
+        && (normalize_artist_credit(topic_artist.as_str())
+            == normalize_artist_credit(&track.artist)
+            || explicit_credit_parts(&track.artist)
+                .iter()
+                .any(|artist| artist == &topic_artist))
+}
+
+pub(crate) fn is_exact_versioned_topic_candidate(track: &Track, candidate: &Candidate) -> bool {
+    playback_music_catalog_has_explicit_version(track)
+        && is_topic_playback_candidate(track, candidate)
 }
 
 fn topic_original_playback_matches(track: &Track, candidate: &Candidate) -> bool {
@@ -892,7 +1375,7 @@ fn topic_original_playback_matches(track: &Track, candidate: &Candidate) -> bool
         return false;
     }
     let channel = metadata["channel"].as_str().unwrap_or_default();
-    if !channel.trim_end().ends_with("- Topic") {
+    if topic_channel_artist(channel).is_none() {
         return false;
     }
     let channel_id = metadata["channelId"].as_str().unwrap_or_default();
@@ -1469,6 +1952,55 @@ mod tests {
     }
 
     #[test]
+    fn versioned_topic_shallow_gate_requires_exact_channel_title_and_duration() {
+        let track = Track {
+            artist: "Ralmm, Emil Lassaria".into(),
+            title: "Baba (Extended Mix)".into(),
+            version: Some("Extended Mix (4:54)".into()),
+            duration_seconds: Some(294.0),
+            ..Track::default()
+        };
+        let topic = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:CZg0jfBo8Gc".into(),
+            title: "Baba (Extended Mix)".into(),
+            uploader: Some("Ralmm-Topic".into()),
+            duration_seconds: Some(294.0),
+            confidence: "low".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        assert!(is_topic_playback_candidate(&track, &topic));
+        assert!(is_exact_versioned_topic_candidate(&track, &topic));
+        assert!(!is_topic_playback_candidate(
+            &track,
+            &Candidate {
+                title: "Baba".into(),
+                ..topic.clone()
+            }
+        ));
+        assert!(!is_topic_playback_candidate(
+            &track,
+            &Candidate {
+                uploader: Some("FanUpload-Topic".into()),
+                ..topic.clone()
+            }
+        ));
+        assert!(!is_topic_playback_candidate(
+            &track,
+            &Candidate {
+                duration_seconds: Some(301.0),
+                ..topic.clone()
+            }
+        ));
+        let no_duration = Track {
+            duration_seconds: None,
+            ..track
+        };
+        assert!(!is_topic_playback_candidate(&no_duration, &topic));
+    }
+
+    #[test]
     fn sasa_live_metadata_fixture_never_substitutes_an_unrelated_recording() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../tests/fixtures/playback/sasa-unavailable.json"
@@ -1607,6 +2139,331 @@ mod tests {
                 confidence: "high".into(),
                 ..Candidate::default()
             }
+        ));
+    }
+
+    #[test]
+    fn captured_repeated_title_version_matches_exact_dj_tai_remix_and_guest() {
+        let track = Track {
+            provider: "traxsource".into(),
+            provider_id: "15057930".into(),
+            artist: "Mike Dunn, DJ Tai".into(),
+            title: "(I'm Sick) I've Been Infected Wit House Musick (Remix)".into(),
+            version: Some(
+                "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)".into(),
+            ),
+            duration_seconds: Some(494.0),
+            ..Track::default()
+        };
+        let candidate = |title: &str| Candidate {
+            provider: "youtube".into(),
+            id: "youtube:captured-remix".into(),
+            title: title.into(),
+            duration_seconds: Some(494.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        assert!(playback_recording_matches(
+            &track,
+            &candidate("Mike Dunn, DJ Tai - (I'm Sick) I've Been Infected Wit House Musick (DJ Tai Vocal Remix)")
+        ));
+        assert!(!playback_recording_matches(
+            &track,
+            &candidate(
+                "Mike Dunn, DJ Tai - (I'm Sick) I've Been Infected Wit House Musick (DJ Tai Remix)"
+            )
+        ));
+        assert!(!playback_recording_matches(
+            &track,
+            &candidate("Mike Dunn - (I'm Sick) I've Been Infected Wit House Musick (Vocal Remix)")
+        ));
+    }
+
+    #[test]
+    fn captured_duration_only_version_does_not_block_exact_title_match() {
+        let track = Track {
+            provider: "traxsource".into(),
+            provider_id: "15019328".into(),
+            artist: "Masaki Morii".into(),
+            title: "Untitled Dub 1".into(),
+            version: Some("(5:47)".into()),
+            duration_seconds: Some(347.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:untitled-dub-1".into(),
+            title: "Masaki Morii - Untitled Dub 1".into(),
+            duration_seconds: Some(347.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        assert!(playback_recording_matches(&track, &candidate));
+    }
+
+    #[test]
+    fn title_only_live_and_remix_labels_constrain_review_and_high_matches() {
+        for (label, base_title) in [("Live", "Quiet Song"), ("Remix", "Quiet Song")] {
+            let track = Track {
+                provider: "traxsource".into(),
+                provider_id: "title-only-version".into(),
+                artist: "The Artist".into(),
+                title: format!("{base_title} ({label})"),
+                version: None,
+                duration_seconds: Some(240.0),
+                ..Track::default()
+            };
+            for confidence in ["review", "high"] {
+                let candidate = |title: &str| Candidate {
+                    provider: "youtube".into(),
+                    id: "youtube:title-only-version".into(),
+                    title: title.into(),
+                    duration_seconds: Some(240.0),
+                    confidence: confidence.into(),
+                    permission: "unknown".into(),
+                    ..Candidate::default()
+                };
+                assert!(
+                    playback_recording_matches(
+                        &track,
+                        &candidate(&format!("The Artist - {base_title} ({label})")),
+                    ),
+                    "matching {label} candidate should pass at {confidence} confidence"
+                );
+                assert!(
+                    !playback_recording_matches(
+                        &track,
+                        &candidate(&format!("The Artist - {base_title}")),
+                    ),
+                    "studio candidate should fail for title-only {label} at {confidence} confidence"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn exact_remix_credit_caption_matches_remixer_in_version_and_known_label() {
+        let track = Track {
+            provider: "traxsource".into(),
+            provider_id: "15057930".into(),
+            artist: "Mike Dunn, DJ Tai".into(),
+            title: "(I'm Sick) I've Been Infected Wit House Musick (Remix)".into(),
+            version: Some(
+                "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)".into(),
+            ),
+            label: Some("Blackball Muzik".into()),
+            duration_seconds: Some(494.0),
+            ..Track::default()
+        };
+        let caption = "Mike Dunn - I'm Sick I've Been Infected Wit House Musick (DJ Tai Vocal Remix) [Blackball Muzik]";
+        let make = |title: &str, duration: f64| Candidate {
+            provider: "youtube".into(),
+            id: "youtube:mVvwOJJRwXo".into(),
+            title: title.into(),
+            duration_seconds: Some(duration),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let exact = make(caption, 494.0);
+        assert!(is_provisional_playback_candidate(&track, &exact));
+        assert!(playback_recording_matches(&track, &exact));
+        assert!(playback_recording_matches_verified_extractor(
+            &track, &exact
+        ));
+
+        for (title, duration) in [
+            (
+                "Mike Dunn - I'm Sick I've Been Infected Wit House Musick (DJ Tai Instrumental Remix) [Blackball Muzik]",
+                492.0,
+            ),
+            (
+                "Mike Dunn - I'm Sick I've Been Infected Wit House Musick (DJ Somebody Vocal Remix) [Blackball Muzik]",
+                494.0,
+            ),
+            (
+                "I'm Sick I've Been Infected Wit House Musick (DJ Tai Vocal Remix) [Blackball Muzik]",
+                494.0,
+            ),
+            (
+                "Mike Dunn - I'm Sick I've Been Infected Wit House Musick (DJ Tai Vocal Remix) [Other Label]",
+                494.0,
+            ),
+        ] {
+            let wrong = make(title, duration);
+            assert!(!is_provisional_playback_candidate(&track, &wrong), "{title}");
+            assert!(!playback_recording_matches(&track, &wrong), "{title}");
+            assert!(
+                !playback_recording_matches_verified_extractor(&track, &wrong),
+                "{title}"
+            );
+        }
+        let wrong_runtime = make(caption, 501.0);
+        assert!(!playback_recording_matches(&track, &wrong_runtime));
+        assert!(!playback_recording_matches_verified_extractor(
+            &track,
+            &wrong_runtime
+        ));
+    }
+
+    #[test]
+    fn exact_known_label_caption_is_stripped_for_flat_and_extracted_matching() {
+        let track = Track {
+            provider: "traxsource".into(),
+            provider_id: "masaki-untitled-dub-1".into(),
+            artist: "Masaki Morii".into(),
+            title: "Untitled Dub 1".into(),
+            label: Some("M2SOUL Music".into()),
+            duration_seconds: Some(347.0),
+            ..Track::default()
+        };
+        let make = |title: &str, duration: f64| Candidate {
+            provider: "youtube".into(),
+            id: "youtube:Se4-OPD-nEs".into(),
+            title: title.into(),
+            duration_seconds: Some(duration),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let exact = make("Masaki Morii - Untitled Dub 1 [M2SOUL Music]", 348.0);
+        assert!(is_provisional_playback_candidate(&track, &exact));
+        assert!(playback_recording_matches(&track, &exact));
+        assert!(playback_recording_matches_verified_extractor(
+            &track, &exact
+        ));
+
+        for (title, duration) in [
+            ("Masaki Morii - Untitled Dub 1 [Wrong Label]", 348.0),
+            ("Masaki Morii - Untitled Dub 2 [M2SOUL Music]", 348.0),
+            ("Untitled Dub 1 [M2SOUL Music]", 348.0),
+            ("Masaki Morii - Untitled Dub 1 [M2SOUL Music]", 360.0),
+        ] {
+            let wrong = make(title, duration);
+            assert!(!playback_recording_matches(&track, &wrong), "{title}");
+            assert!(
+                !playback_recording_matches_verified_extractor(&track, &wrong),
+                "{title}"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_default_original_vocal_caption_requires_full_identity_and_runtime() {
+        let track = Track {
+            provider: "traxsource".into(),
+            provider_id: "14798487".into(),
+            artist: "Larry La Birt, Corey Holmes".into(),
+            title: "It's All About The Love For You".into(),
+            version: Some("(5:30)".into()),
+            label: Some("Digital Generation".into()),
+            duration_seconds: Some(330.0),
+            ..Track::default()
+        };
+        let make = |title: &str, duration: f64| Candidate {
+            provider: "youtube".into(),
+            id: "youtube:iHugvFBKbF0".into(),
+            title: title.into(),
+            duration_seconds: Some(duration),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let exact = make(
+            "Larry La Birt, Corey Holmes - Its All About The Love For You (Original Vocal) [Digital Generation]",
+            330.0,
+        );
+        assert!(is_provisional_playback_candidate(&track, &exact));
+        assert!(playback_recording_matches(&track, &exact));
+        assert!(playback_recording_matches_verified_extractor(
+            &track, &exact
+        ));
+        assert!(playback_recording_matches(
+            &track,
+            &make(
+                "Larry La Birt,Corey Holmes/Its All About The Love For You(Original Vocal)",
+                331.0,
+            )
+        ));
+        assert!(playback_recording_matches(
+            &track,
+            &make(
+                "Larry La Birt, Corey Holmes - It’s All About The Love For You [Original Vocal]",
+                330.0,
+            )
+        ));
+        assert!(playback_recording_matches(
+            &track,
+            &make(
+                "Larry La Birt, Corey Holmes - I'ts All About The Love For You (Original Vocal)",
+                330.0,
+            )
+        ));
+
+        for (title, duration) in [
+            (
+                "Larry La Birt, Corey Holmes - Its All About The Love For You (Remix) [Digital Generation]",
+                330.0,
+            ),
+            (
+                "Larry La Birt, Corey Holmes - Its All About The Love For You (Live) [Digital Generation]",
+                330.0,
+            ),
+            (
+                "Larry La Birt, Corey Holmes - Its All About The Love For You (Instrumental) [Digital Generation]",
+                330.0,
+            ),
+            (
+                "Larry La Birt, Corey Holmes - Its All About The Love For You (Original Vocal Mix) [Digital Generation]",
+                330.0,
+            ),
+            (
+                "Larry La Birt, Wrong Guest - Its All About The Love For You (Original Vocal) [Digital Generation]",
+                330.0,
+            ),
+            (
+                "Larry La Birt - Its All About The Love For You (Original Vocal) [Digital Generation]",
+                330.0,
+            ),
+            (
+                "Larry La Birt, Corey Holmes - Its All About The Love For You (Original Vocal) [Wrong Label]",
+                330.0,
+            ),
+            (
+                "Larry La Birt, Corey Holmes - Its All About The Love For You (Original Vocal) [Digital Generation]",
+                342.0,
+            ),
+        ] {
+            let wrong = make(title, duration);
+            assert!(!is_provisional_playback_candidate(&track, &wrong), "{title}");
+            assert!(!playback_recording_matches(&track, &wrong), "{title}");
+            assert!(
+                !playback_recording_matches_verified_extractor(&track, &wrong),
+                "{title}"
+            );
+        }
+
+        let explicitly_instrumental = Track {
+            version: Some("Instrumental".into()),
+            ..track
+        };
+        assert!(!is_provisional_playback_candidate(
+            &explicitly_instrumental,
+            &exact
+        ));
+        assert!(!playback_recording_matches_verified_extractor(
+            &explicitly_instrumental,
+            &exact
+        ));
+        let explicit_original_vocal = Track {
+            version: Some("Original Vocal".into()),
+            ..explicitly_instrumental.clone()
+        };
+        assert!(playback_recording_matches_verified_extractor(
+            &explicit_original_vocal,
+            &exact
         ));
     }
 
@@ -2284,5 +3141,159 @@ mod delay_settings_tests {
             &feat_track,
             &comma_name_is_not_split_into_a_feat_credit
         ));
+    }
+
+    #[test]
+    fn monochrome_explicit_guest_matches_only_exact_full_credit_missing_duration_recording() {
+        let track = Track {
+            provider: "radio_song".into(),
+            title: "Diaraby  (w/ Ry Cooder)".into(),
+            artist: "Ali Farka Touré".into(),
+            album: Some("Ali Farka Touré".into()),
+            ..Track::default()
+        };
+        let candidate = || Candidate {
+            id: "monochrome:177409920331984896".into(),
+            provider: "monochrome".into(),
+            title: "Ali Farka Touré, Ry Cooder - Diaraby - with Ry Cooder".into(),
+            uploader: Some("Ali Farka Touré, Ry Cooder".into()),
+            duration_seconds: Some(446.826),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(serde_json::json!({
+                "provider":"monochrome",
+                "trackId":"177409920331984896",
+                "catalogTitle":"Diaraby - with Ry Cooder",
+                "artistNames":["Ali Farka Touré", "Ry Cooder"],
+                "isrc":"GBBGU0640010"
+            })),
+            ..Candidate::default()
+        };
+        let exact = candidate();
+        assert!(monochrome_catalog_recording_matches(&track, &exact));
+        assert!(playback_recording_matches(&track, &exact));
+        assert!(playback_recording_matches(
+            &Track {
+                title: "Diaraby [w/ Ry Cooder]".into(),
+                ..track.clone()
+            },
+            &exact
+        ));
+        for title in [
+            "Diaraby (feat. Ry Cooder)",
+            "Diaraby [feat. Ry Cooder]",
+            "Diaraby (featuring Ry Cooder)",
+            "Diaraby [featuring Ry Cooder]",
+        ] {
+            assert!(
+                playback_recording_matches(
+                    &Track {
+                        title: title.into(),
+                        ..track.clone()
+                    },
+                    &exact
+                ),
+                "expected explicit guest form to match: {title}"
+            );
+        }
+
+        let mut wrong_guest = candidate();
+        wrong_guest.source_metadata.as_mut().unwrap()["artistNames"] =
+            serde_json::json!(["Ali Farka Touré", "Other Guest"]);
+        wrong_guest.title = "Ali Farka Touré, Other Guest - Diaraby - with Ry Cooder".into();
+        wrong_guest.uploader = Some("Ali Farka Touré, Other Guest".into());
+        assert!(!playback_recording_matches(&track, &wrong_guest));
+
+        let mut missing_guest = candidate();
+        missing_guest.source_metadata.as_mut().unwrap()["artistNames"] =
+            serde_json::json!(["Ali Farka Touré"]);
+        missing_guest.title = "Ali Farka Touré - Diaraby - with Ry Cooder".into();
+        assert!(!playback_recording_matches(&track, &missing_guest));
+
+        let mut extra_artist = candidate();
+        extra_artist.source_metadata.as_mut().unwrap()["artistNames"] =
+            serde_json::json!(["Ali Farka Touré", "Ry Cooder", "Extra Artist"]);
+        extra_artist.title =
+            "Ali Farka Touré, Ry Cooder, Extra Artist - Diaraby - with Ry Cooder".into();
+        assert!(!playback_recording_matches(&track, &extra_artist));
+
+        let mut wrong_order = candidate();
+        wrong_order.source_metadata.as_mut().unwrap()["artistNames"] =
+            serde_json::json!(["Ry Cooder", "Ali Farka Touré"]);
+        wrong_order.title = "Ry Cooder, Ali Farka Touré - Diaraby - with Ry Cooder".into();
+        assert!(!playback_recording_matches(&track, &wrong_order));
+
+        let mut wrong_title = candidate();
+        wrong_title.source_metadata.as_mut().unwrap()["catalogTitle"] =
+            serde_json::json!("Different Song - with Ry Cooder");
+        assert!(!playback_recording_matches(&track, &wrong_title));
+
+        let mut live = candidate();
+        live.source_metadata.as_mut().unwrap()["catalogTitle"] =
+            serde_json::json!("Diaraby - with Ry Cooder Live");
+        live.title = "Ali Farka Touré, Ry Cooder - Diaraby - with Ry Cooder Live".into();
+        assert!(!playback_recording_matches(&track, &live));
+        assert!(!playback_recording_matches(
+            &Track {
+                title: "Diaraby (w/ Ry Cooder) (Live)".into(),
+                ..track.clone()
+            },
+            &exact
+        ));
+        assert!(!playback_recording_matches(
+            &Track {
+                version: Some("Live".into()),
+                ..track.clone()
+            },
+            &exact
+        ));
+        assert!(!playback_recording_matches(
+            &Track {
+                playback_range: Some(crate::models::PlaybackRange {
+                    parent_track_id: "parent".into(),
+                    chapter_id: "chapter".into(),
+                    source_url: "https://example.test/audio".into(),
+                    start_time: 0.0,
+                    end_time: 30.0,
+                    parent_title: "Diaraby".into(),
+                    parent_duration_seconds: Some(446.826),
+                }),
+                ..track.clone()
+            },
+            &exact
+        ));
+        assert!(!playback_recording_matches(
+            &Track {
+                provenance: serde_json::json!({"chapters":[{"startTime":0}]}),
+                ..track.clone()
+            },
+            &exact
+        ));
+
+        let mut isrc_conflict = Track {
+            isrc: Some("USAAA0000001".into()),
+            ..track.clone()
+        };
+        assert!(!playback_recording_matches(&isrc_conflict, &exact));
+        isrc_conflict.isrc = None;
+        for duration in [Some(30.0), Some(0.0), Some(f64::NAN), Some(86_401.0), None] {
+            let bad_runtime = Candidate {
+                duration_seconds: duration,
+                ..exact.clone()
+            };
+            assert!(!playback_recording_matches(&track, &bad_runtime));
+        }
+
+        let bad_provider_track = Candidate {
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "trackId":"177409920331984896",
+                "catalogTitle":"Diaraby - with Ry Cooder",
+                "artistNames":["Ali Farka Touré", "Ry Cooder"],
+                "isrc":"GBBGU0640010"
+            })),
+            ..exact
+        };
+        assert!(!playback_recording_matches(&track, &bad_provider_track));
     }
 }

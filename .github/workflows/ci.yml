@@ -134,12 +134,16 @@ jobs:
         # must not fall through to YouTube when they exercise fake helpers.
         env:
           BURRATA_NATIVE_YOUTUBE_SEARCH: '0'
+          BURRATA_DIRECT_YOUTUBE: '0'
+          BURRATA_BANDCAMP_PLAYBACK: '0'
       - name: Check experimental direct resolver without provider requests
         # Live/provider/device probes stay ignored. Exercise the opt-in adapter,
         # its real deadline/epoch/attempt policy and fake-worker regressions.
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features playback-direct-youtube-experiment --lib
         env:
           BURRATA_NATIVE_YOUTUBE_SEARCH: '0'
+          BURRATA_DIRECT_YOUTUBE: '0'
+          BURRATA_BANDCAMP_PLAYBACK: '0'
       - name: Diagnose Windows native loader failure
         timeout-minutes: 10
         if: failure() && runner.os == 'Windows'

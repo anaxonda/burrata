@@ -23,6 +23,158 @@ use uuid::Uuid;
 // Peer queues must not consume the workers used for direct downloads or file processing.
 const SOULSEEK_PENDING_LIMIT: usize = 32;
 
+fn download_matching_level(track: &Track) -> crate::recording_match::MatchLevel {
+    track.provenance["downloadMatchingLevel"]
+        .as_str()
+        .and_then(|value| {
+            serde_json::from_value::<crate::recording_match::MatchLevel>(Value::String(
+                value.to_owned(),
+            ))
+            .ok()
+        })
+        // Jobs created before policy snapshots were introduced retain the
+        // historical default regardless of the user's current settings.
+        .unwrap_or(crate::recording_match::MatchLevel::Balanced)
+}
+
+fn canonical_source_url(raw: &str) -> String {
+    url::Url::parse(raw)
+        .ok()
+        .map(|url| url.to_string())
+        .unwrap_or_else(|| raw.to_owned())
+}
+
+fn explicit_download_source(track: &Track, candidate: &Candidate) -> bool {
+    if track.provenance["downloadAutomaticFallback"] == true {
+        return false;
+    }
+    let selected = &track.provenance["userSelectedSource"];
+    if selected.is_object() {
+        return selected["provider"].as_str() == Some(candidate.provider.as_str())
+            && selected["id"].as_str() == Some(candidate.id.as_str())
+            && selected["url"].as_str() == Some(canonical_source_url(&candidate.url).as_str());
+    }
+    track.provenance["sourceKind"].as_str() == Some("audioSearch")
+        && track.provider == candidate.provider
+        && track.provider_id
+            == candidate
+                .id
+                .strip_prefix(&format!("{}:", candidate.provider))
+                .unwrap_or_default()
+        && canonical_source_url(&track.source_url) == canonical_source_url(&candidate.url)
+}
+
+fn snapshot_user_selected_source(track: &mut Track, candidate: &Candidate) {
+    if track.provenance["userSelectedSource"] == true {
+        track.provenance["userSelectedSource"] = serde_json::json!({
+            "provider": candidate.provider,
+            "id": candidate.id,
+            "url": canonical_source_url(&candidate.url),
+        });
+    }
+}
+
+fn artifact_track_for_match(
+    track: &Track,
+    candidate: &Candidate,
+    relationship: crate::recording_match::MatchRelationship,
+    separate_source_identity: bool,
+) -> Result<Track, String> {
+    let mut artifact = track.clone();
+    if let Some(provenance) = artifact.provenance.as_object_mut() {
+        provenance.remove("userSelectedSource");
+        provenance.remove("downloadAutomaticFallback");
+    }
+    if !separate_source_identity {
+        return Ok(artifact);
+    }
+    let metadata = candidate.source_metadata.as_ref().unwrap_or(&Value::Null);
+    let prefix = format!("{}:", candidate.provider);
+    let actual_provider_id = candidate
+        .id
+        .strip_prefix(&prefix)
+        .filter(|id| !id.is_empty())
+        .or_else(|| {
+            metadata["resolvedProviderId"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+        })
+        .ok_or("Alternative source is missing its stable provider identity")?;
+    let actual_id = format!("{}:{actual_provider_id}", candidate.provider);
+    let already_actual_source = track.provider == candidate.provider
+        && track.provider_id == actual_provider_id
+        && canonical_source_url(&track.source_url) == canonical_source_url(&candidate.url);
+    if actual_id == track.id && !already_actual_source {
+        return Err("Alternative source resolves to the requested catalog identity".into());
+    }
+    let actual_title = metadata["catalogTitle"]
+        .as_str()
+        .or(metadata["track"].as_str())
+        .or(metadata["title"].as_str())
+        .unwrap_or(&candidate.title)
+        .trim();
+    if !actual_title.is_empty() && track.provenance["manualFields"]["title"] != true {
+        artifact.title = actual_title.to_owned();
+    }
+    let actual_artist = metadata["artist"]
+        .as_str()
+        .or(metadata["catalogArtist"].as_str())
+        .map(str::trim)
+        .filter(|artist| !artist.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            metadata["artists"].as_array().and_then(|artists| {
+                let names = artists
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .collect::<Vec<_>>();
+                (!names.is_empty()).then(|| names.join(", "))
+            })
+        });
+    if let Some(artist) =
+        actual_artist.filter(|_| track.provenance["manualFields"]["artist"] != true)
+    {
+        artifact.artist = artist.trim().to_owned();
+    }
+    if track.provenance["manualFields"]["version"] != true {
+        artifact.version = metadata["version"]
+            .as_str()
+            .or(metadata["mix"].as_str())
+            .map(str::to_owned)
+            .or_else(|| crate::recording_identity::parse_title(actual_title).version);
+    }
+    if !already_actual_source {
+        artifact.provider = candidate.provider.clone();
+        artifact.provider_id = actual_provider_id.to_owned();
+        artifact.id = actual_id;
+        artifact.source_url = candidate.url.clone();
+    }
+    if !artifact.provenance.is_object() {
+        artifact.provenance = serde_json::json!({});
+    }
+    artifact.provenance["requestedTrackIdentity"] = serde_json::json!({
+        "id": track.id,
+        "originalId": track.id,
+        "provider": track.provider,
+        "providerId": track.provider_id,
+        "title": track.title,
+        "artist": track.artist,
+        "version": track.version,
+        "matchingLevel": track.provenance["downloadMatchingLevel"],
+    });
+    artifact.provenance["downloadMatchRelationship"] =
+        serde_json::to_value(relationship).unwrap_or_else(|_| serde_json::json!("unresolved"));
+    artifact.provenance["actualSourceIdentity"] = serde_json::json!({
+        "provider": candidate.provider,
+        "providerId": actual_provider_id,
+        "id": artifact.id,
+        "sourceUrl": candidate.url,
+    });
+    Ok(artifact)
+}
+
 struct DownloadAdmission<'a> {
     processing: Option<SemaphorePermit<'a>>,
     peer: Option<SemaphorePermit<'a>>,
@@ -509,27 +661,79 @@ where
 /// deadline/cancellation can drop run_tool_until without polling its select.
 /// Keep the leader unreaped until pipe processing is complete so its PID cannot
 /// be recycled while this guard may still need to signal the process group.
-struct ToolProcess(Child);
+struct ToolProcess {
+    child: Option<Child>,
+    temp_dir: Option<tempfile::TempDir>,
+}
 impl std::ops::Deref for ToolProcess {
     type Target = Child;
     fn deref(&self) -> &Child {
-        &self.0
+        self.child.as_ref().expect("tool child is present")
     }
 }
 impl std::ops::DerefMut for ToolProcess {
     fn deref_mut(&mut self) -> &mut Child {
-        &mut self.0
+        self.child.as_mut().expect("tool child is present")
     }
 }
 impl Drop for ToolProcess {
     fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+        let temp_dir = self.temp_dir.take();
+        let pid = child.id();
         #[cfg(unix)]
-        if let Some(pid) = self.0.id() {
+        if let Some(pid) = pid {
             // The child was spawned with process_group(0). SIGKILL is
-            // synchronous; Child's kill_on_drop remains the leader fallback.
+            // synchronous, so the group cannot keep writing as the reaper waits.
             unsafe {
                 libc::kill(-(pid as i32), libc::SIGKILL);
             }
+        }
+        // This guard can be dropped when an outer cancellation/deadline drops
+        // the future. Keep its private temp directory alive until the killed
+        // process has been reaped, then remove it with TempDir's Drop.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                #[cfg(windows)]
+                if let Some(pid) = pid {
+                    let mut command = Command::new("taskkill");
+                    crate::tools::configure_no_console_tokio(&mut command);
+                    let _ = command
+                        .args(["/F", "/T", "/PID", &pid.to_string()])
+                        .output()
+                        .await;
+                }
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                drop(temp_dir);
+            });
+        } else {
+            // A future can outlive its runtime. Start termination before
+            // handing the child to a plain reaper thread, which retains the
+            // directory until try_wait confirms the leader has exited.
+            #[cfg(not(windows))]
+            let _ = child.start_kill();
+            std::thread::spawn(move || {
+                #[cfg(windows)]
+                if let Some(pid) = pid {
+                    use std::os::windows::process::CommandExt;
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/T", "/PID", &pid.to_string()])
+                        .creation_flags(0x08000000)
+                        .output();
+                }
+                #[cfg(windows)]
+                let _ = child.start_kill();
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(_)) | Err(_) => break,
+                        Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                    }
+                }
+                drop(temp_dir);
+            });
         }
     }
 }
@@ -632,9 +836,16 @@ async fn run_tool_until<F: FnMut(&str)>(
         return Err("Cancelled".into());
     }
     let yt_dlp = yt_dlp_executable(settings);
+    let temp_dir = tempfile::Builder::new()
+        .prefix("burrata-yt-dlp-")
+        .tempdir()
+        .map_err(|error| format!("Could not create yt-dlp temporary directory: {error}"))?;
     let mut command = Command::new(yt_dlp);
     command
         .args(args)
+        .env("TMPDIR", temp_dir.path())
+        .env("TMP", temp_dir.path())
+        .env("TEMP", temp_dir.path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -673,7 +884,10 @@ async fn run_tool_until<F: FnMut(&str)>(
     #[cfg(not(unix))]
     let mut child = spawn_result.map_err(|error| format!("Could not start yt-dlp: {error}"))?;
 
-    let mut child = ToolProcess(child);
+    let mut child = ToolProcess {
+        child: Some(child),
+        temp_dir: Some(temp_dir),
+    };
     let (tx, mut rx) = mpsc::channel(32);
     let out = tokio::spawn(pump(
         child.stdout.take().ok_or("Missing stdout")?,
@@ -735,6 +949,11 @@ async fn run_tool_until<F: FnMut(&str)>(
             }
         }
     };
+    if child.id().is_none() {
+        // All ordinary exits and handled timeouts/cancellations reap in the
+        // same future, so remove their directory before returning.
+        drop(child.temp_dir.take());
+    }
     result
 }
 
@@ -888,8 +1107,59 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
     if let Some(count) = valid_count(&info["play_count"]) {
         reported.insert("plays".into(), count);
     }
+    let mut source_metadata = reported;
+    source_metadata.insert("extractor".into(), Value::Bool(true));
+    source_metadata.insert(
+        "sourceMetadataOrigin".into(),
+        Value::String("ytDlpCandidateMetadata".into()),
+    );
+    source_metadata.insert("resolvedProviderId".into(), Value::String(id.to_owned()));
+    if let Some(title) = metadata_text(&info["track"])
+        .or_else(|| metadata_text(&info["title"]))
+        .filter(|title| title.len() <= 512)
+    {
+        source_metadata.insert("track".into(), Value::String(title.clone()));
+        source_metadata.insert("catalogTitle".into(), Value::String(title));
+    }
+    if let Some(artists) = info["artists"].as_array().filter(|artists| {
+        !artists.is_empty()
+            && artists.len() <= 32
+            && artists.iter().all(|artist| {
+                artist
+                    .as_str()
+                    .is_some_and(|name| !name.trim().is_empty() && name.trim().len() <= 256)
+            })
+    }) {
+        let artists = artists
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|name| name.trim().to_owned())
+            .collect::<Vec<_>>();
+        source_metadata.insert("artistCount".into(), Value::from(artists.len()));
+        source_metadata.insert("artists".into(), serde_json::json!(artists));
+    } else if let Some(artist) = metadata_text(&info["artist"]).filter(|artist| artist.len() <= 256)
+    {
+        source_metadata.insert("artist".into(), Value::String(artist));
+    }
+    for key in ["version", "mix", "album"] {
+        if let Some(value) = metadata_text(&info[key]).filter(|value| value.len() <= 512) {
+            source_metadata.insert(key.into(), Value::String(value));
+        }
+    }
+    if let Some(isrc) = info["isrc"]
+        .as_str()
+        .and_then(crate::recording_identity::normalize_isrc)
+    {
+        source_metadata.insert("isrc".into(), Value::String(isrc));
+    }
+    if let Some(duration) = info["duration"]
+        .as_f64()
+        .filter(|duration| duration.is_finite() && (1.0..=86400.0).contains(duration))
+    {
+        source_metadata.insert("duration".into(), serde_json::json!(duration));
+    }
     Candidate {
-        source_metadata: (!reported.is_empty()).then_some(Value::Object(reported)),
+        source_metadata: Some(Value::Object(source_metadata)),
         id: format!("{provider}:{id}"),
         provider: provider.into(),
         url: url.into(),
@@ -1155,7 +1425,6 @@ async fn search_provider_candidates(
         _ => return (Vec::new(), Vec::new()),
     };
     let queries = playback_search_queries(track, alternate_artist.as_deref());
-    let precision_fallback = queries.get(1).is_some_and(|query| query.starts_with('"'));
     let deadline = Instant::now() + per_provider_timeout;
     let mut candidates = Vec::new();
     let mut errors = Vec::new();
@@ -1248,16 +1517,20 @@ async fn search_provider_candidates(
             },
             Err(error) => errors.push(format!("{provider}: {error}")),
         }
-        // A nonempty search page is not enough to stop: a versioned query may
-        // return unrelated mixes before the exact original recording appears
-        // in the unversioned query. Stop only when a result passes identity
-        // matching or is a narrowly eligible Topic candidate that will be
-        // verified against full metadata during the single audio extraction.
+        // Stop query expansion only when the shared evaluator considers a
+        // result inspectable or acceptable at Search stage.
         if candidates.iter().any(|candidate| {
-            crate::source_fallback::playback_recording_matches(track, candidate)
-                || crate::source_fallback::is_topic_playback_candidate(track, candidate)
-                || (!precision_fallback
-                    && crate::source_fallback::is_provisional_playback_candidate(track, candidate))
+            matches!(
+                crate::recording_match::assess(
+                    track,
+                    candidate,
+                    settings.matching_level,
+                    crate::recording_match::MatchStage::Search,
+                )
+                .action,
+                crate::recording_match::MatchAction::Inspect
+                    | crate::recording_match::MatchAction::Accept
+            )
         }) {
             break;
         }
@@ -1308,13 +1581,19 @@ fn metadata_text(value: &Value) -> Option<String> {
     let text = match value {
         Value::String(text) => Some(text.trim().to_owned()),
         Value::Array(values) => {
+            if values.is_empty() || values.len() > 32 {
+                return None;
+            }
             let artists = values
                 .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|artist| !artist.is_empty())
-                .collect::<Vec<_>>();
-            (!artists.is_empty()).then(|| artists.join(", "))
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty() && name.len() <= 512)
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(artists.join(", "))
         }
         _ => None,
     }?;
@@ -1338,7 +1617,7 @@ fn split_source_credit_title(value: &str) -> Option<(String, String)> {
 fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     let provider_id = info["id"].as_str().unwrap_or_default().trim().to_owned();
     let provided_artist =
-        metadata_text(&info["artist"]).or_else(|| metadata_text(&info["artists"]));
+        metadata_text(&info["artists"]).or_else(|| metadata_text(&info["artist"]));
     let provided_title = metadata_text(&info["track"]);
     let raw_title = provided_title
         .clone()
@@ -1358,9 +1637,12 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
         provider_id,
         source_url: candidate.url.clone(),
         artist,
-        title,
+        title: title.clone(),
         album: metadata_text(&info["album"]),
         genre: metadata_text(&info["genre"]),
+        isrc: info["isrc"]
+            .as_str()
+            .and_then(crate::recording_identity::normalize_isrc),
         duration_seconds: candidate.duration_seconds,
         release_date: metadata_text(&info["release_date"]),
         artwork_url: candidate.artwork_url.clone(),
@@ -1368,6 +1650,7 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
             "sourceKind": "audioSearch",
             "identity": "unverified source search result",
             "artistSource": artist_source,
+            "parsedTitle": crate::recording_identity::parse_title(&title),
             "weakFields": {"artist": artist_source != "metadata", "title": provided_title.is_none()},
             "uploader": candidate.uploader,
             "uploadDate": metadata_text(&info["upload_date"]),
@@ -1383,6 +1666,7 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
             &candidate.url,
         );
     }
+    crate::recording_identity::hydrate_identifiers(&mut track);
     track
 }
 
@@ -1569,6 +1853,12 @@ fn playback_search_queries(track: &Track, alternate_artist: Option<&str>) -> Vec
             queries.push(format!("\"{artist}\" \"{title}\""));
         }
     }
+    if queries.len() == 1 {
+        let folded = crate::recording_identity::search_fold(&query);
+        if folded != matching::normalize(&query) && !folded.is_empty() {
+            queries.push(folded);
+        }
+    }
     queries.truncate(2);
     queries
 }
@@ -1583,7 +1873,10 @@ fn search_query_for_artist(track: &Track, artist: &str, include_version: bool) -
         matching::normalize(&track.title),
     ];
     if include_version {
-        let version = matching::normalize_version(track.version.as_deref().unwrap_or(""));
+        let version = matching::normalize_version_for_title(
+            &track.title,
+            track.version.as_deref().unwrap_or(""),
+        );
         if !version.is_empty() && !matches!(version.as_str(), "original" | "original mix") {
             parts.push(version);
         }
@@ -2709,6 +3002,35 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
 {
+    complete_playback_candidate_search_observed_with_level(
+        track,
+        providers,
+        _alternate_artist,
+        found,
+        cancel,
+        deadline,
+        catalog,
+        observe_flat_batch,
+        crate::recording_match::MatchLevel::Balanced,
+    )
+    .await
+}
+
+async fn complete_playback_candidate_search_observed_with_level<F, Fut>(
+    track: &Track,
+    providers: &[String],
+    _alternate_artist: Option<&str>,
+    mut found: Vec<Candidate>,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    catalog: F,
+    observe_flat_batch: Option<Box<dyn FnOnce(Vec<Candidate>) + Send>>,
+    matching_level: crate::recording_match::MatchLevel,
+) -> Result<(Vec<Candidate>, bool), String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+{
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
@@ -2728,9 +3050,16 @@ where
                 "" | "original" | "original mix"
             )
         })
-        && !found
-            .iter()
-            .any(|candidate| crate::source_fallback::playback_recording_matches(track, candidate));
+        && !found.iter().any(|candidate| {
+            crate::recording_match::assess(
+                track,
+                candidate,
+                matching_level,
+                crate::recording_match::MatchStage::Search,
+            )
+            .relationship
+                != crate::recording_match::MatchRelationship::Unresolved
+        });
     let mut cacheable = !optional_eligible;
     if optional_eligible && !optional_budget.is_zero() {
         if let Some(observe) = observe_flat_batch {
@@ -2761,8 +3090,9 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search:{}",
+        "{}:playback-source-search:recording-match-v1:{:?}:{}",
         search_cache_key(track, provider_ids, settings, 3),
+        settings.matching_level,
         serde_json::to_string(alternate_artists).unwrap_or_default(),
     )
 }
@@ -3287,6 +3617,8 @@ async fn resolve_bandcamp_preview_audio(
         source_metadata: Some(serde_json::json!({
             "channel": resolved.artist.clone(),
             "uploader": resolved.artist.clone(),
+            "albumUrl": resolved.album_url.as_ref().map(|url| url.as_str()),
+            "albumId": resolved.album_id,
         })),
         // The shared strict matcher expects provider titles to include the
         // credited artist. Keep the parsed artist separately as well so the
@@ -4048,13 +4380,8 @@ fn playback_music_catalog_candidates(
             music.entry(candidate.id.clone()).or_insert(candidate);
         }
     }
-    // Multiple exact catalog locators remain ambiguous. Do not choose an
-    // edition merely because a provider happened to rank it first.
-    if music.len() == 1 {
-        music.into_values().collect()
-    } else {
-        Vec::new()
-    }
+    // Distinct uploads are candidates, not a recording ambiguity by themselves.
+    music.into_values().collect()
 }
 
 fn playback_music_catalog_candidate(
@@ -4088,30 +4415,12 @@ fn playback_music_catalog_candidate(
         ],
         ..Candidate::default()
     };
-    let mut credit_probe = track.clone();
-    credit_probe.artist = candidate
-        .source_metadata
-        .as_ref()
-        .and_then(|metadata| metadata["catalogArtist"].as_str())
-        .unwrap_or_default()
-        .to_owned();
-    // Retain a complete catalog credit as an alias locator. It still fails the
-    // canonical gate until exact provider-ID-backed alias proof is available.
-    (crate::source_fallback::is_provisional_playback_candidate(track, &candidate)
-        || (track.artist.split([',', '&']).next().is_some_and(|artist| {
-            !artist.trim().is_empty()
-                && credit_probe
-                    .artist
-                    .split([',', '&'])
-                    .next()
-                    .is_some_and(|found| {
-                        crate::matching::normalize(artist) == crate::matching::normalize(found)
-                    })
-        }) && crate::source_fallback::is_provisional_playback_candidate(
-            &credit_probe,
-            &candidate,
-        )))
-    .then_some(candidate)
+    // Retrieval retains same-title locators without making a performer/version
+    // acceptance decision. The shared evaluator applies current evidence later.
+    let wanted = crate::recording_identity::parse_title(&track.title).title;
+    let observed = crate::recording_identity::parse_title(&candidate.title).title;
+    (crate::matching::normalize(&wanted) == crate::matching::normalize(&observed))
+        .then_some(candidate)
 }
 
 /// Retain the narrowly useful, fresh YouTube channel identity exposed by the
@@ -4167,6 +4476,7 @@ fn verified_youtube_channel_metadata(candidate: &Candidate, info: &Value) -> Opt
         "uploader": uploader,
         "channelIsVerified": true,
         "track": track,
+        "artistCount": artists.as_ref().map(Vec::len),
         "artists": artists,
     }))
 }
@@ -4214,14 +4524,19 @@ fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value>
     if candidate.provider != "youtube" || !fresh_youtube_topic_identity(info) {
         return None;
     }
-    let artists = info["artists"]
-        .as_array()?
+    let raw_artists = info["artists"].as_array()?;
+    if raw_artists.is_empty() || raw_artists.len() > 32 {
+        return None;
+    }
+    let artists = raw_artists
         .iter()
-        .filter_map(Value::as_str)
-        .map(str::trim)
-        .filter(|name| !name.is_empty() && name.len() <= 120)
-        .take(8)
-        .collect::<Vec<_>>();
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && name.len() <= 120)
+        })
+        .collect::<Option<Vec<_>>>()?;
     if artists.is_empty() {
         return None;
     }
@@ -4253,6 +4568,7 @@ fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value>
         "channel": channel,
         "track": track,
         "artist": info["artist"].as_str().unwrap_or_default(),
+        "artistCount": artists.len(),
         "artists": artists,
         "descriptionCreditLine": credit_line,
         "duration": duration,
@@ -4406,6 +4722,16 @@ async fn inspect_ytdlp_metadata(
         return Err("This URL contains multiple recordings. Choose an individual track; collections never download implicitly.".into());
     }
     let mut result = candidate_from_json(&info, &candidate.provider);
+    if let Some(metadata) = result
+        .source_metadata
+        .as_mut()
+        .and_then(Value::as_object_mut)
+    {
+        metadata.insert(
+            "sourceMetadataOrigin".into(),
+            Value::String("ytDlpFullInfo".into()),
+        );
+    }
     if result.url.is_empty() {
         result.url = candidate.url.clone();
     }
@@ -4593,6 +4919,18 @@ impl AcquisitionManager {
             }
         }
         Ok(resumed)
+    }
+
+    pub(crate) fn notify_bandcamp_source_ready(&self, track: &Track) {
+        self.notify_source_ready(track, "bandcamp");
+    }
+    pub(crate) fn notify_source_ready(&self, track: &Track, provider: &str) {
+        if let Some(app) = &self.inner.app {
+            let _ = app.emit(
+                "playback-source-ready",
+                serde_json::json!({"trackId":track.id,"title":track.title,"provider":provider}),
+            );
+        }
     }
 
     pub(crate) fn alias_store(&self) -> Arc<Store> {
@@ -5178,7 +5516,7 @@ impl AcquisitionManager {
                 } else {
                     search_flat().await?
                 };
-                complete_playback_candidate_search_observed(
+                complete_playback_candidate_search_observed_with_level(
                     &search_track,
                     provider_ids,
                     alternate_artist.as_deref(),
@@ -5197,6 +5535,7 @@ impl AcquisitionManager {
                         Ok(playback_music_catalog_candidates(&search_track, items))
                     },
                     observe_flat_batch,
+                    settings.matching_level,
                 )
                 .await
             })
@@ -5607,7 +5946,11 @@ impl AcquisitionManager {
         let is_profile = |key: &str| {
             serde_json::from_str::<Value>(key)
                 .ok()
-                .is_some_and(|value| value[0].as_str() == Some(provider))
+                .is_some_and(|value| {
+                    value[0].as_str() == Some(provider)
+                        || (value[0].as_str() == Some("recording-match-v1")
+                            && value[2].as_str() == Some(provider))
+                })
         };
         for cache in [
             &self.inner.preview_audio_cache,
@@ -5764,6 +6107,16 @@ impl AcquisitionManager {
             return Err("Unknown output profile".into());
         }
         let id = Uuid::new_v4().to_string();
+        if !request.track.provenance.is_object() {
+            request.track.provenance = serde_json::json!({});
+        }
+        // A chooser selection is job-local authority. Bind it to the actual
+        // selected source so a queued request cannot authorize another result.
+        snapshot_user_selected_source(&mut request.track, &request.candidate);
+        // The matching policy belongs to the queued request. A settings change
+        // while a job is waiting must not silently change its identity policy.
+        request.track.provenance["downloadMatchingLevel"] =
+            serde_json::to_value(settings.matching_level).map_err(|error| error.to_string())?;
         let mut candidate = request.candidate;
         if let Some(CandidateSource::Soulseek {
             batch_id,
@@ -5960,6 +6313,7 @@ impl AcquisitionManager {
         let lossless = crate::source_fallback::requires_lossless(job);
         let mut expected = original_track.clone();
         expected.duration_seconds = expected.duration_seconds.or(job.candidate.duration_seconds);
+        let matching_level = download_matching_level(&original_track);
         let first_error = match self.acquire(job, settings, rx.clone()).await {
             Ok(asset) => return Ok(asset),
             Err(error) => error,
@@ -5986,19 +6340,39 @@ impl AcquisitionManager {
                 found = self.find_candidates(&expected, &ids, settings) => found,
                 _ = rx.changed() => return Err("Cancelled".into()),
             };
-            let candidates = match found {
+            let mut candidates = match found {
                 Ok(found) => found,
                 Err(error) => {
                     failures.push(serde_json::json!({"provider":provider,"error":error}));
                     continue;
                 }
             };
+            candidates.sort_by_key(|candidate| {
+                crate::recording_match_context::priority(&crate::recording_match_context::assess(
+                    &self.inner.store,
+                    &expected,
+                    candidate,
+                    matching_level,
+                    crate::recording_match::MatchStage::Search,
+                ))
+            });
             let mut attempted = false;
             for candidate in candidates
                 .into_iter()
-                .filter(|c| {
-                    c.provider == provider
-                        && crate::source_fallback::recording_matches(&expected, c)
+                .filter(|candidate| {
+                    candidate.provider == provider
+                        && matches!(
+                            crate::recording_match_context::assess(
+                                &self.inner.store,
+                                &expected,
+                                candidate,
+                                matching_level,
+                                crate::recording_match::MatchStage::Search,
+                            )
+                            .action,
+                            crate::recording_match::MatchAction::Inspect
+                                | crate::recording_match::MatchAction::Accept
+                        )
                 })
                 .take(2)
             {
@@ -6016,6 +6390,22 @@ impl AcquisitionManager {
                         }
                     }
                 };
+                let assessment = crate::recording_match_context::assess(
+                    &self.inner.store,
+                    &expected,
+                    &candidate,
+                    matching_level,
+                    crate::recording_match::MatchStage::Resolved,
+                );
+                if assessment.action != crate::recording_match::MatchAction::Accept {
+                    failures.push(serde_json::json!({
+                        "provider": provider,
+                        "candidateId": candidate.id,
+                        "error": "Resolved source did not meet the selected recording match policy",
+                        "relationship": assessment.relationship,
+                    }));
+                    continue;
+                }
                 if candidate.permission == "restricted" {
                     continue;
                 }
@@ -6056,6 +6446,7 @@ impl AcquisitionManager {
                     job.track.provenance = serde_json::json!({});
                 }
                 job.track.provenance["downloadFallbackAttempts"] = serde_json::json!(failures);
+                job.track.provenance["downloadAutomaticFallback"] = serde_json::json!(true);
                 job.track.provenance["downloadFallbackRequiresLossless"] =
                     serde_json::json!(lossless && !settings.download_fallback_allow_lossy);
                 job.candidate = candidate;
@@ -6155,8 +6546,40 @@ impl AcquisitionManager {
         }
         // Re-extract formats immediately before acquisition; never reuse expired stream URLs.
         if job.candidate.provider != "slskd" {
-            job.candidate =
-                inspect_with_cancel(&job.track, &job.candidate, settings, rx.clone()).await?;
+            // Acquisition must verify against current provider identity evidence.
+            // The chooser's short-lived inspection cache is useful for UI, but
+            // it is not the final automatic-download gate.
+            let mut inspected =
+                inspect_metadata_with_cancel(&job.candidate, settings, rx.clone()).await?;
+            matching::score_candidate(&job.track, &mut inspected);
+            job.candidate = inspected;
+        }
+        let selected_assessment = crate::recording_match_context::assess(
+            &self.inner.store,
+            &job.track,
+            &job.candidate,
+            download_matching_level(&job.track),
+            crate::recording_match::MatchStage::Resolved,
+        );
+        let explicitly_selected = explicit_download_source(&job.track, &job.candidate);
+        if selected_assessment.action != crate::recording_match::MatchAction::Accept
+            && !explicitly_selected
+        {
+            return Err(
+                "The selected source did not meet the automatic recording match policy".into(),
+            );
+        }
+        if explicitly_selected
+            && selected_assessment.action != crate::recording_match::MatchAction::Accept
+        {
+            if !job.track.provenance.is_object() {
+                job.track.provenance = serde_json::json!({});
+            }
+            job.track.provenance["actualSourceVerification"] =
+                serde_json::json!("unverified_user_selected_source");
+            job.track.provenance["actualSourceMatchReasons"] =
+                serde_json::to_value(&selected_assessment.reasons)
+                    .unwrap_or_else(|_| serde_json::json!([]));
         }
         if *rx.borrow() {
             return Err("Cancelled".into());
@@ -6496,6 +6919,10 @@ impl AcquisitionManager {
                 chapter_track.isrc = None;
                 chapter_track.bpm = None;
                 chapter_track.key = None;
+                if let Some(provenance) = chapter_track.provenance.as_object_mut() {
+                    provenance.remove("userSelectedSource");
+                    provenance.remove("downloadAutomaticFallback");
+                }
                 chapter_track.provenance["chapter"] = serde_json::json!({
                         "id": chapter.id,
                         "jobId": job.id,
@@ -6584,9 +7011,19 @@ impl AcquisitionManager {
                 .next()
                 .ok_or_else(|| "No chapters selected".into());
         }
+        let separate_source_identity = selected_assessment.relationship
+            == crate::recording_match::MatchRelationship::Alternative
+            || (explicitly_selected
+                && selected_assessment.action != crate::recording_match::MatchAction::Accept);
+        let artifact_track = artifact_track_for_match(
+            &job.track,
+            &job.candidate,
+            selected_assessment.relationship,
+            separate_source_identity,
+        )?;
         let source = media::finalize_download(
             &path,
-            &job.track,
+            &artifact_track,
             &job.candidate,
             settings,
             "source",
@@ -6914,6 +7351,196 @@ mod tests {
     use super::*;
 
     #[test]
+    fn download_policy_snapshot_survives_settings_change() {
+        let mut track = Track::default();
+        assert_eq!(
+            download_matching_level(&track),
+            crate::recording_match::MatchLevel::Balanced
+        );
+        track.provenance = serde_json::json!({"downloadMatchingLevel":"exact"});
+        assert_eq!(
+            download_matching_level(&track),
+            crate::recording_match::MatchLevel::Exact
+        );
+    }
+
+    #[test]
+    fn full_inspection_metadata_retains_bounded_recording_identity() {
+        let inspected = candidate_from_json(
+            &serde_json::json!({
+                "id":"fresh-video-id",
+                "title":"Artist - Song (Live)",
+                "track":"Song (Live)",
+                "artists":["Artist", "Guest Artist"],
+                "album":"Live at the Hall",
+                "version":"Live",
+                "isrc":"USABC2600001",
+                "duration":180.0,
+                "view_count":27
+            }),
+            "youtube",
+        );
+        let metadata = inspected.source_metadata.unwrap();
+        assert_eq!(metadata["sourceMetadataOrigin"], "ytDlpCandidateMetadata");
+        assert_eq!(metadata["resolvedProviderId"], "fresh-video-id");
+        assert_eq!(metadata["catalogTitle"], "Song (Live)");
+        assert_eq!(
+            metadata["artists"],
+            serde_json::json!(["Artist", "Guest Artist"])
+        );
+        assert_eq!(metadata["artistCount"], 2);
+        assert_eq!(metadata["album"], "Live at the Hall");
+        assert_eq!(metadata["version"], "Live");
+        assert_eq!(metadata["views"], 27);
+    }
+
+    #[test]
+    fn flexible_alternative_tags_keep_requested_identity_in_provenance() {
+        let mut requested = Track::default();
+        requested.id = "spotify:spotify-track-id".into();
+        requested.provider = "spotify".into();
+        requested.provider_id = "spotify-track-id".into();
+        requested.artist = "Requested Artist".into();
+        requested.title = "Requested Title".into();
+        let candidate = Candidate {
+            id: "youtube:live-video-id".into(),
+            provider: "youtube".into(),
+            url: "https://youtube.com/watch?v=live-video-id".into(),
+            title: "Song (Live)".into(),
+            source_metadata: Some(serde_json::json!({
+                "catalogTitle":"Song (Live)",
+                "artist":"Requested Artist",
+                "version":"Live"
+            })),
+            ..Candidate::default()
+        };
+        let artifact = artifact_track_for_match(
+            &requested,
+            &candidate,
+            crate::recording_match::MatchRelationship::Alternative,
+            true,
+        )
+        .unwrap();
+        assert_eq!(artifact.title, "Song (Live)");
+        assert_eq!(artifact.version.as_deref(), Some("Live"));
+        assert_eq!(artifact.provider, "youtube");
+        assert_eq!(artifact.provider_id, "live-video-id");
+        assert_ne!(artifact.id, requested.id);
+        assert_eq!(requested.title, "Requested Title");
+        assert_eq!(requested.provider_id, "spotify-track-id");
+        assert_eq!(
+            artifact.provenance["requestedTrackIdentity"]["id"],
+            "spotify:spotify-track-id"
+        );
+        assert_eq!(
+            artifact.provenance["requestedTrackIdentity"]["originalId"],
+            "spotify:spotify-track-id"
+        );
+        assert_eq!(
+            artifact.provenance["requestedTrackIdentity"]["title"],
+            "Requested Title"
+        );
+        assert_eq!(
+            artifact.provenance["requestedTrackIdentity"]["matchingLevel"],
+            Value::Null
+        );
+        assert_eq!(
+            artifact.provenance["actualSourceIdentity"]["id"],
+            artifact.id
+        );
+    }
+
+    #[test]
+    fn explicit_audio_search_source_keeps_its_own_canonical_identity() {
+        let requested = Track {
+            id: "youtube:live-video-id".into(),
+            provider: "youtube".into(),
+            provider_id: "live-video-id".into(),
+            source_url: "https://youtube.com/watch?v=live-video-id".into(),
+            title: "Song (Live)".into(),
+            artist: "Artist".into(),
+            provenance: serde_json::json!({
+                "sourceKind":"audioSearch",
+                "downloadMatchingLevel":"balanced"
+            }),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:live-video-id".into(),
+            provider: "youtube".into(),
+            url: "https://youtube.com/watch?v=live-video-id".into(),
+            title: "Artist - Song (Live)".into(),
+            source_metadata: Some(serde_json::json!({
+                "resolvedProviderId":"live-video-id",
+                "track":"Song (Live)"
+            })),
+            ..Candidate::default()
+        };
+        let artifact = artifact_track_for_match(
+            &requested,
+            &candidate,
+            crate::recording_match::MatchRelationship::Unresolved,
+            true,
+        )
+        .unwrap();
+        assert_eq!(artifact.id, requested.id);
+        assert_eq!(artifact.provider_id, requested.provider_id);
+        assert_eq!(
+            artifact.provenance["requestedTrackIdentity"]["originalId"],
+            requested.id
+        );
+        assert_eq!(
+            artifact.provenance["requestedTrackIdentity"]["matchingLevel"],
+            "balanced"
+        );
+        assert_eq!(
+            artifact.provenance["actualSourceIdentity"]["id"],
+            requested.id
+        );
+    }
+
+    #[test]
+    fn source_selection_intent_is_ephemeral_and_audio_search_must_match_candidate() {
+        let track = Track {
+            id: "youtube:video-id".into(),
+            provider: "youtube".into(),
+            provider_id: "video-id".into(),
+            source_url: "https://www.youtube.com/watch?v=video-id".into(),
+            provenance: serde_json::json!({
+                "sourceKind":"audioSearch",
+                "userSelectedSource":true,
+                "downloadAutomaticFallback":false
+            }),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:video-id".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=video-id".into(),
+            ..Candidate::default()
+        };
+        let mut chosen = track.clone();
+        snapshot_user_selected_source(&mut chosen, &candidate);
+        assert!(explicit_download_source(&chosen, &candidate));
+        let mut unrelated = candidate.clone();
+        unrelated.id = "youtube:another-video".into();
+        unrelated.url = "https://www.youtube.com/watch?v=another-video".into();
+        assert!(!explicit_download_source(&chosen, &unrelated));
+        let artifact = artifact_track_for_match(
+            &chosen,
+            &candidate,
+            crate::recording_match::MatchRelationship::Exact,
+            false,
+        )
+        .unwrap();
+        assert!(artifact.provenance.get("userSelectedSource").is_none());
+        assert!(artifact
+            .provenance
+            .get("downloadAutomaticFallback")
+            .is_none());
+    }
+
+    #[test]
     fn native_playback_search_defaults_on_but_preserves_custom_helpers_and_discovery() {
         assert!(native_youtube_playback_search_enabled(
             "youtube", "yt-dlp", true, None
@@ -6992,7 +7619,7 @@ mod tests {
     }
 
     #[test]
-    fn music_catalog_locator_requires_one_distinct_exact_recording() {
+    fn music_catalog_locator_retains_distinct_same_title_recordings() {
         let track = Track {
             artist: "Imael Angel".into(),
             title: "BAD TIMES".into(),
@@ -7021,7 +7648,10 @@ mod tests {
             .is_none());
         let mut alternative = item();
         alternative.id = "abcdefghijk".into();
-        assert!(playback_music_catalog_candidates(&track, vec![item(), alternative]).is_empty());
+        let distinct = playback_music_catalog_candidates(&track, vec![item(), alternative]);
+        assert_eq!(distinct.len(), 2);
+        assert_eq!(distinct[0].id, "youtube:Hqp8vxkPrI8");
+        assert_eq!(distinct[1].id, "youtube:abcdefghijk");
         let mut long = item();
         long.title = "BAD TIMES (Long Version)".into();
         long.duration_seconds = Some(401.0);
@@ -7031,10 +7661,27 @@ mod tests {
         );
         let mut wrong = item();
         wrong.artist = Some("Other Artist".into());
-        assert!(playback_music_catalog_candidates(&track, vec![wrong]).is_empty());
+        let wrong_candidate = playback_music_catalog_candidates(&track, vec![wrong]);
+        assert_eq!(wrong_candidate.len(), 1);
+        assert_eq!(wrong_candidate[0].id, "youtube:Hqp8vxkPrI8");
+        assert!(!crate::source_fallback::is_provisional_playback_candidate(
+            &track,
+            &wrong_candidate[0]
+        ));
         let mut short = item();
         short.duration_seconds = Some(30.0);
-        assert!(playback_music_catalog_candidates(&track, vec![short]).is_empty());
+        let short_candidates = playback_music_catalog_candidates(&track, vec![short]);
+        assert_eq!(short_candidates.len(), 1);
+        assert_eq!(
+            crate::recording_match::assess(
+                &track,
+                &short_candidates[0],
+                crate::recording_match::MatchLevel::Balanced,
+                crate::recording_match::MatchStage::Search
+            )
+            .action,
+            crate::recording_match::MatchAction::Reject
+        );
         assert!(track.duration_seconds.is_none());
     }
 
@@ -7902,11 +8549,12 @@ mod tests {
             "soundcloud",
         );
         assert_eq!(soundcloud.source_metadata.unwrap()["plays"], 123);
-        assert!(
-            candidate_from_json(&serde_json::json!({"id":"fixture"}), "youtube")
-                .source_metadata
-                .is_none()
-        );
+        let metadata = candidate_from_json(&serde_json::json!({"id":"fixture"}), "youtube")
+            .source_metadata
+            .unwrap();
+        assert_eq!(metadata["sourceMetadataOrigin"], "ytDlpCandidateMetadata");
+        assert!(metadata.get("views").is_none());
+        assert!(metadata.get("plays").is_none());
     }
 
     #[test]
@@ -8140,6 +8788,21 @@ mod tests {
     }
 
     #[test]
+    fn captured_remix_query_does_not_repeat_title() {
+        let track = Track {
+            artist: "Mike Dunn, DJ Tai".into(),
+            title: "(I'm Sick) I've Been Infected Wit House Musick (Remix)".into(),
+            version: Some(
+                "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)".into(),
+            ),
+            ..Track::default()
+        };
+        let query = search_query(&track, true);
+        assert_eq!(query.matches("infected").count(), 1);
+        assert!(query.ends_with("dj tai vocal remix"));
+    }
+
+    #[test]
     fn topic_metadata_retains_only_structured_identity_and_credit() {
         let candidate = Candidate {
             provider: "youtube".into(),
@@ -8166,6 +8829,12 @@ mod tests {
             "Make Me Sway · Massivedrum · Bruno Rosado"
         );
         assert!(!metadata.to_string().contains("example.invalid"));
+        let mut incomplete = info.clone();
+        incomplete["artists"] = serde_json::json!(["Massivedrum", null]);
+        assert!(topic_identity_metadata(&candidate, &incomplete).is_none());
+        incomplete["artists"] =
+            serde_json::json!((0..33).map(|i| format!("Artist {i}")).collect::<Vec<_>>());
+        assert!(topic_identity_metadata(&candidate, &incomplete).is_none());
     }
 
     #[test]
@@ -8603,6 +9272,31 @@ mod tests {
         assert_ne!(
             preview_audio_cache_key(&candidate, &settings, false),
             preview_audio_cache_key(&candidate, &settings, true),
+        );
+    }
+
+    #[test]
+    fn matching_policy_scopes_search_but_not_stream_transport_cache() {
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            url: "https://youtube.com/watch?v=verified".into(),
+            ..Default::default()
+        };
+        let track = Track {
+            title: "Recording".into(),
+            artist: "Performer".into(),
+            ..Default::default()
+        };
+        let balanced = Settings::default();
+        let mut flexible = balanced.clone();
+        flexible.matching_level = crate::recording_match::MatchLevel::Flexible;
+        assert_eq!(
+            preview_audio_cache_key(&candidate, &balanced, false),
+            preview_audio_cache_key(&candidate, &flexible, false)
+        );
+        assert_ne!(
+            playback_candidate_search_cache_key(&track, &["youtube".into()], &balanced, &[]),
+            playback_candidate_search_cache_key(&track, &["youtube".into()], &flexible, &[])
         );
     }
 
@@ -10259,6 +10953,108 @@ mod tests {
         let result = run_tool(&settings, vec![], rx, Duration::from_secs(10), |_| {}).await;
         assert_eq!(result.unwrap_err(), "Cancelled");
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(target_os = "linux")]
+    fn fake_tool_temp_path(marker: &Path) -> (PathBuf, u32) {
+        let contents = std::fs::read_to_string(marker).expect("fake tool marker exists");
+        let fields = contents.trim().split('|').collect::<Vec<_>>();
+        assert_eq!(fields.len(), 4, "unexpected fake tool marker: {contents:?}");
+        assert_eq!(fields[0], fields[1], "TMPDIR and TMP must agree");
+        assert_eq!(fields[0], fields[2], "TMPDIR and TEMP must agree");
+        let temp_path = PathBuf::from(fields[0]);
+        assert_ne!(temp_path, std::env::temp_dir());
+        assert!(temp_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("burrata-yt-dlp-")));
+        (temp_path, fields[3].parse().unwrap())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn fake_tool_writing_to_owned_temp(marker: &Path) -> String {
+        format!(
+            "mkdir -p \"$TMPDIR/_MEI_fixture\"; : > \"$TMPDIR/_MEI_fixture/extracted\"; printf '%s|%s|%s|%s\\n' \"$TMPDIR\" \"$TMP\" \"$TEMP\" \"$$\" > '{}'",
+            marker.display()
+        )
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn run_tool_removes_owned_temp_directory_after_completion() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("temp-path");
+        let (_tool_directory, settings) = fake_tool(&fake_tool_writing_to_owned_temp(&marker));
+        let (_tx, cancel) = idle_cancel();
+        run_tool(&settings, vec![], cancel, Duration::from_secs(5), |_| {})
+            .await
+            .unwrap();
+        let (temp_path, _) = fake_tool_temp_path(&marker);
+        assert!(!temp_path.exists(), "owned temp directory was not removed");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn run_tool_removes_owned_temp_directory_after_cancellation() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("temp-path");
+        let script = format!("{}\nsleep 60", fake_tool_writing_to_owned_temp(&marker));
+        let (_tool_directory, settings) = fake_tool(&script);
+        let (cancel_sender, cancel) = idle_cancel();
+        let worker = tokio::spawn(async move {
+            run_tool(&settings, vec![], cancel, Duration::from_secs(10), |_| {}).await
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !marker.exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("fake tool did not create its extraction marker");
+        let (temp_path, _) = fake_tool_temp_path(&marker);
+        cancel_sender.send(true).unwrap();
+        assert_eq!(worker.await.unwrap().unwrap_err(), "Cancelled");
+        assert!(!temp_path.exists(), "owned temp directory was not removed");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn dropped_tool_future_reaps_helper_before_removing_owned_temp_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("temp-path");
+        let script = format!("{}\nsleep 60", fake_tool_writing_to_owned_temp(&marker));
+        let (_tool_directory, settings) = fake_tool(&script);
+        let (_tx, cancel) = idle_cancel();
+        let mut run = Box::pin(run_tool(
+            &settings,
+            vec![],
+            cancel,
+            Duration::from_secs(10),
+            |_| {},
+        ));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if marker.exists() {
+                    break;
+                }
+                tokio::select! {
+                    result = &mut run => panic!("fake tool finished early: {}", result.is_ok()),
+                    _ = tokio::time::sleep(Duration::from_millis(5)) => {},
+                }
+            }
+        })
+        .await
+        .expect("fake tool did not create its extraction marker");
+        let (temp_path, pid) = fake_tool_temp_path(&marker);
+        assert!(temp_path.join("_MEI_fixture/extracted").exists());
+        drop(run);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while temp_path.exists() || fixture_process_running(pid) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("dropped tool future did not reap helper and remove its temp directory");
     }
 
     #[cfg(unix)]

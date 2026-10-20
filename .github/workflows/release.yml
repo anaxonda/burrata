@@ -261,6 +261,8 @@ jobs:
         # must not fall through to YouTube when they exercise fake helpers.
         env:
           BURRATA_NATIVE_YOUTUBE_SEARCH: '0'
+          BURRATA_DIRECT_YOUTUBE: '0'
+          BURRATA_BANDCAMP_PLAYBACK: '0'
       - name: Build native installer
         run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - name: Smoke-test the installed desktop artifact

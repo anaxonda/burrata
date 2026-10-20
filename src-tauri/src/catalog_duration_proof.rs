@@ -13,6 +13,7 @@ fn trace_stage(stage: &str, started: std::time::Instant, details: Value) {
 pub(crate) struct PreparedCatalogDuration {
     pub track: Track,
     pub original_fingerprint: Value,
+    pub verified_artist_variants: Vec<String>,
 }
 fn identity(track: &Track) -> Value {
     alias_hydration_identity(track)
@@ -37,13 +38,7 @@ fn eligible(track: &Track) -> bool {
         && track.provenance["manualFields"]["durationSeconds"] != true
 }
 fn isrc(value: &str) -> Option<String> {
-    let value = value.trim().to_ascii_uppercase();
-    let b = value.as_bytes();
-    (b.len() == 12
-        && b[..2].iter().all(u8::is_ascii_alphabetic)
-        && b[2..5].iter().all(u8::is_ascii_alphanumeric)
-        && b[5..].iter().all(u8::is_ascii_digit))
-    .then_some(value)
+    crate::recording_identity::normalize_isrc(value)
 }
 fn full_credits(source: &str, refs: &[Value]) -> bool {
     if refs.is_empty() || refs.len() > 8 {
@@ -100,6 +95,61 @@ fn full_credits(source: &str, refs: &[Value]) -> bool {
     }
     consume(&crate::matching::normalize(source), &names, 0)
 }
+fn recognized_isrc(track: &Track) -> Option<String> {
+    if track.provenance["manualFields"]["artist"] == true
+        || track.provenance["manualFields"]["title"] == true
+    {
+        return None;
+    }
+    let known = crate::recording_identity::RecordingIdentity::from_track(track);
+    if known.identifier_conflict {
+        return None;
+    }
+    let code = known.isrc?;
+    (track.provider == "radio_song"
+        && track.provenance["recognitionIdentifiers"]["isrc"]
+            .as_str()
+            .and_then(isrc)
+            .as_ref()
+            == Some(&code))
+    .then_some(code)
+}
+fn filtered_query_code(track: &Track, proof: &Value) -> Option<String> {
+    let code = recognized_isrc(track)?;
+    let control = &proof["isrcFilterControl"];
+    (proof["isrcQuery"] == format!("isrc:{code}")
+        && terminal_page(control)
+        && control["items"].as_array()?.is_empty())
+    .then_some(code)
+}
+fn matches_identity_with_code(track: &Track, row: &Value, filtered_code: Option<&str>) -> bool {
+    let data = &row["data"];
+    let Some(refs) = data["artistRefs"].as_array() else {
+        return false;
+    };
+    let identifier_credit = recognized_isrc(track).is_some_and(|known| {
+        (data["isrc"].as_str().and_then(isrc).as_deref() == Some(known.as_str())
+            || (data["isrc"].as_str().is_none_or(|s| s.is_empty())
+                && filtered_code == Some(known.as_str())))
+            && data["artist"]
+                .as_str()
+                .is_some_and(|artist| full_credits(artist, refs))
+    });
+    matches_identity(track, row)
+        || (identifier_credit
+            && row["kind"] == "track"
+            && row["id"].as_str().is_some_and(valid_spotify_id)
+            && data["artistCount"].as_u64() == Some(refs.len() as u64)
+            && crate::matching::normalize(&track.title)
+                == crate::matching::normalize(data["title"].as_str().unwrap_or_default())
+            && !crate::recording_identity::placeholder_title(&track.title)
+            && crate::matching::normalize_version(track.version.as_deref().unwrap_or_default())
+                == crate::matching::normalize_version(data["version"].as_str().unwrap_or_default())
+            && track.album.as_deref().is_none_or(|album| {
+                crate::matching::normalize(album)
+                    == crate::matching::normalize(data["album"].as_str().unwrap_or_default())
+            }))
+}
 fn matches_identity(track: &Track, row: &Value) -> bool {
     let data = &row["data"];
     let Some(refs) = data["artistRefs"].as_array() else {
@@ -119,6 +169,13 @@ fn matches_identity(track: &Track, row: &Value) -> bool {
         })
 }
 fn choose(track: &Track, rows: &[Value]) -> Option<(f64, Option<String>)> {
+    choose_with_code(track, rows, None)
+}
+fn choose_with_code(
+    track: &Track,
+    rows: &[Value],
+    filtered_code: Option<&str>,
+) -> Option<(f64, Option<String>)> {
     // An incomplete same-title row could be another supported recording;
     // filtering it out would manufacture uniqueness from missing evidence.
     if rows.iter().any(|r| {
@@ -132,7 +189,7 @@ fn choose(track: &Track, rows: &[Value]) -> Option<(f64, Option<String>)> {
     }
     let rows = rows
         .iter()
-        .filter(|r| matches_identity(track, r))
+        .filter(|r| matches_identity_with_code(track, r, filtered_code))
         .collect::<Vec<_>>();
     if rows.is_empty() {
         return None;
@@ -158,7 +215,13 @@ fn choose(track: &Track, rows: &[Value]) -> Option<(f64, Option<String>)> {
             Some(code) => {
                 codes.insert(code);
             }
-            None => absent = true,
+            None => {
+                if let Some(code) = filtered_code {
+                    codes.insert(code.to_owned());
+                } else {
+                    absent = true;
+                }
+            }
         }
     }
     if codes.len() > 1 || (absent && ids.len() > 1) || (codes.is_empty() && ids.len() != 1) {
@@ -208,7 +271,22 @@ fn materialize(original: &Track, proof: &Value, account: &str) -> Option<Prepare
     {
         return None;
     }
-    let (duration, code) = choose(original, proof["page"]["items"].as_array()?)?;
+    let filtered_code = filtered_query_code(original, proof);
+    let rows = proof["page"]["items"].as_array()?;
+    if filtered_code.is_some() && rows.len() != 1 {
+        return None;
+    }
+    let (duration, code) = choose_with_code(original, rows, filtered_code.as_deref())?;
+    let verified_artist_variants = if recognized_isrc(original).is_some() {
+        rows.iter()
+            .filter(|r| matches_identity_with_code(original, r, filtered_code.as_deref()))
+            .filter_map(|r| r["data"]["artist"].as_str())
+            .filter(|artist| *artist != original.artist)
+            .map(str::to_owned)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut track = original.clone();
     track.duration_seconds = Some(duration);
     if track.isrc.is_none() {
@@ -218,6 +296,7 @@ fn materialize(original: &Track, proof: &Value, account: &str) -> Option<Prepare
     Some(PreparedCatalogDuration {
         track,
         original_fingerprint: identity(original),
+        verified_artist_variants,
     })
 }
 impl RemotePlaylistService {
@@ -243,9 +322,21 @@ impl RemotePlaylistService {
         if !eligible(original) {
             return Ok(None);
         }
-        let deadline =
-            deadline.min(tokio::time::Instant::now() + std::time::Duration::from_secs(4));
+        // Recognized ISRC lookup also checks the provider's filter behavior.
+        // Keep both account fences and that independent control inside one
+        // bounded opportunity; the caller still reserves eight seconds for audio.
+        let budget = std::time::Duration::from_secs(if recognized_isrc(original).is_some() {
+            6
+        } else {
+            4
+        });
+        let deadline = deadline.min(tokio::time::Instant::now() + budget);
         let started = std::time::Instant::now();
+        trace_stage(
+            "lookup_start",
+            started,
+            json!({"recognizedIsrc":recognized_isrc(original).is_some(),"budgetMs":deadline.saturating_duration_since(tokio::time::Instant::now()).as_millis()}),
+        );
         await_crosswalk_step(deadline, cancel.clone(), async {
             let before = match self.catalog_duration_account().await {
                 Ok(value) => value,
@@ -286,7 +377,9 @@ impl RemotePlaylistService {
             // query fills pages with unrelated recommendations and can never
             // supply the complete evidence required by terminal_page.
             let title = original.title.replace(['"', '\\', '\n', '\r'], " ");
-            let query = format!("track:\"{}\"", title.trim());
+            let recognition_code = recognized_isrc(original);
+            let query = recognition_code.as_ref().map(|code| format!("isrc:{code}"))
+                .unwrap_or_else(|| format!("track:\"{}\"", title.trim()));
             if query.len() > 256 {
                 return Ok(None);
             }
@@ -319,6 +412,16 @@ impl RemotePlaylistService {
             let mut page = raw;
             page["provider"] = json!("spotify");
             page["items"] = json!(normalized);
+            trace_stage("normalized", started, json!({"rows":page["items"].as_array().map(Vec::len),"soleIdentity":page["items"].as_array().is_some_and(|rows| rows.len() == 1 && matches_identity_with_code(original, &rows[0], recognition_code.as_deref()))}));
+            let mut filter_control = Value::Null;
+            if recognition_code.is_some() && page["items"].as_array().is_some_and(|items| items.len() == 1)
+                && matches_identity_with_code(original, &page["items"][0], recognition_code.as_deref()) {
+                trace_stage("filter_control_start", started, json!({}));
+                let control = self.bridge.provider_operation("spotify", "search", json!({"query":"isrc:ZZZZZ0000000","kind":"track","limit":30})).await?;
+                self.ensure_response_account("spotify", &control, &before.id)?;
+                trace_stage("filter_control_complete", started, json!({"terminal":terminal_page(&control),"empty":control["items"].as_array().is_some_and(Vec::is_empty)}));
+                if terminal_page(&control) && control["items"].as_array().is_some_and(Vec::is_empty) { filter_control = control; }
+            }
             // Only a sole title hit can be hydrated without hiding incomplete
             // competing credits. Exact provider data remains independent of YouTube.
             let same_title = page["items"]
@@ -335,9 +438,11 @@ impl RemotePlaylistService {
             if same_title.len() == 1 {
                 let index = same_title[0];
                 let row = &page["items"][index];
-                if !matches_identity(original, row)
-                    || row["data"]["isrc"].as_str().and_then(isrc).is_none()
+                if !matches_identity_with_code(original, row, if filter_control.is_null() { None } else { recognition_code.as_deref() })
+                    || row["data"]["durationSeconds"].as_f64().is_none_or(|d| !d.is_finite() || !(1.0..=86400.0).contains(&d))
+                    || (original.isrc.is_some() && filter_control.is_null() && row["data"]["isrc"].as_str().and_then(isrc).is_none())
                 {
+                    trace_stage("exact_hydration_start", started, json!({}));
                     let id = row["id"].as_str().ok_or("Missing catalog ID")?;
                     let (exact, account) = self
                         .get_remote_track_for_account("spotify", id, before.clone())
@@ -354,6 +459,7 @@ impl RemotePlaylistService {
                     page["items"][index]["data"] = data;
                 }
             }
+            trace_stage("account_recheck_start", started, json!({}));
             let after = self.catalog_duration_account().await?;
             if before.id != after.id
                 || *cancel.borrow()
@@ -363,7 +469,7 @@ impl RemotePlaylistService {
                 return Ok(None);
             }
             let proof = json!({"version":1,"original":identity(original),"accountId":before.id,
-                "page":page,"checkedAt":chrono::Utc::now().timestamp()});
+                "page":page,"isrcQuery":if recognition_code.is_some(){Some(query)}else{None},"isrcFilterControl":filter_control,"checkedAt":chrono::Utc::now().timestamp()});
             let prepared = materialize(original, &proof, &before.id);
             trace_stage("identity_complete", started, json!({"accepted":prepared.is_some()}));
             if prepared.is_some() {
@@ -431,6 +537,48 @@ mod tests {
                 _ => changed.provenance["manualFields"]["durationSeconds"] = json!(true),
             }
             assert!(!eligible(&changed), "{field}");
+        }
+    }
+
+    #[test]
+    fn recognized_isrc_binds_locale_credit_variants_only_with_complete_filter_evidence() {
+        let mut source = track();
+        source.artist = "ฌอน".into();
+        source.title = "velib'bleu".into();
+        source.isrc = Some("FR9W12639430".into());
+        source.provenance = json!({"recognitionIdentifiers":{"isrc":"FR9W12639430"}});
+        let mut r = row("cccccccccccccccccccccc");
+        r["data"]["title"] = json!(source.title);
+        r["data"]["artist"] = json!("sean");
+        r["data"]["artistRefs"] =
+            json!([{"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"sean"}]);
+        r["data"]["artistCount"] = json!(1);
+        r["data"]["isrc"] = Value::Null;
+        let mut p = proof(&source, vec![r.clone()]);
+        p["isrcQuery"] = json!("isrc:FR9W12639430");
+        p["isrcFilterControl"] =
+            json!({"items":[],"nextCursor":null,"rawCount":0,"unrecognizedCount":0});
+        let prepared = materialize(&source, &p, "account").unwrap();
+        assert_eq!(prepared.verified_artist_variants, vec!["sean"]);
+        assert_eq!(prepared.track.artist, "ฌอน");
+        assert_eq!(source.duration_seconds, None);
+        for field in [
+            "ignored-filter",
+            "wrong-code",
+            "partial-control",
+            "manual-artist",
+            "wrong-title",
+        ] {
+            let mut bad = p.clone();
+            let mut original = source.clone();
+            match field {
+                "ignored-filter" => bad["isrcFilterControl"] = bad["page"].clone(),
+                "wrong-code" => bad["page"]["items"][0]["data"]["isrc"] = json!("FR9W12639431"),
+                "partial-control" => bad["isrcFilterControl"]["nextCursor"] = json!("30"),
+                "manual-artist" => original.provenance["manualFields"] = json!({"artist":true}),
+                _ => bad["page"]["items"][0]["data"]["title"] = json!("Unrelated song"),
+            }
+            assert!(materialize(&original, &bad, "account").is_none(), "{field}");
         }
     }
 
@@ -516,6 +664,7 @@ mod tests {
     }
     struct Fixture {
         searches: std::sync::atomic::AtomicUsize,
+        search_args: std::sync::Mutex<Vec<Value>>,
         mode: &'static str,
     }
     #[async_trait::async_trait]
@@ -527,7 +676,7 @@ mod tests {
             &self,
             _provider: &str,
             op: &str,
-            _args: Value,
+            args: Value,
         ) -> Result<Value> {
             match op {
                 "status" => Ok(
@@ -535,11 +684,30 @@ mod tests {
                 ),
                 "search" => {
                     self.searches.fetch_add(1, Ordering::SeqCst);
+                    self.search_args.lock().unwrap().push(args.clone());
                     if self.mode == "wait" {
                         return std::future::pending().await;
                     }
+                    if self.mode == "isrc-locale" || self.mode == "wrong-control-account" {
+                        let query = args["query"].as_str().unwrap_or_default();
+                        if query == "isrc:ZZZZZ0000000" {
+                            return Ok(
+                                json!({"accountId":if self.mode=="wrong-control-account" {"changed"} else {"account"},"items":[],"nextCursor":null,"rawCount":0,"unrecognizedCount":0}),
+                            );
+                        }
+                        if query != "isrc:FR9W12639430" {
+                            return Err("Unexpected recognized ISRC query".into());
+                        }
+                        let mut r = json!({"id":"cccccccccccccccccccccc","kind":"track","title":"velib'bleu","url":"https://open.spotify.com/track/cccccccccccccccccccccc","data":{"title":"velib'bleu","artist":"sean","durationSeconds":203.491,"isrc":null,"artistCount":1,"artistRefs":[{"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"sean"}]}});
+                        return Ok(
+                            json!({"accountId":"account","items":[r],"nextCursor":null,"rawCount":1,"unrecognizedCount":0}),
+                        );
+                    }
                     let mut r = row("cccccccccccccccccccccc");
                     r["url"] = json!("https://open.spotify.com/track/cccccccccccccccccccccc");
+                    if self.mode == "without-isrc" {
+                        r["data"]["isrc"] = Value::Null;
+                    }
                     Ok(
                         json!({"accountId":"account","items":[r],"nextCursor":null,"rawCount":1,"unrecognizedCount":0}),
                     )
@@ -558,6 +726,138 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn complete_sole_recording_without_optional_isrc_needs_no_rest_hydration() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("test.sqlite")).unwrap());
+        let original = track();
+        store.save_track(&original).unwrap();
+        let bridge = Arc::new(Fixture {
+            searches: std::sync::atomic::AtomicUsize::new(0),
+            search_args: std::sync::Mutex::new(Vec::new()),
+            mode: "without-isrc",
+        });
+        let service = RemotePlaylistService::new(store, bridge.clone());
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        // The fixture rejects every getTrack operation, so an unnecessary REST
+        // hydration would fail despite sufficient search evidence.
+        assert!(service
+            .prepare_catalog_duration_track(
+                &original,
+                cancel,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(1)
+            )
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(bridge.searches.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn recognized_isrc_locale_bridge_uses_exact_filter_and_empty_control() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("test.sqlite")).unwrap());
+        let mut original = track();
+        original.artist = "ฌอน".into();
+        original.title = "velib'bleu".into();
+        original.isrc = Some("FR9W12639430".into());
+        original.provenance = json!({"recognitionIdentifiers":{"isrc":"FR9W12639430"}});
+        store.save_track(&original).unwrap();
+        let saved_before = store.get_track(&original.id).unwrap().unwrap();
+        let bridge = Arc::new(Fixture {
+            searches: std::sync::atomic::AtomicUsize::new(0),
+            search_args: std::sync::Mutex::new(Vec::new()),
+            mode: "isrc-locale",
+        });
+        let service = RemotePlaylistService::new(store.clone(), bridge.clone());
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        let prepared = service
+            .prepare_catalog_duration_track(
+                &original,
+                cancel.clone(),
+                tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .await
+            .unwrap()
+            .expect("verified catalog duration should prepare");
+        assert_eq!(prepared.track.duration_seconds, Some(203.491));
+        assert_eq!(prepared.track.artist, "ฌอน");
+        assert_eq!(prepared.verified_artist_variants, vec!["sean".to_owned()]);
+        assert_eq!(bridge.searches.load(Ordering::SeqCst), 2);
+        let args = bridge.search_args.lock().unwrap();
+        assert_eq!(
+            args[0],
+            json!({"query":"isrc:FR9W12639430","kind":"track","limit":30})
+        );
+        assert_eq!(
+            args[1],
+            json!({"query":"isrc:ZZZZZ0000000","kind":"track","limit":30})
+        );
+        drop(args);
+
+        let cached = store
+            .get_provider_cache(CACHE, &key(&original))
+            .unwrap()
+            .expect("proof should be cached");
+        assert_eq!(cached["isrcQuery"], "isrc:FR9W12639430");
+        assert_eq!(cached["isrcFilterControl"]["items"], json!([]));
+        assert!(materialize(&original, &cached, "account").is_some());
+        assert_eq!(
+            store.get_track(&original.id).unwrap().unwrap(),
+            saved_before
+        );
+
+        // A cache read still makes no provider operation beyond the account check;
+        // crucially, the exact and control searches are not repeated.
+        assert!(service
+            .prepare_catalog_duration_track(
+                &original,
+                cancel,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(bridge.searches.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn recognized_isrc_bridge_rejects_control_query_account_switch() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("test.sqlite")).unwrap());
+        let mut original = track();
+        original.artist = "ฌอน".into();
+        original.title = "velib'bleu".into();
+        original.isrc = Some("FR9W12639430".into());
+        original.provenance = json!({"recognitionIdentifiers":{"isrc":"FR9W12639430"}});
+        store.save_track(&original).unwrap();
+        let saved_before = store.get_track(&original.id).unwrap().unwrap();
+        let bridge = Arc::new(Fixture {
+            searches: std::sync::atomic::AtomicUsize::new(0),
+            search_args: std::sync::Mutex::new(Vec::new()),
+            mode: "wrong-control-account",
+        });
+        let service = RemotePlaylistService::new(store.clone(), bridge.clone());
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        let result = service
+            .prepare_catalog_duration_track(
+                &original,
+                cancel,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .await;
+        assert!(matches!(result, Err(_) | Ok(None)));
+        assert_eq!(bridge.searches.load(Ordering::SeqCst), 2);
+        assert!(store
+            .get_provider_cache(CACHE, &key(&original))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            store.get_track(&original.id).unwrap().unwrap(),
+            saved_before
+        );
+    }
+
+    #[tokio::test]
     async fn service_retains_proof_and_never_updates_saved_tags() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&dir.path().join("test.sqlite")).unwrap());
@@ -565,6 +865,7 @@ mod tests {
         store.save_track(&original).unwrap();
         let bridge = Arc::new(Fixture {
             searches: std::sync::atomic::AtomicUsize::new(0),
+            search_args: std::sync::Mutex::new(Vec::new()),
             mode: "normal",
         });
         let service = RemotePlaylistService::new(store.clone(), bridge.clone());
@@ -615,6 +916,7 @@ mod tests {
             let original = track();
             let bridge = Arc::new(Fixture {
                 searches: std::sync::atomic::AtomicUsize::new(0),
+                search_args: std::sync::Mutex::new(Vec::new()),
                 mode: if mode == "cancel" { "wait" } else { mode },
             });
             let service = RemotePlaylistService::new(store.clone(), bridge);

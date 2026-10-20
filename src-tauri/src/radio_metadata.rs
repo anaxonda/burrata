@@ -607,6 +607,7 @@ fn icy_track_metadata(station: &RadioStation, stream_title: &str) -> RadioTrackM
         .filter(|(artist, title)| !artist.is_empty() && !title.is_empty())
         .unwrap_or_else(|| (String::new(), stream_title.trim().to_owned()));
     RadioTrackMetadata {
+        identifiers: None,
         station_id: station.id.clone(),
         artist,
         title,
@@ -1063,16 +1064,27 @@ fn parse_songrec_output(
             .as_str()
             .or_else(|| track["heading"].as_str()),
     );
+    let fallback_artists = track["artists"].as_array().and_then(|artists| {
+        if artists.is_empty() || artists.len() > 32 {
+            return None;
+        }
+        artists
+            .iter()
+            .map(|artist| clean_songrec_field(artist["name"].as_str()))
+            .collect::<Option<Vec<_>>>()
+            .map(|names| names.join(", "))
+    });
     let artist = clean_songrec_field(
         track["subtitle"]
             .as_str()
             .or_else(|| track["artist"].as_str())
-            .or_else(|| track["artists"].as_array()?.first()?.get("name")?.as_str()),
+            .or(fallback_artists.as_deref()),
     );
     let (Some(title), Some(artist)) = (title, artist) else {
         return Ok(None);
     };
     Ok(Some(RadioTrackMetadata {
+        identifiers: Some(crate::recording_identity::RecognitionIdentifiers::from_songrec(track)),
         station_id: station.id.clone(),
         artist,
         title,
@@ -1540,6 +1552,7 @@ mod tests {
     fn history_deduplicates_only_adjacent_tracks_and_survives_store_reload() {
         let (_directory, store) = test_store();
         let track = |title: &str| RadioTrackMetadata {
+            identifiers: None,
             station_id: "test-station".into(),
             artist: "Artist".into(),
             title: title.into(),
@@ -1569,6 +1582,7 @@ mod tests {
     fn empty_or_invalid_metadata_never_enters_history() {
         let (_directory, store) = test_store();
         let mut track = RadioTrackMetadata {
+            identifiers: None,
             station_id: "test-station".into(),
             artist: "Artist".into(),
             title: "  ".into(),
@@ -1645,6 +1659,26 @@ mod tests {
             recognition_policy_for(Some(&in_flight), now, RecognitionMode::Automatic),
             RecognitionPolicy::Skip(_)
         ));
+    }
+
+    #[test]
+    fn songrec_identifiers_and_complete_fallback_credits_survive_saved_radio_track() {
+        let station = station();
+        let parsed = parse_songrec_output(&station, br#"{"track":{"title":"Nighttime in the Backyard","artists":[{"name":"Lucas Santtana"},{"name":"Arto Lindsay"}],"key":"12345","isrc":"BR-L6M-09-00003","hub":{"options":[{"actions":[{"uri":"https://music.apple.com/fr/album/sem-nostalgia/1677838121?i=1677838124"}]}]}}}"#.to_vec()).unwrap().unwrap();
+        assert_eq!(parsed.artist, "Lucas Santtana, Arto Lindsay");
+        let song = crate::playback_history::radio_song_track(&station, &parsed);
+        assert_eq!(song.isrc.as_deref(), Some("BRL6M0900003"));
+        assert_eq!(
+            song.provenance["recognitionIdentifiers"]["shazamId"],
+            "12345"
+        );
+        assert!(song.source_url.is_empty());
+        let mut legacy = serde_json::to_value(&parsed).unwrap();
+        legacy.as_object_mut().unwrap().remove("identifiers");
+        assert!(serde_json::from_value::<RadioTrackMetadata>(legacy)
+            .unwrap()
+            .identifiers
+            .is_none());
     }
 
     #[test]
@@ -1741,6 +1775,7 @@ mod tests {
         station.id = format!("manual-test-{}", uuid::Uuid::new_v4());
         let now = Instant::now();
         let stale = RadioTrackMetadata {
+            identifiers: None,
             station_id: station.id.clone(),
             artist: "Old artist".into(),
             title: "Old track".into(),
@@ -1766,6 +1801,7 @@ mod tests {
         let captures = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let capture_count = captures.clone();
         let fresh = RadioTrackMetadata {
+            identifiers: None,
             station_id: station.id.clone(),
             artist: "Fresh artist".into(),
             title: "Fresh track".into(),

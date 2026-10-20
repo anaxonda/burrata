@@ -6560,6 +6560,7 @@ mod tests {
     #[test]
     fn manual_radio_identification_matches_the_current_station_song() {
         let metadata = crate::radio::RadioTrackMetadata {
+            identifiers: None,
             station_id: "station-1".into(),
             artist: "Artist Name".into(),
             title: "Current Song".into(),

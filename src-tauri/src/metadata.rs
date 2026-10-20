@@ -827,6 +827,7 @@ mod tests {
         let service = ArtistService::new(store).unwrap();
         let track = source_track();
         let release = ArtistReleaseRef {
+            artwork_urls: vec![],
             release: ArtistRef {
                 provider: "discogs".into(),
                 id: "123".into(),

@@ -19,6 +19,7 @@ mod artwork_resource_probe;
 pub mod automation;
 pub mod autotag;
 pub mod bandcamp;
+mod bandcamp_fallback;
 pub mod browser_bridge;
 pub mod candidate_preview;
 pub mod collection_sources;
@@ -59,11 +60,18 @@ pub mod provider_read_requests;
 pub mod providers;
 mod queued_playback;
 pub mod radio;
+pub mod recording_identity;
+pub mod recording_match;
+mod recording_match_aliases;
+mod recording_match_context;
+#[cfg(test)]
+mod recording_match_corpus;
 pub mod remote_playlists;
 mod shutdown_signal;
 pub mod sidebar_layout;
 pub mod slskd;
 pub mod source_fallback;
+mod source_preparation;
 mod spotify_mb_crosswalk;
 pub mod storage;
 pub mod system_media;
@@ -870,7 +878,11 @@ fn set_favorites_playlist(
 }
 #[tauri::command]
 fn set_favorite_membership(state: State<'_, AppState>, track: Track, liked: bool) -> Result<()> {
-    playlist_preferences::set_favorite_membership(&state.store, &track, liked)
+    playlist_preferences::set_favorite_membership(&state.store, &track, liked)?;
+    if liked {
+        source_preparation::schedule(state.acquisition.clone(), vec![track]);
+    }
+    Ok(())
 }
 #[tauri::command]
 fn set_playlist_shortcut_binding(
@@ -900,6 +912,9 @@ fn get_radio_song_track(
         track.local_availability = saved.local_availability;
         track.asset_id = saved.asset_id;
         track.duration_seconds = saved.duration_seconds;
+        if track.isrc.is_none() {
+            track.isrc = saved.isrc;
+        }
         track.bpm = saved.bpm;
         track.key = saved.key;
         if track.artwork_url.is_none() {
@@ -1422,9 +1437,11 @@ async fn save_library_tracks(
     tracks: Vec<Track>,
 ) -> Result<SaveLibraryTracksResult> {
     let store = state.store.clone();
+    let to_prepare = tracks.clone();
     let saved_track_ids = tokio::task::spawn_blocking(move || store.save_library_tracks(&tracks))
         .await
         .map_err(|error| error.to_string())??;
+    source_preparation::schedule(state.acquisition.clone(), to_prepare);
     Ok(SaveLibraryTracksResult {
         saved_count: saved_track_ids.len(),
         saved_track_ids,
@@ -3057,6 +3074,7 @@ async fn resolve_playback_track(
         "provider": provider,
         "title": title,
         "durationSeconds": duration,
+        "matching": resolved.candidate.as_ref().and_then(|candidate| candidate.source_metadata.as_ref()).and_then(|metadata| metadata.get("matching")),
         "audioMimeType": resolved.quality.get("mimeType").and_then(serde_json::Value::as_str),
         "audioCodec": resolved.quality.get("codec").and_then(serde_json::Value::as_str),
         "audioBitrateKbps": resolved.quality.get("bitrateKbps").and_then(serde_json::Value::as_f64),
@@ -4095,7 +4113,11 @@ async fn identify_webview_track_for(
 }
 #[tauri::command]
 fn set_favorite(state: State<'_, AppState>, track: Track, value: bool) -> Result<()> {
-    playlist_preferences::set_favorite_membership(&state.store, &track, value)
+    playlist_preferences::set_favorite_membership(&state.store, &track, value)?;
+    if value {
+        source_preparation::schedule(state.acquisition.clone(), vec![track]);
+    }
+    Ok(())
 }
 #[tauri::command]
 fn set_disposition(state: State<'_, AppState>, track: Track, value: Option<String>) -> Result<()> {
@@ -4698,6 +4720,9 @@ fn save_settings(
         app.asset_protocol_scope()
             .allow_directory(path, true)
             .map_err(|e| e.to_string())?;
+    }
+    if !settings.background_source_preparation {
+        source_preparation::yield_to_playback();
     }
     state.store.save_settings(&settings)
 }
@@ -5632,6 +5657,7 @@ pub fn run() {
             let playback_resolution = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
             let sort_availability_backfill = Arc::new(SortAvailabilityBackfill::new(store.clone(), playback.clone(), playback_resolution.clone(), app.handle().clone()));
             let playback_provider_session_status = std::sync::Mutex::new(managed_provider_session.status());
+            source_preparation::schedule_saved(acquisition.clone());
             app.manage(AppState { discovery, autotag, store, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, candidate_preview, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill });
             Ok(())
         })

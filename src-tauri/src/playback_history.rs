@@ -42,6 +42,11 @@ pub fn radio_song_track(station: &RadioStation, metadata: &RadioTrackMetadata) -
         title: metadata.title.trim().to_owned(),
         album: metadata.album.clone(),
         artwork_url: metadata.artwork_url.clone(),
+        isrc: metadata
+            .identifiers
+            .as_ref()
+            .and_then(|ids| ids.isrc.as_deref())
+            .and_then(crate::recording_identity::normalize_isrc),
         source_url: String::new(),
         provenance: serde_json::json!({
             "sourceKind":"radioSong",
@@ -51,6 +56,7 @@ pub fn radio_song_track(station: &RadioStation, metadata: &RadioTrackMetadata) -
             "radioStationName":station.name,
             "radioStationUrl":station.homepage_url.as_deref().unwrap_or(&station.source_url),
             "radioMetadataConfidence":metadata.metadata_confidence,
+            "recognitionIdentifiers":metadata.identifiers,
             "radioObservedAt":metadata.observed_at
         }),
         ..Track::default()
@@ -938,6 +944,7 @@ mod tests {
             is_custom: true,
         };
         let metadata = RadioTrackMetadata {
+            identifiers: None,
             station_id: station.id.clone(),
             artist: "Cesária Évora".into(),
             title: "Sodade".into(),

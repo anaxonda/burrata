@@ -332,6 +332,8 @@ pub struct Collection {
 pub struct Settings {
     pub music_directory: String,
     pub auto_preview: bool,
+    #[serde(default = "default_matching_level")]
+    pub matching_level: crate::recording_match::MatchLevel,
     #[serde(default)]
     pub pause_on_source_open: bool,
     #[serde(default)]
@@ -356,6 +358,10 @@ pub struct Settings {
     pub streaming_fallback_delay_ms: u32,
     #[serde(default = "default_streaming_fallbacks")]
     pub streaming_fallback_sources: Vec<String>,
+    #[serde(default = "default_true")]
+    pub bandcamp_fallback_enabled: bool,
+    #[serde(default = "default_true")]
+    pub background_source_preparation: bool,
     #[serde(default)]
     pub download_fallback_enabled: bool,
     #[serde(default = "default_download_fallbacks")]
@@ -367,6 +373,9 @@ pub struct Settings {
 }
 fn default_playback_startup_timeout_seconds() -> u32 {
     20
+}
+fn default_matching_level() -> crate::recording_match::MatchLevel {
+    crate::recording_match::MatchLevel::Balanced
 }
 impl Settings {
     /// Old or manually edited settings must never create an unbounded deadline.
@@ -413,6 +422,7 @@ impl Default for Settings {
         Self {
             music_directory: String::new(),
             auto_preview: false,
+            matching_level: default_matching_level(),
             pause_on_source_open: false,
             source_open_at_position: false,
             preview_delay_ms: 250,
@@ -428,6 +438,8 @@ impl Default for Settings {
             streaming_fallback_enabled: true,
             streaming_fallback_delay_ms: default_streaming_fallback_delay(),
             streaming_fallback_sources: default_streaming_fallbacks(),
+            bandcamp_fallback_enabled: true,
+            background_source_preparation: true,
             download_fallback_enabled: false,
             download_fallback_sources: default_download_fallbacks(),
             download_fallback_allow_lossy: false,
@@ -476,6 +488,40 @@ mod playback_startup_settings_tests {
             };
             assert_eq!(settings.playback_startup_timeout(), Duration::from_secs(20));
             assert!(settings.validate_playback_startup_timeout().is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod matching_level_settings_tests {
+    use super::Settings;
+    use crate::recording_match::MatchLevel;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_settings_default_to_balanced_matching() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("matchingLevel");
+
+        let settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(settings.matching_level, MatchLevel::Balanced);
+        assert_eq!(Settings::default().matching_level, MatchLevel::Balanced);
+    }
+
+    #[test]
+    fn matching_level_serializes_and_deserializes_all_choices() {
+        for (level, serialized) in [
+            (MatchLevel::Exact, "exact"),
+            (MatchLevel::Balanced, "balanced"),
+            (MatchLevel::Flexible, "flexible"),
+        ] {
+            let mut settings = Settings::default();
+            settings.matching_level = level.clone();
+            let mut value = serde_json::to_value(settings).unwrap();
+            assert_eq!(value["matchingLevel"], json!(serialized));
+            value["matchingLevel"] = json!(serialized);
+            let restored: Settings = serde_json::from_value(value).unwrap();
+            assert_eq!(restored.matching_level, level);
         }
     }
 }

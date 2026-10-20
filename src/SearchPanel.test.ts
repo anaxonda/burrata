@@ -39,6 +39,33 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("SearchPanel", () => {
+  it("keeps artist source links on the profile instead of search results", async () => {
+    const target=render({initialSources:["musicbrainz"],availableSources:[{id:"musicbrainz",name:"MusicBrainz",enabled:true,kinds:["artist"]}],searchSource:async()=>({sourceId:"musicbrainz",complete:true,results:[{id:"artist",kind:"artist",sourceId:"musicbrainz",title:"Lucas Santtana",url:"https://musicbrainz.org/artist/755dd4a3-b3d5-49b3-9d94-142e3a703940"}]})});
+    const query=target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    query.value="Lucas Santtana";query.dispatchEvent(new Event("input",{bubbles:true}));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
+    expect(target.textContent).toContain("Lucas Santtana");
+    expect([...target.querySelectorAll("a")].some(a=>a.textContent?.includes("Open source"))).toBe(false);
+  });
+
+  it("searches Bandcamp tracks and labels the result source", async () => {
+    const track = { id: "bandcamp-track", provider: "bandcamp", providerId: "artist/track", sourceUrl: "https://artist.bandcamp.com/track/example", title: "Example Track", artist: "Example Artist", favorite: false, provenance: {} };
+    const searchSource = vi.fn(async ({ sourceIds }: { sourceIds: string[] }) => ({
+      sourceId: sourceIds[0], complete: true,
+      results: [{ id: "bandcamp-track", kind: "track", sourceId: "bandcamp", title: track.title, track }],
+    }));
+    const target = render({ initialSources: ["bandcamp"], searchSource });
+    await settle();
+    [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Tracks")!.click();
+    const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    input.value = "Example Track"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+
+    expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ query: "Example Track", sourceIds: ["bandcamp"], kinds: ["track"] }));
+    expect(target.querySelector('[aria-label="Bandcamp results"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Bandcamp track result"]')).not.toBeNull();
+  });
+
   it("plays only the exact inspected search occurrence and rejects stale row handles", async () => {
     const first = { id: "same-track", provider: "youtube", providerId: "video-one", sourceUrl: "https://youtube.test/watch?v=one", title: "Same Song", artist: "Artist", favorite: false, provenance: {} };
     const second = { ...first, providerId: "video-two", sourceUrl: "https://youtube.test/watch?v=two", provenance: { remoteEntryId: "duplicate-occurrence" } };

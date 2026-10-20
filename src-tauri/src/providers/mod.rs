@@ -1,3 +1,4 @@
+pub mod bandcamp;
 pub mod beatport;
 pub mod traxsource;
 use crate::models::{Chart, Genre, Preview, Track};

@@ -23,9 +23,9 @@
 
   const DEFAULT_SOURCES: Source[] = [
     { id: "library", name: "My library" }, { id: "musicbrainz", name: "MusicBrainz" }, { id: "discogs", name: "Discogs" },
-    { id: "youtube", name: "YouTube" }, { id: "soundcloud", name: "SoundCloud" }, { id: "soulseek", name: "Soulseek" },
+    { id: "youtube", name: "YouTube" }, { id: "soundcloud", name: "SoundCloud" }, { id: "soulseek", name: "Soulseek" }, { id: "bandcamp", name: "Bandcamp", kinds: ["track"] },
   ];
-  const ONLINE_SOURCE_IDS = ["spotify", "musicbrainz", "discogs", "youtube", "soundcloud", "soulseek", "monochrome"];
+  const ONLINE_SOURCE_IDS = ["spotify", "musicbrainz", "discogs", "youtube", "soundcloud", "soulseek", "monochrome", "bandcamp"];
   const PREF_KEY = "burrata.discovery.search-scope.v2";
   const OLD_PREF_KEY = "burrata.discovery.sources.v1";
   const CONTINUE_PREF_KEY = "burrata.discovery.continue-search.v1";
@@ -34,7 +34,7 @@
   ];
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset,
-    onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onArtist = () => {}, onArtistTrack = () => {}, onAlbum = () => {}, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
+    onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onArtist = () => {}, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {},
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
@@ -44,7 +44,7 @@
     searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number }) => Promise<SearchPage>;
     enrichSource?: (url: string) => Promise<Candidate>;
     enrichTrack?: (track: Track) => Promise<Track>;
-    onArtist?: (artist: ArtistRef) => void; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void;
+    onArtist?: (artist: ArtistRef) => void; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track) => void | Promise<void>;
     onRemoteResult?: (row: SearchRow) => void;
     onAddRemotePlaylist?: (row: SearchRow, options: { signal: AbortSignal; onProgress: (message: string) => void }) => Promise<{ partial?: boolean; cancelled?: boolean } | void> | void;
     onPlaylistTracks?: (tracks: Track[]) => Promise<void> | void;
@@ -963,7 +963,7 @@
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
-                  <div class="compact-track"><TrackList tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onContext={onContext} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                  <div class="compact-track"><TrackList tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                   {@const cachedChapterState = chapterState(row)}
                   {#if row.url && (row.kind === "video" || row.kind === "set" || source.id === "youtube" || source.id === "soundcloud") && cachedChapterState && typeof cachedChapterState === "object"}
                     <details class="chapter-details" open={Boolean(chapterExpanded[identity(row)])} ontoggle={(event) => { chapterExpanded = { ...chapterExpanded, [identity(row)]: event.currentTarget.open }; }}><summary class="chapter-badge available">Chapters · {cachedChapterState.chapters?.length ?? 0}</summary>
@@ -987,7 +987,7 @@
                     {@const metadata = row.data && typeof row.data === "object" ? row.data as Record<string, unknown> : {}}
                     <p class="result-details">{[metadata.description ?? row.subtitle, metadata.creator ?? metadata.uploader, metadata.uploadDate ? `Uploaded ${metadata.uploadDate}` : null, metadata.releaseDate ? `Released ${metadata.releaseDate}` : null].filter(Boolean).join(" · ")}</p>
                   {/if}
-                  {#if row.url}<a href={row.url} target="_blank" rel="noreferrer">Open source ↗</a>{/if}
+                  {#if row.url && row.kind !== "artist"}<a href={row.url} target="_blank" rel="noreferrer">Open source ↗</a>{/if}
                 {/if}
               </div>
             </article>

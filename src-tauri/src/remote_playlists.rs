@@ -51,7 +51,7 @@ fn merge_alias_hydration(original: &Track, provider: &Track) -> Option<Track> {
             provider.provenance["remoteCatalog"]["isrc"]
                 .as_str()
                 .or_else(|| provider.provenance["recordingContext"]["isrc"].as_str())
-                .is_none_or(|remote| !isrc.eq_ignore_ascii_case(remote))
+                .is_none_or(|remote| !crate::recording_identity::same_isrc(isrc, remote))
         })
     {
         return None;
@@ -67,6 +67,131 @@ fn merge_alias_hydration(original: &Track, provider: &Track) -> Option<Track> {
     }
     crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track)?;
     Some(track)
+}
+
+fn alias_hydration_search_query(track: &Track) -> Result<String> {
+    let clean = |value: &str| {
+        value
+            .chars()
+            .map(|ch| {
+                if ch.is_control() || matches!(ch, '"' | '\\' | '`') {
+                    ' '
+                } else {
+                    ch
+                }
+            })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let title = clean(&track.title);
+    let artist = clean(&track.artist);
+    let query = format!("{title} {artist}");
+    if title.is_empty() || artist.is_empty() || query.len() > 256 {
+        return Err("Saved Spotify identity cannot form a bounded search query".into());
+    }
+    Ok(query)
+}
+
+fn exact_alias_search_track(
+    original: &Track,
+    response: &Value,
+    expected_account: &str,
+) -> Result<Track> {
+    if response.get("accountId").and_then(Value::as_str) != Some(expected_account) {
+        return Err("Provider account changed during alias hydration search".into());
+    }
+    let rows = response
+        .get("items")
+        .and_then(Value::as_array)
+        .filter(|rows| rows.len() <= 50)
+        .ok_or("Spotify returned invalid alias search results")?;
+    let exact = rows
+        .iter()
+        .filter(|row| row.get("id").and_then(Value::as_str) == Some(original.provider_id.as_str()))
+        .collect::<Vec<_>>();
+    if exact.len() != 1 {
+        return Err("Spotify search did not return exactly one exact track ID".into());
+    }
+    let row = exact[0];
+    if row.get("kind").and_then(Value::as_str) != Some("track") {
+        return Err("Spotify search returned the exact ID with the wrong type".into());
+    }
+    let normalized = normalize_catalog_item(row, "spotify", "track")?;
+    let data = normalized
+        .get("data")
+        .filter(|value| value.is_object())
+        .ok_or("Spotify search omitted canonical track metadata")?;
+    let title = required_text(data, "title", 512)?;
+    let artist = required_text(data, "artist", 1024)?;
+    let album = required_text(data, "album", 512)?;
+    let duration = data
+        .get("durationSeconds")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0 && *value <= 86_400.0)
+        .ok_or("Spotify search omitted a valid track duration")?;
+    if data
+        .get("id")
+        .or_else(|| data.get("trackId"))
+        .and_then(Value::as_str)
+        .is_some_and(|id| id != original.provider_id)
+    {
+        return Err("Spotify search returned inconsistent track IDs".into());
+    }
+    if normalized["title"].as_str() != Some(original.title.as_str())
+        || title != original.title
+        || artist != original.artist
+        || normalized["subtitle"]
+            .as_str()
+            .is_some_and(|subtitle| subtitle != original.artist)
+        || original
+            .album
+            .as_deref()
+            .is_some_and(|saved| saved != album)
+        || original
+            .duration_seconds
+            .is_none_or(|saved| !saved.is_finite() || saved <= 0.0 || saved != duration)
+    {
+        return Err("Spotify search metadata disagrees with the saved track".into());
+    }
+    if let Some(data_url) = data.get("url").and_then(Value::as_str) {
+        if data_url != normalized["url"].as_str().unwrap_or_default() {
+            return Err("Spotify search returned inconsistent canonical track URLs".into());
+        }
+    }
+    let url = normalized["url"]
+        .as_str()
+        .ok_or("Spotify search omitted a canonical track URL")?;
+    let mut remote = data.clone();
+    remote["trackId"] = json!(original.provider_id);
+    let refs = remote.get("artistRefs").cloned().unwrap_or(Value::Null);
+    let artist_count = remote.get("artistCount").cloned().unwrap_or(Value::Null);
+    let mut provider = Track {
+        id: format!("spotify:{}", original.provider_id),
+        provider: "spotify".into(),
+        provider_id: original.provider_id.clone(),
+        source_url: url.into(),
+        title: title.into(),
+        artist: artist.into(),
+        album: Some(album.into()),
+        duration_seconds: original.duration_seconds,
+        artwork_url: data
+            .get("artworkUrl")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        provenance: json!({
+            "providerLookup":"spotifyCatalogSearchExactId",
+            "remoteCatalog":remote,
+            "catalog":{"verified":true,"provider":"spotify","providerId":original.provider_id,
+                "artists":refs,"artistCount":artist_count}
+        }),
+        ..Track::default()
+    };
+    crate::recording_identity::hydrate_identifiers(&mut provider);
+    merge_alias_hydration(original, &provider).ok_or_else(|| {
+        "Exact Spotify search result failed the saved identity and credit checks".to_owned()
+    })
 }
 /// Trusted exact-lookup evidence bound to the original recording identity. Age affects
 /// refresh eligibility, while retained evidence remains available to cache reads.
@@ -2930,15 +3055,40 @@ impl RemotePlaylistService {
         {
             return Err("Saved track has no exact Spotify identity".into());
         }
-        let (provider, account) = await_crosswalk_step(
+        let account =
+            await_crosswalk_step(deadline, cancel.clone(), self.require_account("spotify")).await?;
+        let provider = match await_crosswalk_step(
             deadline,
             cancel.clone(),
-            self.get_remote_track_with_account("spotify", &original.provider_id),
+            self.get_remote_track_for_account("spotify", &original.provider_id, account.clone()),
         )
-        .await?;
+        .await
+        {
+            Ok((provider, response_account)) if response_account == account.id => provider,
+            Ok(_) => return Err("Provider account changed during alias hydration".into()),
+            Err(_error) if !*cancel.borrow() && tokio::time::Instant::now() < deadline => {
+                let query = alias_hydration_search_query(original)?;
+                let response = await_crosswalk_step(
+                    deadline,
+                    cancel.clone(),
+                    self.bridge.provider_operation(
+                        "spotify",
+                        "search",
+                        json!({"query":query,"kind":"track","limit":50}),
+                    ),
+                )
+                .await
+                .map_err(|_| {
+                    "Spotify alias hydration could not verify the exact track".to_owned()
+                })?;
+                self.ensure_response_account("spotify", &response, &account.id)?;
+                exact_alias_search_track(original, &response, &account.id)?
+            }
+            Err(error) => return Err(error),
+        };
         let current =
             await_crosswalk_step(deadline, cancel, self.require_account("spotify")).await?;
-        if current.id != account {
+        if current.id != account.id {
             return Err("Provider account changed during alias hydration".into());
         }
         let hydrated = merge_alias_hydration(original, &provider)
@@ -3005,7 +3155,7 @@ impl RemotePlaylistService {
         if url != format!("https://open.spotify.com/track/{track_id}") {
             return Err("Spotify returned a track URL for a different ID".into());
         }
-        let track = Track {
+        let mut track = Track {
             id: format!("spotify:{track_id}"),
             provider: "spotify".into(),
             provider_id: track_id.into(),
@@ -3029,6 +3179,7 @@ impl RemotePlaylistService {
             },
             ..Track::default()
         };
+        crate::recording_identity::hydrate_identifiers(&mut track);
         Ok((track, account.id))
     }
     pub async fn list_playlists(
@@ -11758,12 +11909,84 @@ mod alias_hydration_tests {
             source_url: format!("https://open.spotify.com/track/{id}"),
             title: "Song".into(),
             artist: "Artist".into(),
+            album: Some("Album".into()),
             duration_seconds: Some(120.0),
             provenance: json!({"catalog":{"verified":true,"provider":"spotify",
                 "providerId":id,"artists":refs,"artistCount":1},"remoteCatalog":{"trackId":id,
                 "title":"Song","artist":"Artist","durationSeconds":120.0,"artistRefs":refs,"artistCount":1}}),
             ..Track::default()
         }
+    }
+
+    fn search_row(id: &str) -> Value {
+        let url = format!("https://open.spotify.com/track/{id}");
+        json!({"kind":"track","id":id,"title":"Song","subtitle":"Artist","url":url,
+            "data":{"id":id,"title":"Song","artist":"Artist","album":"Album",
+                "durationSeconds":120.0,"url":url,
+                "artistRefs":[{"provider":"spotify","id":"abcdefghijklmnopqrstuv","name":"Artist"}],
+                "artistCount":1}})
+    }
+
+    #[test]
+    fn exact_id_search_hydrates_one_complete_identity_and_ignores_other_rows() {
+        let mut original = provider_track();
+        original.genre = Some("Saved genre".into());
+        original.album_artist = Some("Saved album artist".into());
+        let response = json!({"accountId":"account-a","items":[
+            search_row("abcdefghijklmnopqrstuv"), search_row(&original.provider_id)
+        ]});
+        let hydrated = exact_alias_search_track(&original, &response, "account-a").unwrap();
+        assert_eq!(hydrated.id, original.id);
+        assert_eq!(hydrated.album, original.album);
+        assert_eq!(hydrated.duration_seconds, original.duration_seconds);
+        assert_eq!(hydrated.genre, original.genre);
+        assert_eq!(hydrated.album_artist, original.album_artist);
+        assert_eq!(
+            hydrated.provenance["providerLookup"],
+            original.provenance["providerLookup"]
+        );
+        assert!(
+            crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&hydrated).is_some()
+        );
+    }
+
+    #[test]
+    fn exact_id_search_rejects_missing_or_duplicate_exact_ids() {
+        let original = provider_track();
+        let different =
+            json!({"accountId":"account-a","items":[search_row("abcdefghijklmnopqrstuv")]});
+        assert!(exact_alias_search_track(&original, &different, "account-a").is_err());
+        let duplicate = json!({"accountId":"account-a","items":[
+            search_row(&original.provider_id), search_row(&original.provider_id)
+        ]});
+        assert!(exact_alias_search_track(&original, &duplicate, "account-a").is_err());
+    }
+
+    #[test]
+    fn exact_id_search_rejects_incomplete_credits_changed_metadata_and_account() {
+        let original = provider_track();
+        let mut incomplete = search_row(&original.provider_id);
+        incomplete["data"]["artistCount"] = json!(2);
+        let response = json!({"accountId":"account-a","items":[incomplete]});
+        assert!(exact_alias_search_track(&original, &response, "account-a").is_err());
+
+        let mut altered = search_row(&original.provider_id);
+        altered["data"]["title"] = json!("Different song");
+        let response = json!({"accountId":"account-a","items":[altered]});
+        assert!(exact_alias_search_track(&original, &response, "account-a").is_err());
+
+        let response = json!({"accountId":"account-b","items":[search_row(&original.provider_id)]});
+        assert!(exact_alias_search_track(&original, &response, "account-a").is_err());
+    }
+
+    #[test]
+    fn exact_id_search_rejects_conflicting_saved_isrc() {
+        let mut original = provider_track();
+        original.isrc = Some("USABC1234567".into());
+        let mut row = search_row(&original.provider_id);
+        row["data"]["isrc"] = json!("GBXYZ1234567");
+        let response = json!({"accountId":"account-a","items":[row]});
+        assert!(exact_alias_search_track(&original, &response, "account-a").is_err());
     }
     #[test]
     fn hydration_preserves_saved_tags_and_rejects_manual_identity_edits() {

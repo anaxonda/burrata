@@ -492,7 +492,7 @@ def safe_webview_audio_diagnostics(payload: dict, track_id: str) -> dict:
         return result
 
     timing = payload.get("sampling") if isinstance(payload.get("sampling"), dict) else {}
-    return {
+    result = {
         "initialReady": sample(payload.get("initialReady")), "firstProgress": sample(payload.get("firstProgress")),
         "first": sample(payload.get("first")), "second": sample(payload.get("second")),
         "latest": sample(payload.get("latest")),
@@ -500,6 +500,15 @@ def safe_webview_audio_diagnostics(payload: dict, track_id: str) -> dict:
             "initialReadyElapsedMs", "firstProgressElapsedMs", "firstSampleElapsedMs", "secondSampleElapsedMs", "latestSampleElapsedMs", "betweenSamplesWallMs", "totalElapsedMs",
         )},
     }
+    for key, allowed in {
+        "failurePhase": {"connect", "list_tools", "app_status", "initial_playback_state", "initial_media_sample", "mute", "start_playback", "startup_samples", "steady_sample", "cleanup_pause"},
+        "failureTool": {"get_app_status", "playback_state", "inspect_webview_media", "set_volume", "play_tracks", "pause_playback"},
+        "failureCode": {"TIMEOUT", "FRONTEND_NOT_READY", "STALE_MEDIA_SAMPLE", "PERMISSION_DENIED", "INVALID_ARGUMENT", "PLAYER_NOT_RUNNING", "REQUEST_TIMEOUT", "NETWORK_UNAVAILABLE", "RESULT_TOO_LARGE", "BURRATA_UNAVAILABLE", "MCP_CLIENT_TIMEOUT", "MCP_TRANSPORT_ERROR", "MCP_TOOL_ERROR"},
+    }.items():
+        value = payload.get(key)
+        if isinstance(value, str) and value in allowed:
+            result[key] = value
+    return result
 
 
 def safe_media_log_tail(path: pathlib.Path) -> list[str]:
@@ -532,7 +541,7 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
     if not node or not mcp.is_file():
         raise SmokeFailure("WebView audio", "installed MCP launcher or Node.js is unavailable")
     result = run([node, ROOT / "scripts/release/check-installed-webview-audio.mjs",
-                  mcp, discovery, track_id], timeout=30, env=env, check=False)
+                  mcp, discovery, track_id], timeout=75, env=env, check=False)
     diagnostics = None
     try:
         payload = json.loads(result.stdout.decode().strip().splitlines()[-1])
@@ -560,6 +569,12 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
             detail = messages.get(category, "installed WebView audio check did not complete")
             if category in messages:
                 detail = f"{detail} (category={category})"
+            if diagnostics and diagnostics.get("failurePhase"):
+                detail += f" at {diagnostics['failurePhase']}"
+                if diagnostics.get("failureTool"):
+                    detail += f" tool={diagnostics['failureTool']}"
+                if diagnostics.get("failureCode"):
+                    detail += f" code={diagnostics['failureCode']}"
             raise SmokeFailure("WebView audio", detail)
         if result.returncode != 0:
             raise SmokeFailure("WebView audio", "installed MCP playback checker exited unsuccessfully")

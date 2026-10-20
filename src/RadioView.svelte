@@ -18,6 +18,7 @@
   export type RadioStationSearchResult = RadioStation;
   export type RadioTrackMetadata = {
     stationId: string; artist: string; title: string; album?: string | null; year?: string | null;
+    identifiers?: { isrc?: string | null; shazamId?: string | null; appleMusicUrl?: string | null } | null;
     artworkUrl?: string | null; sourceUrl: string; metadataConfidence: string; observedAt?: string | null;
   };
   type RadioMetadata = {
@@ -26,12 +27,13 @@
   };
 
   let { onPlayStation, onArtist, playingStationId = "", onNowPlaying, selectedStationId: requestedStationId = "", showAdd = false, onStationsChanged, onAddClosed, stationNames={}, savedStations,
-    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onTrackContext, onInfoTrack, onOpenHistory, onIdentifyPlayingStation, identifyingPlayingStation = false, currentStationMetadata, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
+    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onTrackContext, onInfoTrack, onTrackAlbum, onOpenHistory, onIdentifyPlayingStation, identifyingPlayingStation = false, currentStationMetadata, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
   }:
     { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; showAdd?: boolean; onStationsChanged?: (stations: RadioStation[]) => void; onAddClosed?: () => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
       onPlayTrack?: (track: Track, tracks: Track[], index: number) => void | Promise<void>; onDownloadTrack?: (track: Track) => void | Promise<void>; onFavoriteTrack?: (track: Track) => void | Promise<void>;
       onQueueTracks?: (tracks: Track[], mode: "next" | "append") => void | Promise<void>; onAddTrackToPlaylist?: (track: Track) => void | Promise<void>; onTrackContext?: (track: Track, event: MouseEvent) => void;
       onInfoTrack?: (track: Track) => void | Promise<void>;
+      onTrackAlbum?: (track: Track) => void | Promise<void>;
       onOpenHistory?: (stationId: string) => void;
       onIdentifyPlayingStation?: () => Promise<void>; identifyingPlayingStation?: boolean; currentStationMetadata?: RadioTrackMetadata | null;
       playingTrack?: Track | null; bufferingTrack?: Track | null;
@@ -113,7 +115,7 @@
       const newestSaved = newestMetadata([latestSavedByStation[stationId], ...page.items.map(entry => {
         const provenance = entry.track.provenance && typeof entry.track.provenance === "object" ? entry.track.provenance as Record<string, unknown> : {};
         return { stationId, artist: entry.track.artist, title: entry.track.title, album: entry.track.album, artworkUrl: entry.track.artworkUrl,
-          sourceUrl: entry.track.sourceUrl, metadataConfidence: String(provenance.radioMetadataConfidence ?? "Saved listening history"), observedAt: entry.playedAt };
+          identifiers: provenance.recognitionIdentifiers as RadioTrackMetadata["identifiers"], sourceUrl: entry.track.sourceUrl, metadataConfidence: String(provenance.radioMetadataConfidence ?? "Saved listening history"), observedAt: entry.playedAt };
       })]);
       if (newestSaved) latestSavedByStation = { ...latestSavedByStation, [stationId]: newestSaved };
     } catch { /* Saved history is optional when offline. */ }
@@ -254,8 +256,8 @@
     return {
       id: `radio_song:unresolved:${encodeURIComponent(identity)}`, provider: "radio_song", providerId: identity,
       sourceUrl: "", artist: item.artist.trim(), title: item.title.trim(), album: item.album ?? undefined,
-      releaseDate: item.year ?? undefined, artworkUrl: item.artworkUrl ?? undefined, favorite: false,
-      provenance: { sourceKind: "radioSong", identity: "unverified station metadata; canonical track lookup unavailable", radioStationId: item.stationId, radioMetadataConfidence: item.metadataConfidence, radioObservedAt: item.observedAt ?? null },
+      releaseDate: item.year ?? undefined, artworkUrl: item.artworkUrl ?? undefined, isrc: item.identifiers?.isrc ?? undefined, favorite: false,
+      provenance: { sourceKind: "radioSong", identity: "unverified station metadata; canonical track lookup unavailable", radioStationId: item.stationId, radioMetadataConfidence: item.metadataConfidence, radioObservedAt: item.observedAt ?? null, recognitionIdentifiers: item.identifiers ?? null },
     };
   }
   function withOccurrence(track: Track, item: RadioTrackMetadata): Track {
@@ -263,7 +265,8 @@
     return {
       ...track,
       favorite: favoriteTrackIds.includes(track.id),
-      provenance: { ...provenance, stationId: item.stationId, observedAt: item.observedAt ?? null, radioStationId: item.stationId, radioStationName: stationNames[item.stationId] ?? provenance.radioStationName ?? "Radio", radioObservedAt: item.observedAt ?? provenance.radioObservedAt ?? null, radioMetadataConfidence: item.metadataConfidence ?? provenance.radioMetadataConfidence },
+      isrc: track.isrc ?? item.identifiers?.isrc ?? undefined,
+      provenance: { ...provenance, stationId: item.stationId, observedAt: item.observedAt ?? null, radioStationId: item.stationId, radioStationName: stationNames[item.stationId] ?? provenance.radioStationName ?? "Radio", radioObservedAt: item.observedAt ?? provenance.radioObservedAt ?? null, radioMetadataConfidence: item.metadataConfidence ?? provenance.radioMetadataConfidence, recognitionIdentifiers: item.identifiers ?? provenance.recognitionIdentifiers },
     };
   }
   async function hydrateRadioSong(item: RadioTrackMetadata): Promise<Track> {
@@ -300,6 +303,7 @@
   function playlistHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onAddTrackToPlaylist?.(canonical)); }
   function queueHistoryTrack(track: Track, mode: "next" | "append") { void hydrateHistoryTrack(track).then(canonical => onQueueTracks?.([canonical], mode)); }
   function artistHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onArtist(canonical)); }
+  function albumHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onTrackAlbum?.(canonical)); }
   function contextHistoryTrack(track: Track, event: MouseEvent) { void hydrateHistoryTrack(track).then(canonical => onTrackContext?.(canonical, event)); }
   function infoHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onInfoTrack?.(canonical)); }
   function openArtistForMetadata(item: RadioTrackMetadata) {
@@ -514,7 +518,7 @@
     <section class="history" aria-label={`Recently heard on ${selectedStation?.name ?? "Radio Paradise"}`}>
       <h2>Station history <small>your listening history</small></h2>
       <div class="history-tools track-browser-controls"><label>Search station history<input aria-label="Search station history" type="search" bind:value={historyQuery} placeholder="Title or artist" /></label><label>History order<select aria-label="Sort station history" bind:value={historySort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label><label>Sort tracks<select aria-label="Sort station history tracks" bind:value={historyTrackSort}><option value="sourceOrder">History order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select></label><label>Direction<select aria-label="Sort direction" bind:value={historyTrackSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><TrackDurationFilter bind:minDuration={historyMinDuration} bind:maxDuration={historyMaxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" />{#if onOpenHistory}<button class="full-history" onclick={() => onOpenHistory?.(selectedStation.id)}>Full listening history →</button>{/if}</div>
-      {#if displayedHistoryTracks.length}<TrackList presentation="playlist" position={(_track, index) => historyPage * historyPageSize + index + 1} tracks={displayedHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={onPlayTrack ? playHistoryTrack : undefined} onDownload={onDownloadTrack ? downloadHistoryTrack : undefined} onFavorite={onFavoriteTrack ? favoriteHistoryTrack : undefined} onNext={onQueueTracks ? track => queueHistoryTrack(track, "next") : undefined} onQueue={onQueueTracks ? track => queueHistoryTrack(track, "append") : undefined} onPlaylist={onAddTrackToPlaylist ? playlistHistoryTrack : undefined} onArtist={artistHistoryTrack} onInfo={onInfoTrack ? infoHistoryTrack : undefined} onContext={onTrackContext ? contextHistoryTrack : undefined} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="radio-empty">No recent tracks match this filter.</p>{:else}<p class="radio-empty">Songs identified while you listen will appear here.</p>{/if}
+      {#if displayedHistoryTracks.length}<TrackList presentation="playlist" position={(_track, index) => historyPage * historyPageSize + index + 1} tracks={displayedHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={onPlayTrack ? playHistoryTrack : undefined} onDownload={onDownloadTrack ? downloadHistoryTrack : undefined} onFavorite={onFavoriteTrack ? favoriteHistoryTrack : undefined} onNext={onQueueTracks ? track => queueHistoryTrack(track, "next") : undefined} onQueue={onQueueTracks ? track => queueHistoryTrack(track, "append") : undefined} onPlaylist={onAddTrackToPlaylist ? playlistHistoryTrack : undefined} onArtist={artistHistoryTrack} onAlbum={onTrackAlbum ? albumHistoryTrack : undefined} onInfo={onInfoTrack ? infoHistoryTrack : undefined} onContext={onTrackContext ? contextHistoryTrack : undefined} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="radio-empty">No recent tracks match this filter.</p>{:else}<p class="radio-empty">Songs identified while you listen will appear here.</p>{/if}
       {#if historyTotal > historyPageSize}
         <nav class="history-pagination" aria-label="Station history pages" aria-busy={historyBusy}>
           <button disabled={historyPage === 0 || historyBusy} onclick={() => historyPage--}>Previous</button>

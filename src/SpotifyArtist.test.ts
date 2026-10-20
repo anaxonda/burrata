@@ -190,6 +190,7 @@ describe("SpotifyArtist pagination", () => {
     const onPlay = vi.fn();
     const target = render(call, onPlay, id); await settle();
     expect(call).toHaveBeenCalledWith("browse_remote_artist_tracks", expect.objectContaining({ artistId: id, cursor: null, requestId: expect.any(String) }));
+    expect(target.querySelector('.top-tracks .track-list-viewport')?.classList.contains("playlist")).toBe(true);
     expect(target.querySelectorAll('ol[aria-label="Top Track Artist top tracks"] li')).toHaveLength(2);
     const sort = target.querySelector<HTMLSelectElement>('[aria-label="Sort top tracks"]')!;
     sort.value = "title"; sort.dispatchEvent(new Event("change", { bubbles: true })); await settle();

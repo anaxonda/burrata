@@ -107,6 +107,8 @@ pub struct ArtistReleaseRef {
     pub track_count: Option<u32>,
     #[serde(default)]
     pub tracks: Vec<ArtistReleaseTrack>,
+    #[serde(default)]
+    pub artwork_urls: Vec<String>,
     pub source_url: String,
     pub credits: Vec<ArtistCredit>,
 }
@@ -223,7 +225,11 @@ pub struct ArtistService {
 impl ArtistService {
     pub fn new(store: Arc<Store>) -> Result<Self, String> {
         let client = Client::builder()
-            .user_agent("Burrata/0.1.0")
+            .user_agent(concat!(
+                "Burrata/",
+                env!("CARGO_PKG_VERSION"),
+                " (https://github.com/anaxonda/burrata)"
+            ))
             .timeout(Duration::from_secs(20))
             .build()
             .map_err(|error| format!("Could not create artist metadata client: {error}"))?;
@@ -717,6 +723,48 @@ impl ArtistService {
         })
     }
 
+    async fn wikidata_portrait(&self, qid: &str) -> Option<(String, String)> {
+        let namespace = "artists.portrait.wikidata.v1";
+        if let Ok(Some(cached)) = self.store.get_provider_cache(namespace, qid) {
+            return Some((
+                cached["imageUrl"].as_str()?.to_owned(),
+                cached["sourceUrl"].as_str()?.to_owned(),
+            ));
+        }
+        // This ID comes only from the exact MusicBrainz identity's explicit URL
+        // relation. Never find a portrait by guessing an artist's name.
+        let mut response = self
+            .client
+            .get(format!(
+                "https://www.wikidata.org/wiki/Special:EntityData/{qid}.json?flavor=simple"
+            ))
+            .send()
+            .await
+            .ok()?;
+        if !response.status().is_success()
+            || response.content_length().is_some_and(|n| n > 1024 * 1024)
+        {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.ok()? {
+            if bytes.len().saturating_add(chunk.len()) > 1024 * 1024 {
+                return None;
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let raw: Value = serde_json::from_slice(&bytes).ok()?;
+        let image = wikidata_portrait_urls(qid, &raw);
+        let payload = image
+            .as_ref()
+            .map(|(image, source)| json!({"imageUrl":image,"sourceUrl":source}))
+            .unwrap_or(json!({"imageUrl":null,"sourceUrl":null}));
+        let _ = self
+            .store
+            .set_provider_cache(namespace, qid, &payload, PROFILE_TTL);
+        image
+    }
+
     pub async fn get_artist_profile(
         &self,
         artist: &ArtistRef,
@@ -977,6 +1025,20 @@ impl ArtistService {
                     }
                 }
                 Err(error) => warnings.push(format!("Last.fm artist details unavailable: {error}")),
+            }
+        }
+        if image_url.is_none() && artist.provider == "musicbrainz" {
+            if let Some(qid) = links.iter().find_map(|link| wikidata_item_id(&link.url)) {
+                if let Ok(Some((image, source))) =
+                    tokio::time::timeout(Duration::from_secs(3), self.wikidata_portrait(&qid)).await
+                {
+                    image_url = Some(image);
+                    links.push(ArtistExternalLink {
+                        label: "Artist image (Wikimedia Commons)".into(),
+                        url: source,
+                        provider: Some("wikimedia".into()),
+                    });
+                }
             }
         }
         let releases = self
@@ -2497,7 +2559,10 @@ pub(crate) fn parse_musicbrainz_release_tracks(
         .and_then(|value| value["catalog-number"].as_str())
         .map(str::to_owned);
     let album = data["title"].as_str().unwrap_or_default().to_owned();
-    let artwork_url = format!("https://coverartarchive.org/release/{edition_id}/front-250");
+    let artwork_url = musicbrainz_artwork_urls(data, "release", edition_id)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| format!("https://coverartarchive.org/release/{edition_id}/front-250"));
     let mut ordered = Vec::new();
     for (medium_index, medium) in data["media"].as_array().into_iter().flatten().enumerate() {
         let medium_position = medium["position"]
@@ -2575,11 +2640,14 @@ pub(crate) fn parse_musicbrainz_release_tracks(
             let duration_ms = recording["length"]
                 .as_u64()
                 .or_else(|| track["length"].as_u64());
-            let isrc = recording["isrcs"]
-                .as_array()
-                .and_then(|values| values.first())
-                .and_then(Value::as_str)
-                .map(str::to_owned);
+            let isrc = recording["isrcs"].as_array().and_then(|values| {
+                let codes = values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(crate::recording_identity::normalize_isrc)
+                    .collect::<std::collections::BTreeSet<_>>();
+                (codes.len() == 1).then(|| codes.into_iter().next().unwrap())
+            });
             ordered.push((
                 medium_position,
                 numeric_position,
@@ -2609,6 +2677,7 @@ pub(crate) fn parse_musicbrainz_release_tracks(
             artwork_url: Some(artwork_url.clone()),
             provenance: json!({"sourceKind":"catalog", "catalogProvider":"musicbrainz", "sourceUrl":release_url,
                 "requestedReleaseSourceUrl":requested_source_url, "releaseId":edition_id,
+                "releaseGroupId":data["release-group"]["id"],
                 "mediumPosition":medium, "trackPosition":position, "occurrence":occurrence,
                 "recordingId":reference_id, "trackGuid":source_track_guid, "artistCredits":credits, "representativeEdition":representative}),
             ..Track::default()
@@ -2736,12 +2805,43 @@ pub(crate) fn parse_discogs_release_tracks(
             artwork_url: artwork_url.clone(),
             provenance: json!({"sourceKind":"catalog", "catalogProvider":"discogs", "sourceUrl":release_url,
                 "requestedReleaseSourceUrl":requested_source_url, "releaseId":edition_id,
+                "releaseGroupId":data["release-group"]["id"],
                 "mediumPosition":medium, "trackPosition":position, "occurrence":occurrence,
                 "trackId":reference_id, "parentTitle":parent_title, "artistCredits":credits, "representativeEdition":representative}),
             ..Track::default()
         });
     }
     tracks
+}
+
+fn musicbrainz_artwork_urls(value: &Value, entity: &str, id: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    if !valid_crosswalk_mbid(id) {
+        return urls;
+    }
+    let group = if entity == "release-group" {
+        Some(id)
+    } else {
+        value["release-group"]["id"]
+            .as_str()
+            .filter(|id| valid_crosswalk_mbid(id))
+    };
+    if entity == "release" && value["cover-art-archive"]["front"] != false {
+        urls.push(format!(
+            "https://coverartarchive.org/release/{id}/front-250"
+        ));
+    }
+    if let Some(group) = group {
+        urls.push(format!(
+            "https://coverartarchive.org/release-group/{group}/front-250"
+        ));
+    }
+    if urls.is_empty() && entity == "release" {
+        urls.push(format!(
+            "https://coverartarchive.org/release/{id}/front-250"
+        ));
+    }
+    urls
 }
 
 fn parse_musicbrainz_release_group(value: &Value) -> Option<ArtistReleaseRef> {
@@ -2754,6 +2854,7 @@ fn parse_musicbrainz_release_group(value: &Value) -> Option<ArtistReleaseRef> {
     let release_date = value["first-release-date"].as_str().map(str::to_owned);
     let credits = parse_musicbrainz_credits(&value["artist-credit"], &source_url);
     Some(ArtistReleaseRef {
+        artwork_urls: musicbrainz_artwork_urls(value, "release-group", &id),
         release: ArtistRef {
             provider: "musicbrainz".into(),
             id,
@@ -2826,6 +2927,7 @@ fn parse_musicbrainz_release(value: &Value, artist: &ArtistRef) -> Option<Artist
         .collect();
     let _ = artist;
     Some(ArtistReleaseRef {
+        artwork_urls: musicbrainz_artwork_urls(value, "release", &id),
         release: ArtistRef {
             provider: "musicbrainz".into(),
             id: id.clone(),
@@ -2879,6 +2981,11 @@ fn parse_discogs_release(value: &Value) -> Option<ArtistReleaseRef> {
         }
     });
     Some(ArtistReleaseRef {
+        artwork_urls: value["cover_image"]
+            .as_str()
+            .and_then(secure_url)
+            .into_iter()
+            .collect(),
         release: ArtistRef {
             provider: "discogs".into(),
             id: id.clone(),
@@ -2923,11 +3030,14 @@ fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Tra
             )
         })
         .collect::<String>();
-    let isrc = value["isrcs"]
-        .as_array()
-        .and_then(|values| values.first())
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    let isrc = value["isrcs"].as_array().and_then(|values| {
+        let codes = values
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(crate::recording_identity::normalize_isrc)
+            .collect::<std::collections::BTreeSet<_>>();
+        (codes.len() == 1).then(|| codes.into_iter().next().unwrap())
+    });
     let release_date = value["first-release-date"].as_str().map(str::to_owned);
     let duration_seconds = value["length"]
         .as_f64()
@@ -2956,6 +3066,9 @@ fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Tra
             "providerId": id,
             "sourceUrl": source_url,
             "artistCredits": credits,
+            "recordingId": id,
+            "recordingRelations": value["relations"],
+            "recordingIsrcs": value["isrcs"],
             "recordingFirstReleaseDate": release_date,
             "dateMeaning": "Recording first release date; not the date this result was uploaded or searched",
             "mixVersion": "unknown; no version inferred from artist or release text"
@@ -3320,6 +3433,63 @@ fn uuid_like(id: &str) -> bool {
             _ => c.is_ascii_hexdigit(),
         })
 }
+fn wikidata_item_id(raw: &str) -> Option<String> {
+    let url = Url::parse(raw).ok()?;
+    if url.scheme() != "https"
+        || !matches!(url.host_str(), Some("www.wikidata.org" | "wikidata.org"))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let id = url.path().strip_prefix("/wiki/")?;
+    if !(2..=24).contains(&id.len())
+        || !id.starts_with('Q')
+        || !id[1..].bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(id.to_owned())
+}
+fn wikidata_portrait_urls(qid: &str, raw: &Value) -> Option<(String, String)> {
+    let entity = &raw["entities"][qid];
+    if entity["id"] != qid {
+        return None;
+    }
+    let claims = entity["claims"]["P18"].as_array()?;
+    let claim = claims
+        .iter()
+        .find(|c| c["rank"] == "preferred")
+        .or_else(|| claims.iter().find(|c| c["rank"] == "normal"))?;
+    if claim["mainsnak"]["snaktype"] != "value" || claim["mainsnak"]["datatype"] != "commonsMedia" {
+        return None;
+    }
+    let name = claim["mainsnak"]["datavalue"]["value"].as_str()?;
+    let lower = name.to_ascii_lowercase();
+    if name.is_empty()
+        || name.len() > 512
+        || name.chars().any(char::is_control)
+        || ![".jpg", ".jpeg", ".png", ".webp"]
+            .iter()
+            .any(|ext| lower.ends_with(ext))
+    {
+        return None;
+    }
+    let mut image = Url::parse("https://commons.wikimedia.org/wiki/Special:FilePath/").ok()?;
+    image.path_segments_mut().ok()?.pop_if_empty().push(name);
+    image.query_pairs_mut().append_pair("width", "300");
+    let mut source = Url::parse("https://commons.wikimedia.org/wiki/").ok()?;
+    source
+        .path_segments_mut()
+        .ok()?
+        .pop_if_empty()
+        .push(&format!("File:{name}"));
+    Some((image.to_string(), source.to_string()))
+}
+
 fn secure_url(raw: &str) -> Option<String> {
     let mut url = Url::parse(raw).ok()?;
     if url.scheme() == "http" {
@@ -3452,6 +3622,45 @@ async fn discogs_rate_limit() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn edition_without_cover_uses_its_exact_release_group() {
+        let edition = "4de779b6-75f4-4041-9cde-70a60ea21a89";
+        let group = "2c50bbe3-b000-4b28-a80f-e55b022757b9";
+        let raw = json!({"cover-art-archive":{"front":false},"release-group":{"id":group}});
+        assert_eq!(
+            musicbrainz_artwork_urls(&raw, "release", edition),
+            vec![format!(
+                "https://coverartarchive.org/release-group/{group}/front-250"
+            )]
+        );
+        let raw = json!({"cover-art-archive":{"front":true},"release-group":{"id":group}});
+        assert_eq!(musicbrainz_artwork_urls(&raw, "release", edition).len(), 2);
+        assert!(musicbrainz_artwork_urls(&raw, "release", edition)[0].contains(edition));
+    }
+
+    #[test]
+    fn portraits_require_exact_wikidata_link_and_supported_non_deprecated_media() {
+        assert_eq!(
+            wikidata_item_id("https://www.wikidata.org/wiki/Q123"),
+            Some("Q123".into())
+        );
+        for url in [
+            "https://wikidata.org.evil/wiki/Q123",
+            "https://www.wikidata.org/wiki/Q123?x=1",
+            "https://www.wikidata.org/wiki/artist",
+            "https://user@www.wikidata.org/wiki/Q123",
+        ] {
+            assert!(wikidata_item_id(url).is_none());
+        }
+        let mut raw = json!({"entities":{"Q123":{"id":"Q123","claims":{"P18":[{"rank":"normal","mainsnak":{"snaktype":"value","datatype":"commonsMedia","datavalue":{"value":"Artist portrait.jpg"}}}]}}}});
+        let (image, source) = wikidata_portrait_urls("Q123", &raw).unwrap();
+        assert!(image.starts_with("https://commons.wikimedia.org/wiki/Special:FilePath/"));
+        assert!(image.ends_with("?width=300"));
+        assert!(source.contains("Artist%20portrait.jpg"));
+        assert!(wikidata_portrait_urls("Q999", &raw).is_none());
+        raw["entities"]["Q123"]["claims"]["P18"][0]["rank"] = json!("deprecated");
+        assert!(wikidata_portrait_urls("Q123", &raw).is_none());
+    }
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

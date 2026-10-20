@@ -279,24 +279,20 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
     }
     let title = raw.get("title")?.as_str()?.trim();
     let raw_artist_names = raw.get("artistNames")?.as_array()?;
-    let artist = raw_artist_names
-        .iter()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>()
-        .join(", ");
-    // Keep an unambiguous full-credit representation for playback matching.
-    // The flattened display title/uploader remains unchanged for presentation.
+    if raw_artist_names.is_empty() || raw_artist_names.len() > 32 {
+        return None;
+    }
     let structured_artist_names = raw_artist_names
         .iter()
         .map(|value| {
             value
                 .as_str()
                 .map(str::trim)
-                .filter(|name| !name.is_empty())
+                .filter(|name| !name.is_empty() && name.len() <= 512)
                 .map(str::to_owned)
         })
-        .collect::<Option<Vec<_>>>()
-        .filter(|names| !names.is_empty());
+        .collect::<Option<Vec<_>>>()?;
+    let artist = structured_artist_names.join(", ");
     let duration = raw
         .get("duration")
         .and_then(Value::as_f64)
@@ -305,8 +301,7 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
     let isrc = raw
         .get("isrc")
         .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned);
+        .and_then(crate::recording_identity::normalize_isrc);
     let artwork = raw
         .get("artwork")
         .and_then(Value::as_str)
@@ -314,9 +309,7 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
     let url = format!("{base}/track/{id}");
     let mut source_metadata =
         json!({"provider":"monochrome","trackId":id,"isrc":isrc,"catalogTitle":title});
-    if let Some(names) = structured_artist_names {
-        source_metadata["artistNames"] = json!(names);
-    }
+    source_metadata["artistNames"] = json!(structured_artist_names);
     let candidate = Candidate {
         id: format!("monochrome:{id}"),
         provider: "monochrome".into(),
@@ -384,7 +377,7 @@ fn score(track: &Track, candidate: &mut Candidate) {
         .isrc
         .as_deref()
         .zip(isrc)
-        .is_some_and(|(a, b)| !a.is_empty() && a.eq_ignore_ascii_case(b));
+        .is_some_and(|(a, b)| crate::recording_identity::same_isrc(a, b));
     let duration = track
         .duration_seconds
         .zip(candidate.duration_seconds)
@@ -413,11 +406,9 @@ fn score(track: &Track, candidate: &mut Candidate) {
             .reasons
             .iter()
             .any(|r| r == "Catalog version is present in upload title");
-    let contradictory_isrc = track
-        .isrc
-        .as_deref()
-        .zip(isrc)
-        .is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && !a.eq_ignore_ascii_case(b));
+    let contradictory_isrc = track.isrc.as_deref().zip(isrc).is_some_and(|(a, b)| {
+        !a.is_empty() && !b.is_empty() && !crate::recording_identity::same_isrc(a, b)
+    });
     if duration
         && exact_artist
         && catalog_title.as_deref() == Some(title.as_str())
@@ -473,6 +464,19 @@ fn audio_format(prefix: &[u8]) -> Result<AudioFormat, String> {
 mod tests {
     use super::*;
     #[test]
+    fn catalog_keeps_complete_credits_and_canonical_isrc() {
+        let mut raw = json!({"trackId":"155142501534011392","title":"Song","artistNames":["Artist","Guest"],"duration":200000,"isrc":"US-QX9-13-00108"});
+        let (track, candidate) = catalog_entry(&raw, BASE).unwrap();
+        assert_eq!(track.isrc.as_deref(), Some("USQX91300108"));
+        assert_eq!(
+            candidate.source_metadata.unwrap()["artistNames"],
+            json!(["Artist", "Guest"])
+        );
+        raw["artistNames"] = json!(["Artist", null]);
+        assert!(catalog_entry(&raw, BASE).is_none());
+    }
+
+    #[test]
     fn verifies_container_instead_of_trusting_lossless_labels() {
         assert!(audio_format(b"fLaC").unwrap().lossless);
         let m4a = audio_format(b"\0\0\0\x1cftypisom").unwrap();
@@ -505,13 +509,7 @@ mod tests {
             "artistNames": [],
             "duration": 200000,
         });
-        let (_, candidate) = catalog_entry(&empty, BASE).unwrap();
-        assert!(candidate
-            .source_metadata
-            .as_ref()
-            .unwrap()
-            .get("artistNames")
-            .is_none());
+        assert!(catalog_entry(&empty, BASE).is_none());
     }
 
     #[test]

@@ -3,6 +3,8 @@
   import { allTrackSortFieldsAvailable, trackSortAvailability, trackSortAvailabilityForSources, trackSortOptionLabel, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import type { Track } from "./lib/types";
   import TrackList from "./TrackList.svelte";
+  import ArtworkImage from "./ArtworkImage.svelte";
+  import { musicBrainzCover, trackArtworkSources } from "./lib/catalog-artwork";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
   import type {
     ArtistPageProps, ArtistRef, ArtistSearchResult, ArtistProfile, ArtistReleaseRef,
@@ -43,12 +45,13 @@
     onAddTrackToPlaylist,
     onAddSelectedToPlaylist,
     onArtistNavigate,
+    onTrackAlbum,
     playingTrack = null,
     bufferingTrack = null,
     playingTrackId = "",
     bufferingTrackId = "",
     paused = false,
-  }: ArtistPageProps & { showSearchResultsButton?: boolean; onDownloadAlbum?: (tracks: Track[], release: ArtistReleaseRef) => void | Promise<void>; onSaveAlbumToLibrary?: (tracks: Track[], release: ArtistReleaseRef) => Promise<void>; onBrowseArtistProvider?: (name: string, provider: "spotify" | "musicbrainz") => void | Promise<void> } = $props();
+  }: ArtistPageProps & { showSearchResultsButton?: boolean; onDownloadAlbum?: (tracks: Track[], release: ArtistReleaseRef) => void | Promise<void>; onSaveAlbumToLibrary?: (tracks: Track[], release: ArtistReleaseRef) => Promise<void>; onBrowseArtistProvider?: (name: string, provider: "spotify" | "musicbrainz") => void | Promise<void>; onTrackAlbum?: (track: Track) => void | Promise<void> } = $props();
 
   let query = $state("");
   let results = $state<ArtistSearchResult[]>([]);
@@ -73,6 +76,7 @@
   let releaseQuery = $state("");
   let releaseProvider = $state("All sources");
   let releaseSort = $state<"newest" | "oldest" | "title">("newest");
+  let loadingReleaseOrder = $state(false);
   let trackQuery = $state("");
   let trackSort = $state<TrackSortField>("sourceOrder");
   let trackSortDirection = $state<SortDirection>("asc");
@@ -350,13 +354,19 @@
       groups.set(key, [...(groups.get(key) ?? []), item]);
     }
     const result = [...groups.entries()].map(([key, editions]) => ({ key, editions: editions.sort((a,b) => (b.releaseDate ?? `${b.year ?? 0}`).localeCompare(a.releaseDate ?? `${a.year ?? 0}`)) }));
-    const chronology = (group: typeof result[number]) => Math.min(...group.editions.map((edition) => edition.year ?? Number(String(edition.releaseDate ?? "").slice(0, 4))).filter((year) => Number.isFinite(year) && year > 0), Number.MAX_SAFE_INTEGER);
+    const chronology = (group: typeof result[number]) => {
+      const dates = group.editions.map(edition => {
+        if (edition.releaseDate && /^\d{4}(?:-\d{2})?(?:-\d{2})?$/.test(edition.releaseDate)) return `${edition.releaseDate}-00-00`.slice(0,10);
+        return edition.year && edition.year > 0 ? `${String(edition.year).padStart(4,"0")}-00-00` : "";
+      }).filter(Boolean).sort();
+      return dates[0] ?? "";
+    };
     return result.sort((a,b) => {
       if (releaseSort === "title") return a.editions[0].title.localeCompare(b.editions[0].title);
       const aYear = chronology(a), bYear = chronology(b);
-      if (aYear === Number.MAX_SAFE_INTEGER) return bYear === aYear ? a.editions[0].title.localeCompare(b.editions[0].title) : 1;
-      if (bYear === Number.MAX_SAFE_INTEGER) return -1;
-      return releaseSort === "oldest" ? aYear - bYear : bYear - aYear;
+      if (!aYear) return !bYear ? a.editions[0].title.localeCompare(b.editions[0].title) : 1;
+      if (!bYear) return -1;
+      return (releaseSort === "oldest" ? aYear.localeCompare(bYear) : bYear.localeCompare(aYear)) || a.editions[0].title.localeCompare(b.editions[0].title);
     });
   });
 
@@ -501,6 +511,7 @@
     onArtistSelected?.(artist.artist, artist.name);
     const generation = ++requestGeneration;
     busy = true; error = ""; review = null;
+    loadingReleaseOrder = false;
     releaseTrackCache = {}; loadingRelease = {}; releaseLoadError = ""; expandedRelease = ""; editionByGroup = {};
     localArtistRequestGeneration++; localArtistTracks = []; localArtistTotal = 0; localArtistSortAvailability = null; localArtistLoading = false;
     selectedArtist = artist; profile = null; section = initialSection;
@@ -582,8 +593,26 @@
         if (generation === requestGeneration) collaborations = result;
       }
       if (generation !== requestGeneration) return;
-    } catch (cause) { error = message(cause); }
-    finally { busy = false; }
+      if (next === "releases") await completeReleaseOrder(generation);
+    } catch (cause) { if (generation === requestGeneration) error = message(cause); }
+    finally { if (generation === requestGeneration) busy = false; }
+  }
+
+  async function completeReleaseOrder(generation: number) {
+    if (!selectedArtist || !releases?.nextCursor) return;
+    const artist = selectedArtist.artist;
+    const seen = new Set<string>();
+    loadingReleaseOrder = true;
+    try {
+      for (let page = 0; page < 20 && generation === requestGeneration && section === "releases" && releases?.nextCursor; page++) {
+        const cursor = releases.nextCursor;
+        if (seen.has(cursor)) break;
+        seen.add(cursor);
+        const next = await getArtistReleases(artist, cursor);
+        if (generation !== requestGeneration) return;
+        releases = { ...next, items: dedupeReleases([...releases.items, ...next.items]) };
+      }
+    } finally { if (generation === requestGeneration) loadingReleaseOrder = false; }
   }
 
   async function moreReleases() {
@@ -595,6 +624,7 @@
       const next = await getArtistReleases(artist, releases.nextCursor);
       if (generation !== requestGeneration) return;
       releases = { ...next, items: dedupeReleases([...releases.items, ...next.items]) };
+      await completeReleaseOrder(generation);
     } catch (cause) { if (generation === requestGeneration) error = message(cause); }
     finally { if (generation === requestGeneration) busy = false; }
   }
@@ -682,7 +712,7 @@
   {:else}
     {#if showSearchResultsButton}<button class="back" onclick={backToResults}>← Search results</button>{/if}
     <div class="artist-heading">
-      {#if profile?.imageUrl}<img src={profile.imageUrl} alt="" />{/if}
+      {#if profile?.imageUrl}<span class="artist-portrait"><ArtworkImage urls={[profile.imageUrl]} /></span>{/if}
       <div><p class="eyebrow">{providerLabel(selectedArtist.artist.provider)} identity</p>
         <h2>{selectedArtist.name}</h2>
         {#if selectedArtist.disambiguation}<p>{selectedArtist.disambiguation}</p>{/if}
@@ -727,7 +757,7 @@
             <TrackDurationFilter bind:minDuration={topTrackMinDuration} bind:maxDuration={topTrackMaxDuration} minLabel="Minimum artist top track duration" maxLabel="Maximum artist top track duration" />
             <span>{visibleTopTracks.length} of {profile.topTracks.length} loaded tracks</span>
           </div>
-          {#if visibleTopTracks.length}<TrackList presentation="playlist" tracks={visibleTopTracks} selectionContext={`artist-top:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}`} selectionKeys={visibleTopTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={profile.topTracks} selectionTrackKeys={profile.topTracks.map((_, index) => String(index))} listLabel="Artist top tracks" onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else}<p class="muted">No loaded top tracks match these filters.</p>{/if}{:else}<p class="muted">Last.fm top tracks are unavailable for this artist or no API key is configured.</p>{/if}
+          {#if visibleTopTracks.length}<TrackList presentation="playlist" tracks={visibleTopTracks} selectionContext={`artist-top:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}`} selectionKeys={visibleTopTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={profile.topTracks} selectionTrackKeys={profile.topTracks.map((_, index) => String(index))} listLabel="Artist top tracks" onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else}<p class="muted">No loaded top tracks match these filters.</p>{/if}{:else}<p class="muted">Last.fm top tracks are unavailable for this artist or no API key is configured.</p>{/if}
       {:else}<p class="muted">Loading artist profile…</p>{/if}
     {:else if section === "releases"}
       {#if releases?.sourceCoverage?.length}<details class="catalog-provider-details"><summary>Catalog sources · {releases.sourceCoverage.map(coverage => providerLabel(coverage.provider)).join(" · ")}</summary><ul class="source-coverage">{#each releases.sourceCoverage ?? [] as coverage (coverage.provider)}<li><strong>{providerLabel(coverage.provider)}</strong><span>{coverageLabel(coverage.status)}</span><small>{coverage.detail}</small></li>{/each}</ul></details>{/if}
@@ -739,10 +769,12 @@
         <select bind:value={releaseSort} aria-label="Sort releases"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select>
       </div>
       <p class="muted catalog-count">{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} · {releaseGroups.reduce((count, group) => count + group.editions.length, 0)} editions loaded</p>
+      {#if loadingReleaseOrder}<p class="muted" role="status">Loading remaining releases to order albums…</p>{:else if releases?.nextCursor}<p class="muted">More releases are available; order applies to the albums loaded so far.</p>{/if}
       <div class="release-list">{#each releaseGroups as group (group.key)}
         {@const release = selectedEdition(group)}
-        {@const artworkUrl = (releaseTrackCache[release.sourceUrl] ?? []).find((track) => track.artworkUrl)?.artworkUrl}
-        <article class="release-card"><div class="release-card-header"><div class="release-card-main"><div class="release-art" aria-hidden="true">♫{#if artworkUrl}<img src={artworkUrl} alt="" onerror={(event) => { (event.currentTarget as HTMLImageElement).style.display = "none"; }} />{/if}</div><div class="release-info"><small class="release-source">{providerLabel(release.release.provider)}</small><button class="album-title" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}><strong>{release.title}</strong></button><p>{release.year ?? "Year unknown"}{#if release.country} · {release.country}{/if}{#if release.label} · {release.label}{/if}</p><small>{release.format ?? release.primaryType ?? "Format unknown"}{#if release.catalogNumber} · {release.catalogNumber}{/if} · {release.trackCount ?? "?"} tracks</small></div></div>
+        {@const artworkTrack = (releaseTrackCache[release.sourceUrl] ?? []).find((track) => track.artworkUrl)}
+        {@const artworkSources = [...(artworkTrack ? trackArtworkSources(artworkTrack) : []), ...(release.artworkUrls ?? []), musicBrainzCover(release.sourceUrl)]}
+        <article class="release-card"><div class="release-card-header"><div class="release-card-main"><div class="release-art" aria-hidden="true"><ArtworkImage urls={artworkSources} /></div><div class="release-info"><small class="release-source">{providerLabel(release.release.provider)}</small><button class="album-title" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}><strong>{release.title}</strong></button><p>{release.year ?? "Year unknown"}{#if release.country} · {release.country}{/if}{#if release.label} · {release.label}{/if}</p><small>{release.format ?? release.primaryType ?? "Format unknown"}{#if release.catalogNumber} · {release.catalogNumber}{/if} · {release.trackCount ?? "?"} tracks</small></div></div>
           <div class="release-actions"><button class="secondary" aria-label={`Play album ${release.title}`} onclick={() => void playRelease(release)} disabled={!getReleaseTracks || !onPlayTrack || loadingRelease[release.sourceUrl]}>Play album</button><button class="secondary" aria-label={`Queue album ${release.title}`} onclick={() => void queueRelease(release, "append")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Queue</button><button class="secondary" aria-label={`Play album ${release.title} next`} onclick={() => void queueRelease(release, "next")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Play next</button>{#if onDownloadAlbum}<button class="secondary" aria-label={`Download album ${release.title}`} onclick={() => void downloadRelease(release)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl]}>Download album</button>{/if}{#if onSaveAlbumToLibrary}<button class="secondary" aria-label={`Save album ${release.title} to library`} onclick={() => void saveAlbumToLibrary(release, group.key)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl] || albumSaveState[release.sourceUrl]?.status === "saving"}>{albumSaveState[release.sourceUrl]?.status === "saving" ? "Saving…" : albumSaveState[release.sourceUrl]?.status === "saved" ? "Saved" : "Save to library"}</button>{/if}<button class="secondary" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}>Tracks</button></div></div>
           {#if onSaveAlbumToLibrary && albumSaveState[release.sourceUrl]}<p class={`notice album-save-status ${albumSaveState[release.sourceUrl].status === "error" ? "error" : ""}`} aria-live="polite">{albumSaveState[release.sourceUrl].message}</p>{/if}
           {#if release.tracks.length && !getReleaseTracks}<details class="source-track-details"><summary>Track titles from source · {release.tracks.length}</summary><ol class="release-tracklist">{#each release.tracks as sourceTrack, trackIndex (trackIndex)}<li>{sourceTrack.position ? `${sourceTrack.position}. ` : ""}{sourceTrack.title}</li>{/each}</ol></details>{/if}
@@ -777,7 +809,7 @@
                 <span>{visibleReleaseTracks.length} of {sourceTracks.length} loaded tracks</span>
               </div>
               {#if visibleReleaseTracks.length}
-                <TrackList presentation="playlist" tracks={visibleReleaseTracks} selectionContext={`artist-release:${release.sourceUrl}`} selectionKeys={visibleReleaseOccurrences.map(row => String(row.sourceIndex))} selectionTracks={sourceTracks} selectionTrackKeys={sourceTracks.map((_, index) => String(index))} listLabel={`${release.title} tracks`} position={(_track, index) => (visibleReleaseOccurrences[index]?.sourceIndex ?? index) + 1} onPlay={(_track, _list, index) => void playReleaseOccurrence(release, visibleReleaseOccurrences[index]?.sourceIndex ?? -1)} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
+                <TrackList presentation="playlist" tracks={visibleReleaseTracks} selectionContext={`artist-release:${release.sourceUrl}`} selectionKeys={visibleReleaseOccurrences.map(row => String(row.sourceIndex))} selectionTracks={sourceTracks} selectionTrackKeys={sourceTracks.map((_, index) => String(index))} listLabel={`${release.title} tracks`} position={(_track, index) => (visibleReleaseOccurrences[index]?.sourceIndex ?? index) + 1} onPlay={(_track, _list, index) => void playReleaseOccurrence(release, visibleReleaseOccurrences[index]?.sourceIndex ?? -1)} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
               {:else}<p class="muted">No loaded tracks match these filters.</p>{/if}
             {:else}<p class="muted">No track details available for this edition.</p>{/if}
           </div>{/if}
@@ -789,7 +821,7 @@
     {:else if section === "tracks"}
       <p class="muted">{tracks?.source ?? "Loading source recordings…"} · {visibleSourceTracks.length} of {(tracks?.items ?? []).length} loaded recordings</p>
       <div class="catalog-controls"><input bind:value={trackQuery} placeholder="Search loaded tracks" aria-label="Search loaded tracks" /><select bind:value={trackAvailability} aria-label="Track availability"><option value="all">All tracks</option><option value="on-device">On this device</option><option value="not-on-device">Not on this device</option></select><select bind:value={trackSort} aria-label="Sort tracks"><option value="sourceOrder">Source order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select><select bind:value={trackSortDirection} aria-label="Sort direction"><option value="asc">Ascending</option><option value="desc">Descending</option></select><TrackDurationFilter bind:minDuration={trackMinDuration} bind:maxDuration={trackMaxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" /></div>
-      <TrackList presentation="playlist" tracks={visibleSourceTracks} selectionContext={`artist-source:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}:${tracks?.source ?? ""}`} selectionKeys={visibleSourceOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks?.items ?? []} selectionTrackKeys={(tracks?.items ?? []).map((_, index) => String(index))} listLabel="Artist recordings" meta={track => track.releaseDate ?? "Date unknown"} onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
+      <TrackList presentation="playlist" tracks={visibleSourceTracks} selectionContext={`artist-source:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}:${tracks?.source ?? ""}`} selectionKeys={visibleSourceOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks?.items ?? []} selectionTrackKeys={(tracks?.items ?? []).map((_, index) => String(index))} listLabel="Artist recordings" meta={track => track.releaseDate ?? "Date unknown"} onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
       {#if tracks && !visibleSourceTracks.length}<p class="muted">{tracks.items.length ? "No loaded tracks match these filters." : "No tracks have been returned by this source."}</p>{/if}
       {#if tracks?.nextCursor}<button class="secondary" onclick={() => void moreTracks()} disabled={busy}>Load more tracks</button>{/if}
       {#if tracks?.warnings.length}<div class="notice">{#each tracks.warnings as warning}<p>{warning}</p>{/each}</div>{/if}
@@ -827,7 +859,7 @@
       {:else}
         <p class="muted">Local matches use exact artist-credit text after case and whitespace normalization. Same-name identities are not merged.</p>
       {/if}
-      <TrackList presentation="playlist" tracks={visibleLocalArtistTracks} selectionContext={`artist-local:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}:${onLoadLocalAssetsPage ? "paged" : "fallback"}`} selectionKeys={visibleLocalArtistOccurrences.map(row => String(row.sourceIndex))} selectionTracks={onLoadLocalAssetsPage ? localArtistTracks : localTracks} selectionTrackKeys={(onLoadLocalAssetsPage ? localArtistTracks : localTracks).map((_, index) => String(index))} listLabel="Local artist recordings" meta={track => `${track.album ?? "Unknown release"} · ${track.localAvailability ?? "Library track"}`} onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
+      <TrackList presentation="playlist" tracks={visibleLocalArtistTracks} selectionContext={`artist-local:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}:${onLoadLocalAssetsPage ? "paged" : "fallback"}`} selectionKeys={visibleLocalArtistOccurrences.map(row => String(row.sourceIndex))} selectionTracks={onLoadLocalAssetsPage ? localArtistTracks : localTracks} selectionTrackKeys={(onLoadLocalAssetsPage ? localArtistTracks : localTracks).map((_, index) => String(index))} listLabel="Local artist recordings" meta={track => track.localAvailability ?? "Library track"} onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
       {#if onLoadLocalAssetsPage && localArtistTracks.length < localArtistTotal}<button class="secondary" disabled={localArtistLoading} onclick={() => void loadLocalArtistPage(true)}>Load more local recordings</button>{/if}
       {#if !visibleLocalArtistTracks.length && !localArtistLoading}<p class="muted">No exact artist-credit matches in the local library.</p>{/if}
     {/if}
@@ -861,12 +893,12 @@
   .search{display:flex;gap:.5rem}.search input{flex:1;min-width:80px}.search input,input[type=checkbox]{accent-color:var(--accent,#67c3a5)}
   input:not([type=checkbox]){background:var(--input,#22262b);border:1px solid var(--border,#383d43);color:inherit;border-radius:7px;padding:.65rem}
   button{border:0;border-radius:7px;padding:.6rem .8rem;background:var(--accent,#67c3a5);color:#111;font-weight:650;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}.secondary,.back{background:transparent;color:inherit;border:1px solid var(--border,#383d43)}.back{align-self:start}
-  .results,.release-list{display:flex;flex-direction:column;gap:.5rem;min-width:0}.artist-result,.release-list article{width:100%;min-width:0;text-align:left;background:var(--input,#22262b);color:inherit;border:1px solid var(--border,#383d43);padding:.8rem;border-radius:8px;overflow-wrap:anywhere}.artist-result span{min-width:0;overflow-wrap:anywhere}.artist-result span:first-child{display:flex;flex-direction:column;gap:.2rem}.artist-result .source{text-align:right}.artist-heading{justify-content:flex-start;min-width:0}.artist-heading>div{min-width:0;overflow-wrap:anywhere}.artist-heading img{width:84px;height:84px;object-fit:cover;border-radius:8px}.tabs{display:flex;gap:.35rem;overflow:auto;border-bottom:1px solid var(--border,#383d43);max-width:100%}.tabs button{white-space:nowrap;background:transparent;color:inherit;border-radius:6px 6px 0 0}.tabs button.active{background:var(--accent,#67c3a5);color:#111}
+  .results,.release-list{display:flex;flex-direction:column;gap:.5rem;min-width:0}.artist-result,.release-list article{width:100%;min-width:0;text-align:left;background:var(--input,#22262b);color:inherit;border:1px solid var(--border,#383d43);padding:.8rem;border-radius:8px;overflow-wrap:anywhere}.artist-result span{min-width:0;overflow-wrap:anywhere}.artist-result span:first-child{display:flex;flex-direction:column;gap:.2rem}.artist-result .source{text-align:right}.artist-heading{justify-content:flex-start;min-width:0}.artist-heading>div{min-width:0;overflow-wrap:anywhere}.artist-portrait{width:84px;height:84px;object-fit:cover;border-radius:8px}.tabs{display:flex;gap:.35rem;overflow:auto;border-bottom:1px solid var(--border,#383d43);max-width:100%}.tabs button{white-space:nowrap;background:transparent;color:inherit;border-radius:6px 6px 0 0}.tabs button.active{background:var(--accent,#67c3a5);color:#111}
   .artist-provider-action{display:block;margin-top:.5rem}.notice{padding:.65rem .8rem;border-left:3px solid var(--accent,#67c3a5);background:var(--input,#22262b);border-radius:4px}.error{border-color:#ec7373}.overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem}.overview-grid article,.review{padding:.8rem;border:1px solid var(--border,#383d43);border-radius:8px}.bio{white-space:pre-wrap;max-height:12rem;overflow:auto}.links{display:flex;gap:.75rem;flex-wrap:wrap}.release-list article{align-items:flex-start}.release-list article>div{min-width:0}.review{display:flex;flex-direction:column;gap:.6rem}.field{display:flex;gap:.65rem;align-items:flex-start;padding:.5rem;border:1px solid var(--border,#383d43);border-radius:6px}.field>span{display:flex;flex-direction:column;gap:.2rem}.candidate{justify-content:space-between;padding:.5rem 0}
   .release-source{display:block;margin-bottom:.35rem}
   .catalog-provider-details{font-size:.82rem;color:var(--muted)}.catalog-provider-details summary{cursor:pointer}.edition-select{flex-direction:row;justify-content:flex-start;margin:0}.release-info{overflow-wrap:anywhere}
   .album-title{display:block;max-width:100%;min-width:0;background:transparent;color:inherit;text-align:left;padding:0;white-space:normal;overflow-wrap:anywhere}.album-title strong{overflow-wrap:anywhere}
-  .catalog-controls{display:flex;gap:.55rem;align-items:center;flex-wrap:wrap;min-width:0}.catalog-controls input{flex:1;min-width:min(12rem,100%)}.catalog-controls select,.edition-select select{background:var(--input,#22262b);color:var(--text,#eee);color-scheme:dark;border:1px solid var(--border,#383d43);border-radius:7px;padding:.6rem;max-width:100%;min-width:0}.catalog-count{margin-top:-.6rem}.release-card{display:grid!important;grid-template-columns:minmax(0,1fr);align-items:center!important;gap:.65rem!important}.release-card-header{display:flex;flex-wrap:wrap;align-items:center;gap:.65rem;min-width:0}.release-card-main{display:flex;flex:1 1 20rem;align-items:center;gap:.8rem;min-width:0}.release-art{position:relative;width:62px;height:62px;flex:none;display:grid;place-items:center;border-radius:7px;background:linear-gradient(145deg,#2b4039,#20242a);color:var(--accent,#67c3a5);font-size:1.8rem;overflow:hidden}.release-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.release-info{flex:1 1 0;min-width:0;overflow-wrap:anywhere}.release-info strong{font-size:1rem}.release-info p{color:var(--muted,#a3a8ae);font-size:.86rem;overflow-wrap:anywhere}.release-actions{display:flex;flex:1 1 22rem;gap:.3rem;flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%}.release-actions button{max-width:100%;white-space:normal;overflow-wrap:anywhere;padding:.43rem .58rem;font-size:.8rem}.edition-select{grid-column:1/-1;display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--muted,#a3a8ae);min-width:0}.edition-select select{flex:1}.source-track-details,.expanded-tracks,.release-source-link{grid-column:1/-1;min-width:0}.source-track-details{font-size:.85rem;color:var(--muted,#a3a8ae)}.expanded-tracks{border-top:1px solid var(--border,#383d43);padding-top:.4rem}.release-source-link{justify-content:space-between;overflow-wrap:anywhere}
+  .catalog-controls{display:flex;gap:.55rem;align-items:center;flex-wrap:wrap;min-width:0}.catalog-controls input{flex:1;min-width:min(12rem,100%)}.catalog-controls select,.edition-select select{background:var(--input,#22262b);color:var(--text,#eee);color-scheme:dark;border:1px solid var(--border,#383d43);border-radius:7px;padding:.6rem;max-width:100%;min-width:0}.catalog-count{margin-top:-.6rem}.release-card{display:grid!important;grid-template-columns:minmax(0,1fr);align-items:center!important;gap:.65rem!important}.release-card-header{display:flex;flex-wrap:wrap;align-items:center;gap:.65rem;min-width:0}.release-card-main{display:flex;flex:1 1 20rem;align-items:center;gap:.8rem;min-width:0}.release-art{position:relative;width:62px;height:62px;flex:none;display:grid;place-items:center;border-radius:7px;background:linear-gradient(145deg,#2b4039,#20242a);color:var(--accent,#67c3a5);font-size:1.8rem;overflow:hidden}.release-art :global(img){position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.release-info{flex:1 1 0;min-width:0;overflow-wrap:anywhere}.release-info strong{font-size:1rem}.release-info p{color:var(--muted,#a3a8ae);font-size:.86rem;overflow-wrap:anywhere}.release-actions{display:flex;flex:1 1 22rem;gap:.3rem;flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%}.release-actions button{max-width:100%;white-space:normal;overflow-wrap:anywhere;padding:.43rem .58rem;font-size:.8rem}.edition-select{grid-column:1/-1;display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--muted,#a3a8ae);min-width:0}.edition-select select{flex:1}.source-track-details,.expanded-tracks,.release-source-link{grid-column:1/-1;min-width:0}.source-track-details{font-size:.85rem;color:var(--muted,#a3a8ae)}.expanded-tracks{border-top:1px solid var(--border,#383d43);padding-top:.4rem}.release-source-link{justify-content:space-between;overflow-wrap:anywhere}
   .album-save-status{grid-column:1/-1;margin:0;font-size:.82rem}
   .release-tracklist{max-height:14rem;overflow:auto;padding-left:1.7rem}.release-tracklist li{padding:.3rem}.release-tracklist li.possible-match{font-weight:700;color:var(--accent,#67c3a5)}.release-tracklist small{display:block}.source-tags,.source-coverage{list-style:none;padding:0;margin:.5rem 0;display:flex;flex-direction:column;gap:.45rem}.source-tags li,.source-coverage li{display:flex;flex-wrap:wrap;gap:.45rem;align-items:baseline}.source-tags small,.source-coverage small{flex-basis:100%;padding-left:.2rem}.source-coverage li{padding:.35rem 0;border-bottom:1px solid var(--border,#383d43)}
   @media(max-width:650px){.release-card{grid-template-columns:minmax(0,1fr)}.release-actions{justify-content:flex-start}.release-list article{align-items:flex-start;flex-direction:column}.search{flex-wrap:wrap}.search input{flex-basis:100%}.catalog-controls>*{flex:1;min-width:9rem}.release-source-link{flex-direction:row!important}}

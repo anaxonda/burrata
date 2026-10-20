@@ -1,0 +1,794 @@
+{
+  "schemaVersion": 1,
+  "description": "Public/provider-shaped examples for recording identity. Expected values are evidence labels, not blanket claims that unresolved lookups are verified.",
+  "levels": [
+    "Exact",
+    "Balanced",
+    "Flexible"
+  ],
+  "cases": [
+    {
+      "id": "matthew-john-denver",
+      "evidence": "Public YouTube result caption and duration differ from the 228-second request by 12 seconds; title alone cannot establish the recording.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "matthew",
+        "artist": "John Denver",
+        "title": "Matthew",
+        "album": "Poems, Prayers & Promises",
+        "durationSeconds": 228.0
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "FRP_lYROd-I",
+        "url": "https://www.youtube.com/watch?v=FRP_lYROd-I",
+        "title": "John Denver - Matthew",
+        "uploader": "John Denver",
+        "durationSeconds": 216.0,
+        "permission": "stream",
+        "confidence": "medium",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "duration": 216.0,
+          "track": "Matthew"
+        }
+      },
+      "expected": {
+        "relationship": "needsEvidence",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Probable",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "everybody-wants-cowboy-primary-credits",
+      "evidence": "Repository public extractor regression uses YouTube video qND7vxsWE2Y, the full lyric-video caption, 219 seconds, and the Spotify request title with Billy Strings credit.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "cowboy",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "durationSeconds": 219.357,
+        "album": "Middle of Nowhere"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "qND7vxsWE2Y",
+        "url": "https://www.youtube.com/watch?v=qND7vxsWE2Y",
+        "title": "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Official Lyric Video)",
+        "uploader": "★ 𝑲𝒂𝒄𝒆𝒚 𝑴𝒖𝒔𝒈𝒓𝒂𝒗𝒆𝒔 ★",
+        "durationSeconds": 219.0,
+        "permission": "stream",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "channel": "★ Kacey Musgraves ★",
+          "duration": 219.0,
+          "artists": [
+            "Kacey Musgraves",
+            "Billy Strings"
+          ],
+          "artistCount": 2
+        }
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Exact",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Accept",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "cowboy-wrong-guest",
+      "evidence": "Synthetic provider-shaped hard negative: identical caption structure and runtime with a contradictory featured performer.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "cowboy",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "durationSeconds": 219.0
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "fixture:cowboy-wrong-guest",
+        "url": "https://example.invalid/cowboy-wrong-guest",
+        "title": "Kacey Musgraves, Wrong Guest - Everybody Wants To Be A Cowboy",
+        "uploader": "Kacey Musgraves",
+        "durationSeconds": 219.0,
+        "permission": "stream",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "duration": 219.0,
+          "artists": [
+            "Kacey Musgraves",
+            "Wrong Guest"
+          ],
+          "artistCount": 2
+        }
+      },
+      "expected": {
+        "relationship": "hardNegativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Unresolved",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Reject"
+        }
+      }
+    },
+    {
+      "id": "cowboy-live-flexible-alternative",
+      "evidence": "Synthetic hard negative/alternative based on the documented source credit: Live is a distinct performance; Flexible may accept it only as an Alternative.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "cowboy",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "durationSeconds": 219.0
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "qND7vxsWE2Y",
+        "url": "https://www.youtube.com/watch?v=qND7vxsWE2Y",
+        "title": "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Live)",
+        "uploader": "Kacey Musgraves",
+        "durationSeconds": 219.0,
+        "permission": "stream",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "duration": 219.0,
+          "artists": [
+            "Kacey Musgraves",
+            "Billy Strings"
+          ],
+          "artistCount": 2
+        }
+      },
+      "expected": {
+        "relationship": "sourceBackedAlternativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Alternative",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "nighttime-santtana-lindsay",
+      "evidence": "public Spotify catalog result in catalog_duration_proof.rs: Sem Nostalgia, both artists, 197.76 seconds; punctuation variation Night-time is search equivalence, not a global artist alias",
+      "request": {
+        "provider": "fixture",
+        "providerId": "nighttime",
+        "artist": "Lucas Santtana & Arto Lindsay",
+        "title": "Nighttime in the Backyard",
+        "album": "Sem Nostalgia",
+        "durationSeconds": 197.76
+      },
+      "candidate": {
+        "provider": "spotify",
+        "id": "0tC7qWz5qL85SFFHKnaerg",
+        "url": "https://open.spotify.com/track/0tC7qWz5qL85SFFHKnaerg",
+        "title": "Nighttime in the Backyard",
+        "uploader": "Lucas Santtana, Arto Lindsay",
+        "durationSeconds": 197.76,
+        "permission": "catalog",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "spotify",
+          "catalog": true,
+          "artistNames": [
+            "Lucas Santtana",
+            "Arto Lindsay"
+          ],
+          "artistCount": 2,
+          "catalogTitle": "Nighttime in the Backyard",
+          "duration": 197.76
+        }
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Exact",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Accept",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "nighttime-artist-overlap-remix",
+      "evidence": "public Spotify catalog result: same main artist but a remix by Deerhoof and John Dieterich",
+      "request": {
+        "provider": "fixture",
+        "providerId": "nighttime",
+        "artist": "Lucas Santtana & Arto Lindsay",
+        "title": "Nighttime in the Backyard",
+        "album": "Sem Nostalgia",
+        "durationSeconds": 197.76
+      },
+      "candidate": {
+        "provider": "spotify",
+        "id": "67NdNq5A4NUbNm9acvDRgi",
+        "url": "https://open.spotify.com/track/67NdNq5A4NUbNm9acvDRgi",
+        "title": "Nighttime in the backyard - Deerhoof John Dieterich Remix",
+        "uploader": "Lucas Santtana, John Dieterich, Deerhoof",
+        "durationSeconds": 190.666,
+        "permission": "catalog",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "spotify",
+          "catalog": true,
+          "artistNames": [
+            "Lucas Santtana",
+            "John Dieterich",
+            "Deerhoof"
+          ],
+          "artistCount": 3,
+          "catalogTitle": "Nighttime in the backyard - Deerhoof John Dieterich Remix",
+          "duration": 190.666
+        }
+      },
+      "expected": {
+        "relationship": "hardNegativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Unresolved",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Reject"
+        }
+      }
+    },
+    {
+      "id": "baba-ralmm-emil-extended-294",
+      "evidence": "Repository public Topic result CZg0jfBo8Gc: Baba (Extended Mix), Ralmm and Emil Lassaria, 294 seconds.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "baba-ralmm",
+        "artist": "Ralmm, Emil Lassaria",
+        "title": "Baba (Extended Mix)",
+        "durationSeconds": 294.0,
+        "version": "Extended Mix (4:54)"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "CZg0jfBo8Gc",
+        "url": "https://www.youtube.com/watch?v=CZg0jfBo8Gc",
+        "title": "Baba (Extended Mix)",
+        "uploader": "Ralmm-Topic",
+        "durationSeconds": 294.0,
+        "permission": "stream",
+        "confidence": "medium",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "channel": "Ralmm - Topic",
+          "track": "Baba (Extended Mix)",
+          "artist": "Ralmm, Emil Lassaria",
+          "artists": [
+            "Ralmm",
+            "Emil Lassaria"
+          ],
+          "duration": 294.0,
+          "artistCount": 2
+        }
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Exact",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Accept",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "chart-mike-dunn-dj-tai-494",
+      "evidence": "Public live-qualification fixture: Traxsource 15057930; YouTube mVvwOJJRwXo caption exactly “Mike Dunn - I'm Sick I've Been Infected Wit House Musick (DJ Tai Vocal Remix) [Blackball Muzik]”, 494 seconds. DJ Tai appears as the credited remixer in the caption/version, not as an invented main-artist prefix.",
+      "request": {
+        "provider": "traxsource",
+        "providerId": "15057930",
+        "artist": "Mike Dunn, DJ Tai",
+        "title": "(I'm Sick) I've Been Infected Wit House Musick (Remix)",
+        "durationSeconds": 494.0,
+        "version": "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)",
+        "label": "Blackball Muzik"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "youtube:mVvwOJJRwXo",
+        "url": "https://www.youtube.com/watch?v=mVvwOJJRwXo",
+        "title": "Mike Dunn - I'm Sick I've Been Infected Wit House Musick (DJ Tai Vocal Remix) [Blackball Muzik]",
+        "uploader": null,
+        "durationSeconds": 494.0,
+        "permission": "unknown",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Inspect",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "masaki-untitled-dub-347",
+      "evidence": "Public live-qualification fixture: Traxsource 15019328, Masaki Morii, Untitled Dub 1, 347 seconds; YouTube Se4-OPD-nEs caption “Masaki Morii - Untitled Dub 1 [M2SOUL Music]”, 348-second extractor duration.",
+      "request": {
+        "provider": "traxsource",
+        "providerId": "15019328",
+        "artist": "Masaki Morii",
+        "title": "Untitled Dub 1",
+        "durationSeconds": 347.0,
+        "version": "(5:47)",
+        "label": "M2SOUL Music"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "youtube:Se4-OPD-nEs",
+        "url": "https://www.youtube.com/watch?v=Se4-OPD-nEs",
+        "title": "Masaki Morii - Untitled Dub 1 [M2SOUL Music]",
+        "uploader": null,
+        "durationSeconds": 348.0,
+        "permission": "unknown",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Inspect",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "larry-labirt-corey-holmes-330",
+      "evidence": "Public live-qualification fixture: Traxsource 14798487, Larry La Birt and Corey Holmes, 330 seconds; YouTube iHugvFBKbF0 caption “Larry La Birt, Corey Holmes - I'ts All About The Love For You (Original Vocal)”, 330-second extractor duration. The request version “(5:30)” is duration-only; it does not override the caption’s default Original Vocal edition.",
+      "request": {
+        "provider": "traxsource",
+        "providerId": "14798487",
+        "artist": "Larry La Birt, Corey Holmes",
+        "title": "It's All About The Love For You",
+        "durationSeconds": 330.0,
+        "version": "(5:30)",
+        "label": "Digital Generation"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "youtube:iHugvFBKbF0",
+        "url": "https://www.youtube.com/watch?v=iHugvFBKbF0",
+        "title": "Larry La Birt, Corey Holmes - I'ts All About The Love For You (Original Vocal)",
+        "uploader": null,
+        "durationSeconds": 330.0,
+        "permission": "unknown",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Inspect",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "velib-bleu-sean-original-203",
+      "evidence": "public catalog duration regression uses 203.491 seconds for the original sean track; maintain title case and punctuation as supplied",
+      "request": {
+        "provider": "fixture",
+        "providerId": "velib-bleu",
+        "artist": "sean",
+        "title": "velib'bleu",
+        "durationSeconds": 203.491
+      },
+      "candidate": {
+        "provider": "spotify",
+        "id": "fixture:velib-bleu-sean-original-203",
+        "url": "https://example.invalid/velib-bleu-sean-original-203",
+        "title": "velib'bleu",
+        "uploader": "sean",
+        "durationSeconds": 203.491,
+        "permission": "catalog",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "spotify",
+          "catalog": true,
+          "artistNames": [
+            "sean"
+          ],
+          "artistCount": 1,
+          "catalogTitle": "velib'bleu",
+          "duration": 203.491
+        }
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Exact",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Accept",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "miroloi-tis-manas-lakis-chalkias-ensemble-127626",
+      "evidence": "Repository report: Spotify recording 2Q9DpDilWFbnGzEbX5AIBS lacks verified binding to likely Lakis Halkias Topic source. Chalkias/Halkias is this case’s explicit variant, not a global alias.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "2Q9DpDilWFbnGzEbX5AIBS",
+        "artist": "Lakis Chalkias & Ensemble",
+        "title": "To Miroloi Tis Manas",
+        "durationSeconds": 127.626,
+        "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia"
+      },
+      "candidate": {
+        "provider": "spotify",
+        "id": "fixture:miroloi-topic-alias",
+        "url": "https://example.invalid/miroloi-topic-alias",
+        "title": "Lakis Halkias - To Miroloi tis Manas",
+        "uploader": "Lakis Halkias",
+        "durationSeconds": 127.626,
+        "permission": "catalog",
+        "confidence": "medium",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "duration": 127.626
+        }
+      },
+      "expected": {
+        "relationship": "needsEvidence",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Unresolved",
+        "actions": {
+          "Exact": "Enrich",
+          "Balanced": "Enrich",
+          "Flexible": "Enrich"
+        }
+      }
+    },
+    {
+      "id": "diaraby-ry-cooder-446826",
+      "evidence": "Repository public regression uses bound Monochrome recording ID 177409920331984896, metadata trackId, Diaraby - with Ry Cooder, both artist credits, and 446.826-second duration.",
+      "request": {
+        "provider": "radio_song",
+        "providerId": "diaraby",
+        "artist": "Ali Farka Touré",
+        "title": "Diaraby (w/ Ry Cooder)",
+        "album": "Ali Farka Touré",
+        "durationSeconds": 446.826
+      },
+      "candidate": {
+        "provider": "monochrome",
+        "id": "monochrome:177409920331984896",
+        "url": "",
+        "title": "Ali Farka Touré, Ry Cooder - Diaraby - with Ry Cooder",
+        "uploader": "Ali Farka Touré, Ry Cooder",
+        "durationSeconds": 446.826,
+        "permission": "catalog",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "monochrome",
+          "trackId": "177409920331984896",
+          "catalogTitle": "Diaraby - with Ry Cooder",
+          "artistNames": [
+            "Ali Farka Touré",
+            "Ry Cooder"
+          ],
+          "isrc": "GBBGU0640010",
+          "duration": 446.826
+        }
+      },
+      "expected": {
+        "relationship": "sourceBackedRecordingFixture",
+        "Exact": "Exact",
+        "Balanced": "Exact",
+        "Flexible": "Exact",
+        "actions": {
+          "Exact": "Accept",
+          "Balanced": "Accept",
+          "Flexible": "Accept"
+        }
+      }
+    },
+    {
+      "id": "diaraby-composer-only-wrong-orchestra",
+      "evidence": "hard negative: same composer/title metadata is insufficient when artist/performance is a different orchestra; synthetic contrast fixture",
+      "request": {
+        "provider": "fixture",
+        "providerId": "diaraby",
+        "artist": "Ali Farka Touré",
+        "title": "Diaraby (w/ Ry Cooder)",
+        "album": "Ali Farka Touré",
+        "durationSeconds": 446.826
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "wrong-orchestra",
+        "url": "https://www.youtube.com/watch?v=wrong-orchestra",
+        "title": "Diaraby - Traditional Song",
+        "uploader": "World Music Ensemble",
+        "durationSeconds": 446.826,
+        "permission": "stream",
+        "confidence": "medium",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "artistNames": [
+            "World Music Ensemble"
+          ],
+          "artistCount": 1,
+          "catalogTitle": "Diaraby - Traditional Song",
+          "duration": 446.826,
+          "composer": "Traditional"
+        }
+      },
+      "expected": {
+        "relationship": "hardNegativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Unresolved",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Reject"
+        }
+      }
+    },
+    {
+      "id": "conflicting-isrc-despite-caption",
+      "evidence": "synthetic hard negative: identifier conflict must block a caption-only apparent match",
+      "request": {
+        "provider": "fixture",
+        "providerId": "isrc-conflict",
+        "artist": "Artist",
+        "title": "Exact Song",
+        "durationSeconds": 200.0,
+        "isrc": "USAAA2400001"
+      },
+      "candidate": {
+        "provider": "spotify",
+        "id": "conflicting-id",
+        "url": "https://open.spotify.com/track/conflicting-id",
+        "title": "Artist - Exact Song",
+        "uploader": "Artist",
+        "durationSeconds": 200.0,
+        "permission": "catalog",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "spotify",
+          "catalog": true,
+          "artistNames": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "catalogTitle": "Artist - Exact Song",
+          "duration": 200.0,
+          "isrc": "USBBB2400002"
+        }
+      },
+      "expected": {
+        "relationship": "hardNegativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Unresolved",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Reject"
+        }
+      }
+    },
+    {
+      "id": "larry-wrong-cover",
+      "evidence": "Synthetic caption contrast: an explicitly labeled cover by another performer is not the original Larry La Birt/Corey Holmes recording.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "larry-labirt-corey-holmes",
+        "artist": "Larry La Birt, Corey Holmes",
+        "title": "It's All About The Love For You",
+        "durationSeconds": 330.0,
+        "version": "(5:30)"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "fixture:larry-wrong-cover",
+        "url": "https://example.invalid/larry-wrong-cover",
+        "title": "Other Performer - It's All About The Love For You (Cover by Other Performer)",
+        "uploader": "Other Performer",
+        "durationSeconds": 330.0,
+        "permission": "stream",
+        "confidence": "medium",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "duration": 330.0,
+          "artists": [
+            "Other Performer"
+          ],
+          "artistCount": 1
+        }
+      },
+      "expected": {
+        "relationship": "hardNegativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Unresolved",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Reject"
+        }
+      }
+    },
+    {
+      "id": "cowboy-preview",
+      "evidence": "Synthetic provider-shaped preview negative: a 20-second preview caption with the same credits cannot satisfy a 219-second recording request.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "cowboy",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "durationSeconds": 219.357,
+        "album": "Middle of Nowhere"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "fixture:cowboy-preview",
+        "url": "https://example.invalid/cowboy-preview",
+        "title": "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Preview)",
+        "uploader": "★ 𝑲𝒂𝒄𝒆𝒚 𝑴𝒖𝒔𝒈𝒓𝒂𝒗𝒆𝒔 ★",
+        "durationSeconds": 20.0,
+        "permission": "stream",
+        "confidence": "high",
+        "score": 0.0,
+        "reasons": [],
+        "official": true,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "duration": 20.0,
+          "isPreview": true,
+          "artists": [
+            "Kacey Musgraves",
+            "Billy Strings"
+          ],
+          "artistCount": 2
+        }
+      },
+      "expected": {
+        "relationship": "hardNegativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Unresolved",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Reject"
+        }
+      }
+    },
+    {
+      "id": "larry-wrong-remix",
+      "evidence": "Repository public regression: same title/performers and runtime with a Remix edition must be rejected against the Original Vocal request.",
+      "request": {
+        "provider": "fixture",
+        "providerId": "larry-labirt-corey-holmes",
+        "artist": "Larry La Birt, Corey Holmes",
+        "title": "It's All About The Love For You",
+        "durationSeconds": 330.0,
+        "version": "(5:30)"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "fixture:larry-wrong-remix",
+        "url": "https://example.invalid/larry-wrong-remix",
+        "title": "Larry La Birt, Corey Holmes - Its All About The Love For You (Remix) [Digital Generation]",
+        "uploader": "Larry LaBirt",
+        "durationSeconds": 330.0,
+        "permission": "stream",
+        "confidence": "medium",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "duration": 330.0
+        }
+      },
+      "expected": {
+        "relationship": "hardNegativeFixture",
+        "Exact": "Unresolved",
+        "Balanced": "Unresolved",
+        "Flexible": "Alternative",
+        "actions": {
+          "Exact": "Reject",
+          "Balanced": "Reject",
+          "Flexible": "Accept"
+        }
+      }
+    }
+  ]
+}

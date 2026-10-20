@@ -1,8 +1,5 @@
-//! Direct playback resolution for an explicitly linked public Bandcamp track.
-//!
-//! Bandcamp playback is an internal, default-off experiment. It accepts only a
-//! single track page URL, reads its public `data-tralbum` metadata, and uses the
-//! page's ordinary MP3 streaming URL. It never searches or downloads releases.
+//! Resolve publicly streamable artist-hosted Bandcamp tracks.
+//! Automatic discovery and recording verification live in bandcamp_fallback.
 
 use reqwest::{redirect::Policy, Client, Url};
 use serde_json::Value;
@@ -25,16 +22,27 @@ pub(crate) struct TrackAudio {
     pub provider_id: String,
     pub title: String,
     pub artist: String,
+    pub album_url: Option<Url>,
+    pub album_id: Option<u64>,
     pub duration_seconds: f64,
     pub stream_url: Url,
     pub stream_addresses: Vec<SocketAddr>,
 }
 
 pub(crate) fn playback_enabled() -> bool {
-    std::env::var("BURRATA_EXPERIMENTAL_BANDCAMP_PLAYBACK").is_ok_and(|value| value == "1")
+    std::env::var("BURRATA_BANDCAMP_PLAYBACK")
+        .ok()
+        .or_else(|| std::env::var("BURRATA_EXPERIMENTAL_BANDCAMP_PLAYBACK").ok())
+        .is_none_or(|value| value == "1")
 }
 
 pub(crate) fn validate_track_page_url(raw: &str) -> Result<Url, String> {
+    validate_page_url(raw, "track")
+}
+pub(crate) fn validate_album_page_url(raw: &str) -> Result<Url, String> {
+    validate_page_url(raw, "album")
+}
+fn validate_page_url(raw: &str, kind: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "Invalid Bandcamp track URL")?;
     let host = url.host_str().ok_or("Invalid Bandcamp track host")?;
     let artist_label = host.strip_suffix(".bandcamp.com").unwrap_or_default();
@@ -48,7 +56,10 @@ pub(crate) fn validate_track_page_url(raw: &str) -> Result<Url, String> {
                 && !part.starts_with('-')
                 && !part.ends_with('-')
         });
-    let slug = url.path().strip_prefix("/track/").unwrap_or_default();
+    let slug = url
+        .path()
+        .strip_prefix(&format!("/{kind}/"))
+        .unwrap_or_default();
     if url.scheme() != "https"
         || !artist_host
         || has_explicit_port(raw)
@@ -265,6 +276,13 @@ pub(crate) async fn resolve_track_page_audio(
     })
     .await?;
     let (provider_id, title, artist, duration_seconds, stream_url) = parse_track_page(&html)?;
+    let data = crate::collection_sources::extract_tralbum_data(&html).unwrap_or(Value::Null);
+    let album_url = data["album_url"]
+        .as_str()
+        .and_then(|path| page.join(path).ok())
+        .filter(|url| url.host_str() == page.host_str())
+        .and_then(|url| validate_album_page_url(url.as_str()).ok());
+    let album_id = data["current"]["album_id"].as_u64().filter(|id| *id > 0);
     let stream_addresses = bounded(
         deadline,
         cancel,
@@ -275,6 +293,8 @@ pub(crate) async fn resolve_track_page_audio(
         provider_id,
         title,
         artist,
+        album_url,
+        album_id,
         duration_seconds,
         stream_url,
         stream_addresses,

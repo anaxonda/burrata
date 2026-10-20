@@ -94,30 +94,17 @@ describe("PlayingInfo compact metadata", () => {
   });
 });
 
-describe("PlayingInfo Spotify recording verification", () => {
-  it("exposes verification in the reachable source actions only for exact Spotify tracks", async () => {
+describe("PlayingInfo automatic recording verification", () => {
+  it("keeps internal matching methods out of track details", async () => {
     const spotifyId = "1234567890123456789012";
-    const albumId = "abcdefghijklmnopqrstuv";
-    callMock.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
-      if (command === "prepare_spotify_recording_crosswalk") return { verified: true, spotifyTrackId: args?.trackId, musicbrainzReleaseId: "release-id", spotifyPosition: 4 };
-      return true;
-    });
-    const onRetryPreview = vi.fn();
-    const spotify = render({ ...radioTrack, id: "spotify-local-occurrence", provider: "spotify", providerId: spotifyId,
-      sourceUrl: `https://open.spotify.com/track/${spotifyId}`, provenance: { recordingContext: { albumId } } }, { onRetryPreview });
+    const target = render({ ...radioTrack, provider:"spotify", providerId:spotifyId,
+      sourceUrl:`https://open.spotify.com/track/${spotifyId}`,
+      provenance:{recordingContext:{albumId:"abcdefghijklmnopqrstuv"}} });
     await settle();
-    const verify = spotify.querySelector<HTMLButtonElement>(".identity-check button:not(.retry)");
-    expect(verify?.textContent).toContain("Verify recording identity");
-    verify!.click(); await settle();
-    expect(callMock).toHaveBeenCalledWith("prepare_spotify_recording_crosswalk", {
-      trackId: spotifyId, albumIdHint: albumId, requestId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
-    });
-    spotify.querySelector<HTMLButtonElement>(".identity-check .retry")!.click();
-    expect(onRetryPreview).toHaveBeenCalledTimes(1);
-
-    const unmountSpotify = destroy; destroy = undefined; unmountSpotify?.();
-    const youtube = render({ ...radioTrack, provider: "youtube", providerId: "youtube-video" }, { onRetryPreview }); await settle();
-    expect(youtube.querySelector(".identity-check")).toBeNull();
+    expect(target.querySelector(".identity-check")).toBeNull();
+    expect(target.querySelector('input[type="radio"]')).toBeNull();
+    expect(target.textContent).not.toMatch(/Verification method|Verify recording|MusicBrainz recording URL|UUID/);
+    expect(callMock).not.toHaveBeenCalledWith("prepare_spotify_recording_crosswalk",expect.anything());
   });
 });
 

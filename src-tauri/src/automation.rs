@@ -44,6 +44,7 @@ const DISCOVERY_SOURCE_IDS: &[&str] = &[
     "discogs",
     "youtube",
     "soundcloud",
+    "bandcamp",
     "soulseek",
     "monochrome",
     "spotify",
@@ -55,6 +56,7 @@ const SEARCH_UI_SOURCE_IDS: &[&str] = &[
     "discogs",
     "youtube",
     "soundcloud",
+    "bandcamp",
     "soulseek",
     "monochrome",
     "spotify",
@@ -4269,6 +4271,46 @@ impl AutomationService {
                     .map_err(ToolError::failed)?;
                 json!({"track":safe_track(track)})
             }
+            "prepare_bandcamp_playback_source" => {
+                let track_id = parse_catalog_identity_request(&a)?;
+                let track = required_track(&self.store, &track_id)?;
+                let settings = self.store.settings().map_err(ToolError::failed)?;
+                if !crate::bandcamp_fallback::eligible(&track, &settings, false, 2) {
+                    return Err(ToolError::bad(
+                        "This saved recording is not eligible for Bandcamp fallback",
+                    ));
+                }
+                let state = self
+                    .app
+                    .try_state::<crate::AppState>()
+                    .ok_or_else(|| ToolError::failed("Provider read registry is unavailable"))?;
+                let guard = state
+                    .provider_reads
+                    .begin(Uuid::new_v4().to_string())
+                    .map_err(|_| ToolError::failed("Recording verification is unavailable"))?;
+                let started = std::time::Instant::now();
+                let deadline =
+                    crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(45));
+                let prepared = tokio::time::timeout_at(
+                    deadline.instant(),
+                    crate::bandcamp_fallback::resolve(
+                        &self.store,
+                        &self.acquisition,
+                        &track,
+                        &settings,
+                        guard.cancellation(),
+                        crate::playback_sources::SourceTrace::new(None, None, None),
+                        deadline,
+                        &[],
+                        true,
+                    ),
+                )
+                .await
+                .map_err(|_| ToolError::failed("Bandcamp verification timed out"))?
+                .map_err(ToolError::failed)?;
+                drop(guard);
+                json!({"prepared":true,"provider":"bandcamp","durationSeconds":prepared.duration,"elapsedMs":started.elapsed().as_millis()})
+            }
             "prepare_playback_catalog_identity" => {
                 let track_id = parse_catalog_identity_request(&a)?;
                 // Read an existing saved track only. The acquisition method may
@@ -5129,6 +5171,7 @@ impl AutomationService {
                         "musicbrainz",
                         "youtube",
                         "soundcloud",
+                        "bandcamp",
                         "soulseek",
                         "monochrome",
                     ]
@@ -5976,6 +6019,7 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "get_remote_track"
         | "prepare_spotify_recording_crosswalk"
         | "prepare_playback_catalog_identity"
+        | "prepare_bandcamp_playback_source"
         | "browse_remote_artist_tracks"
         | "get_remote_artist"
         | "get_remote_album_tracks"
@@ -6931,7 +6975,7 @@ fn tool_definitions() -> Vec<Value> {
  ("inspect_youtube_library_page","Inspect fixed own YouTube library response counts and flags without exposing content or identifiers", "read"),
  ("inspect_youtube_playlist_page","Inspect fixed YouTube playlist response counts and flags without exposing content or identifiers", "read"),
  ("browse_remote_artist_tracks","Read one bounded Spotify artist track page without importing", "read"),
- ("list_remote_playlists","List available Spotify or YouTube playlists", "read"),("get_remote_playlist","Browse remote playlist tracks without importing into the library", "read"),("get_remote_track","Read one exact Spotify track by catalog ID without importing it", "read"),("prepare_playback_catalog_identity","Prepare independent Spotify catalog duration for one saved track within four seconds; returns only enrichment status, duration, ISRC-known and elapsed time. Cache-only, no saved tags or queue changes", "read"),("prepare_spotify_recording_crosswalk","Verify an exact Spotify track against a linked MusicBrainz release, or verify complete artist-ID credits against an explicitly selected MusicBrainz recording; read-only, cached for playback identity, no tag changes", "read"),("get_remote_artist","Read a Spotify artist and one page of releases", "read"),("get_remote_album_tracks","Read a Spotify album and one page of tracks", "read"),("repair_spotify_durations_public","Fill missing Spotify durations from public metadata for up to 300 local tracks in 60 seconds; no account or playlist writeback", "control"),("cancel_public_spotify_duration_repair","Cancel the active public Spotify duration repair", "control"),("public_spotify_duration_repair_running","Check whether public Spotify duration repair is running", "read"),("import_remote_playlists","Import selected remote playlists into the library", "control"),("get_remote_playlist_import_job","Get status for a remote playlist import", "read"),("cancel_remote_playlist_import","Cancel an active remote playlist import", "control"),("refresh_remote_playlist","Refresh an imported remote playlist", "control"),("search_remote_playlist_writeback_candidates","Search provider candidates for one local playlist track; returns expiring review tokens without writing provider data", "read"),("get_playlist_sync_preview","Preview pending remote playlist changes with optional explicitly reviewed candidate tokens", "read"),("apply_playlist_sync_preview","Apply a reviewed remote playlist sync preview", "manage"),("list_track_files","List local files linked to a track", "read"),("set_preferred_track_file","Choose the preferred local file for a track", "control"),
+ ("list_remote_playlists","List available Spotify or YouTube playlists", "read"),("get_remote_playlist","Browse remote playlist tracks without importing into the library", "read"),("get_remote_track","Read one exact Spotify track by catalog ID without importing it", "read"),("prepare_bandcamp_playback_source","Verify and cache a public Bandcamp source for one saved track; bounded to 45 seconds, no saved tags or queue changes", "read"),("prepare_playback_catalog_identity","Prepare independent Spotify catalog duration for one saved track within four seconds; returns only enrichment status, duration, ISRC-known and elapsed time. Cache-only, no saved tags or queue changes", "read"),("prepare_spotify_recording_crosswalk","Verify an exact Spotify track against a linked MusicBrainz release, or verify complete artist-ID credits against an explicitly selected MusicBrainz recording; read-only, cached for playback identity, no tag changes", "read"),("get_remote_artist","Read a Spotify artist and one page of releases", "read"),("get_remote_album_tracks","Read a Spotify album and one page of tracks", "read"),("repair_spotify_durations_public","Fill missing Spotify durations from public metadata for up to 300 local tracks in 60 seconds; no account or playlist writeback", "control"),("cancel_public_spotify_duration_repair","Cancel the active public Spotify duration repair", "control"),("public_spotify_duration_repair_running","Check whether public Spotify duration repair is running", "read"),("import_remote_playlists","Import selected remote playlists into the library", "control"),("get_remote_playlist_import_job","Get status for a remote playlist import", "read"),("cancel_remote_playlist_import","Cancel an active remote playlist import", "control"),("refresh_remote_playlist","Refresh an imported remote playlist", "control"),("search_remote_playlist_writeback_candidates","Search provider candidates for one local playlist track; returns expiring review tokens without writing provider data", "read"),("get_playlist_sync_preview","Preview pending remote playlist changes with optional explicitly reviewed candidate tokens", "read"),("apply_playlist_sync_preview","Apply a reviewed remote playlist sync preview", "manage"),("list_track_files","List local files linked to a track", "read"),("set_preferred_track_file","Choose the preferred local file for a track", "control"),
  ("list_radio_stations","List built-in and saved radio stations", "read"),("search_radio_stations","Search radio stations by name, country, or tag", "read"),("get_station_details","Get details and available current metadata for a station", "read"),("add_radio_station","Save a selected Radio Browser search result", "control"),("add_custom_radio_station","Save a station from a stream URL", "control"),("remove_radio_station","Remove a saved station or hide a built-in station", "control"),("rename_radio_station","Rename a saved or built-in station", "control"),("play_radio_station","Play a saved or built-in radio station", "control"),
  ("identify_playing_track","Identify current audio on explicit request; returns a separate result without editing tags", "control"),
  ("cancel_playing_track_identification","Cancel one native or WebView audio identification request by its captureId UUID", "control"),
@@ -6958,7 +7002,7 @@ fn tool_definitions() -> Vec<Value> {
  "inspect_youtube_playlist_page"=>(json!({"playlistId":{"type":"string","pattern":"^(?:LM|SE|LL|WL|[A-Za-z0-9_-]{10,80})$","maxLength":80},"cursor":{"type":"string","minLength":1,"maxLength":2048}}),json!(["playlistId"])),
  "get_remote_playlist"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]},"playlistId":{"type":"string","maxLength":2048},"cursor":{"type":"string","maxLength":2048}}),json!(["provider","playlistId"])),
  "get_remote_track"=>(json!({"provider":{"type":"string","enum":["spotify"]},"trackId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"}}),json!(["provider","trackId"])),
- "prepare_playback_catalog_identity"=>(json!({"trackId":{"type":"string","minLength":1,"maxLength":256,"description":"Exact existing saved-track ID; no supplied metadata or URL"}}),json!(["trackId"])),
+ "prepare_playback_catalog_identity"|"prepare_bandcamp_playback_source"=>(json!({"trackId":{"type":"string","minLength":1,"maxLength":256,"description":"Exact existing saved-track ID; no supplied metadata or URL"}}),json!(["trackId"])),
  "prepare_spotify_recording_crosswalk"=>(json!({"trackId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"albumIdHint":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","description":"Optional candidate album locator. The complete album read must independently contain the requested track exactly once."},"musicBrainzRecordingIdHint":{"type":"string","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$","description":"Optional locator for a user-selected MusicBrainz recording. Exact stored Spotify metadata, ordered artist IDs, duration, ISRC and artist URL relations must independently match."},"requestId":{"type":"string","format":"uuid","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}),json!(["trackId","requestId"])),
  "browse_remote_artist_tracks"|"get_remote_artist"=>(json!({"artistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"cursor":{"type":["string","null"],"pattern":"^[0-9]{1,6}$","maxLength":6}}),json!(["artistId"])),
  "get_remote_album_tracks"=>(json!({"albumId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"cursor":{"type":["string","null"],"pattern":"^[0-9]{1,6}$","maxLength":6}}),json!(["albumId"])),
@@ -6986,7 +7030,7 @@ fn tool_definitions() -> Vec<Value> {
  "search_playback_history"|"list_playback_history"=>(json!({"query":{"type":"string","maxLength":300},"provider":{"type":"string","maxLength":120,"description":"Exact playback provider filter. Use radio for radio songs or non-radio to exclude them."},"stationId":{"type":"string","maxLength":120,"description":"Filter radio playback history to one station"},"from":{"type":"string","maxLength":64,"description":"Inclusive lower bound as YYYY-MM-DD or RFC3339"},"to":{"type":"string","maxLength":64,"description":"Inclusive upper bound as YYYY-MM-DD or RFC3339"},"sort":{"type":"string","enum":["newest","oldest"]},"sortField":{"type":"string","enum":["title","artist","album","duration","releaseDate","dateAdded","sourceOrder","bpm","key","plays","views"]},"direction":{"type":"string","enum":["asc","desc"]},"minDurationSeconds":{"type":"number","minimum":0},"maxDurationSeconds":{"type":"number","minimum":0},"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),
  "get_playback_history_entry"=>(json!({"sessionId":{"type":"string","minLength":1,"maxLength":300}}),json!(["sessionId"])),
  "get_track"=>(json!({"trackId":{"type":"string"}}),json!(["trackId"])),"list_playlists"=>(json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),"get_playlist"=>(json!({"playlistId":{"type":"string"},"snapshotId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["playlistId"])),
- "search_tracks"=>(json!({"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["library","musicbrainz","youtube","soundcloud","soulseek","monochrome"]}}}),json!(["query"])),
+ "search_tracks"=>(json!({"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["library","musicbrainz","youtube","soundcloud","bandcamp","soulseek","monochrome"]}}}),json!(["query"])),
  "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),
  "playback_state"=>(json!({"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!([])),
  "inspect_webview_media"=>(json!({}),json!([])),

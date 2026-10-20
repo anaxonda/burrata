@@ -58,6 +58,7 @@ export interface ArtistReleaseRef {
   primaryType?: string | null;
   trackCount?: number | null;
   tracks: ArtistReleaseTrack[];
+  artworkUrls?: string[];
   sourceUrl: string;
   credits: ArtistCredit[];
 }
