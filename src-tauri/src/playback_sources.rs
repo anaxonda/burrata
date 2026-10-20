@@ -1322,7 +1322,7 @@ fn direct_youtube_mapped_anchors(
     candidate: &Candidate,
     proof: Option<&Value>,
     attempt_limit: usize,
-) -> Option<VerifiedYoutubeCatalogAnchors> {
+) -> Option<VerifiedYoutubeRecordingAnchors> {
     if attempt_limit != 2
         || candidate.provider != "youtube"
         || candidate.source.is_some()
@@ -1349,7 +1349,7 @@ fn direct_youtube_mapped_anchors(
     {
         return None;
     }
-    parse_v2_youtube_catalog_anchors(proof?, video_id)
+    parse_v2_youtube_recording_anchors(proof?, video_id)
 }
 
 #[cfg(any(test, feature = "playback-direct-youtube-experiment"))]
@@ -1523,7 +1523,7 @@ where
 async fn try_direct_youtube_mapped(
     acquisition: &AcquisitionManager,
     candidate: &Candidate,
-    anchors: &VerifiedYoutubeCatalogAnchors,
+    anchors: &VerifiedYoutubeRecordingAnchors,
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
@@ -1550,7 +1550,7 @@ async fn try_direct_youtube_mapped(
 async fn try_direct_youtube_mapped_with<R, RF, V, VF>(
     acquisition: &AcquisitionManager,
     candidate: &Candidate,
-    anchors: &VerifiedYoutubeCatalogAnchors,
+    anchors: &VerifiedYoutubeRecordingAnchors,
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
@@ -3299,18 +3299,19 @@ enum RecordingProofKind {
     ExplicitSource,
 }
 
-/// Produced only by fresh resolved-identity verification. V2 catalog proofs
-/// retain a few fresh source facts so a future direct resolver can prove it is
-/// still serving the exact source accepted by the catalog gate.
+/// Produced only by fresh resolved-identity verification. V2 proofs retain a
+/// few fresh YouTube source facts so a direct resolver can verify it is still
+/// serving the exact source accepted by the existing identity gate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct VerifiedRecordingProof {
     kind: RecordingProofKind,
 }
 
-/// Anchors from a fresh, strongly verified YouTube Music catalog resolution.
-/// This intentionally carries no artist credits or verified-channel claim.
+/// Anchors from a fresh YouTube source that passed an existing strong identity
+/// gate. This intentionally carries no artist credits or verified-channel claim.
 #[derive(Clone, PartialEq)]
-struct VerifiedYoutubeCatalogAnchors {
+struct VerifiedYoutubeRecordingAnchors {
+    kind: RecordingProofKind,
     video_id: String,
     channel_id: String,
     title: String,
@@ -3345,18 +3346,15 @@ impl VerifiedRecordingProof {
         candidate: &Candidate,
         audio: &acquisition::PreviewAudio,
     ) -> Option<serde_json::Value> {
-        if self.kind == RecordingProofKind::YoutubeMusicCatalog {
-            if let Some(proof) = persisted_v2_catalog_anchors(candidate, audio) {
-                return Some(proof);
-            }
-            return Some(json!({"version":1,"kind":"youtube_music_catalog"}));
-        }
         let kind = match self.kind {
             RecordingProofKind::Recording => "recording",
             RecordingProofKind::VerifiedExtractor => "verified_extractor",
-            RecordingProofKind::YoutubeMusicCatalog => unreachable!("handled above"),
+            RecordingProofKind::YoutubeMusicCatalog => "youtube_music_catalog",
             RecordingProofKind::ExplicitSource => return None,
         };
+        if let Some(proof) = persisted_v2_youtube_recording_anchors(self.kind, candidate, audio) {
+            return Some(proof);
+        }
         Some(json!({"version":1,"kind":kind}))
     }
 
@@ -3364,12 +3362,14 @@ impl VerifiedRecordingProof {
         value.is_some_and(|value| {
             (value["version"].as_u64() == Some(1)
                 && value["kind"].as_str() == Some("youtube_music_catalog"))
-                || parse_v2_youtube_catalog_anchors(value, expected_video_id).is_some()
+                || parse_v2_youtube_recording_anchors(value, expected_video_id)
+                    .is_some_and(|anchors| anchors.kind == RecordingProofKind::YoutubeMusicCatalog)
         })
     }
 }
 
-fn persisted_v2_catalog_anchors(
+fn persisted_v2_youtube_recording_anchors(
+    kind: RecordingProofKind,
     candidate: &Candidate,
     audio: &acquisition::PreviewAudio,
 ) -> Option<serde_json::Value> {
@@ -3379,7 +3379,8 @@ fn persisted_v2_catalog_anchors(
         || audio.resolved_provider_id.as_deref() != Some(video_id)
         || audio.source_metadata.as_ref().is_none_or(|metadata| {
             metadata["provider"].as_str() != Some("youtube")
-                || metadata["channelIsVerified"].as_bool() != Some(true)
+                || (kind == RecordingProofKind::YoutubeMusicCatalog
+                    && metadata["channelIsVerified"].as_bool() != Some(true))
         })
     {
         return None;
@@ -3393,7 +3394,13 @@ fn persisted_v2_catalog_anchors(
     {
         return None;
     }
-    Some(json!({"version":2,"kind":"youtube_music_catalog",
+    let proof_kind = match kind {
+        RecordingProofKind::Recording => "recording",
+        RecordingProofKind::VerifiedExtractor => "verified_extractor",
+        RecordingProofKind::YoutubeMusicCatalog => "youtube_music_catalog",
+        RecordingProofKind::ExplicitSource => return None,
+    };
+    Some(json!({"version":2,"kind":proof_kind,
         "videoId":video_id,"channelId":channel_id,"title":title,
         "durationSeconds":duration_seconds}))
 }
@@ -3424,15 +3431,18 @@ fn valid_anchor_duration(value: f64) -> bool {
     value.is_finite() && (5.0..=86_400.0).contains(&value)
 }
 
-fn parse_v2_youtube_catalog_anchors(
+fn parse_v2_youtube_recording_anchors(
     value: &serde_json::Value,
     expected_video_id: &str,
-) -> Option<VerifiedYoutubeCatalogAnchors> {
+) -> Option<VerifiedYoutubeRecordingAnchors> {
     let object = value.as_object()?;
-    if object.len() != 6
-        || value["version"].as_u64() != Some(2)
-        || value["kind"].as_str() != Some("youtube_music_catalog")
-    {
+    let kind = match value["kind"].as_str()? {
+        "recording" => RecordingProofKind::Recording,
+        "verified_extractor" => RecordingProofKind::VerifiedExtractor,
+        "youtube_music_catalog" => RecordingProofKind::YoutubeMusicCatalog,
+        _ => return None,
+    };
+    if object.len() != 6 || value["version"].as_u64() != Some(2) {
         return None;
     }
     let video_id = value["videoId"].as_str()?;
@@ -3447,7 +3457,8 @@ fn parse_v2_youtube_catalog_anchors(
     {
         return None;
     }
-    Some(VerifiedYoutubeCatalogAnchors {
+    Some(VerifiedYoutubeRecordingAnchors {
+        kind,
         video_id: video_id.to_owned(),
         channel_id: channel_id.to_owned(),
         title: title.to_owned(),
@@ -4712,7 +4723,8 @@ mod tests {
     #[tokio::test]
     async fn mapped_direct_path_compares_all_anchors_before_uncached_access() {
         let (_track, candidate, _) = matthew_catalog_verification_fixture();
-        let anchors = VerifiedYoutubeCatalogAnchors {
+        let anchors = VerifiedYoutubeRecordingAnchors {
+            kind: RecordingProofKind::YoutubeMusicCatalog,
             video_id: "uZGRATckoBM".into(),
             channel_id: "UC-cnCe5zradDZlcI8YZboBg".into(),
             title: "Matthew".into(),
@@ -4831,7 +4843,8 @@ mod tests {
     #[tokio::test]
     async fn mapped_direct_path_preserves_access_reset_cancel_and_deadline_failures() {
         let (_track, candidate, source_audio) = matthew_catalog_verification_fixture();
-        let anchors = VerifiedYoutubeCatalogAnchors {
+        let anchors = VerifiedYoutubeRecordingAnchors {
+            kind: RecordingProofKind::YoutubeMusicCatalog,
             video_id: "uZGRATckoBM".into(),
             channel_id: "UC-cnCe5zradDZlcI8YZboBg".into(),
             title: "Matthew".into(),
@@ -7768,7 +7781,7 @@ mod tests {
         assert_eq!(proof_json["channelId"], "UC-cnCe5zradDZlcI8YZboBg");
         assert_eq!(proof_json["title"], "Matthew");
         assert_eq!(proof_json["durationSeconds"], 228.0);
-        let anchors = parse_v2_youtube_catalog_anchors(proof_json, "uZGRATckoBM").unwrap();
+        let anchors = parse_v2_youtube_recording_anchors(proof_json, "uZGRATckoBM").unwrap();
         assert_eq!(anchors.video_id, "uZGRATckoBM");
         assert_eq!(anchors.channel_id, "UC-cnCe5zradDZlcI8YZboBg");
         assert_eq!(anchors.title, "Matthew");
@@ -7844,7 +7857,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_catalog_anchors_fail_closed_and_v1_remains_a_catalog_locator() {
+    fn v2_youtube_recording_anchors_fail_closed_and_v1_catalog_remains_a_locator() {
         let valid = json!({"version":2,"kind":"youtube_music_catalog",
             "videoId":"uZGRATckoBM","channelId":"UC-cnCe5zradDZlcI8YZboBg",
             "title":"Matthew","durationSeconds":228.0});
@@ -7852,7 +7865,7 @@ mod tests {
             Some(&valid),
             "uZGRATckoBM"
         ));
-        assert!(parse_v2_youtube_catalog_anchors(&valid, "aqz-KE-bpKQ").is_none());
+        assert!(parse_v2_youtube_recording_anchors(&valid, "aqz-KE-bpKQ").is_none());
         let invalid = [
             json!({"version":2,"kind":"youtube_music_catalog","videoId":"bad","channelId":"UC-cnCe5zradDZlcI8YZboBg","title":"Matthew","durationSeconds":228.0}),
             json!({"version":2,"kind":"youtube_music_catalog","videoId":"uZGRATckoBM","channelId":"UC-short","title":"Matthew","durationSeconds":228.0}),
@@ -7863,7 +7876,7 @@ mod tests {
             json!({"version":2,"kind":"youtube_music_catalog","videoId":"uZGRATckoBM","channelId":"UC-cnCe5zradDZlcI8YZboBg","title":"Matthew","durationSeconds":228.0,"artists":["John Denver"]}),
         ];
         for proof in invalid {
-            assert!(parse_v2_youtube_catalog_anchors(&proof, "uZGRATckoBM").is_none());
+            assert!(parse_v2_youtube_recording_anchors(&proof, "uZGRATckoBM").is_none());
             assert!(!VerifiedRecordingProof::catalog_locator(
                 Some(&proof),
                 "uZGRATckoBM"
@@ -7925,6 +7938,73 @@ mod tests {
             .persisted(&mismatched_candidate, &audio)
             .unwrap();
         assert_eq!(persisted["version"], 1);
+    }
+
+    #[test]
+    fn strong_non_catalog_proofs_keep_their_kind_and_anchor_fresh_youtube_identity() {
+        let (_, candidate, audio) = matthew_catalog_verification_fixture();
+        for kind in [
+            RecordingProofKind::Recording,
+            RecordingProofKind::VerifiedExtractor,
+        ] {
+            let proof = VerifiedRecordingProof { kind };
+            let persisted = proof.persisted(&candidate, &audio).unwrap();
+            assert_eq!(persisted["version"], 2);
+            assert_eq!(
+                persisted["kind"],
+                match kind {
+                    RecordingProofKind::Recording => "recording",
+                    RecordingProofKind::VerifiedExtractor => "verified_extractor",
+                    _ => unreachable!(),
+                }
+            );
+            assert!(parse_v2_youtube_recording_anchors(&persisted, "uZGRATckoBM").is_some());
+            assert!(!VerifiedRecordingProof::catalog_locator(
+                Some(&persisted),
+                "uZGRATckoBM"
+            ));
+        }
+
+        let audio_without_badge = acquisition::PreviewAudio {
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "channelId":"UC-cnCe5zradDZlcI8YZboBg"
+            })),
+            ..audio.clone()
+        };
+        for kind in [
+            RecordingProofKind::Recording,
+            RecordingProofKind::VerifiedExtractor,
+        ] {
+            assert_eq!(
+                VerifiedRecordingProof { kind }
+                    .persisted(&candidate, &audio_without_badge)
+                    .unwrap()["version"],
+                2
+            );
+        }
+
+        for source_metadata in [
+            Some(json!({"provider":"youtube","channelId":"short"})),
+            None,
+        ] {
+            let changed = acquisition::PreviewAudio {
+                source_metadata,
+                ..audio.clone()
+            };
+            let persisted = VerifiedRecordingProof {
+                kind: RecordingProofKind::Recording,
+            }
+            .persisted(&candidate, &changed)
+            .unwrap();
+            assert_eq!(persisted["version"], 1);
+            assert_eq!(persisted["kind"], "recording");
+        }
+        assert!(VerifiedRecordingProof {
+            kind: RecordingProofKind::ExplicitSource,
+        }
+        .persisted(&candidate, &audio)
+        .is_none());
     }
 
     #[cfg(unix)]

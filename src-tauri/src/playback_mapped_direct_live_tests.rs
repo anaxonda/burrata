@@ -1,6 +1,6 @@
 //! Explicit public-network regression for a two-pass verified YouTube mapping.
-//! The first foreground resolve creates v2 proof through yt-dlp, catalog
-//! identity verification and uncached access. The second exercises mapped
+//! The first foreground resolve creates v2 proof through yt-dlp, the normal
+//! strong identity gate and uncached access. The second exercises mapped
 //! direct playback and verifies its access check leaves the original TTL intact.
 use super::*;
 use rusqlite::OptionalExtension;
@@ -152,7 +152,7 @@ async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refr
         }
     };
     let video_id = mapping.provider_id.as_str();
-    let anchors = parse_v2_youtube_catalog_anchors(
+    let anchors = parse_v2_youtube_recording_anchors(
         mapping.verification_proof.as_ref().unwrap_or(&Value::Null),
         video_id,
     );
@@ -264,7 +264,7 @@ async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refr
         "decodedFrames":pcm.decoded_frames,"mappingTtlUnchanged":ttl_unchanged,
         "failureCode":if ok {Value::Null} else {json!(if !ttl_unchanged {"MAPPING_TTL_REFRESHED"} else {"DECODE_FAILED"})},
         "wallMs":started.elapsed().as_secs_f64()*1000.0,
-        "qualification":false,"physicalAudibilityMeasured":false,"catalogProof":false})
+        "qualification":false,"physicalAudibilityMeasured":false,"proofVersion":2})
     );
     assert!(
         ttl_unchanged,
