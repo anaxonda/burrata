@@ -39,6 +39,7 @@ fn fixture() -> (
 
 fn response() -> DirectResolved {
     DirectResolved {
+        source_channel_id: None,
         audio: acquisition::PreviewAudio {
             provider_session: None,
             url: "https://r1---fixture.googlevideo.com/videoplayback?sig=private-fixture".into(),
@@ -370,6 +371,47 @@ async fn direct_wiring_resolver_and_validation_timeouts_preserve_fallback_reserv
 #[tokio::test]
 #[ignore = "explicit public-network opt-in; production resolver plus finite decoder PCM, no device/catalog proof"]
 async fn live_direct_youtube_foreground_matthew_production_resolver_pcm() {
+    run_live_direct_foreground(Track {
+        id: "youtube:uZGRATckoBM".into(),
+        provider: "youtube".into(),
+        provider_id: "uZGRATckoBM".into(),
+        source_url: "https://www.youtube.com/watch?v=uZGRATckoBM".into(),
+        title: "Matthew".into(),
+        duration_seconds: Some(228.),
+        ..Track::default()
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "explicit public-network and source-fixture opt-in; no device/catalog proof"]
+async fn live_direct_youtube_foreground_source_fixture_pcm() {
+    let fixture: serde_json::Value = serde_json::from_str(
+        &std::env::var("BURRATA_DIRECT_YOUTUBE_SOURCE_FIXTURE")
+            .expect("requires an explicit public source fixture"),
+    )
+    .expect("source fixture must be JSON");
+    let id = fixture["videoId"].as_str().expect("videoId required");
+    assert!(valid_youtube_video_id(id));
+    let title = fixture["title"].as_str().expect("source title required");
+    assert!(valid_anchor_title(title));
+    let duration = fixture["durationSeconds"]
+        .as_f64()
+        .expect("source duration required");
+    assert!(valid_anchor_duration(duration));
+    run_live_direct_foreground(Track {
+        id: format!("youtube:{id}"),
+        provider: "youtube".into(),
+        provider_id: id.into(),
+        source_url: format!("https://www.youtube.com/watch?v={id}"),
+        title: title.into(),
+        duration_seconds: Some(duration),
+        ..Track::default()
+    })
+    .await;
+}
+
+async fn run_live_direct_foreground(track: Track) {
     assert_eq!(
         std::env::var("BURRATA_DIRECT_YOUTUBE_LIVE").as_deref(),
         Ok("1"),
@@ -396,17 +438,6 @@ async fn live_direct_youtube_foreground_matthew_production_resolver_pcm() {
     let mut settings = store.settings().unwrap();
     settings.ffmpeg_path = ffmpeg.to_string_lossy().into_owned();
     store.save_settings(&settings).unwrap();
-    // Public flat capture: early_candidate_experiment_escalated.json row1.
-    // The explicit video ID is the source pin; this is not a catalog crosswalk.
-    let track = Track {
-        id: "youtube:uZGRATckoBM".into(),
-        provider: "youtube".into(),
-        provider_id: "uZGRATckoBM".into(),
-        source_url: "https://www.youtube.com/watch?v=uZGRATckoBM".into(),
-        title: "Matthew".into(),
-        duration_seconds: Some(228.),
-        ..Track::default()
-    };
     let (_stop, cancel) = watch::channel(false);
     let started = Instant::now();
     let original_deadline = started + Duration::from_secs(20);
@@ -431,7 +462,7 @@ async fn live_direct_youtube_foreground_matthew_production_resolver_pcm() {
             eprintln!(
                 "{}",
                 json!({"experiment":"production-direct-youtube-foreground-v1",
-                    "videoId":"uZGRATckoBM","ok":false,"origin":null,
+                    "videoId":track.provider_id,"ok":false,"origin":null,
                     "failure":"RESOLUTION_FAILED","policy":crate::playback_failure::classify(&error),
                     "resolveMs":resolve_ms,"firstPcmFromStartMs":null,"decodedFrames":0,
                     "qualification":false,"physicalAudibilityMeasured":false,"catalogProof":false})
@@ -440,14 +471,15 @@ async fn live_direct_youtube_foreground_matthew_production_resolver_pcm() {
         }
     };
     let direct = resolved.origin == ResolvedSourceOrigin::DirectYoutube;
-    let exact_unknown_chapters = resolved.candidate.as_ref().is_some_and(|candidate| {
-        candidate.id == "youtube:uZGRATckoBM" && candidate.chapters.is_none()
-    });
+    let exact_unknown_chapters = resolved
+        .candidate
+        .as_ref()
+        .is_some_and(|candidate| candidate.id == track.id && candidate.chapters.is_none());
     if !direct || !exact_unknown_chapters {
         eprintln!(
             "{}",
             json!({"experiment":"production-direct-youtube-foreground-v1",
-                "videoId":"uZGRATckoBM","ok":false,
+                "videoId":track.provider_id,"ok":false,
                 "origin":if direct {"direct_youtube"} else {"existing"},
                 "failure":if direct {"DIRECT_IDENTITY_OR_CHAPTER_STATE_CHANGED"} else {"DIRECT_PATH_FELL_BACK"},
                 "resolveMs":resolve_ms,"firstPcmFromStartMs":null,"decodedFrames":0,
@@ -468,7 +500,7 @@ async fn live_direct_youtube_foreground_matthew_production_resolver_pcm() {
     eprintln!(
         "{}",
         json!({"experiment":"production-direct-youtube-foreground-v1",
-            "videoId":"uZGRATckoBM","ok":ok,"origin":"direct_youtube",
+            "videoId":track.provider_id,"ok":ok,"origin":"direct_youtube",
             "resolveMs":resolve_ms,
             "firstPcmFromStartMs":pcm.first_pcm_ms.map(|first|before_decode_ms+first),
             "decodedFrames":pcm.decoded_frames,"failure":pcm.failure,

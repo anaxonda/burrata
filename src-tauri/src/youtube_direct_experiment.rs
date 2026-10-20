@@ -49,6 +49,9 @@ impl DirectFailure {
 pub(crate) struct DirectResolved {
     pub(crate) audio: crate::acquisition::PreviewAudio,
     pub(crate) valid_until_unix_ms: f64,
+    // An unverified response fact, usable only for equality with a previously
+    // verified source anchor. It is not artist credit or channel verification.
+    pub(crate) source_channel_id: Option<String>,
 }
 impl std::fmt::Debug for DirectResolved {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -518,6 +521,7 @@ struct FreshPlayerIdentity {
 impl Resolved {
     fn into_explicit_audio(self) -> DirectResolved {
         let title = self.fresh_identity.title.clone();
+        let source_channel_id = self.fresh_identity.channel_id.clone();
         let valid_until_unix_ms = self.valid_until_unix_ms;
         let (mut audio, _) = self.into_preview_audio();
         // This is the title from the same fresh player response and ID. Never
@@ -526,6 +530,7 @@ impl Resolved {
         DirectResolved {
             audio,
             valid_until_unix_ms,
+            source_channel_id,
         }
     }
     /// This is an explicit-source diagnostic, not a catalog identity proof.
@@ -895,6 +900,7 @@ mod tests {
             ));
             let selected = select_audio(&response, &request(), now).unwrap();
             let direct = selected.into_explicit_audio();
+            assert_eq!(direct.source_channel_id.as_deref(), Some("private-channel-id"));
             assert_eq!(direct.valid_until_unix_ms, expected_expiry);
             assert_eq!(
                 direct.audio.resolved_provider_id.as_deref(),
