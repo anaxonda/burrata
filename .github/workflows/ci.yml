@@ -34,6 +34,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl ffmpeg file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libasound2-dev libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf rpm libfuse2
+      - name: Diagnose FFmpeg Opus output timestamp trimming
+        if: runner.os == 'Linux'
+        run: python scripts/performance/diagnose_ffmpeg_opus_trim.py
       - name: Install FFmpeg on macOS
         if: runner.os == 'macOS'
         run: brew install ffmpeg
