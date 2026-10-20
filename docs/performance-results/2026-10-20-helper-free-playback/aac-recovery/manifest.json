@@ -1,0 +1,36 @@
+{
+  "scope": "cold isolated production resolver and first five seconds PCM; no mixer/device; no concurrent local build; direct player disabled; search transport only differs",
+  "binarySha256": "fbcdda8a854e8b4e7b7be7ad97b9afd0f335f31224f36ec60100f9540253c21a",
+  "runtimeNativeSearchOverride": "unset; production default",
+  "sourceFiles": {
+    "src-tauri/src/acquisition.rs": "6272bf3e76d42597cbf36d3fb172146ea1294694020166a6ae5c3e797a5496dc",
+    "src-tauri/src/youtube_web_search.rs": "2b2bb03fa5abf5333a4d5f12ec19b3d060281e2ff84cf392abdb876f88703e57"
+  },
+  "fixtures": {
+    "billy": "45e790ec7542e96f5271f4f625f52588058e189da9539179d6d369bec0f18821"
+  },
+  "results": [
+    {
+      "case": "billy",
+      "pair": 1,
+      "arm": "default",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 11800.332316999999,
+      "resolveMs": 11528.290275,
+      "providerId": "youtube:qND7vxsWE2Y",
+      "wallMs": 12039.948104997166
+    },
+    {
+      "case": "billy",
+      "pair": 2,
+      "arm": "default",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 9820.619695000001,
+      "resolveMs": 9610.087836,
+      "providerId": "youtube:qND7vxsWE2Y",
+      "wallMs": 10077.911714994116
+    }
+  ]
+}

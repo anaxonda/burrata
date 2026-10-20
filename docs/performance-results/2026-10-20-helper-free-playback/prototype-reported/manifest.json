@@ -1,0 +1,106 @@
+{
+  "scope": "cold isolated production resolver and first five seconds PCM; no mixer/device; no concurrent local build; direct player disabled; search transport only differs",
+  "binarySha256": "6d86378d72c1ea174171d86ee03fcd59885593693c7ab36eada265a5f6726bac",
+  "sourceFiles": {
+    "src-tauri/src/acquisition.rs": "920c8850679bd9218e20f2b8828bde55c4ad930a5347bb001b796320e1e13e27",
+    "src-tauri/src/youtube_web_search.rs": "989372d8fdbe74babb6771877804e52cfce207ec814f5dd8e2fe7acf2222f4d6"
+  },
+  "fixtures": {
+    "billy": "45e790ec7542e96f5271f4f625f52588058e189da9539179d6d369bec0f18821",
+    "turtledove": "9f7647cc8f33fac231e52dce578b5adfacb564d5965fee515c521747d5102cee",
+    "moiroloi": "832fdda436c1fe17515e9874e113e556d238ec80fd272c3ed742978ee1eca584",
+    "how-much": "c899b595a4274c0d5ea0fb45142186a4c6cb8128754ca57a07b20416c628f302"
+  },
+  "results": [
+    {
+      "case": "billy",
+      "pair": 1,
+      "arm": "legacy",
+      "exitCode": 101,
+      "ok": false,
+      "firstPcmMs": null,
+      "resolveMs": 13502.512983999999,
+      "providerId": null,
+      "wallMs": 13639.345632996992
+    },
+    {
+      "case": "billy",
+      "pair": 1,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 9564.182746,
+      "resolveMs": 9389.721517,
+      "providerId": "youtube:qND7vxsWE2Y",
+      "wallMs": 9832.394794007996
+    },
+    {
+      "case": "turtledove",
+      "pair": 1,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 11485.024294,
+      "resolveMs": 10982.090285,
+      "providerId": "youtube:Rc9t-2VlOpg",
+      "wallMs": 11742.819684004644
+    },
+    {
+      "case": "turtledove",
+      "pair": 1,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 9426.232446,
+      "resolveMs": 9184.108193,
+      "providerId": "youtube:Rc9t-2VlOpg",
+      "wallMs": 9681.969764991663
+    },
+    {
+      "case": "moiroloi",
+      "pair": 1,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 10717.726943,
+      "resolveMs": 10405.016867,
+      "providerId": "youtube:PIJ6QOUnuCg",
+      "wallMs": 10932.43067000003
+    },
+    {
+      "case": "moiroloi",
+      "pair": 1,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 9539.105189,
+      "resolveMs": 9298.970384,
+      "providerId": "youtube:PIJ6QOUnuCg",
+      "wallMs": 9780.160206006258
+    },
+    {
+      "case": "how-much",
+      "pair": 1,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 10317.392027,
+      "resolveMs": 10101.164733,
+      "providerId": "youtube:Wo54P5Z6vhg",
+      "wallMs": 10531.071450997842
+    },
+    {
+      "case": "how-much",
+      "pair": 1,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 8154.792546,
+      "resolveMs": 7888.680566,
+      "providerId": "youtube:Wo54P5Z6vhg",
+      "wallMs": 8427.580456991564
+    }
+  ],
+  "sourceAttributionNote": "sourceFiles were captured from the worktree at invocation, after a routing-policy edit. The executable is the same gated prototype as prototype-paired (identical binary hash); use prototype-paired/manifest.json for compiled acquisition/search source hashes.",
+  "compiledSourceManifest": "../prototype-paired/manifest.json"
+}

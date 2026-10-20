@@ -1,0 +1,146 @@
+{
+  "scope": "cold isolated production resolver and first five seconds PCM; no mixer/device; no concurrent local build; direct player disabled; search transport only differs",
+  "binarySha256": "6d86378d72c1ea174171d86ee03fcd59885593693c7ab36eada265a5f6726bac",
+  "sourceFiles": {
+    "src-tauri/src/acquisition.rs": "28ef46b518677fc628045572fe733b971edb19bf77ae5ed687ac0273f05347bb",
+    "src-tauri/src/youtube_web_search.rs": "989372d8fdbe74babb6771877804e52cfce207ec814f5dd8e2fe7acf2222f4d6"
+  },
+  "fixtures": {
+    "matthew": "15facfb48e917ba50c133632fd115e3308c4c8c88eda9d71b9bcb73bef1efa96",
+    "pengus": "3abb3659c9bd55d4e8447f0de37b08a7a7678b17946949ff8c0ec288d96cc238"
+  },
+  "results": [
+    {
+      "case": "matthew",
+      "pair": 1,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 14036.4502,
+      "resolveMs": 13778.028389,
+      "providerId": "youtube:ps9X-DXUFGY",
+      "wallMs": 14286.68823299813
+    },
+    {
+      "case": "matthew",
+      "pair": 1,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 9322.849853999998,
+      "resolveMs": 9112.944093999999,
+      "providerId": "youtube:ps9X-DXUFGY",
+      "wallMs": 9526.181020002696
+    },
+    {
+      "case": "pengus",
+      "pair": 1,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 10627.997547,
+      "resolveMs": 10361.784693000001,
+      "providerId": "youtube:kzrZXghhy1k",
+      "wallMs": 10831.504007001058
+    },
+    {
+      "case": "pengus",
+      "pair": 1,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 7195.882203,
+      "resolveMs": 6936.383103,
+      "providerId": "youtube:kzrZXghhy1k",
+      "wallMs": 7473.873787996126
+    },
+    {
+      "case": "matthew",
+      "pair": 2,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 8310.28283,
+      "resolveMs": 8206.110645,
+      "providerId": "youtube:uZGRATckoBM",
+      "wallMs": 8527.847541001393
+    },
+    {
+      "case": "matthew",
+      "pair": 2,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 13142.175186999999,
+      "resolveMs": 13021.418853,
+      "providerId": "youtube:ps9X-DXUFGY",
+      "wallMs": 13334.347422001883
+    },
+    {
+      "case": "pengus",
+      "pair": 2,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 7029.325026,
+      "resolveMs": 6927.118,
+      "providerId": "youtube:kzrZXghhy1k",
+      "wallMs": 7223.089049002738
+    },
+    {
+      "case": "pengus",
+      "pair": 2,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 8593.00294,
+      "resolveMs": 8456.441407,
+      "providerId": "youtube:kzrZXghhy1k",
+      "wallMs": 8776.418556997669
+    },
+    {
+      "case": "matthew",
+      "pair": 3,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 13905.803185,
+      "resolveMs": 13542.958645,
+      "providerId": "youtube:uZGRATckoBM",
+      "wallMs": 14135.99078200059
+    },
+    {
+      "case": "matthew",
+      "pair": 3,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 8997.509087999999,
+      "resolveMs": 8750.263303,
+      "providerId": "youtube:ps9X-DXUFGY",
+      "wallMs": 9276.36436400644
+    },
+    {
+      "case": "pengus",
+      "pair": 3,
+      "arm": "legacy",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 8507.314037999999,
+      "resolveMs": 8228.992384,
+      "providerId": "youtube:kzrZXghhy1k",
+      "wallMs": 8725.44266199111
+    },
+    {
+      "case": "pengus",
+      "pair": 3,
+      "arm": "native",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 7200.9699949999995,
+      "resolveMs": 6911.450046999999,
+      "providerId": "youtube:kzrZXghhy1k",
+      "wallMs": 7473.549180009286
+    }
+  ]
+}

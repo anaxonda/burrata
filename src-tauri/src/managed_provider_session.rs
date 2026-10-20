@@ -5154,7 +5154,9 @@ mod tests {
         fs::write(
             &binary,
             format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf 'XDG_CONFIG_HOME=%s\\nXDG_DATA_HOME=%s\\nXDG_CACHE_HOME=%s\\nXDG_STATE_HOME=%s\\nBURRATA_APP_DATA=%s\\n' \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME\" \"$XDG_CACHE_HOME\" \"$XDG_STATE_HOME\" \"$BURRATA_APP_DATA\" >> '{}'\nsleep 30\n",
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}.tmp'\nsleep 0.05\nprintf 'XDG_CONFIG_HOME=%s\\nXDG_DATA_HOME=%s\\nXDG_CACHE_HOME=%s\\nXDG_STATE_HOME=%s\\nBURRATA_APP_DATA=%s\\n' \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME\" \"$XDG_CACHE_HOME\" \"$XDG_STATE_HOME\" \"$BURRATA_APP_DATA\" >> '{}.tmp'\nmv '{}.tmp' '{}'\nsleep 30\n",
+                args_file.display(),
+                args_file.display(),
                 args_file.display(),
                 args_file.display(),
             ),
@@ -5183,7 +5185,12 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        let args = fs::read_to_string(args_file).unwrap();
+        // The fixture atomically publishes only after both argument and
+        // environment captures are complete. File creation alone is too early.
+        let args = fs::read_to_string(args_file);
+        stop_child(&mut child);
+        assert!(child.is_none());
+        let args = args.unwrap();
         assert!(args.contains(&format!("--user-data-dir={}\n", profile.display())));
         assert!(args.contains(&format!("--load-extension={}\n", extension.display())));
         assert!(args.contains("--headless=new"));
@@ -5197,8 +5204,6 @@ mod tests {
             assert!(args.contains(&format!("BURRATA_APP_DATA={}\n", app_data.display())));
         }
         assert!(!args.to_lowercase().contains("token"));
-        stop_child(&mut child);
-        assert!(child.is_none());
     }
 
     #[test]

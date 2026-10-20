@@ -1,0 +1,15 @@
+{
+  "headerPolicy": {
+    "authorization": false,
+    "cookie": false,
+    "headerCount": 2,
+    "origin": false,
+    "other": true,
+    "referer": false,
+    "userAgent": true
+  },
+  "status": "paused",
+  "paused": true,
+  "position": 61.064735,
+  "volume": 0
+}

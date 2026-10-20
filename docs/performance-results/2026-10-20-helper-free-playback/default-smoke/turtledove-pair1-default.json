@@ -1,0 +1,60 @@
+{
+  "aliasProofState": {
+    "hasVerifiedCreditSets": false,
+    "materializedAliasCount": 0,
+    "scope": "isolated store populated only by production resolver evidence discovery"
+  },
+  "build": "debug",
+  "decodeWallMs": 273.884709,
+  "decodedInterleavedSamples": 480000,
+  "decodedSeconds": 5.0,
+  "decoderDiagnostics": {
+    "bytesRead": 0,
+    "bytesReceived": 0,
+    "channels": 2,
+    "codecHint": "mp4a.40.2",
+    "contentRangeTotal": null,
+    "contentType": "audio/mp4",
+    "decoderKind": "ffmpeg",
+    "decoderReused": false,
+    "decoderSetupMs": 1,
+    "firstDecodedBlockMs": 194,
+    "inputContentLength": 3355562,
+    "readerReused": false,
+    "sampleRate": 48000,
+    "totalDurationSeconds": 207.0
+  },
+  "firstPcmAfterResolveMs": 194.578338,
+  "firstPcmFromRequestMs": 9350.193505,
+  "ok": true,
+  "platform": "linux",
+  "resolveMs": 9155.615167,
+  "resolved": true,
+  "resolvedRecordingIdentity": {
+    "artists": [
+      "Domna Samiou",
+      "Michalis Zambas"
+    ],
+    "channel": "Δόμνα Σαμίου - Topic",
+    "channelId": "UCyHZ-Fb8aJdPgVG3hM_UdQA",
+    "channelIsVerified": null,
+    "durationSeconds": 207.0,
+    "hasTopicDescriptionCredit": true,
+    "provider": "youtube",
+    "providerId": "youtube:Rc9t-2VlOpg",
+    "title": "Turtledove (Epiros) (feat. Michalis Zambas)",
+    "track": "Turtledove (Epiros) (feat. Michalis Zambas)"
+  },
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "sourceHint": {
+    "codec": "mp4a.40.2",
+    "contentLength": 3355562,
+    "hasVideo": false,
+    "mimeType": "audio/mp4"
+  },
+  "sourceProvider": "youtube",
+  "totalMs": 9433.626627000001,
+  "workload": "isolated_reported_track_resolver_and_decoder"
+}

@@ -223,7 +223,7 @@ fn base_args(settings: &Settings) -> Vec<String> {
     args
 }
 
-fn uses_managed_ytdlp(configured: &str) -> bool {
+pub(crate) fn uses_managed_ytdlp(configured: &str) -> bool {
     let configured = configured.trim();
     configured.is_empty() || configured == "yt-dlp" || configured.starts_with("bundled:")
 }
@@ -1109,6 +1109,22 @@ fn monochrome_search_tracks(track: &Track, alternate_artist: Option<&str>) -> Ve
     tracks
 }
 
+/// Only playback's managed anonymous search uses the native adapter. Custom
+/// helper selection and interactive/discovery search keep their existing path.
+/// The environment override permits immediate rollback without changing tags,
+/// provider preferences, cached identity or the extractor/access verifier.
+fn native_youtube_playback_search_enabled(
+    provider: &str,
+    helper: &str,
+    has_playback_deadline: bool,
+    runtime_override: Option<&str>,
+) -> bool {
+    provider == "youtube"
+        && uses_managed_ytdlp(helper)
+        && has_playback_deadline
+        && matches!(runtime_override, None | Some("1"))
+}
+
 async fn search_provider_candidates(
     provider: &str,
     track: &Track,
@@ -1158,17 +1174,50 @@ async fn search_provider_candidates(
             "--".into(),
             format!("{prefix}:{query}"),
         ]);
-        let result = if let Some(shared) = shared_deadline {
-            run_tool_until(
-                settings,
-                args,
+        let legacy_cancel = cancel.clone();
+        let legacy = || async move {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(format!("{provider}: search timed out"));
+            }
+            let result = if let Some(shared) = shared_deadline {
+                run_tool_until(
+                    settings,
+                    args,
+                    legacy_cancel.clone(),
+                    shared.cap(remaining),
+                    |_| {},
+                )
+                .await
+            } else {
+                run_tool(settings, args, legacy_cancel.clone(), remaining, |_| {}).await
+            };
+            result
+        };
+        let result = if native_youtube_playback_search_enabled(
+            provider,
+            &settings.yt_dlp_path,
+            shared_deadline.is_some(),
+            std::env::var("BURRATA_NATIVE_YOUTUBE_SEARCH")
+                .ok()
+                .as_deref(),
+        ) {
+            let native = crate::youtube_web_search::search_candidates(
+                query,
                 cancel.clone(),
-                shared.cap(remaining),
-                |_| {},
+                crate::playback_sources::PlaybackDeadline::at(
+                    shared_deadline.unwrap().cap(remaining),
+                ),
+            );
+            crate::youtube_web_search::search_or_fallback(
+                native,
+                legacy,
+                cancel.clone(),
+                result_limit,
             )
             .await
         } else {
-            run_tool(settings, args, cancel.clone(), remaining, |_| {}).await
+            legacy().await
         };
         match result {
             Ok(raw) => match serde_json::from_str::<Value>(&raw) {
@@ -5330,9 +5379,8 @@ impl AcquisitionManager {
             .await
     }
 
-    /// Direct experimental responses do not enter URL/access caches until their
+    /// Alternate direct responses do not enter URL/access caches until their
     /// response TTL and profile provenance can be represented in cache keys.
-    #[cfg(feature = "playback-direct-youtube-experiment")]
     pub(crate) async fn validate_playback_audio_uncached_traced(
         &self,
         candidate: &Candidate,
@@ -6864,6 +6912,38 @@ async fn download_direct(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_playback_search_defaults_on_but_preserves_custom_helpers_and_discovery() {
+        assert!(native_youtube_playback_search_enabled(
+            "youtube", "yt-dlp", true, None
+        ));
+        assert!(native_youtube_playback_search_enabled(
+            "youtube",
+            "yt-dlp",
+            true,
+            Some("1")
+        ));
+        for value in [Some("0"), Some("unexpected")] {
+            assert!(!native_youtube_playback_search_enabled(
+                "youtube", "yt-dlp", true, value
+            ));
+        }
+        for provider in ["soundcloud", "monochrome"] {
+            assert!(!native_youtube_playback_search_enabled(
+                provider, "yt-dlp", true, None
+            ));
+        }
+        assert!(!native_youtube_playback_search_enabled(
+            "youtube", "yt-dlp", false, None
+        ));
+        assert!(!native_youtube_playback_search_enabled(
+            "youtube",
+            "/custom/yt-dlp",
+            true,
+            None
+        ));
+    }
 
     #[test]
     fn public_music_feature_locator_retains_complete_explicit_performers_without_proving_playback()

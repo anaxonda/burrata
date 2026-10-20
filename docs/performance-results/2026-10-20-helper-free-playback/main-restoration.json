@@ -1,0 +1,18 @@
+{
+  "burrataGuiCount": 1,
+  "binarySha256": "12ef85b55307ebf90a080b9b1c9302cd55cb31c86affaa053a7dba2a0f74b453",
+  "normalProfileRestored": true,
+  "transport": "native-webview-http",
+  "mode": "native-ready",
+  "confirmedAccounts": {
+    "spotify": true,
+    "youtube": true
+  },
+  "youtubeReconnectRequired": false,
+  "queueMutationDuringDisposableTest": false,
+  "libraryCounts": {
+    "assets": 15,
+    "playlists": 44,
+    "tracks": 4975
+  }
+}

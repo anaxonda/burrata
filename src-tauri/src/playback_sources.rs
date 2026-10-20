@@ -1379,7 +1379,6 @@ fn direct_youtube_explicit_id<'a>(
     Some(id)
 }
 
-#[cfg(any(test, feature = "playback-direct-youtube-experiment"))]
 fn direct_youtube_mapped_anchors(
     track: &Track,
     candidate: &Candidate,
@@ -1415,7 +1414,6 @@ fn direct_youtube_mapped_anchors(
     parse_v2_youtube_recording_anchors(proof?, video_id)
 }
 
-#[cfg(any(test, feature = "playback-direct-youtube-experiment"))]
 fn direct_youtube_opportunity_deadline(deadline: PlaybackDeadline) -> Option<PlaybackDeadline> {
     // Include validation in the opportunity; preserve eight seconds for the
     // existing extractor, rather than restarting its absolute deadline.
@@ -1582,7 +1580,6 @@ where
     }
 }
 
-#[cfg(feature = "playback-direct-youtube-experiment")]
 async fn try_direct_youtube_mapped(
     acquisition: &AcquisitionManager,
     candidate: &Candidate,
@@ -1609,7 +1606,6 @@ async fn try_direct_youtube_mapped(
     .await
 }
 
-#[cfg(feature = "playback-direct-youtube-experiment")]
 async fn try_direct_youtube_mapped_with<R, RF, V, VF>(
     acquisition: &AcquisitionManager,
     candidate: &Candidate,
@@ -2111,6 +2107,7 @@ async fn resolve_serial(
                             fingerprint,
                             trace,
                             deadline,
+                            attempt_limit,
                         )
                         .await
                         {
@@ -2539,8 +2536,9 @@ async fn resolve_serial(
                         }
                         return Err("The resolved audio source identity does not match this recording".to_owned());
                     }
-                    let audio = acquisition.validate_playback_audio_traced(
-                        &candidate, audio, cancel.clone(), trace.clone(), deadline,
+                    let audio = validate_or_recover_denied_source(
+                        acquisition, track, &settings, &candidate, audio, proof,
+                        pinned, attempt_limit, cancel.clone(), trace, deadline,
                     ).await?;
                     Ok::<_, String>((audio, proof))
             }.await;
@@ -3532,6 +3530,126 @@ fn parse_v2_youtube_recording_anchors(
     })
 }
 
+/// Derive recovery anchors only from the fresh extractor response that just
+/// passed the existing recording gate in this operation. A saved/search sidecar
+/// cannot authorize a different transport or manufacture artist verification.
+fn fresh_denied_source_recovery_anchors(
+    track: &Track,
+    candidate: &Candidate,
+    audio: &acquisition::PreviewAudio,
+    proof: Option<VerifiedRecordingProof>,
+    error: &str,
+    pinned: bool,
+    attempt_limit: usize,
+    trace: &SourceTrace,
+    settings: &Settings,
+) -> Option<VerifiedYoutubeRecordingAnchors> {
+    if pinned
+        || !crate::acquisition::uses_managed_ytdlp(&settings.yt_dlp_path)
+        || !audio.resolved_title.as_ref().is_some_and(|title| {
+            crate::matching::normalize(title) == crate::matching::normalize(&candidate.title)
+        })
+        || audio.duration_seconds != candidate.duration_seconds
+        || proof?.kind == RecordingProofKind::ExplicitSource
+        || crate::playback_failure::classify(error).http_status != Some(403)
+        || !audio.provider_session_current()
+        || audio
+            .chapters
+            .as_ref()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || trace
+            .native_operation_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("preparation:"))
+    {
+        return None;
+    }
+    let value = persisted_v2_youtube_recording_anchors(proof?.kind, candidate, audio)?;
+    direct_youtube_mapped_anchors(track, candidate, Some(&value), attempt_limit)
+}
+
+async fn validate_or_recover_denied_source(
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    settings: &Settings,
+    candidate: &Candidate,
+    audio: acquisition::PreviewAudio,
+    proof: Option<VerifiedRecordingProof>,
+    pinned: bool,
+    attempt_limit: usize,
+    cancel: watch::Receiver<bool>,
+    trace: &SourceTrace,
+    deadline: PlaybackDeadline,
+) -> Result<acquisition::PreviewAudio, String> {
+    match acquisition
+        .validate_playback_audio_traced(
+            candidate,
+            audio.clone(),
+            cancel.clone(),
+            trace.clone(),
+            deadline,
+        )
+        .await
+    {
+        Ok(validated) => Ok(validated),
+        Err(error) => {
+            let Some(anchors) = fresh_denied_source_recovery_anchors(
+                track,
+                candidate,
+                &audio,
+                proof,
+                &error,
+                pinned,
+                attempt_limit,
+                trace,
+                settings,
+            ) else {
+                return Err(error);
+            };
+            trace.event(
+                "verified_source_transport_recovery_start",
+                "youtube",
+                json!({"httpStatus":403}),
+            );
+            // AAC preserves the existing seekable MP4 path on macOS WebView;
+            // the experimental Opus first-choice route remains opt-in.
+            let recovered = try_direct_youtube_mapped_with(
+                acquisition,
+                candidate,
+                &anchors,
+                cancel,
+                trace,
+                deadline,
+                |id, budget, cancel| async move {
+                    crate::youtube_direct_experiment::resolve_explicit_aac(&id, budget, cancel)
+                        .await
+                },
+                |audio, cancel, trace, deadline| {
+                    acquisition.validate_playback_audio_uncached_traced(
+                        candidate, audio, cancel, trace, deadline,
+                    )
+                },
+            )
+            .await?;
+            trace.event(
+                "verified_source_transport_recovery_end",
+                "youtube",
+                json!({"ok":recovered.is_some()}),
+            );
+            match recovered {
+                Some(mut recovered) => {
+                    // ID, channel, title and duration matched the fresh identity
+                    // above, and the new URL passed uncached access validation.
+                    // Preserve that same-operation evidence for mapping writes.
+                    recovered.source_metadata = audio.source_metadata;
+                    Ok(recovered)
+                }
+                None => Err(error),
+            }
+        }
+    }
+}
+
 fn verify_resolved_identity_with_aliases_and_proofs(
     track: &Track,
     aliases: &[Track],
@@ -4125,6 +4243,7 @@ async fn try_verified_candidate(
     fingerprint: &str,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
+    attempt_limit: usize,
 ) -> Result<ResolvedSource, String> {
     let audio = acquisition
         .extract_playback_audio_traced_preparing_alternate(
@@ -4164,9 +4283,20 @@ async fn try_verified_candidate(
     if !identity_ok {
         return Err("Verified source identity mismatch".into());
     }
-    let audio = acquisition
-        .validate_playback_audio_traced(&candidate, audio, cancel.clone(), trace.clone(), deadline)
-        .await?;
+    let audio = validate_or_recover_denied_source(
+        acquisition,
+        track,
+        settings,
+        &candidate,
+        audio,
+        proof,
+        false,
+        attempt_limit,
+        cancel.clone(),
+        trace,
+        deadline,
+    )
+    .await?;
     remember_verified_source(
         store,
         track,
@@ -4767,6 +4897,119 @@ mod tests {
     }
 
     #[test]
+    fn denied_recovery_needs_verified_exact_evidence_and_preserves_scope() {
+        let track = Track {
+            id: "spotify:fixture".into(),
+            provider: "spotify".into(),
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            id: "youtube:ps9X-DXUFGY".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=ps9X-DXUFGY".into(),
+            title: "JOHN DENVER - MATTHEW.".into(),
+            duration_seconds: Some(225.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        let audio = acquisition::PreviewAudio {
+            url: "https://r1---fixture.googlevideo.com/videoplayback?sig=fixture".into(),
+            mime_type: "audio/mp4".into(),
+            codec: Some("mp4a.40.2".into()),
+            bitrate_kbps: None,
+            duration_seconds: Some(225.0),
+            source_metadata: Some(
+                json!({"provider":"youtube","channelId":"UC-cnCe5zradDZlcI8YZboBg"}),
+            ),
+            resolved_title: Some(candidate.title.clone()),
+            resolved_provider_id: Some("ps9X-DXUFGY".into()),
+            chapters: None,
+            selected_format_id: Some("140".into()),
+            selected_format_has_video: false,
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+        let proof = Some(verify_resolved_identity(&track, &mut candidate, &audio, true).unwrap());
+        let trace = SourceTrace::new(None, None, Some(1));
+        let settings = Settings::default();
+        let allowed = |audio: &acquisition::PreviewAudio,
+                       proof,
+                       error,
+                       pinned,
+                       attempts,
+                       trace: &SourceTrace,
+                       settings: &Settings| {
+            fresh_denied_source_recovery_anchors(
+                &track, &candidate, audio, proof, error, pinned, attempts, trace, settings,
+            )
+        };
+        let anchors = allowed(
+            &audio,
+            proof,
+            "HTTP 403: source access denied",
+            false,
+            2,
+            &trace,
+            &settings,
+        )
+        .unwrap();
+        assert_eq!(anchors.video_id, "ps9X-DXUFGY");
+        for error in [
+            "HTTP 401",
+            "HTTP 429",
+            "HTTP 500",
+            "Cancelled",
+            "Playback deadline exceeded",
+            "The resolved audio source identity does not match this recording",
+        ] {
+            assert!(allowed(&audio, proof, error, false, 2, &trace, &settings).is_none());
+        }
+        assert!(allowed(&audio, None, "HTTP 403", false, 2, &trace, &settings).is_none());
+        assert!(allowed(&audio, proof, "HTTP 403", true, 2, &trace, &settings).is_none());
+        assert!(allowed(&audio, proof, "HTTP 403", false, 1, &trace, &settings).is_none());
+        assert!(allowed(
+            &audio,
+            proof,
+            "HTTP 403",
+            false,
+            2,
+            &SourceTrace::new(Some("preparation:fixture".into()), None, None),
+            &settings
+        )
+        .is_none());
+        let custom = Settings {
+            yt_dlp_path: "/custom/helper".into(),
+            ..settings.clone()
+        };
+        assert!(allowed(&audio, proof, "HTTP 403", false, 2, &trace, &custom).is_none());
+        for changed in [
+            acquisition::PreviewAudio {
+                resolved_title: Some("Different title".into()),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                resolved_provider_id: Some("aqz-KE-bpKQ".into()),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                duration_seconds: Some(226.0),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                source_metadata: None,
+                ..audio.clone()
+            },
+        ] {
+            assert!(allowed(&changed, proof, "HTTP 403", false, 2, &trace, &settings).is_none());
+        }
+    }
+
+    #[test]
     fn mapped_direct_gate_requires_v2_catalog_anchors_and_flat_original_track() {
         let track = Track {
             id: "spotify:track".into(),
@@ -4842,7 +5085,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "playback-direct-youtube-experiment")]
     #[tokio::test]
     async fn mapped_direct_path_compares_all_anchors_before_uncached_access() {
         let (_track, candidate, _) = matthew_catalog_verification_fixture();
@@ -4962,7 +5204,6 @@ mod tests {
         assert!(success.provider_session_current());
     }
 
-    #[cfg(feature = "playback-direct-youtube-experiment")]
     #[tokio::test]
     async fn mapped_direct_path_preserves_access_reset_cancel_and_deadline_failures() {
         let (_track, candidate, source_audio) = matthew_catalog_verification_fixture();
@@ -8182,6 +8423,7 @@ mod tests {
                 &recording_identity_fingerprint(&track).unwrap(),
                 &trace,
                 PlaybackDeadline::after(Duration::from_secs(5)),
+                2,
             ))
             .await;
         assert_eq!(

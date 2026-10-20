@@ -7301,6 +7301,32 @@ describe("saved recording navigation", () => {
 
   });
 
+  it("keeps the attached relay registration alive through automation pause and paused seek", async () => {
+    savedChartTracks=[savedTrack];previewMode="fallback";
+    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    const original=mocks.call.getMockImplementation()!;
+    let registeredGeneration:number|null=null, relayRetired=false;
+    mocks.call.mockImplementation((command,args)=>{
+      if(command==="cancel_playback_resolution"&&registeredGeneration!==null&&Number(args?.requestGeneration)>registeredGeneration)relayRetired=true;
+      const result=original(command,args);
+      if(command==="resolve_playback_track")return Promise.resolve(result).then((value:any)=>{
+        registeredGeneration=Number(args?.requestGeneration);
+        return {...value,preview:{...value.preview,url:"http://127.0.0.1:12345/webview-audio/fixture?token=fixture",sourceGeneration:registeredGeneration}};
+      });
+      return result;
+    });
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();await settle();
+    expect(registeredGeneration).not.toBeNull();
+    const node=document.querySelector("audio")!;const source=node.src;
+    const paused=await automationAction("retain-relay-pause","pause");
+    expect(paused.error).toBeNull();expect(paused.playback.paused).toBe(true);
+    const seek=await automationAction("retain-relay-seek","seek",{position:60});
+    expect(seek.error).toBeNull();expect(node.currentTime).toBe(60);
+    expect(node.src).toBe(source);expect(relayRetired).toBe(false);
+  });
+
   async function loadedResumeFixture() {
     savedChartTracks=[savedTrack,secondTrack];
     previewMode="fallback";automationPlaybackAck={protocolVersion:1,accepted:true,needFull:false};

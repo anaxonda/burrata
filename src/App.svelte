@@ -3765,7 +3765,16 @@
           if (!started) throw new Error(previewStatus || "Playback could not start.");
         }
         else if (action === "play") throw new Error("Nothing is queued to play");
-        if (action === "pause") { if(queuedOwnerForResume())reportQueuedPlaybackPhase("paused");else setAutomationPlaybackOwner(null);nextPreviewRequest(); }
+        if (action === "pause") {
+          if(queuedOwnerForResume())reportQueuedPlaybackPhase("paused");else setAutomationPlaybackOwner(null);
+          // Pausing attached media must retain its relay registration. Advancing
+          // the backend generation here retires the URL that paused seek/resume
+          // still needs. Pending resolution or a stale attachment still cancels.
+          const attachedSourceIsCurrent = !nativeActive() && audio && preview && !resolvingPlayback &&
+            typeof preview.sourceGeneration === "number" && previewRequests.isCurrent(preview.sourceGeneration);
+          if (attachedSourceIsCurrent) nextCandidatePrefetch.cancel();
+          else nextPreviewRequest();
+        }
         else reportQueuedPlaybackPhase("playing");
         paused = action === "pause";
       } else if (request.action === "seek") {

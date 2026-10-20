@@ -1,0 +1,1247 @@
+{
+  "schemaVersion": 1,
+  "scope": "Muted disposable-profile WebView remote AAC playback, seek and resume; media clock only, no physical audibility",
+  "binarySha256": "12ef85b55307ebf90a080b9b1c9302cd55cb31c86affaa053a7dba2a0f74b453",
+  "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+  "samples": [
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479258878,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            10.121282943
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 0.017877,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479259136,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            19.23067904
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 0.280279,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479259394,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            37.449471234
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 0.536909,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479259652,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            43.522328799
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 0.79312,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479259912,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            61.741120993
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 1.051579,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479260173,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            67.813978558
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 1.310139,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479260430,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            77.935480999
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 1.568347,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479260686,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            80.971800032
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 1.823635,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479260941,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            92.105408818
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 2.078141,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479261197,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            101.214804915
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 2.333048,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479261452,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            110.324201012
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 2.587681,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479261708,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            113.360739544
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 2.842518,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "startup",
+      "atUnixMs": 1792479261964,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            124.49434833
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 3.097182,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 0,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "active_seek",
+      "atUnixMs": 1792479261986,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            124.49434833
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 30,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": true,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 1,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "active_seek",
+      "atUnixMs": 1792479262242,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            139.6755045
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 30.283377,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 1,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "active_seek",
+      "atUnixMs": 1792479262500,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            147.772794253
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 30.538792,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 1,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "active_seek",
+      "atUnixMs": 1792479262755,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            163.967154259
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 30.792969,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 1,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "active_seek",
+      "atUnixMs": 1792479263011,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            173.076550356
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 31.047383,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": false,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 1,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "pause",
+      "atUnixMs": 1792479263025,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            173.076550356
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 31.05233,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 1,
+        "paused": true,
+        "present": true,
+        "readyState": 4,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 1,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "paused_seek",
+      "atUnixMs": 1792479263044,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            173.076550356
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 60,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 2,
+        "paused": true,
+        "present": true,
+        "readyState": 2,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 2,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "resume",
+      "atUnixMs": 1792479263326,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            187.246697674
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 60.277586,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 2,
+        "paused": false,
+        "present": true,
+        "readyState": 2,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 2,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "resume",
+      "atUnixMs": 1792479263581,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            192.307448894
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 60.534187,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 2,
+        "paused": false,
+        "present": true,
+        "readyState": 2,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 2,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "resume",
+      "atUnixMs": 1792479263845,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            198.380306459
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 60.791889,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 2,
+        "paused": false,
+        "present": true,
+        "readyState": 2,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 2,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    },
+    {
+      "stage": "resume",
+      "atUnixMs": 1792479264110,
+      "applicable": true,
+      "currentIndex": 0,
+      "engine": "webview",
+      "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+      "media": {
+        "buffered": [
+          [
+            0,
+            212.550234279
+          ],
+          [
+            219.497133801,
+            219.498231292
+          ]
+        ],
+        "currentTime": 61.05397,
+        "duration": 219.498231292,
+        "errorCode": null,
+        "networkState": 2,
+        "paused": false,
+        "present": true,
+        "readyState": 2,
+        "seekable": [
+          [
+            0,
+            219.498231292
+          ]
+        ],
+        "seeking": false,
+        "sourcePresent": true,
+        "sourceStable": true
+      },
+      "previewKind": "audio",
+      "queueTotal": 1,
+      "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "seekSerial": 2,
+      "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+      "sourceGeneration": 1792479222500001,
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+    }
+  ],
+  "commandAtUnixMs": 1792479247687,
+  "startup": {
+    "applicable": true,
+    "currentIndex": 0,
+    "engine": "webview",
+    "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+    "media": {
+      "buffered": [
+        [
+          0,
+          124.49434833
+        ],
+        [
+          219.497133801,
+          219.498231292
+        ]
+      ],
+      "currentTime": 3.097182,
+      "duration": 219.498231292,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "seekable": [
+        [
+          0,
+          219.498231292
+        ]
+      ],
+      "seeking": false,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "previewKind": "audio",
+    "queueTotal": 1,
+    "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+    "seekSerial": 0,
+    "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+    "sourceGeneration": 1792479222500001,
+    "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+  },
+  "activeSeek": {
+    "applicable": true,
+    "currentIndex": 0,
+    "engine": "webview",
+    "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+    "media": {
+      "buffered": [
+        [
+          0,
+          173.076550356
+        ],
+        [
+          219.497133801,
+          219.498231292
+        ]
+      ],
+      "currentTime": 31.047383,
+      "duration": 219.498231292,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": false,
+      "present": true,
+      "readyState": 4,
+      "seekable": [
+        [
+          0,
+          219.498231292
+        ]
+      ],
+      "seeking": false,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "previewKind": "audio",
+    "queueTotal": 1,
+    "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+    "seekSerial": 1,
+    "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+    "sourceGeneration": 1792479222500001,
+    "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+  },
+  "pause": {
+    "applicable": true,
+    "currentIndex": 0,
+    "engine": "webview",
+    "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+    "media": {
+      "buffered": [
+        [
+          0,
+          173.076550356
+        ],
+        [
+          219.497133801,
+          219.498231292
+        ]
+      ],
+      "currentTime": 31.05233,
+      "duration": 219.498231292,
+      "errorCode": null,
+      "networkState": 1,
+      "paused": true,
+      "present": true,
+      "readyState": 4,
+      "seekable": [
+        [
+          0,
+          219.498231292
+        ]
+      ],
+      "seeking": false,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "previewKind": "audio",
+    "queueTotal": 1,
+    "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+    "seekSerial": 1,
+    "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+    "sourceGeneration": 1792479222500001,
+    "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+  },
+  "pausedSeek": {
+    "applicable": true,
+    "currentIndex": 0,
+    "engine": "webview",
+    "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+    "media": {
+      "buffered": [
+        [
+          0,
+          173.076550356
+        ],
+        [
+          219.497133801,
+          219.498231292
+        ]
+      ],
+      "currentTime": 60,
+      "duration": 219.498231292,
+      "errorCode": null,
+      "networkState": 2,
+      "paused": true,
+      "present": true,
+      "readyState": 2,
+      "seekable": [
+        [
+          0,
+          219.498231292
+        ]
+      ],
+      "seeking": false,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "previewKind": "audio",
+    "queueTotal": 1,
+    "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+    "seekSerial": 2,
+    "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+    "sourceGeneration": 1792479222500001,
+    "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+  },
+  "resume": {
+    "applicable": true,
+    "currentIndex": 0,
+    "engine": "webview",
+    "entryId": "5952a5c7-4dd6-40e9-b476-59a7d20d3a94",
+    "media": {
+      "buffered": [
+        [
+          0,
+          212.550234279
+        ],
+        [
+          219.497133801,
+          219.498231292
+        ]
+      ],
+      "currentTime": 61.05397,
+      "duration": 219.498231292,
+      "errorCode": null,
+      "networkState": 2,
+      "paused": false,
+      "present": true,
+      "readyState": 2,
+      "seekable": [
+        [
+          0,
+          219.498231292
+        ]
+      ],
+      "seeking": false,
+      "sourcePresent": true,
+      "sourceStable": true
+    },
+    "previewKind": "audio",
+    "queueTotal": 1,
+    "queueTrackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+    "seekSerial": 2,
+    "sessionId": "320ff83b-cb30-4815-860e-cc6cf39cf5b4",
+    "sourceGeneration": 1792479222500001,
+    "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2"
+  },
+  "ok": true
+}

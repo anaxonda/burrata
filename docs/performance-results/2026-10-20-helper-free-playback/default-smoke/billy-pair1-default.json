@@ -1,0 +1,19 @@
+{
+  "aliasProofState": {
+    "hasVerifiedCreditSets": false,
+    "materializedAliasCount": 0,
+    "scope": "isolated store populated only by production resolver evidence discovery"
+  },
+  "build": "debug",
+  "failureCategory": "source_unavailable",
+  "failureStage": "resolver",
+  "ok": false,
+  "platform": "linux",
+  "resolveMs": 10573.90115,
+  "resolved": false,
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "totalMs": 10578.650001,
+  "workload": "isolated_reported_track_resolver_and_decoder"
+}

@@ -1,0 +1,57 @@
+{
+  "aliasProofState": {
+    "hasVerifiedCreditSets": false,
+    "materializedAliasCount": 0,
+    "scope": "isolated store populated only by production resolver evidence discovery"
+  },
+  "build": "debug",
+  "decodeWallMs": 314.976006,
+  "decodedInterleavedSamples": 480000,
+  "decodedSeconds": 5.0,
+  "decoderDiagnostics": {
+    "bytesRead": 0,
+    "bytesReceived": 0,
+    "channels": 2,
+    "codecHint": "opus",
+    "contentRangeTotal": null,
+    "contentType": "audio/webm",
+    "decoderKind": "ffmpeg",
+    "decoderReused": false,
+    "decoderSetupMs": 1,
+    "firstDecodedBlockMs": 215,
+    "inputContentLength": 5004554,
+    "readerReused": false,
+    "sampleRate": 48000,
+    "totalDurationSeconds": 289.0
+  },
+  "firstPcmAfterResolveMs": 216.227294,
+  "firstPcmFromRequestMs": 10317.392027,
+  "ok": true,
+  "platform": "linux",
+  "resolveMs": 10101.164733,
+  "resolved": true,
+  "resolvedRecordingIdentity": {
+    "artists": null,
+    "channel": null,
+    "channelId": "UCsEyZCsbeRn6rgPgyc0jgqA",
+    "channelIsVerified": null,
+    "durationSeconds": 289.0,
+    "hasTopicDescriptionCredit": false,
+    "provider": "youtube",
+    "providerId": "youtube:Wo54P5Z6vhg",
+    "title": "Holger Czukay, Jah Wobble, Jaki Liebezeit - How Much Are They?",
+    "track": null
+  },
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "sourceHint": {
+    "codec": "opus",
+    "contentLength": 5004554,
+    "hasVideo": false,
+    "mimeType": "audio/webm"
+  },
+  "sourceProvider": "youtube",
+  "totalMs": 10417.326233000002,
+  "workload": "isolated_reported_track_resolver_and_decoder"
+}

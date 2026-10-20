@@ -1,0 +1,61 @@
+{
+  "scope": "cold isolated production resolver and first five seconds PCM; no mixer/device; no concurrent local build; direct player disabled; search transport only differs",
+  "binarySha256": "c27adcf9b4c4eac03d13b432f6679b8f3290f2ba0da12f96a6c54bfbe09fcbfb",
+  "runtimeNativeSearchOverride": "unset; production default",
+  "sourceFiles": {
+    "src-tauri/src/acquisition.rs": "d17f2b94e7edbd11a178e2710c8428070914856cccff91ff696e22190ebdfe5b",
+    "src-tauri/src/youtube_web_search.rs": "2b2bb03fa5abf5333a4d5f12ec19b3d060281e2ff84cf392abdb876f88703e57"
+  },
+  "fixtures": {
+    "matthew": "15facfb48e917ba50c133632fd115e3308c4c8c88eda9d71b9bcb73bef1efa96",
+    "pengus": "3abb3659c9bd55d4e8447f0de37b08a7a7678b17946949ff8c0ec288d96cc238",
+    "billy": "45e790ec7542e96f5271f4f625f52588058e189da9539179d6d369bec0f18821",
+    "turtledove": "9f7647cc8f33fac231e52dce578b5adfacb564d5965fee515c521747d5102cee"
+  },
+  "results": [
+    {
+      "case": "matthew",
+      "pair": 1,
+      "arm": "default",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 8969.188256,
+      "resolveMs": 8835.432732,
+      "providerId": "youtube:ps9X-DXUFGY",
+      "wallMs": 9129.159189003985
+    },
+    {
+      "case": "pengus",
+      "pair": 1,
+      "arm": "default",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 8707.18657,
+      "resolveMs": 8557.909899,
+      "providerId": "youtube:kzrZXghhy1k",
+      "wallMs": 8877.955006013508
+    },
+    {
+      "case": "billy",
+      "pair": 1,
+      "arm": "default",
+      "exitCode": 101,
+      "ok": false,
+      "firstPcmMs": null,
+      "resolveMs": 10573.90115,
+      "providerId": null,
+      "wallMs": 10682.303590001538
+    },
+    {
+      "case": "turtledove",
+      "pair": 1,
+      "arm": "default",
+      "exitCode": 0,
+      "ok": true,
+      "firstPcmMs": 9350.193505,
+      "resolveMs": 9155.615167,
+      "providerId": "youtube:Rc9t-2VlOpg",
+      "wallMs": 9581.547741996474
+    }
+  ]
+}

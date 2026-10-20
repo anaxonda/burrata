@@ -1,0 +1,57 @@
+{
+  "aliasProofState": {
+    "hasVerifiedCreditSets": false,
+    "materializedAliasCount": 0,
+    "scope": "isolated store populated only by production resolver evidence discovery"
+  },
+  "build": "debug",
+  "decodeWallMs": 365.713026,
+  "decodedInterleavedSamples": 480000,
+  "decodedSeconds": 5.0,
+  "decoderDiagnostics": {
+    "bytesRead": 0,
+    "bytesReceived": 0,
+    "channels": 2,
+    "codecHint": "mp4a.40.2",
+    "contentRangeTotal": null,
+    "contentType": "audio/mp4",
+    "decoderKind": "ffmpeg",
+    "decoderReused": false,
+    "decoderSetupMs": 1,
+    "firstDecodedBlockMs": 265,
+    "inputContentLength": 4210738,
+    "readerReused": false,
+    "sampleRate": 48000,
+    "totalDurationSeconds": 260.0
+  },
+  "firstPcmAfterResolveMs": 266.212854,
+  "firstPcmFromRequestMs": 10627.997547,
+  "ok": true,
+  "platform": "linux",
+  "resolveMs": 10361.784693000001,
+  "resolved": true,
+  "resolvedRecordingIdentity": {
+    "artists": null,
+    "channel": null,
+    "channelId": "UCkalYbyNXu1kar-JbIyNYxA",
+    "channelIsVerified": null,
+    "durationSeconds": 260.0,
+    "hasTopicDescriptionCredit": false,
+    "provider": "youtube",
+    "providerId": "youtube:kzrZXghhy1k",
+    "title": "Pengus - Victory Lap",
+    "track": null
+  },
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "sourceHint": {
+    "codec": "mp4a.40.2",
+    "contentLength": 4210738,
+    "hasVideo": false,
+    "mimeType": "audio/mp4"
+  },
+  "sourceProvider": "youtube",
+  "totalMs": 10728.468767,
+  "workload": "isolated_reported_track_resolver_and_decoder"
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "scope": "Muted disposable-profile WebView remote AAC playback, seek and resume; media clock only, no physical audibility",
+  "binarySha256": "12ef85b55307ebf90a080b9b1c9302cd55cb31c86affaa053a7dba2a0f74b453",
+  "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+  "samples": [],
+  "ok": false,
+  "failure": "WEBVIEW_REQUIRED"
+}

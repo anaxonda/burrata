@@ -1,5 +1,6 @@
-//! Internal anonymous native HTTP experiment, available only in tests or behind
-//! the off-default playback-direct-youtube-experiment feature.
+//! Bounded anonymous native HTTP transport. Default playback uses it only to
+//! recover HTTP 403 for a freshly verified exact source; first-choice startup
+//! use remains behind the playback-direct-youtube-experiment feature.
 //! Mirrors the pinned VISIONOS_0_1 request/visitor fixtures; never claims catalog proof.
 use futures_util::StreamExt;
 use icu_normalizer::ComposingNormalizerBorrowed;
@@ -20,6 +21,7 @@ const PROFILE_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebK
 const VISITOR_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0";
 const OPUS: &str = "audio/webm; codecs=\"opus\"";
+const AAC: &str = "audio/mp4; codecs=\"mp4a.40.2\"";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +75,25 @@ pub(crate) async fn resolve_explicit(
     budget_ms: u64,
     cancel: watch::Receiver<bool>,
 ) -> std::result::Result<DirectResolved, DirectFailure> {
+    resolve_explicit_format(video_id, 251, budget_ms, cancel).await
+}
+
+/// AAC-only alternate transport for an already verified source. Keep this
+/// fixed-format entry point separate from the opt-in Opus startup experiment.
+pub(crate) async fn resolve_explicit_aac(
+    video_id: &str,
+    budget_ms: u64,
+    cancel: watch::Receiver<bool>,
+) -> std::result::Result<DirectResolved, DirectFailure> {
+    resolve_explicit_format(video_id, 140, budget_ms, cancel).await
+}
+
+async fn resolve_explicit_format(
+    video_id: &str,
+    format_id: u64,
+    budget_ms: u64,
+    cancel: watch::Receiver<bool>,
+) -> std::result::Result<DirectResolved, DirectFailure> {
     let started = Instant::now();
     let request = Request {
         video_id: video_id.to_owned(),
@@ -80,7 +101,7 @@ pub(crate) async fn resolve_explicit(
         hl: "en".into(),
         gl: "US".into(),
         budget_ms,
-        format_id: 251,
+        format_id,
         expected_metadata: None,
         visitor_mode: VisitorMode::AnonymousSource,
     };
@@ -157,7 +178,7 @@ impl Request {
             || !valid_language
             || self.gl.len() != 2
             || !self.gl.bytes().all(|c| c.is_ascii_uppercase())
-            || self.format_id != 251
+            || !matches!(self.format_id, 140 | 251)
         {
             return Err(fail("INVALID_PLAYBACK_REQUEST", "request"));
         }
@@ -539,11 +560,23 @@ impl Resolved {
         let audio = crate::acquisition::PreviewAudio {
             provider_session: None,
             url: self.url.into(),
-            mime_type: "audio/webm".into(),
-            codec: Some("opus".into()),
+            mime_type: if self.report.format_id == 140 {
+                "audio/mp4"
+            } else {
+                "audio/webm"
+            }
+            .into(),
+            codec: Some(
+                if self.report.format_id == 140 {
+                    "mp4a.40.2"
+                } else {
+                    "opus"
+                }
+                .into(),
+            ),
             bitrate_kbps: None,
             duration_seconds: Some(self.report.duration_seconds),
-            selected_format_id: Some("251".into()),
+            selected_format_id: Some(self.report.format_id.to_string()),
             selected_format_has_video: false,
             source_metadata: None,
             resolved_title: None,
@@ -662,7 +695,8 @@ fn select_audio(body: &Value, request: &Request, now: f64) -> Result<Resolved> {
         return Err(fail("FORMAT_MISMATCH", "format"));
     }
     let format = candidates[0];
-    if format["mimeType"] != OPUS
+    let expected_mime = if request.format_id == 140 { AAC } else { OPUS };
+    if format["mimeType"] != expected_mime
         || format.get("width").is_some()
         || format.get("height").is_some()
         || format["hasAudio"] == false
@@ -751,7 +785,7 @@ fn select_audio(body: &Value, request: &Request, now: f64) -> Result<Resolved> {
             profile: "VISIONOS_0_1",
             video_id: request.video_id.clone(),
             format_id: request.format_id,
-            codec: OPUS,
+            codec: expected_mime,
             duration_seconds: duration,
             approximate_duration_ms: approximate,
             content_length: length,
@@ -1033,8 +1067,33 @@ mod tests {
         assert_eq!(req.validate().unwrap_err().code, "INVALID_BUDGET");
         req = request();
         req.format_id = 140;
+        assert!(req.validate().is_ok());
+        req.format_id = 139;
         assert!(req.validate().is_err());
     }
+    #[test]
+    fn aac_recovery_retains_exact_format_and_container_contract() {
+        let mut req = request();
+        req.format_id = 140;
+        let mut body = body();
+        body["streamingData"]["adaptiveFormats"][0]["itag"] = json!(140);
+        body["streamingData"]["adaptiveFormats"][0]["mimeType"] = json!(AAC);
+        let selected = select_audio(&body, &req, 1_000_000.).unwrap();
+        let (audio, report) = selected.into_preview_audio();
+        assert_eq!(report.format_id, 140);
+        assert_eq!(report.codec, AAC);
+        assert_eq!(audio.mime_type, "audio/mp4");
+        assert_eq!(audio.codec.as_deref(), Some("mp4a.40.2"));
+        assert_eq!(audio.selected_format_id.as_deref(), Some("140"));
+        assert!(!audio.selected_format_has_video);
+        assert!(audio.source_metadata.is_none());
+        body["streamingData"]["adaptiveFormats"][0]["mimeType"] = json!(OPUS);
+        assert_eq!(
+            select_audio(&body, &req, 1_000_000.).unwrap_err().code,
+            "FORMAT_MISMATCH"
+        );
+    }
+
     #[test]
     fn visitor_parsers_preserve_source_shape_and_bound_values() {
         for text in [

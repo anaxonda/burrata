@@ -1,0 +1,59 @@
+{
+  "aliasProofState": {
+    "hasVerifiedCreditSets": false,
+    "materializedAliasCount": 0,
+    "scope": "isolated store populated only by production resolver evidence discovery"
+  },
+  "build": "debug",
+  "decodeWallMs": 453.649946,
+  "decodedInterleavedSamples": 480000,
+  "decodedSeconds": 5.0,
+  "decoderDiagnostics": {
+    "bytesRead": 0,
+    "bytesReceived": 0,
+    "channels": 2,
+    "codecHint": "mp4a.40.2",
+    "contentRangeTotal": null,
+    "contentType": "audio/mp4",
+    "decoderKind": "ffmpeg",
+    "decoderReused": false,
+    "decoderSetupMs": 0,
+    "firstDecodedBlockMs": 362,
+    "inputContentLength": 3689699,
+    "readerReused": false,
+    "sampleRate": 48000,
+    "totalDurationSeconds": 228.0
+  },
+  "firstPcmAfterResolveMs": 362.84454,
+  "firstPcmFromRequestMs": 13905.803185,
+  "ok": true,
+  "platform": "linux",
+  "resolveMs": 13542.958645,
+  "resolved": true,
+  "resolvedRecordingIdentity": {
+    "artists": [
+      "John Denver"
+    ],
+    "channel": "John Denver",
+    "channelId": "UCV8ZtASJ8X9ZwX3r1Dsei0w",
+    "channelIsVerified": true,
+    "durationSeconds": 228.0,
+    "hasTopicDescriptionCredit": false,
+    "provider": "youtube",
+    "providerId": "youtube:uZGRATckoBM",
+    "title": "Matthew",
+    "track": "Matthew"
+  },
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "sourceHint": {
+    "codec": "mp4a.40.2",
+    "contentLength": 3689699,
+    "hasVideo": false,
+    "mimeType": "audio/mp4"
+  },
+  "sourceProvider": "youtube",
+  "totalMs": 13999.691112,
+  "workload": "isolated_reported_track_resolver_and_decoder"
+}

@@ -81,7 +81,7 @@ The same extension downloads work on all three systems:
 | Firefox | `firefox-extension-<extension-version>.xpi` | [Firefox steps](../extension/README.md#firefox) |
 | Chrome / Chromium / Edge | `chrome-extension-<extension-version>.zip` | [Chrome/Edge steps](../extension/README.md#chrome-chromium-and-edge) |
 
-The extension has its own version: app **0.1.3** ships extension **0.2.2**.
+The extension has its own version. App **0.1.5** packages extension **0.2.3**; app **0.1.3** shipped extension **0.2.2**.
 Installing the extension alone is not enough: also use **Settings → Connections →
 Browser companion → Connect browser companion** in Burrata, then restart your
 browser. See the [complete companion guide](../extension/README.md#install).

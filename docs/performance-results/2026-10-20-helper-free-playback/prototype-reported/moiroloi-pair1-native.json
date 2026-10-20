@@ -1,0 +1,59 @@
+{
+  "aliasProofState": {
+    "hasVerifiedCreditSets": false,
+    "materializedAliasCount": 0,
+    "scope": "isolated store populated only by production resolver evidence discovery"
+  },
+  "build": "debug",
+  "decodeWallMs": 345.564255,
+  "decodedInterleavedSamples": 480000,
+  "decodedSeconds": 5.0,
+  "decoderDiagnostics": {
+    "bytesRead": 0,
+    "bytesReceived": 0,
+    "channels": 2,
+    "codecHint": "mp4a.40.2",
+    "contentRangeTotal": null,
+    "contentType": "audio/mp4",
+    "decoderKind": "ffmpeg",
+    "decoderReused": false,
+    "decoderSetupMs": 1,
+    "firstDecodedBlockMs": 239,
+    "inputContentLength": 6691250,
+    "readerReused": false,
+    "sampleRate": 48000,
+    "totalDurationSeconds": 413.0
+  },
+  "firstPcmAfterResolveMs": 240.134805,
+  "firstPcmFromRequestMs": 9539.105189,
+  "ok": true,
+  "platform": "linux",
+  "resolveMs": 9298.970384,
+  "resolved": true,
+  "resolvedRecordingIdentity": {
+    "artists": [
+      "Domna Samiou"
+    ],
+    "channel": "Domna Samiou - Topic",
+    "channelId": "UCGCTe_N5qNs1TmXl3foMRww",
+    "channelIsVerified": null,
+    "durationSeconds": 413.0,
+    "hasTopicDescriptionCredit": true,
+    "provider": "youtube",
+    "providerId": "youtube:PIJ6QOUnuCg",
+    "title": "Μοιρολόι (Ήπειρος)",
+    "track": "Μοιρολόι (Ήπειρος)"
+  },
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "sourceHint": {
+    "codec": "mp4a.40.2",
+    "contentLength": 6691250,
+    "hasVideo": false,
+    "mimeType": "audio/mp4"
+  },
+  "sourceProvider": "youtube",
+  "totalMs": 9647.182658,
+  "workload": "isolated_reported_track_resolver_and_decoder"
+}

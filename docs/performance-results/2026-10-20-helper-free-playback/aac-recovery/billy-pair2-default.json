@@ -1,0 +1,57 @@
+{
+  "aliasProofState": {
+    "hasVerifiedCreditSets": false,
+    "materializedAliasCount": 0,
+    "scope": "isolated store populated only by production resolver evidence discovery"
+  },
+  "build": "debug",
+  "decodeWallMs": 334.535231,
+  "decodedInterleavedSamples": 480000,
+  "decodedSeconds": 5.0,
+  "decoderDiagnostics": {
+    "bytesRead": 0,
+    "bytesReceived": 0,
+    "channels": 2,
+    "codecHint": "mp4a.40.2",
+    "contentRangeTotal": null,
+    "contentType": "audio/mp4",
+    "decoderKind": "ffmpeg",
+    "decoderReused": false,
+    "decoderSetupMs": 1,
+    "firstDecodedBlockMs": 209,
+    "inputContentLength": 3553090,
+    "readerReused": false,
+    "sampleRate": 48000,
+    "totalDurationSeconds": 219.0
+  },
+  "firstPcmAfterResolveMs": 210.531859,
+  "firstPcmFromRequestMs": 9820.619695000001,
+  "ok": true,
+  "platform": "linux",
+  "resolveMs": 9610.087836,
+  "resolved": true,
+  "resolvedRecordingIdentity": {
+    "artists": null,
+    "channel": "★ 𝑲𝒂𝒄𝒆𝒚 𝑴𝒖𝒔𝒈𝒓𝒂𝒗𝒆𝒔 ★",
+    "channelId": "UCosnVpvQYMR58p8A8tBY-dw",
+    "channelIsVerified": true,
+    "durationSeconds": 219.0,
+    "hasTopicDescriptionCredit": false,
+    "provider": "youtube",
+    "providerId": "youtube:qND7vxsWE2Y",
+    "title": "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Official Lyric Video)",
+    "track": null
+  },
+  "resolverBudgetMs": 20000,
+  "schemaVersion": 1,
+  "scope": "production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation",
+  "sourceHint": {
+    "codec": "mp4a.40.2",
+    "contentLength": 3553090,
+    "hasVideo": false,
+    "mimeType": "audio/mp4"
+  },
+  "sourceProvider": "youtube",
+  "totalMs": 9958.760554999999,
+  "workload": "isolated_reported_track_resolver_and_decoder"
+}

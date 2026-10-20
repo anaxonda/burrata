@@ -1,0 +1,17 @@
+{
+  "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+  "binary": "/home/loki/projects/burrata/.cache/qualification-015-playback/bin/burrata",
+  "binarySha256": "12ef85b55307ebf90a080b9b1c9302cd55cb31c86affaa053a7dba2a0f74b453",
+  "engine": "webview",
+  "volume": 0,
+  "sourceFiles": {
+    "src-tauri/src/acquisition.rs": "6272bf3e76d42597cbf36d3fb172146ea1294694020166a6ae5c3e797a5496dc",
+    "src-tauri/src/playback_sources.rs": "6ecf1a95d2cfbdd4b26d5712b6700be636204ab3da04033cf05b31a36a92821c",
+    "src-tauri/src/youtube_web_search.rs": "2b2bb03fa5abf5333a4d5f12ec19b3d060281e2ff84cf392abdb876f88703e57",
+    "src-tauri/src/youtube_direct_experiment.rs": "cbcb1d3c7369114b3006e3370f5be601deea40f767bb5e963e03b8fb15055872",
+    "src-tauri/src/managed_provider_session.rs": "7add8514575662a32cce6b8f57155f3e56d6226edd4537f122d32f10671650ea",
+    "src-tauri/src/catalog_duration_proof.rs": "a4d428b6d9ce882eafb0e409df4743e49ea530ff1536a415bfab59b5dda96bc5"
+  },
+  "frontendMode": "Vite development frontend; final pause fix tested after HMR",
+  "frontendSourceSha256": "c18ea3ab3e444cc83ff99cf87ccc95be92546cafd1829f49051eed9628465c20"
+}
