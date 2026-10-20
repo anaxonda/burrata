@@ -42,7 +42,7 @@ fn mapping_timestamps(database_path: &Path, track_id: &str, fingerprint: &str) -
 }
 
 #[tokio::test]
-#[ignore = "explicit public-network opt-in; fresh catalog proof, mapped direct resolution and decoder PCM only"]
+#[ignore = "explicit public-network opt-in; fresh strong proof, mapped direct resolution and decoder PCM only"]
 async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refreshing_ttl() {
     assert_eq!(
         std::env::var("BURRATA_DIRECT_YOUTUBE_MAPPED_LIVE").as_deref(),
@@ -112,26 +112,26 @@ async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refr
             eprintln!(
                 "{}",
                 json!({"experiment":"mapped-direct-youtube-v2-live",
-                "phase":"catalog_mapping_creation","ok":false,
+                "phase":"mapping_creation","ok":false,
                 "failureCode":safe_failure_code(&error),"elapsedMs":first_ms})
             );
-            panic!("fresh catalog mapping creation failed; fixed failure evidence retained");
+            panic!("mapping creation failed; fixed failure evidence retained");
         }
         Err(_) => {
             eprintln!(
                 "{}",
                 json!({"experiment":"mapped-direct-youtube-v2-live",
-                "phase":"catalog_mapping_creation","ok":false,
+                "phase":"mapping_creation","ok":false,
                 "failureCode":"GLOBAL_DEADLINE","elapsedMs":first_ms})
             );
-            panic!("fresh catalog mapping creation exceeded the 60 second test deadline");
+            panic!("mapping creation exceeded the 60 second test deadline");
         }
     };
     if first.origin != ResolvedSourceOrigin::Existing {
         eprintln!(
             "{}",
             json!({"experiment":"mapped-direct-youtube-v2-live",
-            "phase":"catalog_mapping_creation","ok":false,
+            "phase":"mapping_creation","ok":false,
             "failureCode":"FIRST_PASS_NOT_EXISTING","elapsedMs":first_ms})
         );
         panic!("first pass did not use the normal extractor path");
@@ -157,25 +157,35 @@ async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refr
             eprintln!(
                 "{}",
                 json!({"experiment":"mapped-direct-youtube-v2-live",
-                "phase":"catalog_mapping_creation","ok":false,
+                "phase":"mapping_creation","ok":false,
                 "failureCode":"V2_MAPPING_MISSING","elapsedMs":first_ms})
             );
-            panic!("fresh catalog mapping was not persisted");
+            panic!("mapping was not persisted");
         }
     };
     let video_id = mapping.provider_id.as_str();
-    let anchors = parse_v2_youtube_recording_anchors(
-        mapping.verification_proof.as_ref().unwrap_or(&Value::Null),
-        video_id,
-    );
+    let stored_proof = mapping.verification_proof.as_ref().unwrap_or(&Value::Null);
+    let proof_version = stored_proof["version"].as_u64();
+    let proof_kind = stored_proof["kind"].as_str().filter(|kind| {
+        matches!(
+            *kind,
+            "recording" | "verified_extractor" | "youtube_music_catalog"
+        )
+    });
+    let channel_id = stored_proof["channelId"].as_str();
+    let anchor_channel_id_present = channel_id.is_some_and(|value| !value.is_empty());
+    let anchor_channel_id_valid = channel_id.is_some_and(valid_youtube_channel_id);
+    let anchors = parse_v2_youtube_recording_anchors(stored_proof, video_id);
     let anchors = match anchors {
         Some(anchors) => anchors,
         None => {
             eprintln!(
                 "{}",
                 json!({"experiment":"mapped-direct-youtube-v2-live",
-                "phase":"catalog_mapping_creation","ok":false,
-                "failureCode":"V2_PROOF_INVALID","elapsedMs":first_ms})
+                "phase":"mapping_creation","ok":false,
+                "failureCode":"V2_PROOF_INVALID","proofVersion":proof_version,
+                "proofKind":proof_kind,"anchorChannelIdPresent":anchor_channel_id_present,
+                "anchorChannelIdValid":anchor_channel_id_valid,"elapsedMs":first_ms})
             );
             panic!("fresh mapping did not contain valid v2 proof anchors");
         }
@@ -192,8 +202,10 @@ async fn live_mapped_direct_youtube_reuses_fresh_v2_catalog_mapping_without_refr
     eprintln!(
         "{}",
         json!({"experiment":"mapped-direct-youtube-v2-live",
-        "phase":"catalog_mapping_creation","ok":true,"origin":"existing",
-        "proofVersion":2,"elapsedMs":first_ms})
+        "phase":"mapping_creation","ok":true,"origin":"existing",
+        "proofVersion":proof_version,"proofKind":proof_kind,
+        "anchorChannelIdPresent":anchor_channel_id_present,
+        "anchorChannelIdValid":anchor_channel_id_valid,"elapsedMs":first_ms})
     );
 
     for trial_index in 1..=repetitions {

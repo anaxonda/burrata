@@ -3887,15 +3887,19 @@ fn preview_audio_from_metadata(
         duration_seconds,
         selected_format_id: safe_extractor_format_id(info["format_id"].as_str()),
         selected_format_has_video: info["vcodec"].as_str().is_some_and(|codec| codec != "none"),
-        source_metadata: if candidate.provider == "youtube"
-            && candidate
+        source_metadata: if candidate.provider == "youtube" {
+            let richer_metadata = if candidate
                 .uploader
                 .as_deref()
                 .is_some_and(|name| name.trim_end().ends_with("- Topic"))
-        {
-            topic_identity_metadata(candidate, info)
+            {
+                topic_identity_metadata(candidate, info)
+            } else {
+                verified_youtube_channel_metadata(candidate, info)
+            };
+            richer_metadata.or_else(|| youtube_identity_only_metadata(candidate, info))
         } else {
-            verified_youtube_channel_metadata(candidate, info)
+            None
         },
         resolved_title: info["title"].as_str().map(str::to_owned),
         resolved_provider_id: info["id"].as_str().map(str::to_owned),
@@ -4114,6 +4118,27 @@ fn verified_youtube_channel_metadata(candidate: &Candidate, info: &Value) -> Opt
         "channelIsVerified": true,
         "track": track,
         "artists": artists,
+    }))
+}
+
+/// Retain only the fresh channel ID as an equality anchor when yt-dlp has not
+/// supplied complete verified-channel or Topic credit metadata. This object
+/// carries no claim about channel verification, uploader identity, or artist
+/// credits and must not be used to satisfy those gates.
+fn youtube_identity_only_metadata(candidate: &Candidate, info: &Value) -> Option<Value> {
+    if candidate.provider != "youtube" {
+        return None;
+    }
+    let channel_id = info["channel_id"].as_str().filter(|id| {
+        id.len() == 24
+            && id.starts_with("UC")
+            && id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    })?;
+    Some(serde_json::json!({
+        "provider":"youtube",
+        "channelId":channel_id,
     }))
 }
 
@@ -8000,6 +8025,133 @@ mod tests {
             ..candidate
         };
         assert!(verified_youtube_channel_metadata(&topic, &info).is_none());
+    }
+
+    #[test]
+    fn unverified_youtube_channel_id_is_retained_only_as_an_equality_fact() {
+        let ordinary = Candidate {
+            id: "youtube:hghqd1eBTYQ".into(),
+            provider: "youtube".into(),
+            uploader: Some("Unverified Uploader".into()),
+            ..Candidate::default()
+        };
+        let unverified = serde_json::json!({
+            "id":"hghqd1eBTYQ",
+            "url":"https://rr5---sn.googlevideo.com/videoplayback?signature=redacted",
+            "ext":"webm","protocol":"https","format_id":"251",
+            "acodec":"opus","vcodec":"none","duration":225.0,
+            "channel_id":"UC1234567890123456789012",
+            "channel":"Unverified Uploader","uploader":"Unverified Uploader",
+            "channel_is_verified":false,"artists":["Wrong Artist"],
+        });
+        let audio = preview_audio_from_metadata(&ordinary, &unverified).unwrap();
+        assert_eq!(
+            audio.source_metadata,
+            Some(serde_json::json!({
+                "provider":"youtube",
+                "channelId":"UC1234567890123456789012"
+            }))
+        );
+        let metadata = audio.source_metadata.unwrap();
+        assert!(metadata.get("channelIsVerified").is_none());
+        assert!(metadata.get("channel").is_none());
+        assert!(metadata.get("uploader").is_none());
+        assert!(metadata.get("artists").is_none());
+        assert!(verified_youtube_channel_metadata(&ordinary, &unverified).is_none());
+
+        let uploader_only = serde_json::json!({
+            "id":"hghqd1eBTYQ","uploader":"Unverified Uploader"
+        });
+        assert!(youtube_identity_only_metadata(&ordinary, &uploader_only).is_none());
+        let malformed_id = serde_json::json!({
+            "channel_id":"UC-short"
+        });
+        assert!(youtube_identity_only_metadata(&ordinary, &malformed_id).is_none());
+
+        // Wrong Topic credits and an unverified catalog channel stay without
+        // their richer proof facts; the identity-only field adds no credit or
+        // verified-channel signal.
+        let topic = Candidate {
+            uploader: Some("Right Artist - Topic".into()),
+            ..ordinary.clone()
+        };
+        let wrong_topic = serde_json::json!({
+            "channel_id":"UC1234567890123456789012",
+            "artists":["Wrong Artist"],
+            "track":"Some Song",
+            "description":"Unrelated description"
+        });
+        assert!(topic_identity_metadata(&topic, &wrong_topic).is_none());
+        assert_eq!(
+            youtube_identity_only_metadata(&topic, &wrong_topic),
+            Some(serde_json::json!({
+                "provider":"youtube",
+                "channelId":"UC1234567890123456789012"
+            }))
+        );
+
+        let catalog = Candidate {
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube","playbackMusicCatalogCandidate":true
+            })),
+            ..ordinary
+        };
+        let catalog_unverified = serde_json::json!({
+            "channel_id":"UC1234567890123456789012",
+            "channel_is_verified":false,
+        });
+        assert!(verified_youtube_channel_metadata(&catalog, &catalog_unverified).is_none());
+        let identity = youtube_identity_only_metadata(&catalog, &catalog_unverified).unwrap();
+        assert!(identity.get("channelIsVerified").is_none());
+        assert!(identity.get("artists").is_none());
+
+        let title_only = Candidate {
+            id: "youtube:uZGRATckoBM".into(),
+            provider: "youtube".into(),
+            title: "Matthew".into(),
+            duration_seconds: Some(228.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(identity),
+            ..Candidate::default()
+        };
+        let matthew = Track {
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        assert!(
+            !crate::source_fallback::playback_recording_matches_verified_extractor(
+                &matthew,
+                &title_only
+            )
+        );
+        assert!(
+            !crate::source_fallback::playback_music_catalog_recording_matches_verified_extractor(
+                &matthew,
+                &title_only
+            )
+        );
+
+        // Equal duration still cannot promote the identity-only channel ID to
+        // an artist credit for either strong matching path.
+        let exact_duration_track = Track {
+            duration_seconds: Some(228.0),
+            ..matthew
+        };
+        assert!(
+            !crate::source_fallback::playback_recording_matches_verified_extractor(
+                &exact_duration_track,
+                &title_only
+            )
+        );
+        assert!(
+            !crate::source_fallback::playback_music_catalog_recording_matches_verified_extractor(
+                &exact_duration_track,
+                &title_only
+            )
+        );
     }
 
     #[test]

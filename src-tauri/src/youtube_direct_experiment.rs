@@ -900,7 +900,10 @@ mod tests {
             ));
             let selected = select_audio(&response, &request(), now).unwrap();
             let direct = selected.into_explicit_audio();
-            assert_eq!(direct.source_channel_id.as_deref(), Some("private-channel-id"));
+            assert_eq!(
+                direct.source_channel_id.as_deref(),
+                Some("private-channel-id")
+            );
             assert_eq!(direct.valid_until_unix_ms, expected_expiry);
             assert_eq!(
                 direct.audio.resolved_provider_id.as_deref(),
