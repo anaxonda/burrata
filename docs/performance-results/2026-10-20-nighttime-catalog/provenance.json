@@ -1,0 +1,14 @@
+{
+  "baseline": "67206eb",
+  "binarySha256": "df22dd6ac67220f7fc6abd3698855593ce3599e9dc8a8d4bbb94466df72c6bb8",
+  "runtimeExperimentEnabled": false,
+  "sourceFiles": {
+    "src-tauri/src/catalog_duration_proof.rs": "a4d428b6d9ce882eafb0e409df4743e49ea530ff1536a415bfab59b5dda96bc5",
+    "src-tauri/src/acquisition.rs": "3a797401dc1610cfc41c08c9654dc509d618b2118ad4edd6312344bd5bc00205",
+    "src-tauri/src/remote_playlists.rs": "a55831870189f2b71266fb2b34b69560c5abc76cc309317bd8a92110b78a73cc",
+    "src-tauri/src/playback_sources.rs": "f9c058256dfb921999eb45cdcd12a135a39293fe711526fc2fd318758b2664eb",
+    "src-tauri/src/automation.rs": "76ac396ec1e877213b0c8f001355161c08cf74914654a2fee7bc57ec6a65155c",
+    "extension/provider-operations.js": "815420f59fc301a2668873205f9ffb6408f1ca3d56715ae9e81c04d0004f9322"
+  },
+  "packagedProviderSha256": "815420f59fc301a2668873205f9ffb6408f1ca3d56715ae9e81c04d0004f9322"
+}

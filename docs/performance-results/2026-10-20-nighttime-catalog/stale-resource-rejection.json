@@ -1,0 +1,17 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"durationSeconds\":null,\"elapsedMs\":1796,\"enriched\":false,\"isrcKnown\":false,\"provider\":\"spotify\"}"
+    }
+  ],
+  "structuredContent": {
+    "result": {
+      "durationSeconds": null,
+      "elapsedMs": 1796,
+      "enriched": false,
+      "isrcKnown": false,
+      "provider": "spotify"
+    }
+  }
+}

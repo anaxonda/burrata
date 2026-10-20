@@ -199,6 +199,7 @@ pub(crate) struct SourceTrace {
     shared_lookup_id: Option<uuid::Uuid>,
     event_provider: Option<&'static str>,
     extraction_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    catalog_duration_enriched: bool,
     #[cfg(test)]
     test_sink: Option<Arc<dyn Fn(Value) + Send + Sync>>,
 }
@@ -227,6 +228,7 @@ impl SourceTrace {
             shared_lookup_id: None,
             event_provider: None,
             extraction_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            catalog_duration_enriched: false,
             #[cfg(test)]
             test_sink: None,
         }
@@ -868,14 +870,40 @@ async fn resolve_inner(
     let explicit_source = source_resolution_is_pinned(track, selected.is_some(), &settings, false);
     resolve_after_local_preflight(store, track, explicit_source, |prepared_track| {
         Box::pin(async move {
+            let mut effective_track = prepared_track;
+            let mut effective_trace = trace.clone();
+            if effective_track.provider == "radio_song"
+                && effective_track.duration_seconds.is_none()
+                && !source_resolution_is_pinned(&effective_track, selected.is_some(), &settings, true)
+                && deadline.remaining() > Duration::from_secs(8)
+            {
+                let started = Instant::now();
+                trace.event("catalog_duration_lookup_start", "other", json!({"catalogProvider":"spotify"}));
+                let prepared = acquisition.prepare_catalog_duration_track(
+                    &effective_track,
+                    cancel.clone(),
+                    (deadline.instant() - Duration::from_secs(8))
+                        .min(tokio::time::Instant::now() + Duration::from_secs(4)),
+                ).await;
+                if *cancel.borrow() || prepared.as_ref().is_err_and(|error| error == "Spotify recording verification was canceled") {
+                    return Err("Cancelled".into());
+                }
+                if let Ok(Some(prepared)) = prepared {
+                    if let Some(enriched) = validated_catalog_duration_track(&effective_track, prepared) {
+                        effective_track = enriched;
+                        effective_trace.catalog_duration_enriched = true;
+                    }
+                }
+                trace.event("catalog_duration_lookup_end", "other", json!({"catalogProvider":"spotify","accepted":effective_trace.catalog_duration_enriched,"durationMs":started.elapsed().as_millis()}));
+            }
             resolve_inner_prepared(
                 store,
                 acquisition,
-                &prepared_track,
+                &effective_track,
                 selected,
                 cancel,
                 settings,
-                trace,
+                &effective_trace,
                 failed,
                 deadline,
                 attempt_limit,
@@ -884,6 +912,40 @@ async fn resolve_inner(
         })
     })
     .await
+}
+
+fn validated_catalog_duration_track(
+    original: &Track,
+    prepared: crate::remote_playlists::PreparedCatalogDuration,
+) -> Option<Track> {
+    let fingerprint = format!(
+        "{:x}",
+        Sha256::digest(prepared.original_fingerprint.to_string().as_bytes())
+    );
+    if crate::remote_playlists::alias_hydration_key(original)
+        .ok()
+        .as_deref()
+        != Some(fingerprint.as_str())
+        || original.duration_seconds.is_some()
+        || !prepared
+            .track
+            .duration_seconds
+            .is_some_and(|duration| duration.is_finite() && (1.0..=86_400.0).contains(&duration))
+        || original
+            .isrc
+            .as_ref()
+            .is_some_and(|known| prepared.track.isrc.as_ref() != Some(known))
+    {
+        return None;
+    }
+    // Only the private catalog lookup can supply this overlay. Neither source
+    // search metadata nor a saved provenance sidecar authorizes enrichment.
+    let mut expected = original.clone();
+    expected.duration_seconds = prepared.track.duration_seconds;
+    expected.isrc = prepared.track.isrc.clone();
+    expected.provenance["playbackCatalogDurationProof"] =
+        prepared.track.provenance["playbackCatalogDurationProof"].clone();
+    (expected == prepared.track).then_some(prepared.track)
 }
 
 async fn resolve_after_local_preflight<T, F, Fut>(
@@ -1045,6 +1107,7 @@ async fn resolve_inner_prepared(
     .await;
     if result.is_ok()
         || pinned
+        || trace.catalog_duration_enriched
         || !crate::artist_alias_lookup::enabled()
         || *cancel.borrow()
         || deadline.remaining().is_zero()
@@ -1773,7 +1836,7 @@ async fn resolve_serial(
             && !overrides_import_url(track, &settings))
         || linked.is_some();
     let cache_started = Instant::now();
-    let mut verified_artist_aliases = if pinned {
+    let mut verified_artist_aliases = if pinned || trace.catalog_duration_enriched {
         crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
     } else {
         crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
@@ -1815,7 +1878,10 @@ async fn resolve_serial(
     let mut transient_retry_attempted = false;
     #[cfg(feature = "playback-early-candidate-experiment")]
     let mut early_candidate_attempt: Option<EarlyCandidateAttempt> = None;
-    let mapping_fingerprint = if pinned {
+    // An enriched duration belongs to its independent catalog proof, not the
+    // saved row's fingerprint. Do not publish or consume a crosswalk under a
+    // silently changed recording identity.
+    let mapping_fingerprint = if pinned || trace.catalog_duration_enriched {
         None
     } else {
         recording_identity_fingerprint(track)
@@ -4486,6 +4552,63 @@ fn linked_candidate_with_bandcamp(track: &Track, bandcamp_enabled: bool) -> Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn independent_catalog_duration_overlay_cannot_rewrite_recording_identity() {
+        let original = Track {
+            id: "radio_song:catalog-overlay".into(),
+            provider: "radio_song".into(),
+            provider_id: "catalog-overlay".into(),
+            title: "Recording".into(),
+            artist: "Artist & Guest".into(),
+            ..Track::default()
+        };
+        let snapshot = original.clone();
+        // This is the request identity consumed by the catalog service. The
+        // resolver checks its digest against the service's existing key API.
+        let fingerprint = json!({"id":original.id,"provider":original.provider,
+            "providerId":original.provider_id,"sourceUrl":original.source_url,
+            "title":original.title,"artist":original.artist,"album":original.album,
+            "albumArtist":original.album_artist,"duration":original.duration_seconds,
+            "isrc":original.isrc,"version":original.version,"range":original.playback_range});
+        let mut enriched = original.clone();
+        enriched.duration_seconds = Some(197.123);
+        enriched.isrc = Some("USABC2600001".into());
+        enriched.provenance["playbackCatalogDurationProof"] = json!({"version":1});
+        let prepared = crate::remote_playlists::PreparedCatalogDuration {
+            track: enriched.clone(),
+            original_fingerprint: fingerprint,
+        };
+        assert_eq!(
+            validated_catalog_duration_track(&original, prepared.clone()),
+            Some(enriched)
+        );
+        assert_eq!(original, snapshot);
+        for field in [
+            "title",
+            "artist",
+            "provider",
+            "range",
+            "fingerprint",
+            "duration",
+        ] {
+            let mut changed = prepared.clone();
+            match field {
+                "title" => changed.track.title = "Different recording".into(),
+                "artist" => changed.track.artist = "Different performer".into(),
+                "provider" => changed.track.provider_id = "different".into(),
+                "range" => changed.track.local_path = Some("/unregistered/audio".into()),
+                "fingerprint" => {
+                    changed.original_fingerprint["title"] = json!("Different recording")
+                }
+                _ => changed.track.duration_seconds = Some(f64::NAN),
+            }
+            assert!(
+                validated_catalog_duration_track(&original, changed).is_none(),
+                "{field}"
+            );
+        }
+    }
+
     #[test]
     fn direct_youtube_gate_preserves_explicit_source_and_rejects_ranges_and_catalog_rows() {
         let track = Track {

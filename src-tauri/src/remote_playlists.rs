@@ -2966,6 +2966,19 @@ impl RemotePlaylistService {
             return Err("A Spotify track ID must contain exactly 22 letters or digits".into());
         }
         let account = self.require_account(provider).await?;
+        self.get_remote_track_for_account(provider, track_id, account)
+            .await
+    }
+
+    async fn get_remote_track_for_account(
+        &self,
+        provider: &str,
+        track_id: &str,
+        account: CachedAccount,
+    ) -> Result<(Track, String)> {
+        if provider != "spotify" || !valid_spotify_id(track_id) {
+            return Err("Invalid Spotify track identity".into());
+        }
         let result = self
             .bridge
             .provider_operation(provider, "getTrack", json!({"trackId":track_id}))
@@ -11774,3 +11787,7 @@ mod alias_hydration_tests {
         assert!(merge_alias_hydration(&changed, &provider).is_none());
     }
 }
+
+#[path = "catalog_duration_proof.rs"]
+mod catalog_duration_proof;
+pub(crate) use catalog_duration_proof::PreparedCatalogDuration;

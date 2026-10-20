@@ -220,28 +220,34 @@ test('Spotify profile search uses display names, usernames, and ID fallback with
  ]);
  assert.equal(result.items[0].artworkUrl,'https://i.scdn.co/image/profile-avatar');
  assert.ok(result.items.every(item=>item.title.trim().length>0));
- assert.equal(result.nextCursor,'4');
+ assert.equal(result.nextCursor,'4');assert.equal(result.rawCount,4);assert.equal(result.unrecognizedCount,1);
  mode='missing';const missing=await context.BurrataSpotifyProvider.run('spotify','search',{query:'Andrew',kind:'profile'},hashes);assert.equal(missing.__burrataProviderError.code,'PROVIDER_CHANGED');
  mode='repeat';const repeated=await context.BurrataSpotifyProvider.run('spotify','search',{query:'Andrew',kind:'profile'},hashes);assert.equal(repeated.__burrataProviderError.code,'PROVIDER_CHANGED');
  mode='empty';const empty=await context.BurrataSpotifyProvider.run('spotify','search',{query:'Andrew',kind:'profile'},hashes);assert.equal(empty.items.length,0);assert.equal(empty.nextCursor,null);
 });
 
 test('Spotify track search retains exact artist refs and contributor count for safe navigation',async()=>{
+ let includeUnrecognized=false;
  const artistA='aaaaaaaaaaaaaaaaaaaaaa',artistB='bbbbbbbbbbbbbbbbbbbbbb',trackId='cccccccccccccccccccccc';
  const fetch=async(url,options={})=>{
   if(String(url).includes('/api/token'))return {ok:true,status:200,text:async()=>JSON.stringify({accessToken:'TEST-FIXTURE-CREDENTIAL-578BC7AF1F-page-owned-token',isAnonymous:false})};
   const request=JSON.parse(options.body);
   if(request.operationName==='profileAttributes')return {ok:true,status:200,text:async()=>JSON.stringify({data:{me:{profile:{uri:'spotify:user:account-123',name:'Fixture account'}}}})};
-  return {ok:true,status:200,text:async()=>JSON.stringify({data:{searchV2:{tracksV2:{totalCount:1,items:[{item:{_uri:`spotify:track:${trackId}`,data:{name:'Fixture song',artists:{items:[]},identityTrait:{contributors:{items:[{uri:`spotify:artist:${artistA}`,name:'Primary Artist'},{uri:`spotify:artist:${artistB}`,name:'Featured Artist'},{uri:`untrusted:artist:${'c'.repeat(22)}`,name:'Untrusted identity'}]}},albumOfTrack:{name:'Fixture album'}}}}]}}}})};
+  const body={data:{searchV2:{tracksV2:{totalCount:1,items:[{item:{_uri:`spotify:track:${trackId}`,data:{name:'Fixture song',artists:{items:[]},identityTrait:{contributors:{items:[{uri:`spotify:artist:${artistA}`,name:'Primary Artist'},{uri:`spotify:artist:${artistB}`,name:'Featured Artist'},{uri:`untrusted:artist:${'c'.repeat(22)}`,name:'Untrusted identity'}]}},albumOfTrack:{name:'Fixture album'}}}}]}}}};
+  if(includeUnrecognized){body.data.searchV2.tracksV2.items.push({item:{data:{name:"Unparsed competing recording"}}});body.data.searchV2.tracksV2.totalCount=2;}
+  return {ok:true,status:200,text:async()=>JSON.stringify(body)};
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}},},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
  const context=vm.createContext({chrome,fetch,URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'open.spotify.com',origin:'https://open.spotify.com'},setInterval(){},setTimeout,clearTimeout});vm.runInContext(sharedSpotifySource,context);
  const hashes={profileAttributes:{hash:'a'.repeat(64)},searchDesktop:{hash:'b'.repeat(64)},totp:{code:123456,version:61}};
  const result=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','search',{query:'Fixture song',kind:'track'},hashes)));
+ assert.equal(result.rawCount,1);assert.equal(result.unrecognizedCount,0);
+ includeUnrecognized=true;
+ const incomplete=await context.BurrataSpotifyProvider.run('spotify','search',{query:'Fixture song',kind:'track'},hashes);
+ assert.equal(incomplete.items.length,1);assert.equal(incomplete.rawCount,2);assert.equal(incomplete.unrecognizedCount,1);assert.equal(incomplete.nextCursor,null);
  assert.equal(result.items[0].data.artistCount,3);
  assert.deepEqual(result.items[0].data.artistRefs,[{provider:'spotify',id:artistA,name:'Primary Artist'},{provider:'spotify',id:artistB,name:'Featured Artist'}]);
 });
-
 test('signed-out YouTube public playlist search returns normalized items and continuation',async()=>{
  const calls=[];
  const responseBody={

@@ -4557,6 +4557,27 @@ impl AcquisitionManager {
             *slot = Some(service);
         }
     }
+    pub(crate) async fn prepare_catalog_duration_track(
+        &self,
+        track: &Track,
+        cancel: watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::remote_playlists::PreparedCatalogDuration>, String> {
+        let service = self
+            .inner
+            .remote_playlists
+            .lock()
+            .map_err(|_| "Catalog service unavailable")?
+            .clone();
+        match service {
+            Some(service) => {
+                service
+                    .prepare_catalog_duration_track(track, cancel, deadline)
+                    .await
+            }
+            None => Ok(None),
+        }
+    }
     pub(crate) async fn prepare_alias_track(
         &self,
         track: &Track,

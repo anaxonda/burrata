@@ -87,6 +87,11 @@ if [[ -n "$stale_source" ]]; then
   exit 1
 fi
 
+# Native workers prefer packaged resource files over their embedded fallback.
+# Keep those generated files aligned with the source checked above; otherwise a
+# fresh executable can silently run an older provider parser in development.
+node "$project_root/scripts/package_managed_provider_extension.mjs" >/dev/null
+
 if [[ "$mode" == "isolated-profile" ]]; then
   temp_root="$(realpath -e "${TMPDIR:-/tmp}")"
   [[ -d "$profile_root" && ! -L "$profile_root" ]] || { echo "Isolated profile must be an existing real directory." >&2; exit 1; }
