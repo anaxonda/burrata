@@ -156,7 +156,9 @@ impl UiNavigationTarget {
                 "kind":"view","view":"settings","settingsCategory":"playback","settingsControl":control
             }),
             Self::SpotifyArtist(id) => json!({"kind":"spotify_artist","spotifyArtistId":id}),
-            Self::CatalogArtist(artist, section) => json!({"kind":"catalog_artist","catalogArtist":artist,"catalogArtistSection":section}),
+            Self::CatalogArtist(artist, section) => {
+                json!({"kind":"catalog_artist","catalogArtist":artist,"catalogArtistSection":section})
+            }
             Self::SpotifyProfile(id) => json!({"kind":"spotify_profile","spotifyProfileId":id}),
             Self::SpotifyPlaylist(id) => json!({"kind":"spotify_playlist","spotifyPlaylistId":id}),
             Self::HistoryDirection(direction) => {
@@ -170,27 +172,51 @@ fn parse_ui_navigation_request(arguments: &Value) -> Result<UiNavigationTarget, 
         .as_object()
         .ok_or_else(|| ToolError::bad("UI navigation arguments must be an object"))?;
     if object.contains_key("catalogArtist") || object.contains_key("catalogArtistSection") {
-        if !object.keys().all(|key| matches!(key.as_str(), "catalogArtist" | "catalogArtistSection")) {
-            return Err(ToolError::bad("Catalog artist navigation accepts only an artist and optional section"));
+        if !object
+            .keys()
+            .all(|key| matches!(key.as_str(), "catalogArtist" | "catalogArtistSection"))
+        {
+            return Err(ToolError::bad(
+                "Catalog artist navigation accepts only an artist and optional section",
+            ));
         }
-        let artist = object.get("catalogArtist").and_then(Value::as_object)
+        let artist = object
+            .get("catalogArtist")
+            .and_then(Value::as_object)
             .filter(|artist| artist.len() == 2)
             .ok_or_else(|| ToolError::bad("Catalog artist requires only provider and id"))?;
         let provider = artist.get("provider").and_then(Value::as_str).unwrap_or("");
         let id = artist.get("id").and_then(Value::as_str).unwrap_or("");
         let valid = match provider {
-            "musicbrainz" => id.len() == 36 && Uuid::parse_str(id)
-                .is_ok_and(|value| value.to_string() == id.to_ascii_lowercase()),
-            "discogs" => id.parse::<u64>().is_ok_and(|value| value > 0 && value.to_string() == id),
+            "musicbrainz" => {
+                id.len() == 36
+                    && Uuid::parse_str(id)
+                        .is_ok_and(|value| value.to_string() == id.to_ascii_lowercase())
+            }
+            "discogs" => id
+                .parse::<u64>()
+                .is_ok_and(|value| value > 0 && value.to_string() == id),
             _ => false,
         };
-        if !valid { return Err(ToolError::bad("Catalog artist identity is invalid")); }
+        if !valid {
+            return Err(ToolError::bad("Catalog artist identity is invalid"));
+        }
         let section = match object.get("catalogArtistSection") {
             None => "overview",
-            Some(Value::String(section)) if matches!(section.as_str(), "overview" | "releases" | "tracks") => section,
+            Some(Value::String(section))
+                if matches!(section.as_str(), "overview" | "releases" | "tracks") =>
+            {
+                section
+            }
             _ => return Err(ToolError::bad("Catalog artist section is unsupported")),
         };
-        return Ok(UiNavigationTarget::CatalogArtist(ArtistRef { provider: provider.into(), id: id.into() }, section.into()));
+        return Ok(UiNavigationTarget::CatalogArtist(
+            ArtistRef {
+                provider: provider.into(),
+                id: id.into(),
+            },
+            section.into(),
+        ));
     }
     if let Some(category) = object.get("settingsCategory") {
         if object.len() == 3
@@ -289,7 +315,9 @@ fn sanitize_ui_navigation_completion(
     }
     if matches!(
         expected,
-        UiNavigationTarget::SpotifyPlaylist(_) | UiNavigationTarget::HistoryDirection(_) | UiNavigationTarget::CatalogArtist(_, _)
+        UiNavigationTarget::SpotifyPlaylist(_)
+            | UiNavigationTarget::HistoryDirection(_)
+            | UiNavigationTarget::CatalogArtist(_, _)
     ) {
         result["completionScope"] = json!("route_transition");
     }
@@ -4246,26 +4274,43 @@ impl AutomationService {
                 // Read an existing saved track only. The acquisition method may
                 // cache proof, but this diagnostic never writes tags or playback state.
                 let track = required_track(&self.store, &track_id)?;
-                let app_state = self.app.try_state::<crate::AppState>()
+                let app_state = self
+                    .app
+                    .try_state::<crate::AppState>()
                     .ok_or_else(|| ToolError::failed("Remote read registry is unavailable"))?;
-                let guard = app_state.provider_reads.begin(Uuid::new_v4().to_string())
+                let guard = app_state
+                    .provider_reads
+                    .begin(Uuid::new_v4().to_string())
                     .map_err(|_| ToolError::failed("Catalog identity read is unavailable"))?;
                 let started = std::time::Instant::now();
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
-                let result = tokio::time::timeout_at(deadline, self.acquisition.prepare_catalog_duration_track(
-                    &track, guard.cancellation(), deadline,
-                )).await;
+                let result = tokio::time::timeout_at(
+                    deadline,
+                    self.acquisition.prepare_catalog_duration_track(
+                        &track,
+                        guard.cancellation(),
+                        deadline,
+                    ),
+                )
+                .await;
                 // Dropping the bounded registry guard closes its cancellation
                 // sender on every return/drop path; no detached diagnostic job.
                 drop(guard);
                 match result {
                     Ok(Ok(prepared)) => catalog_identity_summary(
-                        prepared.as_ref().map(|value| &value.track), started.elapsed().as_millis(),
+                        prepared.as_ref().map(|value| &value.track),
+                        started.elapsed().as_millis(),
                     ),
-                    _ => return Err(ToolError {
-                        code: if tokio::time::Instant::now() >= deadline { "TIMEOUT" } else { "OPERATION_FAILED" },
-                        message: "Catalog identity preparation did not complete".into(),
-                    }),
+                    _ => {
+                        return Err(ToolError {
+                            code: if tokio::time::Instant::now() >= deadline {
+                                "TIMEOUT"
+                            } else {
+                                "OPERATION_FAILED"
+                            },
+                            message: "Catalog identity preparation did not complete".into(),
+                        })
+                    }
                 }
             }
             "prepare_spotify_recording_crosswalk" => {
@@ -6383,14 +6428,16 @@ fn idempotent_id(
     Ok(Some(id.to_owned()))
 }
 fn parse_catalog_identity_request(arguments: &Value) -> Result<String, ToolError> {
-    arguments.as_object()
+    arguments
+        .as_object()
         .filter(|object| object.len() == 1 && object.contains_key("trackId"))
         .ok_or_else(|| ToolError::bad("Catalog identity preparation accepts only trackId"))?;
     str_arg(arguments, "trackId", 256)
 }
 
 fn catalog_identity_summary(prepared: Option<&Track>, elapsed_ms: u128) -> Value {
-    let duration = prepared.and_then(|track| track.duration_seconds)
+    let duration = prepared
+        .and_then(|track| track.duration_seconds)
         .filter(|seconds| seconds.is_finite() && *seconds > 0.0);
     json!({
         "enriched": duration.is_some(),
@@ -8066,45 +8113,96 @@ mod tests {
 
     #[test]
     fn playback_catalog_identity_tool_is_saved_track_only_and_read_scoped() {
-        assert_eq!(tool_scope("prepare_playback_catalog_identity"), Some("read"));
-        let tool = tool_definitions().into_iter()
-            .find(|tool| tool["name"] == "prepare_playback_catalog_identity").unwrap();
+        assert_eq!(
+            tool_scope("prepare_playback_catalog_identity"),
+            Some("read")
+        );
+        let tool = tool_definitions()
+            .into_iter()
+            .find(|tool| tool["name"] == "prepare_playback_catalog_identity")
+            .unwrap();
         assert_eq!(tool["inputSchema"]["required"], json!(["trackId"]));
-        assert_eq!(tool["inputSchema"]["properties"].as_object().unwrap().len(), 1);
-        assert_eq!(tool["inputSchema"]["properties"]["trackId"]["maxLength"], 256);
+        assert_eq!(
+            tool["inputSchema"]["properties"].as_object().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            tool["inputSchema"]["properties"]["trackId"]["maxLength"],
+            256
+        );
         assert_eq!(tool["inputSchema"]["additionalProperties"], false);
-        assert_eq!(parse_catalog_identity_request(&json!({"trackId":"radio_song:saved"})).unwrap(), "radio_song:saved");
-        for input in [json!({}), json!({"trackId":""}), json!({"trackId":"x".repeat(257)}),
-            json!({"trackId":42}), json!({"trackId":"saved","track":{"durationSeconds":999}}),
-            json!({"trackId":"saved","url":"https://example.org"})] {
+        assert_eq!(
+            parse_catalog_identity_request(&json!({"trackId":"radio_song:saved"})).unwrap(),
+            "radio_song:saved"
+        );
+        for input in [
+            json!({}),
+            json!({"trackId":""}),
+            json!({"trackId":"x".repeat(257)}),
+            json!({"trackId":42}),
+            json!({"trackId":"saved","track":{"durationSeconds":999}}),
+            json!({"trackId":"saved","url":"https://example.org"}),
+        ] {
             assert!(parse_catalog_identity_request(&input).is_err());
         }
     }
 
     #[test]
     fn playback_catalog_identity_summary_is_safe_and_does_not_mutate_track() {
-        let track = Track { duration_seconds:Some(228.0), isrc:Some("PRIVATE_CODE".into()),
-            source_url:"https://example.org/signed?token=PRIVATE_TOKEN".into(),
-            provenance:json!({"proof":"PRIVATE_PROOF","account":"PRIVATE_ACCOUNT"}), ..Track::default() };
+        let track = Track {
+            duration_seconds: Some(228.0),
+            isrc: Some("PRIVATE_CODE".into()),
+            source_url: "https://example.org/signed?token=PRIVATE_TOKEN".into(),
+            provenance: json!({"proof":"PRIVATE_PROOF","account":"PRIVATE_ACCOUNT"}),
+            ..Track::default()
+        };
         let before = serde_json::to_value(&track).unwrap();
-        assert_eq!(catalog_identity_summary(Some(&track), 17), json!({"enriched":true,
-            "durationSeconds":228.0,"isrcKnown":true,"provider":"spotify","elapsedMs":17}));
+        assert_eq!(
+            catalog_identity_summary(Some(&track), 17),
+            json!({"enriched":true,
+            "durationSeconds":228.0,"isrcKnown":true,"provider":"spotify","elapsedMs":17})
+        );
         assert_eq!(serde_json::to_value(&track).unwrap(), before);
-        assert_eq!(catalog_identity_summary(None, 20), json!({"enriched":false,
-            "durationSeconds":null,"isrcKnown":false,"provider":"spotify","elapsedMs":20}));
-        let invalid = Track { duration_seconds:Some(f64::NAN), ..track };
-        assert_eq!(catalog_identity_summary(Some(&invalid), 0)["enriched"], false);
+        assert_eq!(
+            catalog_identity_summary(None, 20),
+            json!({"enriched":false,
+            "durationSeconds":null,"isrcKnown":false,"provider":"spotify","elapsedMs":20})
+        );
+        let invalid = Track {
+            duration_seconds: Some(f64::NAN),
+            ..track
+        };
+        assert_eq!(
+            catalog_identity_summary(Some(&invalid), 0)["enriched"],
+            false
+        );
     }
 
     #[test]
     fn catalog_artist_navigation_validates_identity_section_and_completion() {
         let id = "123e4567-e89b-12d3-a456-426614174000";
-        for (provider, id) in [("musicbrainz", id), ("discogs", "12345"), ("discogs", "18446744073709551615")] {
-            let artist = ArtistRef { provider: provider.into(), id: id.into() };
+        for (provider, id) in [
+            ("musicbrainz", id),
+            ("discogs", "12345"),
+            ("discogs", "18446744073709551615"),
+        ] {
+            let artist = ArtistRef {
+                provider: provider.into(),
+                id: id.into(),
+            };
             for section in ["overview", "releases", "tracks"] {
-                let target = parse_ui_navigation_request(&json!({"catalogArtist":artist,"catalogArtistSection":section})).unwrap();
-                assert_eq!(target, UiNavigationTarget::CatalogArtist(artist.clone(), section.into()));
-                assert_eq!(target.payload(), json!({"kind":"catalog_artist","catalogArtist":artist,"catalogArtistSection":section}));
+                let target = parse_ui_navigation_request(
+                    &json!({"catalogArtist":artist,"catalogArtistSection":section}),
+                )
+                .unwrap();
+                assert_eq!(
+                    target,
+                    UiNavigationTarget::CatalogArtist(artist.clone(), section.into())
+                );
+                assert_eq!(
+                    target.payload(),
+                    json!({"kind":"catalog_artist","catalogArtist":artist,"catalogArtistSection":section})
+                );
                 let result = sanitize_ui_navigation_completion(&target, id, "complete").unwrap();
                 assert_eq!(result["completionScope"], "route_transition");
                 assert_eq!(result["catalogArtist"], json!(artist));
@@ -8112,8 +8210,19 @@ mod tests {
                 assert!(sanitize_ui_navigation_completion(&target, "other", "complete").is_err());
             }
         }
-        assert_eq!(parse_ui_navigation_request(&json!({"catalogArtist":{"provider":"musicbrainz","id":id}})).unwrap(),
-            UiNavigationTarget::CatalogArtist(ArtistRef {provider:"musicbrainz".into(),id:id.into()}, "overview".into()));
+        assert_eq!(
+            parse_ui_navigation_request(
+                &json!({"catalogArtist":{"provider":"musicbrainz","id":id}})
+            )
+            .unwrap(),
+            UiNavigationTarget::CatalogArtist(
+                ArtistRef {
+                    provider: "musicbrainz".into(),
+                    id: id.into()
+                },
+                "overview".into()
+            )
+        );
         for arguments in [
             json!({"catalogArtistSection":"tracks"}),
             json!({"catalogArtist":null}),
@@ -8131,7 +8240,10 @@ mod tests {
             json!({"catalogArtist":{"provider":"musicbrainz","id":id},"view":"library"}),
             json!({"catalogArtist":{"provider":"musicbrainz","id":id},"script":"arbitrary"}),
         ] {
-            assert!(parse_ui_navigation_request(&arguments).is_err(), "accepted {arguments}");
+            assert!(
+                parse_ui_navigation_request(&arguments).is_err(),
+                "accepted {arguments}"
+            );
         }
     }
 
