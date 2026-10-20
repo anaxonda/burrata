@@ -75,14 +75,38 @@ playhead polls. Reader queue age is reported separately; it is not called URL
 age or remaining URL lifetime. Actual URL expiry remains unknown, and existing
 production expiration/access checks and bounded refresh behavior are unchanged.
 
-CPU and RSS are sampled every 200 ms from the owned app tree, separating app,
-WebView, and helper process-name groups. The report distinguishes control setup,
-steady control playback, preparation, transition, and sustained next playback.
-CPU 100% means one logical core. Vite is outside the application total;
-short-lived or reparented helpers can be missed, and summed RSS can double-count
-shared pages. A transition interval includes the estimated end of the control
-through the first second after observed next playback. These samples can locate
-a preparation CPU spike, but do not establish complete kernel child CPU usage.
+Future reports identify resource attribution as
+`root-start-executable-basename-v2`. Only the selected app root's PID/start
+identity is `app`. The sampler verifies identity around `/proc/PID/exe` reads,
+caches each executable basename by PID/start identity, and recognizes explicit
+WebKit and helper basenames. An unrecognized or inaccessible executable remains
+`unknown`; its `comm` name cannot turn it into `app`. In particular,
+`comm=MainThread` with a proven `node` executable is a helper. A recycled PID does
+not inherit the previous process's executable role or CPU baseline. Loss of the
+selected root identity fails the observation rather than adopting another root.
+
+CPU and RSS sampling sleeps 200 ms plus collection overhead. Tree totals include
+all four components: app, WebView, helper and unknown. Safe metadata records the
+classification version, counts of seen identities and recognized basenames,
+unknown counts and sampling limitations, without arguments or arbitrary paths.
+Failed executable reads are cached as unknown. An exec within the same PID/start
+identity can leave a cached basename stale; classification is a sampled process
+role, not verified job/script attribution.
+
+The report distinguishes control setup, steady control playback, preparation,
+transition, and sustained next playback. CPU 100% means one logical core. Vite
+is outside the application total; short-lived or reparented helpers can be
+missed, and summed RSS can double-count shared pages. A transition interval
+includes the estimated end of the control through the first second after
+observed next playback. These samples can locate a preparation CPU spike, but do
+not establish complete kernel child CPU usage.
+
+The [archived six-arm exploratory run](../../docs/performance-results/2026-10-19-next-preparation/README.md)
+used the legacy comm-only classifier. Its app/helper split is explicitly
+unreliable because a Node executable named `MainThread` was counted as app. Its
+original bytes and conclusions remain unchanged. The new classifier does not
+retroactively repair those component histories; only their combined sampled
+tree totals are usable within the documented limits.
 
 Handoff delay is a 100 ms polling estimate against the control's expected end,
 not a speaker waveform measurement or proof of sample-level gaplessness. Actual

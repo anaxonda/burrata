@@ -107,7 +107,7 @@ async fn live_three_public_ids_paired_opus_routes() {
                     "{}",
                     json!({"experiment":"native-direct-opus-route-pair-v1",
                     "pairIndex":pair_index,"warmup":is_warmup,"videoId":request.video_id,
-                    "ok":false,"failure":error.code,"stage":error.stage,"arms":[],
+                    "ok":false,"failure":error.code,"stage":error.stage,"httpStatus":error.http_status,"arms":[],
                     "commonResolutionMs":common_resolution_ms,"qualification":false})
                 );
                 continue;

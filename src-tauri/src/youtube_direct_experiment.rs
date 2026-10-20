@@ -21,13 +21,26 @@ const VISITOR_UA: &str =
 const OPUS: &str = "audio/webm; codecs=\"opus\"";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Failure {
     code: &'static str,
     stage: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    http_status: Option<u16>,
 }
 type Result<T> = std::result::Result<T, Failure>;
 fn fail(code: &'static str, stage: &'static str) -> Failure {
-    Failure { code, stage }
+    Failure {
+        code,
+        stage,
+        http_status: None,
+    }
+}
+impl Failure {
+    fn with_http_status(mut self, status: u16) -> Self {
+        self.http_status = Some(status);
+        self
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -181,6 +194,19 @@ fn parse_visitor(text: &str, source: VisitorSource) -> Option<AnonymousVisitor> 
     valid_visitor(&value).then_some(AnonymousVisitor(value))
 }
 
+fn parse_visitor_response(
+    status: u16,
+    text: &str,
+    source: VisitorSource,
+) -> Result<AnonymousVisitor> {
+    if (200..300).contains(&status) {
+        if let Some(visitor) = parse_visitor(text, source) {
+            return Ok(visitor);
+        }
+    }
+    Err(fail("VISITOR_CONTEXT_UNAVAILABLE", source.stage()).with_http_status(status))
+}
+
 struct Spec {
     endpoint: String,
     headers: BTreeMap<String, String>,
@@ -328,14 +354,15 @@ impl DirectExperiment {
                     .content_length()
                     .is_some_and(|size| size > MAX_BODY as u64)
                 {
-                    return Err(fail("RESPONSE_TOO_LARGE", stage));
+                    return Err(fail("RESPONSE_TOO_LARGE", stage).with_http_status(status));
                 }
                 let mut stream = response.bytes_stream();
                 let mut bytes = Vec::new();
                 while let Some(chunk) = stream.next().await {
-                    let chunk = chunk.map_err(|_| fail("NETWORK_FAILED", stage))?;
+                    let chunk = chunk
+                        .map_err(|_| fail("NETWORK_FAILED", stage).with_http_status(status))?;
                     if bytes.len().saturating_add(chunk.len()) > MAX_BODY {
-                        return Err(fail("RESPONSE_TOO_LARGE", stage));
+                        return Err(fail("RESPONSE_TOO_LARGE", stage).with_http_status(status));
                     }
                     bytes.extend_from_slice(&chunk);
                 }
@@ -359,6 +386,7 @@ impl DirectExperiment {
         let mut timings = BTreeMap::new();
         let mut visitor = None;
         if request.visitor_mode == VisitorMode::AnonymousSource {
+            let mut visitor_failure = fail("VISITOR_CONTEXT_UNAVAILABLE", "visitorHomepage");
             for source in [VisitorSource::ServiceWorker, VisitorSource::Homepage] {
                 let at = Instant::now();
                 let fetched = self
@@ -368,21 +396,24 @@ impl DirectExperiment {
                     source.stage().to_owned(),
                     at.elapsed().as_secs_f64() * 1000.0,
                 );
-                match fetched {
-                    Ok((200..=299, text)) => {
-                        visitor = parse_visitor(&text, source);
-                    }
+                let parsed = fetched
+                    .and_then(|(status, text)| parse_visitor_response(status, &text, source));
+                match parsed {
+                    Ok(found) => visitor = Some(found),
                     Err(error) if matches!(error.code, "CANCELLED" | "TIMEOUT") => {
                         return Err(error)
                     }
-                    _ => {}
+                    Err(error) => {
+                        visitor_failure = fail("VISITOR_CONTEXT_UNAVAILABLE", source.stage());
+                        visitor_failure.http_status = error.http_status;
+                    }
                 }
                 if visitor.is_some() {
                     break;
                 }
             }
             if visitor.is_none() {
-                return Err(fail("VISITOR_CONTEXT_UNAVAILABLE", "visitorHomepage"));
+                return Err(visitor_failure);
             }
         }
         let at = Instant::now();
@@ -390,14 +421,9 @@ impl DirectExperiment {
             .fetch(player_spec(request, visitor.as_ref())?, &budget, "player")
             .await?;
         timings.insert("player".into(), at.elapsed().as_secs_f64() * 1000.0);
-        if !(200..300).contains(&status) {
-            return Err(fail("PLAYER_HTTP_ERROR", "player"));
-        }
         budget
             .run("parse", async {
-                let value: Value =
-                    serde_json::from_str(&text).map_err(|_| fail("INVALID_RESPONSE", "parse"))?;
-                let mut selected = select_audio(&value, request, unix_ms())?;
+                let mut selected = select_player_response(status, &text, request, unix_ms())?;
                 selected.report.stages = timings;
                 selected.report.resolution_ms = started.elapsed().as_secs_f64() * 1000.0;
                 Ok(selected)
@@ -425,6 +451,16 @@ struct SafeReport {
 struct Resolved {
     url: Url,
     report: SafeReport,
+    // Fresh response facts only: these are neither artist credit proof nor a
+    // verified-channel assertion. Never include them in safe reports or Debug.
+    fresh_identity: FreshPlayerIdentity,
+}
+// Intentionally neither Debug nor Serialize; a title/channel can contain URLs
+// or arbitrary provider text. A future identity adapter must opt in explicitly.
+struct FreshPlayerIdentity {
+    title: String,
+    channel_name: String,
+    channel_id: Option<String>,
 }
 impl Resolved {
     /// This is an explicit-source diagnostic, not a catalog identity proof.
@@ -453,6 +489,7 @@ impl std::fmt::Debug for Resolved {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Resolved")
             .field("url", &"<redacted>")
+            .field("fresh_identity", &"<redacted>")
             .field("report", &self.report)
             .finish()
     }
@@ -494,6 +531,19 @@ fn unix_ms() -> f64 {
         .unwrap_or_default()
         .as_secs_f64()
         * 1000.0
+}
+fn select_player_response(
+    status: u16,
+    text: &str,
+    request: &Request,
+    now: f64,
+) -> Result<Resolved> {
+    if !(200..300).contains(&status) {
+        return Err(fail("PLAYER_HTTP_ERROR", "player").with_http_status(status));
+    }
+    let body: Value = serde_json::from_str(text)
+        .map_err(|_| fail("INVALID_RESPONSE", "parse").with_http_status(status))?;
+    select_audio(&body, request, now).map_err(|error| error.with_http_status(status))
 }
 fn select_audio(body: &Value, request: &Request, now: f64) -> Result<Resolved> {
     let metadata = &body["videoDetails"];
@@ -605,6 +655,14 @@ fn select_audio(body: &Value, request: &Request, now: f64) -> Result<Resolved> {
     }
     Ok(Resolved {
         url,
+        fresh_identity: FreshPlayerIdentity {
+            title: title.to_owned(),
+            channel_name: author.to_owned(),
+            channel_id: metadata["channelId"]
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_owned),
+        },
         report: SafeReport {
             profile: "VISIONOS_0_1",
             video_id: request.video_id.clone(),
@@ -640,6 +698,106 @@ mod tests {
         let mut row = vec![Value::Null; 14];
         row[13] = value;
         format!(")]}}'\n{}", json!([[null, null, [[row]]]]))
+    }
+
+    #[test]
+    fn player_failure_status_is_numeric_and_response_text_stays_private() {
+        let private_body = "private-response https://private.invalid/?token=private-token";
+        for status in [302, 403, 429, 500, 503] {
+            let error =
+                select_player_response(status, private_body, &request(), 1_000_000.).unwrap_err();
+            assert_eq!(error.code, "PLAYER_HTTP_ERROR");
+            assert_eq!(error.stage, "player");
+            assert_eq!(error.http_status, Some(status));
+            let safe = serde_json::to_value(error).unwrap();
+            assert_eq!(safe["httpStatus"], status);
+            assert_eq!(safe.as_object().unwrap().len(), 3);
+            for forbidden in ["private-response", "private.invalid", "private-token"] {
+                assert!(!safe.to_string().contains(forbidden));
+                assert!(!format!("{error:?}").contains(forbidden));
+            }
+        }
+        let malformed =
+            select_player_response(200, private_body, &request(), 1_000_000.).unwrap_err();
+        assert_eq!(malformed.code, "INVALID_RESPONSE");
+        assert_eq!(malformed.http_status, Some(200));
+        let mut wrong_id = body();
+        wrong_id["videoDetails"]["videoId"] = json!("aqz-KE-bpKQ");
+        let mismatch =
+            select_player_response(200, &wrong_id.to_string(), &request(), 1_000_000.).unwrap_err();
+        assert_eq!(mismatch.code, "RECORDING_MISMATCH");
+        assert_eq!(mismatch.http_status, Some(200));
+        let no_response = fail("NETWORK_FAILED", "player");
+        assert!(no_response.http_status.is_none());
+        assert!(serde_json::to_value(no_response)
+            .unwrap()
+            .get("httpStatus")
+            .is_none());
+    }
+
+    #[test]
+    fn visitor_failure_status_and_stage_belong_to_the_actual_response() {
+        let denied = parse_visitor_response(403, "private-response", VisitorSource::ServiceWorker)
+            .err()
+            .unwrap();
+        assert_eq!(denied.code, "VISITOR_CONTEXT_UNAVAILABLE");
+        assert_eq!(denied.stage, "visitorServiceWorker");
+        assert_eq!(denied.http_status, Some(403));
+        // The anonymous homepage fallback can still succeed after that denial.
+        let homepage = "{\"VISITOR_DATA\":\"synthetic-private-visitor\"}";
+        let visitor = parse_visitor_response(200, homepage, VisitorSource::Homepage).unwrap();
+        assert_eq!(visitor.0, "synthetic-private-visitor");
+        for (status, expected) in [(200, Some(200)), (429, Some(429)), (503, Some(503))] {
+            let error =
+                parse_visitor_response(status, "private-invalid-body", VisitorSource::Homepage)
+                    .err()
+                    .unwrap();
+            assert_eq!(error.stage, "visitorHomepage");
+            assert_eq!(error.http_status, expected);
+            let safe = serde_json::to_string(&error).unwrap();
+            assert!(!safe.contains("private-invalid-body"));
+            assert!(!safe.contains("synthetic-private-visitor"));
+        }
+    }
+
+    #[test]
+    fn fresh_player_identity_is_retained_privately_without_new_proof_claims() {
+        let mut response = body();
+        let title = "private-title https://private.invalid/?token=private-token";
+        let channel = "private-channel-name";
+        let channel_id = "private-channel-id";
+        response["videoDetails"]["title"] = json!(title);
+        response["videoDetails"]["author"] = json!(channel);
+        response["videoDetails"]["channelId"] = json!(channel_id);
+        let selected =
+            select_player_response(200, &response.to_string(), &request(), 1_000_000.).unwrap();
+        assert_eq!(selected.fresh_identity.title, title);
+        assert_eq!(selected.fresh_identity.channel_name, channel);
+        assert_eq!(
+            selected.fresh_identity.channel_id.as_deref(),
+            Some(channel_id)
+        );
+        let safe = serde_json::to_string(&selected.report).unwrap();
+        let debug = format!("{selected:?}");
+        for forbidden in [
+            title,
+            channel,
+            channel_id,
+            "private-signature",
+            "googlevideo.com",
+        ] {
+            assert!(!safe.contains(forbidden));
+            assert!(!debug.contains(forbidden));
+        }
+        let (audio, _) = selected.into_preview_audio();
+        assert!(
+            audio.resolved_title.is_none(),
+            "existing diagnostic handoff stays unchanged"
+        );
+        assert!(audio.source_metadata.is_none());
+        assert!(audio.chapters.is_none());
+        let absent = select_audio(&body(), &request(), 1_000_000.).unwrap();
+        assert!(absent.fresh_identity.channel_id.is_none());
     }
     #[test]
     fn exact_profile_and_visitor_request_goldens() {
@@ -1023,7 +1181,7 @@ mod tests {
                 Err(error) => eprintln!(
                     "{}",
                     json!({"experiment":"native-direct-metadata-v1","ok":false,
-                    "videoId":req.video_id,"failure":error.code,"stage":error.stage,
+                    "videoId":req.video_id,"failure":error.code,"stage":error.stage,"httpStatus":error.http_status,
                     "resolutionMs":started.elapsed().as_secs_f64()*1000.0,"decodeAttempted":false,"qualification":false})
                 ),
             }
@@ -1134,7 +1292,7 @@ mod tests {
                 Err(error) => eprintln!(
                     "{}",
                     json!({"experiment":"native-direct-existing-decoder-v1","ok":false,
-                    "videoId":request.video_id,"failure":error.code,"stage":error.stage,
+                    "videoId":request.video_id,"failure":error.code,"stage":error.stage,"httpStatus":error.http_status,
                     "wallMs":started.elapsed().as_secs_f64()*1000.0,"qualification":false})
                 ),
             }

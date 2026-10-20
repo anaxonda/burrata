@@ -24,7 +24,7 @@ import time
 from datetime import datetime, timezone
 
 import run_isolated_memory as seed
-from profile_process import snapshot as process_snapshot
+from profile_process import read_stat, snapshot as process_snapshot
 from innertube.serial_same_worker import terminate_group
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +32,14 @@ HERE = Path(__file__).resolve().parent
 OBSERVER = HERE / 'next_preparation_observer.mjs'
 MANIFEST = HERE / 'innertube/fixtures/transport-music-tracks.json'
 SCHEMA = 'burrata.next-preparation/v1'
+RESOURCE_CLASSIFICATION_VERSION = 'root-start-executable-basename-v2'
+RESOURCE_SAMPLING_LIMITATIONS = [
+    'Only the selected root PID/start identity is app; descendants without a proven recognized executable basename are unknown.',
+    'Executable basenames are cached once per PID/start identity, including failed reads. Comm names never establish component identity.',
+    'An exec within the same PID/start identity can make its cached basename stale; failed or pre-exec unrecognized names stay unknown.',
+    'CPU 100% means one logical core. Sampling sleeps 200 ms plus collection overhead; initial baselines and short-lived/reparented processes can omit CPU.',
+    'Tree sums include app, WebView, helper and unknown. Vite/observer are outside the tree; summed RSS can double-count shared pages.',
+]
 PHASES = {
     'next_preparation_start', 'next_preparation_policy', 'next_preparation_discovery_end',
     'next_preparation_resolve_start', 'next_preparation_resolve_end', 'next_preparation_queued',
@@ -48,7 +56,7 @@ LIMITATIONS = [
     'Polling estimates handoff timing at100ms resolution; neither physical audibility nor sample-level gaplessness is measured.',
     'Source ID is pinned; format is observed, not forced. Deltas require equal actual provider/video/format IDs.',
     'Fresh expiring URLs and existing bounded refresh/recovery remain production behavior; failures are retained, never retried by the harness.',
-    'CPU100% means one logical core. App/WebView/helper components are sampled every200ms, exclude Vite, and can miss short-lived or reparented children; RSS can double-count shared pages.',
+    'CPU 100% means one logical core. Root-identity/executable-basename attribution separates app/WebView/helper/unknown; tree sums include unknown. Sampling sleeps 200 ms plus collection overhead and can miss short-lived/reparented children; RSS can double-count shared pages.',
     'Network wire bytes are unknown. Decoder read counts and range high-water marks are not substituted for network traffic.',
 ]
 LAUNCHER_FAILURES = [
@@ -333,11 +341,80 @@ def attach_preparation(row, events):
         row['originalFailure'] = row.get('originalFailure') or 'preparation_not_adopted'
 
 
-def resource_component(name):
-    lower = name.lower()
-    if 'webkit' in lower: return 'webview'
-    if any(lower.startswith(prefix) for prefix in ['node', 'deno', 'yt-dlp', 'ffmpeg', 'python', 'bgutil']): return 'helper'
-    return 'app'
+def resource_component(executable_basename):
+    """A basename can establish a child role, never native app ownership."""
+    if not isinstance(executable_basename, str): return 'unknown'
+    lower = executable_basename.lower()
+    if lower in {'webkitwebprocess', 'webkitnetworkprocess', 'webkitgpuprocess'}: return 'webview'
+    if lower in {'node', 'deno', 'yt-dlp', 'yt-dlp_linux', 'yt-dlp_linux_aarch64', 'yt-dlp_macos',
+                 'ffmpeg', 'ffprobe', 'fpcalc', 'burrata-recognize', 'python', 'python3'} \
+            or re.fullmatch(r'python3\.\d{1,2}', lower): return 'helper'
+    return 'unknown'
+
+
+def executable_basename(pid, start, proc=Path('/proc')):
+    """Verify identity around readlink; never inspect arguments or environment."""
+    directory = proc/str(pid)
+    try:
+        if read_stat(directory/'stat')['start'] != start: return None
+        basename = Path(os.readlink(directory/'exe')).name
+        if read_stat(directory/'stat')['start'] != start: return None
+        return basename
+    except (OSError, ValueError, IndexError): return None
+
+
+class ProcessAttribution:
+    def __init__(self, root_identity, reader=executable_basename):
+        self.root_identity = root_identity
+        self.reader = reader
+        self.basename_cache = {}
+        self.seen_components = {}
+
+    def classify(self, pid, process):
+        identity = (pid, process['start'])
+        if identity == self.root_identity:
+            component = 'app'
+        else:
+            if identity not in self.basename_cache:
+                try: self.basename_cache[identity] = self.reader(*identity)
+                except OSError: self.basename_cache[identity] = None
+            component = resource_component(self.basename_cache[identity])
+        self.seen_components[identity] = component
+        return component
+
+    def require_root(self, processes):
+        pid, start = self.root_identity
+        if processes.get((pid, 0), {}).get('start') != start:
+            raise RuntimeError('sampled_app_root_identity_lost')
+
+    def metadata(self):
+        counts = {component: list(self.seen_components.values()).count(component)
+                  for component in ['app', 'webview', 'helper', 'unknown']}
+        known = {}
+        for basename in self.basename_cache.values():
+            # Do not retain arbitrary executable paths/names in safe reports.
+            name = basename if resource_component(basename) != 'unknown' else 'unavailable' if basename is None else 'unrecognized'
+            known[name] = known.get(name, 0)+1
+        return dict(version=RESOURCE_CLASSIFICATION_VERSION, initialized=True,
+                    seenProcessIdentitiesByComponent=counts, cachedExecutableBasenameCounts=known,
+                    unknownIncludedInTreeTotals=True, limitations=RESOURCE_SAMPLING_LIMITATIONS)
+
+
+def resource_components(processes, attribution, prior, totals, elapsed, hz):
+    attribution.require_root(processes)
+    components = {name: dict(cpuMs=0., cpuPercentOneCore=0., rssBytes=0)
+                  for name in ['app', 'webview', 'helper', 'unknown']}
+    for (pid, _), process in processes.items():
+        identity = (pid, process['start'])
+        component = components[attribution.classify(pid, process)]
+        component['rssBytes'] += process['rss']
+        if identity in prior:
+            ticks = max(0, process['ticks']-prior[identity])
+            totals[identity] = totals.get(identity, 0)+ticks
+            component['cpuMs'] += ticks*1000/hz
+        prior[identity] = process['ticks']
+    for component in components.values(): component['cpuPercentOneCore'] = component['cpuMs']/elapsed/10
+    return components
 
 
 def resource_phases(row, samples):
@@ -398,6 +475,7 @@ def execute_attempt(attempt, track, binary, deadline):
     launcher_ready = False
     resource_samples = []
     totals, peak_rss, sample_count = {}, 0, 0
+    attribution = None
     row['outcomes'] = []
     stage = 'seed'
     try:
@@ -431,26 +509,18 @@ def execute_attempt(attempt, track, binary, deadline):
             if len(app_pids) != 1 or Path(f'/proc/{app_pids[0]}/exe').resolve() != binary:
                 raise RuntimeError('single_gui_ownership_failed')
             app_pid = app_pids[0]
-            if (app_pid, 0) not in process_snapshot([launcher.pid]): raise RuntimeError('single_gui_ownership_failed')
+            owned = process_snapshot([launcher.pid])
+            if (app_pid, 0) not in owned: raise RuntimeError('single_gui_ownership_failed')
+            attribution = ProcessAttribution((app_pid, owned[(app_pid, 0)]['start']))
             stage = 'observation'
             prior, sampled_at = {}, time.monotonic()
             work_deadline = min(deadline, time.monotonic()+105)
             while observer.poll() is None and time.monotonic() < work_deadline:
                 sampled = process_snapshot([app_pid]) if app_pid else {}
                 processes = {key: value for key, value in sampled.items() if key[1] == 0}
-                peak_rss = max(peak_rss, sum(value['rss'] for value in processes.values()))
                 now = time.monotonic(); elapsed = max(.001, now-sampled_at); sampled_at = now
-                components = {name: dict(cpuMs=0., cpuPercentOneCore=0., rssBytes=0) for name in ['app', 'webview', 'helper']}
-                for key, value in processes.items():
-                    identity = (key[0], value['start'])
-                    component = components[resource_component(value['name'])]
-                    component['rssBytes'] += value['rss']
-                    if identity in prior:
-                        ticks = max(0, value['ticks']-prior[identity])
-                        totals[identity] = totals.get(identity, 0)+ticks
-                        component['cpuMs'] += ticks*1000/os.sysconf('SC_CLK_TCK')
-                    prior[identity] = value['ticks']
-                for component in components.values(): component['cpuPercentOneCore'] = component['cpuMs']/elapsed/10
+                components = resource_components(processes, attribution, prior, totals, elapsed, os.sysconf('SC_CLK_TCK'))
+                peak_rss = max(peak_rss, sum(component['rssBytes'] for component in components.values()))
                 resource_samples.append(dict(atUnixMs=int(time.time()*1000), components=components))
                 sample_count += 1; time.sleep(.2)
             if observer.poll() is None: raise TimeoutError('observer_deadline')
@@ -475,6 +545,9 @@ def execute_attempt(attempt, track, binary, deadline):
         launcher_exit = launcher.poll() if launcher is not None else None
         row['observerStarted'] = observer is not None
         row['observerExitCodeBeforeCleanup'] = observer.poll() if observer is not None else None
+        row['resourceClassification'] = attribution.metadata() if attribution else dict(
+            version=RESOURCE_CLASSIFICATION_VERSION, initialized=False, unknownIncludedInTreeTotals=True,
+            limitations=RESOURCE_SAMPLING_LIMITATIONS)
         clean_observer = stop_owned(observer)
         clean_launcher = stop_owned(launcher)
         row['cleanupCompleted'] = clean_observer and clean_launcher
@@ -519,6 +592,8 @@ def run(output, binary, track, phase='exploratory', budget_seconds=None):
     report = dict(schema=SCHEMA, phase=phase, qualification=False, promoted=False, status='running',
                   binarySha256=digest(binary), driverSha256=digest(__file__), observerSha256=digest(OBSERVER),
                   binaryRelativePath=safe_repo_path(binary),
+                  resourceClassificationVersion=RESOURCE_CLASSIFICATION_VERSION,
+                  resourceSamplingLimitations=RESOURCE_SAMPLING_LIMITATIONS,
                   track=track, wholeBudgetSeconds=budget_seconds, warmups=0,
                   limitations=LIMITATIONS, attempts=[{**row, 'status': 'not_run', 'eligible': False} for row in plan(phase)])
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -567,6 +642,8 @@ def main():
     if not args.run_isolated:
         print(json.dumps(dict(schema=SCHEMA, mode='plan-only', phase=args.phase, track=track, schedule=plan(args.phase),
                               wholeBudgetSeconds=600 if args.phase == 'exploratory' else 3600,
+                              resourceClassificationVersion=RESOURCE_CLASSIFICATION_VERSION,
+                              resourceSamplingLimitations=RESOURCE_SAMPLING_LIMITATIONS,
                               qualification=False, promoted=False, limitations=LIMITATIONS), indent=2)); return 0
     if not args.binary or not args.binary.is_file() or not os.access(args.binary, os.X_OK) or not args.output:
         parser.error('--run-isolated requires an existing debug executable and a new --output file')

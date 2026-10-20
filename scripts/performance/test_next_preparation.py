@@ -139,7 +139,92 @@ print('non-Linux discovery imports and skips safely')
         self.assertTrue(all(group['peakCpuPercentOneCore'] == 100 for group in groups))
         self.assertEqual(driver.resource_component('WebKitWebProcess'), 'webview')
         self.assertEqual(driver.resource_component('yt-dlp'), 'helper')
-        self.assertEqual(driver.resource_component('burrata'), 'app')
+        self.assertEqual(driver.resource_component('burrata'), 'unknown')
+
+    def test_mainthread_node_is_a_proven_helper_and_app_is_only_the_selected_root_identity(self):
+        from unittest.mock import Mock
+        reader = Mock(return_value='node')
+        attribution = driver.ProcessAttribution((10, 100), reader)
+        self.assertEqual(attribution.classify(10, dict(start=100, name='MainThread')), 'app')
+        reader.assert_not_called()
+        child = dict(start=200, name='MainThread')
+        self.assertEqual(attribution.classify(20, child), 'helper')
+        self.assertEqual(attribution.classify(20, {**child, 'name': 'burrata'}), 'helper')
+        reader.assert_called_once_with(20, 200)
+        # A reused root PID is a different identity even if its executable is Node.
+        self.assertEqual(attribution.classify(10, dict(start=101, name='burrata')), 'helper')
+        self.assertEqual(attribution.metadata()['seenProcessIdentitiesByComponent']['app'], 1)
+        self.assertEqual(attribution.metadata()['version'], driver.RESOURCE_CLASSIFICATION_VERSION)
+
+    def test_executable_cache_is_keyed_by_pid_and_start_and_does_not_reuse_previous_role(self):
+        from unittest.mock import Mock
+        reader = Mock(side_effect=['node', 'WebKitWebProcess'])
+        attribution = driver.ProcessAttribution((10, 100), reader)
+        self.assertEqual(attribution.classify(20, dict(start=200, name='MainThread')), 'helper')
+        self.assertEqual(attribution.classify(20, dict(start=201, name='MainThread')), 'webview')
+        self.assertEqual(reader.call_count, 2)
+        self.assertEqual(len(attribution.basename_cache), 2)
+        with self.assertRaisesRegex(RuntimeError, 'sampled_app_root_identity_lost'):
+            attribution.require_root({(10, 0): dict(start=101)})
+
+    def test_inaccessible_or_unrecognized_executable_remains_unknown_without_comm_fallback(self):
+        from unittest.mock import Mock
+        reader = Mock(side_effect=[PermissionError('private path is unavailable'), 'customer-secret.bin'])
+        attribution = driver.ProcessAttribution((10, 100), reader)
+        self.assertEqual(attribution.classify(20, dict(start=200, name='burrata')), 'unknown')
+        self.assertEqual(attribution.classify(20, dict(start=200, name='node')), 'unknown')
+        self.assertEqual(reader.call_count, 1, 'failed executable reads are cached for this identity')
+        self.assertEqual(attribution.classify(30, dict(start=300, name='WebKitWebProcess')), 'unknown')
+        metadata = attribution.metadata()
+        self.assertEqual(metadata['seenProcessIdentitiesByComponent']['unknown'], 2)
+        self.assertEqual(metadata['cachedExecutableBasenameCounts'], {'unavailable': 1, 'unrecognized': 1})
+        self.assertNotIn('secret', json.dumps(metadata)); self.assertNotIn('private', json.dumps(metadata))
+
+    def test_readlink_requires_the_same_process_start_before_and_after_read(self):
+        with patch.object(driver, 'read_stat', side_effect=[{'start': 1}, {'start': 2}]), \
+                patch.object(driver.os, 'readlink', return_value='/packaged/tools/node'):
+            self.assertIsNone(driver.executable_basename(20, 1))
+        with patch.object(driver, 'read_stat', return_value={'start': 2}), patch.object(driver.os, 'readlink') as readlink:
+            self.assertIsNone(driver.executable_basename(20, 1)); readlink.assert_not_called()
+        with patch.object(driver, 'read_stat', return_value={'start': 1}), \
+                patch.object(driver.os, 'readlink', side_effect=PermissionError):
+            self.assertIsNone(driver.executable_basename(20, 1))
+        with patch.object(driver, 'read_stat', return_value={'start': 1}), \
+                patch.object(driver.os, 'readlink', return_value='/packaged/tools/node'):
+            self.assertEqual(driver.executable_basename(20, 1), 'node')
+
+    def test_sampler_totals_include_unknown_and_pid_reuse_starts_a_new_cpu_baseline(self):
+        basenames = {(20, 200): 'node', (30, 300): None, (40, 400): 'WebKitWebProcess', (20, 201): None}
+        attribution = driver.ProcessAttribution((10, 100), lambda pid, start: basenames.get((pid, start)))
+        processes = {
+            (10, 0): dict(start=100, ticks=120, rss=100, name='MainThread'),
+            (20, 0): dict(start=200, ticks=230, rss=200, name='MainThread'),
+            (30, 0): dict(start=300, ticks=305, rss=300, name='burrata'),
+            (40, 0): dict(start=400, ticks=407, rss=400, name='node'),
+        }
+        prior = {(10, 100): 100, (20, 200): 200, (30, 300): 300, (40, 400): 400}
+        totals = {}
+        components = driver.resource_components(processes, attribution, prior, totals, .2, 100)
+        self.assertEqual(components['app']['cpuMs'], 200)
+        self.assertEqual(components['helper']['cpuMs'], 300)
+        self.assertEqual(components['unknown']['cpuMs'], 50)
+        self.assertEqual(components['webview']['cpuMs'], 70)
+        self.assertEqual(sum(row['rssBytes'] for row in components.values()), 1000)
+        self.assertEqual(sum(row['cpuMs'] for row in components.values()), 620)
+        self.assertEqual(sum(row['cpuPercentOneCore'] for row in components.values()), 310)
+        self.assertEqual(sum(totals.values())*10, 620)
+        reused = {**processes, (20, 0): dict(start=201, ticks=99999, rss=222, name='node')}
+        newer = driver.resource_components(reused, attribution, prior, totals, .2, 100)
+        self.assertEqual(newer['helper']['cpuMs'], 0)
+        self.assertEqual(newer['unknown']['cpuMs'], 0, 'a reused PID must not create a false CPU spike')
+        self.assertEqual(newer['unknown']['rssBytes'], 522)
+        self.assertTrue(attribution.metadata()['unknownIncludedInTreeTotals'])
+        prior_before, totals_before = dict(prior), dict(totals)
+        lost_root = {**reused, (10, 0): dict(start=101, ticks=99999, rss=99999, name='burrata')}
+        with self.assertRaisesRegex(RuntimeError, 'sampled_app_root_identity_lost'):
+            driver.resource_components(lost_root, attribution, prior, totals, .2, 100)
+        self.assertEqual(prior, prior_before)
+        self.assertEqual(totals, totals_before, 'a rejected root identity cannot change sampled accounting')
 
     def test_missing_first_audio_keeps_original_failure_and_partial_resource_samples(self):
         row = dict(seekSettledAtUnixMs=100, firstNextPlaying=None,
@@ -212,6 +297,10 @@ print('non-Linux discovery imports and skips safely')
             self.assertEqual(first['originalFailure'], 'launcher_failed')
             self.assertEqual(first['launcherFailureCategory'], 'native_binary_stale')
             self.assertEqual(first['launcher']['exitCodeBeforeCleanup'], 1)
+            self.assertEqual(result['resourceClassificationVersion'], driver.RESOURCE_CLASSIFICATION_VERSION)
+            self.assertEqual(first['resourceClassification']['version'], driver.RESOURCE_CLASSIFICATION_VERSION)
+            self.assertFalse(first['resourceClassification']['initialized'])
+            self.assertTrue(first['resourceClassification']['unknownIncludedInTreeTotals'])
             self.assertTrue(first['cleanupCompleted']); self.assertEqual(first['playbackObservationCount'], 0)
             self.assertEqual(len(first['partialPreparationTrace']), 1)
             self.assertEqual(sum(row['status'] == 'not_run' for row in result['attempts']), 5)
