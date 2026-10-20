@@ -462,6 +462,8 @@ fn ffmpeg_setup_phase_excludes_injected_failed_native_time() {
         .args([
             "-t",
             "1",
+            "-af",
+            "asetpts=PTS-STARTPTS",
             "-vn",
             "-f",
             "f32le",

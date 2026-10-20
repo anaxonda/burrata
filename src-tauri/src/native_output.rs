@@ -2715,6 +2715,11 @@ fn decode_ffmpeg_with_diagnostics(
     if let Some(end) = end {
         let duration = (end - position).max(0.0);
         command.arg("-t").arg(duration.to_string());
+        // FFmpeg 4.4 counts output -t from the first decoded packet timestamp.
+        // Opus pre-skip leaves that timestamp 6.5ms after the requested window
+        // start, truncating finite PCM. Normalize only finite windows so -t
+        // measures from their first decoded audio sample.
+        command.args(["-af", "asetpts=PTS-STARTPTS"]);
     }
     let child = command
         .args(["-vn", "-f", "f32le", "-acodec", "pcm_f32le", "-ar"])
