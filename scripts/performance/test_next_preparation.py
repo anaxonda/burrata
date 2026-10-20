@@ -8,6 +8,8 @@ import sys
 import tempfile
 import time
 import unittest
+import shlex
+from contextlib import closing
 from unittest.mock import patch
 
 import next_preparation as driver
@@ -62,7 +64,7 @@ print('non-Linux discovery imports and skips safely')
             spec = json.loads(manifest.read_text())
             self.assertEqual(spec['localDurationSeconds'], 90)
             self.assertEqual(spec['nextTrackId'], 'youtube:'+track['videoId'])
-            with sqlite3.connect(profile / 'data/org.burrata.discovery/burrata.sqlite') as connection:
+            with closing(sqlite3.connect(profile / 'data/org.burrata.discovery/burrata.sqlite')) as connection:
                 rows = connection.execute('SELECT provider,source_url,metadata FROM catalog_listings').fetchall()
                 self.assertEqual(len(rows), 2)
                 local = next(json.loads(row[2]) for row in rows if row[0] == 'local')
@@ -168,6 +170,79 @@ print('non-Linux discovery imports and skips safely')
             output.write_text('original')
             with self.assertRaisesRegex(ValueError, 'output_already_exists'): driver.run(output, binary, {})
             self.assertEqual(output.read_text(), 'original')
+
+    def test_launcher_failure_is_typed_and_raw_log_material_is_not_retained(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            text = ('https://private.example/?sig=secret Cookie: account=secret\n'
+                    f'The native executable is older than {driver.ROOT}/src-tauri/src/native_output.rs; compile Burrata before launching.\n')
+            (profile/'launcher.log').write_text(text)
+            evidence = driver.launcher_evidence(profile, False, 1, 'launcher_failed')
+            self.assertEqual(evidence['category'], 'native_binary_stale')
+            self.assertTrue(evidence['deterministic']); self.assertEqual(evidence['exitCodeBeforeCleanup'], 1)
+            self.assertEqual(evidence['staleSourceRelativePath'], 'src-tauri/src/native_output.rs')
+            self.assertTrue(evidence['log']['present']); self.assertNotIn('secret', json.dumps(evidence))
+            self.assertFalse(evidence['appProcessStarted']); self.assertFalse(evidence['frontendMounted'])
+            (profile/'launcher.log').write_text('x'*200_000+'\nThe authenticated MCP get_app_status handshake did not confirm a mounted frontend.\n')
+            text, fingerprint = driver.bounded_log(profile/'launcher.log')
+            self.assertTrue(fingerprint['truncated']); self.assertLessEqual(fingerprint['sampledBytes'], 128*1024)
+            self.assertEqual(driver.launcher_evidence(profile, False, 1, 'launcher_failed')['category'], 'frontend_handshake_failed')
+
+    def test_exit_only_fake_launcher_retains_evidence_and_stops_after_first_setup_failure(self):
+        from contextlib import nullcontext
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory); binary = base/'burrata'; binary.write_bytes(b'never executed')
+            fake = base/'launcher.sh'
+            message = f'The native executable is older than {driver.ROOT}/src-tauri/src/native_output.rs; compile Burrata before launching.'
+            phase = dict(phase='next_preparation_start', nativeOperationId='preparation:11111111-1111-1111-1111-111111111111',
+                         atUnixMs=100, details={'ok': False, 'url': 'https://private.example/?sig=secret'})
+            fake.write_text('#!/bin/sh\n'+"printf '%s\\n' "+shlex.quote(message)+"\n"
+                            +"printf '%s\\n' "+shlex.quote('burrata_playback_phase '+json.dumps(phase))+' > "$2/app.log"\n'
+                            +"printf '%s\\n' 'https://private.example/?sig=secret'\nexit 1\n")
+            profiles = []
+            original_seed = driver.seed_attempt
+            def seeded(profile, track):
+                profiles.append(profile); return original_seed(profile, track)
+            with patch.object(driver, 'active_gui_pids', return_value=[]), \
+                    patch.object(driver, 'single_driver_lock', return_value=nullcontext()), \
+                    patch.object(driver.seed, 'LAUNCHER', fake), patch.object(driver, 'seed_attempt', side_effect=seeded):
+                result = driver.run(base/'result.json', binary, driver.select_track(driver.MANIFEST, 'matthew'), budget_seconds=10)
+            self.assertEqual(result['status'], 'setup_failed')
+            first = result['attempts'][0]
+            self.assertEqual(first['originalFailure'], 'launcher_failed')
+            self.assertEqual(first['launcherFailureCategory'], 'native_binary_stale')
+            self.assertEqual(first['launcher']['exitCodeBeforeCleanup'], 1)
+            self.assertTrue(first['cleanupCompleted']); self.assertEqual(first['playbackObservationCount'], 0)
+            self.assertEqual(len(first['partialPreparationTrace']), 1)
+            self.assertEqual(sum(row['status'] == 'not_run' for row in result['attempts']), 5)
+            self.assertEqual(result['summary']['groups'][0]['setupFailures'], {'native_binary_stale': 1})
+            self.assertNotIn('secret', json.dumps(result)); self.assertTrue(all(not path.exists() for path in profiles))
+            self.assertEqual([outcome['stage'] for outcome in first['outcomes']], ['launcher', 'launcher', 'cleanup'])
+
+    def test_partial_observer_resource_and_trace_evidence_preserves_each_original_outcome(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory); (profile/'fixture').mkdir()
+            (profile/'launcher.log').write_text('MCP confirms the app is running with its frontend mounted.\n')
+            partial = dict(samples=[dict(trackId=None, atUnixMs=2200, positionSeconds=None)],
+                           originalFailure='original_playback_failure', originalPlaybackFailureCategory='source_access',
+                           controlGeneration=4, seekSettledAtUnixMs=100,
+                           lastControl=dict(atUnixMs=1000, positionSeconds=89), firstNextPlaying=None, transitionOk=False)
+            (profile/'fixture/next-preparation-observation.json').write_text(json.dumps(partial))
+            events = [dict(phase=phase, nativeOperationId='preparation:11111111-1111-1111-1111-111111111111',
+                           atUnixMs=at, details=details) for phase, at, details in [
+                ('next_preparation_policy', 100, dict(generation=4, windowSeconds=30)),
+                ('next_preparation_resolve_start', 500, {}), ('next_preparation_resolve_end', 800, dict(ok=False))]]
+            (profile/'app.log').write_text(''.join('burrata_playback_phase '+json.dumps(event)+'\n' for event in events))
+            row = dict(windowSeconds=30, originalFailure='observer_deadline')
+            resources = [dict(atUnixMs=2200, components={'helper': dict(cpuMs=20, cpuPercentOneCore=100, rssBytes=1000)})]
+            driver.collect_attempt_evidence(row, profile, True, None, resources)
+            self.assertEqual(row['originalFailure'], 'observer_deadline')
+            self.assertEqual(row['partialObserverOriginalFailure'], 'original_playback_failure')
+            self.assertEqual(row['originalPlaybackFailureCategory'], 'source_access')
+            self.assertEqual(row['playbackObservationCount'], 1)
+            self.assertEqual(row['resourcePhases'][0]['phase'], 'transition_waiting_or_failed')
+            self.assertEqual(row['resourcePhases'][0]['sampledCpuMs'], 20)
+            self.assertEqual(len(row['partialPreparationTrace']), 3)
 
     def test_six_fake_attempts_are_serial_and_failed_cleanup_stops_the_run(self):
         from contextlib import nullcontext

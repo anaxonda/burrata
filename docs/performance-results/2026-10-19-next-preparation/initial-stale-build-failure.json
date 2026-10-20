@@ -1,0 +1,137 @@
+{
+  "schema": "burrata.next-preparation/v1",
+  "phase": "exploratory",
+  "qualification": false,
+  "promoted": false,
+  "status": "completed",
+  "binarySha256": "3d9bdb69ce383a11f4643d62fddd7e5569026b66fdc6f019a4e0bea576fc853b",
+  "driverSha256": "410296266560b52faa96e7cccb7910b15a8ca3e26a6859f7aadf80a2010f6e0f",
+  "observerSha256": "83115ec1292430580dd7c2f13d76961a934fd8f97089c9d6a0088ade716d16ed",
+  "track": {
+    "name": "matthew",
+    "videoId": "uZGRATckoBM",
+    "durationSeconds": 228,
+    "titleNeedle": "Matthew",
+    "channelNeedle": "John Denver"
+  },
+  "wholeBudgetSeconds": 600,
+  "warmups": 0,
+  "limitations": [
+    "Diagnostic only; no production policy change or automatic release/performance promotion.",
+    "Fresh app/profile per arm; OS/media/provider caches outside the profile are not declared cold.",
+    "Exactly one queue selection and one initial local seek to30s; then natural transition and5s of advancing native playhead.",
+    "A90s local control leaves approximately60s after setup; initial discovery before the setup seek may warm the same public source.",
+    "Polling estimates handoff timing at100ms resolution; neither physical audibility nor sample-level gaplessness is measured.",
+    "Source ID is pinned; format is observed, not forced. Deltas require equal actual provider/video/format IDs.",
+    "Fresh expiring URLs and existing bounded refresh/recovery remain production behavior; failures are retained, never retried by the harness.",
+    "CPU100% means one logical core. App/WebView/helper components are sampled every200ms, exclude Vite, and can miss short-lived or reparented children; RSS can double-count shared pages.",
+    "Network wire bytes are unknown. Decoder read counts and range high-water marks are not substituted for network traffic."
+  ],
+  "attempts": [
+    {
+      "pair": 1,
+      "windowSeconds": 30,
+      "ordinal": 1,
+      "status": "failed",
+      "eligible": false,
+      "originalFailure": "launcher_failed",
+      "cleanupCompleted": true
+    },
+    {
+      "pair": 1,
+      "windowSeconds": 45,
+      "ordinal": 2,
+      "status": "failed",
+      "eligible": false,
+      "originalFailure": "launcher_failed",
+      "cleanupCompleted": true
+    },
+    {
+      "pair": 2,
+      "windowSeconds": 45,
+      "ordinal": 3,
+      "status": "failed",
+      "eligible": false,
+      "originalFailure": "launcher_failed",
+      "cleanupCompleted": true
+    },
+    {
+      "pair": 2,
+      "windowSeconds": 30,
+      "ordinal": 4,
+      "status": "failed",
+      "eligible": false,
+      "originalFailure": "launcher_failed",
+      "cleanupCompleted": true
+    },
+    {
+      "pair": 3,
+      "windowSeconds": 30,
+      "ordinal": 5,
+      "status": "failed",
+      "eligible": false,
+      "originalFailure": "launcher_failed",
+      "cleanupCompleted": true
+    },
+    {
+      "pair": 3,
+      "windowSeconds": 45,
+      "ordinal": 6,
+      "status": "failed",
+      "eligible": false,
+      "originalFailure": "launcher_failed",
+      "cleanupCompleted": true
+    }
+  ],
+  "summary": {
+    "groups": [
+      {
+        "windowSeconds": 30,
+        "planned": 3,
+        "attempted": 3,
+        "eligible": 0,
+        "failures": {
+          "launcher_failed": 3
+        },
+        "handoffMedianMs": null,
+        "handoffWorstMs": null,
+        "handoffP95Ms": null
+      },
+      {
+        "windowSeconds": 45,
+        "planned": 3,
+        "attempted": 3,
+        "eligible": 0,
+        "failures": {
+          "launcher_failed": 3
+        },
+        "handoffMedianMs": null,
+        "handoffWorstMs": null,
+        "handoffP95Ms": null
+      }
+    ],
+    "pairs": [
+      {
+        "pair": 1,
+        "sameActualSourceAndFormat": false,
+        "eligible": false,
+        "handoff45Minus30Ms": null
+      },
+      {
+        "pair": 2,
+        "sameActualSourceAndFormat": false,
+        "eligible": false,
+        "handoff45Minus30Ms": null
+      },
+      {
+        "pair": 3,
+        "sameActualSourceAndFormat": false,
+        "eligible": false,
+        "handoff45Minus30Ms": null
+      }
+    ],
+    "qualification": false,
+    "promoted": false,
+    "p95Rule": "Only the explicitly requested metric phase with20 eligible transitions per arm has a descriptive nearest-rank p95; all failures stay in the denominator."
+  }
+}

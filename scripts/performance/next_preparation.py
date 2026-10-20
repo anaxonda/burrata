@@ -6,7 +6,7 @@ The --run-isolated mode intentionally refuses an already-running Burrata GUI.
 """
 from __future__ import annotations
 import argparse
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import hashlib
 import json
 import math
@@ -51,10 +51,124 @@ LIMITATIONS = [
     'CPU100% means one logical core. App/WebView/helper components are sampled every200ms, exclude Vite, and can miss short-lived or reparented children; RSS can double-count shared pages.',
     'Network wire bytes are unknown. Decoder read counts and range high-water marks are not substituted for network traffic.',
 ]
+LAUNCHER_FAILURES = [
+    ('native_binary_stale', 'The native executable is older than ', True),
+    ('native_binary_missing', 'Compiled Burrata executable not found:', True),
+    ('frontend_dependencies_missing', 'Vite/Node modules are not installed;', True),
+    ('node_version_unsupported', 'Burrata requires Node.js 22.12 or newer', True),
+    ('frontend_build_missing', 'Compiled frontend entry is missing;', True),
+    ('frontend_entry_invalid', 'dist/index.html does not reference an existing compiled JavaScript entry.', True),
+    ('frontend_build_stale', 'The compiled frontend is older than ', True),
+    ('native_predates_frontend', 'The native executable predates the compiled frontend;', True),
+    ('frontend_shared_listener_refused', 'Protected frontend requires its own Vite listener;', True),
+    ('frontend_listener_unidentified', 'Could not identify the live listener serving port1420', True),
+    ('frontend_listener_unidentified', 'Could not identify the live listener serving port 1420', True),
+    ('frontend_listener_identity_invalid', 'Port1420 listener identity is inaccessible', True),
+    ('frontend_listener_identity_invalid', 'Port 1420 listener identity is inaccessible', True),
+    ('profile_conflict', 'Burrata already has a process using this or an overlapping profile', True),
+    ('profile_identity_unverifiable', 'Cannot safely verify a running Burrata process', True),
+    ('isolated_profile_invalid', 'Isolated profile must be ', True),
+    ('isolated_profile_invalid', 'Isolated profile marker is missing.', True),
+    ('isolated_music_root_invalid', 'Isolated Music ', True),
+    ('xdg_profile_invalid', 'XDG_DATA_HOME and XDG_CONFIG_HOME must be absolute', True),
+    ('launch_environment_invalid', 'BURRATA_AUTOMATION_REGISTRATION_TIMEOUT_SECONDS must be', True),
+    ('launch_environment_invalid', 'BURRATA_PROTECTED_FRONTEND must be', True),
+    ('frontend_modules_invalid', 'Frontend module verification failed:', False),
+    ('frontend_modules_invalid', 'The compiled Vite module check failed;', False),
+    ('app_exited_before_registration', 'Burrata exited before registering a fresh automation endpoint.', False),
+    ('automation_registration_timeout', 'Burrata did not register a fresh automation endpoint within ', False),
+    ('frontend_handshake_failed', 'The authenticated MCP get_app_status handshake did not confirm a mounted frontend.', False),
+]
 
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def safe_repo_path(raw):
+    try: relative = Path(raw).resolve().relative_to(ROOT).as_posix()
+    except (OSError, ValueError): return None
+    return relative if re.fullmatch(r'[A-Za-z0-9_./-]{1,240}', relative) else None
+
+
+def bounded_log(path):
+    """Return transient text for classification; only fingerprints are retained."""
+    if path.is_symlink(): return '', dict(present=False, symlinkRefused=True)
+    try:
+        if not path.is_file(): return '', dict(present=False)
+        size = path.stat().st_size
+        with path.open('rb') as stream:
+            data = stream.read(64*1024)
+            if size > len(data):
+                stream.seek(max(len(data), size-64*1024)); data += stream.read(64*1024)
+    except OSError: return '', dict(present=False, readFailed=True)
+    return data.decode('utf-8', errors='replace'), dict(present=True, sizeBytes=size,
+        sampledBytes=len(data), truncated=len(data) < size, sampleSha256=hashlib.sha256(data).hexdigest())
+
+
+def launcher_evidence(profile, ready, exit_code, original_failure):
+    text, fingerprint = bounded_log(profile/'launcher.log')
+    evidence = dict(ready=ready, exitCodeBeforeCleanup=exit_code, log=fingerprint,
+                    frontendModulesVerified='Verified compiled frontend modules:' in text,
+                    appProcessStarted='Started compiled Burrata (' in text,
+                    frontendMounted='MCP confirms the app is running with its frontend mounted.' in text)
+    if ready: return evidence
+    evidence.update(category='launcher_readiness_timeout' if original_failure == 'launcher_deadline' else 'unclassified_launcher_exit',
+                    deterministic=False)
+    for category, marker, deterministic in LAUNCHER_FAILURES:
+        if marker in text:
+            evidence.update(category=category, deterministic=deterministic); break
+    stale = re.search(r'The native executable is older than ([^\r\n]+); compile Burrata before launching\.', text)
+    if stale:
+        relative = safe_repo_path(stale[1])
+        if relative: evidence['staleSourceRelativePath'] = relative
+    return evidence
+
+
+def collect_attempt_evidence(row, profile, launcher_ready, launcher_exit, resource_samples):
+    """Capture allowlisted partial evidence before disposable files are removed."""
+    row['launcher'] = launcher_evidence(profile, launcher_ready, launcher_exit, row.get('originalFailure'))
+    if not launcher_ready and row.get('originalFailure') in ['launcher_failed', 'launcher_deadline']:
+        row['launcherFailureCategory'] = row['launcher']['category']
+        row['stopRemainingSetupAttempts'] = True
+        row.setdefault('outcomes', []).append(dict(stage='launcher', category=row['launcher']['category'],
+            deterministic=row['launcher']['deterministic'], exitCode=launcher_exit))
+    _, app_log = bounded_log(profile/'app.log')
+    observer_text, observer_log = bounded_log(profile/'observer.log')
+    row['appLog'] = app_log; row['observerLog'] = observer_log
+    # A failed observer may still have completed a partial report. Never replace
+    # an already captured original failure with a later nominal success.
+    observed = profile/'fixture/next-preparation-observation.json'
+    if 'samples' not in row and observed.is_file() and observed.stat().st_size <= 3*1024*1024:
+        try:
+            partial = json.loads(observed.read_text())
+            # This file is written by the fixed owned observer, which already
+            # allowlists its fields. Driver outcome fields keep their ownership.
+            original = row.get('originalFailure')
+            for key in ['samples', 'lastControl', 'firstNextPlaying', 'controlGeneration', 'seekSettledAtUnixMs',
+                        'originalPlaybackFailureCategory', 'wallMs', 'transitionOk', 'sourceVideoId',
+                        'selectedFormatId', 'observedHandoffDelayMs', 'sustainedNextSeconds']:
+                if key in partial: row[key] = partial[key]
+            row['partialObserverOriginalFailure'] = partial.get('originalFailure')
+            row['originalFailure'] = original or partial.get('originalFailure')
+        except (OSError, ValueError, TypeError):
+            row.setdefault('evidenceCaptureFailures', []).append('partial_observer_report_unavailable')
+    for category in ['invalid_arguments', 'isolated_profile_required', 'invalid_manifest', 'isolated_output_required',
+                     'observer_setup_failed', 'native_engine_required']:
+        if category in observer_text.splitlines() or row.get('originalFailure') == category:
+            row['observerSetupFailureCategory'] = category
+            row['stopRemainingSetupAttempts'] = True
+            row.setdefault('outcomes', []).append(dict(stage='observer_setup', category=category, deterministic=True))
+            break
+    try:
+        events = safe_trace(profile/'app.log')
+        if events: row['partialPreparationTrace'] = events
+        if row.get('controlGeneration') is not None: attach_preparation(row, events)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        row.setdefault('evidenceCaptureFailures', []).append('preparation_trace_unavailable')
+    row['resourceSamples'] = resource_samples
+    row['resourcePhases'] = resource_phases(row, resource_samples)
+    row['playbackObservationCount'] = len(row.get('samples', []))
 
 
 def select_track(path, name):
@@ -91,11 +205,14 @@ def summarize(rows, phase):
         values = [row['observedHandoffDelayMs'] for row in eligible
                   if isinstance(row.get('observedHandoffDelayMs'), (int, float))]
         failures = {}
+        setup_failures = {}
         for row in attempts:
             category = row.get('originalFailure') or ('not_run' if row.get('status') == 'not_run' else None)
             if category: failures[category] = failures.get(category, 0) + 1
+            setup = row.get('launcherFailureCategory') or row.get('observerSetupFailureCategory')
+            if setup: setup_failures[setup] = setup_failures.get(setup, 0)+1
         groups.append(dict(windowSeconds=window, planned=len(attempts), attempted=sum(row.get('status') != 'not_run' for row in attempts),
-                           eligible=len(eligible), failures=failures,
+                           eligible=len(eligible), failures=failures, setupFailures=setup_failures,
                            handoffMedianMs=statistics.median(values) if values else None,
                            handoffWorstMs=max(values) if values else None,
                            handoffP95Ms=sorted(values)[math.ceil(len(values)*.95)-1] if phase == 'metric' and len(values) >= 20 else None))
@@ -155,7 +272,7 @@ def seed_attempt(profile, track):
     record.update(sourceUrl=f"https://www.youtube.com/watch?v={track['videoId']}", version=None,
                   album=None, provenance={'diagnosticExplicitSource': True})
     db = profile / 'data/org.burrata.discovery/burrata.sqlite'
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         connection.execute('INSERT INTO works(id,title,artist) VALUES(?,?,?)', (f'work:{next_id}', record['title'], record['artist']))
         connection.execute('INSERT INTO recordings(id,work_id,version) VALUES(?,?,NULL)', (next_id, f'work:{next_id}'))
         connection.execute('INSERT INTO catalog_listings(id,provider,provider_id,recording_id,source_url,metadata,updated_at) VALUES(?,?,?,?,?,?,?)',
@@ -178,6 +295,7 @@ def safe_trace(path):
         if not line.startswith('burrata_playback_phase '): continue
         try: event = json.loads(line.removeprefix('burrata_playback_phase '))
         except ValueError: continue
+        if not isinstance(event, dict) or not isinstance(event.get('details', {}), dict): continue
         operation = event.get('nativeOperationId', '')
         if event.get('phase') not in PHASES or not isinstance(operation, str) or not re.fullmatch(r'preparation:[a-f0-9-]{36}', operation): continue
         details = {key: value for key, value in event.get('details', {}).items()
@@ -277,8 +395,14 @@ def execute_attempt(attempt, track, binary, deadline):
     if active_gui_pids(binary): return {**row, 'status': 'failed', 'originalFailure': 'existing_gui_refused', 'cleanupCompleted': True}
     profile = Path(tempfile.mkdtemp(prefix='burrata-launch.', dir='/tmp'))
     launcher = observer = None
+    launcher_ready = False
+    resource_samples = []
+    totals, peak_rss, sample_count = {}, 0, 0
+    row['outcomes'] = []
+    stage = 'seed'
     try:
         manifest = seed_attempt(profile, track)
+        stage = 'launcher'
         environment = dict(os.environ, BURRATA_APP_BINARY=str(binary), BURRATA_PLAYBACK_ENGINE='native',
                            BURRATA_PLAYBACK_TRACE='1', BURRATA_DIAGNOSTIC_NEXT_PREPARATION_SECONDS=str(attempt['windowSeconds']),
                            BURRATA_ISOLATED_MUSIC_ROOT=str(profile / 'fixture/Music'), TMPDIR='/tmp',
@@ -292,19 +416,24 @@ def execute_attempt(attempt, track, binary, deadline):
             ready_deadline = min(deadline, time.monotonic()+90)
             while time.monotonic() < ready_deadline:
                 if launcher.poll() is not None: raise RuntimeError('launcher_failed')
-                if 'MCP confirms the app is running with its frontend mounted.' in (profile / 'launcher.log').read_text(errors='replace'): break
+                if 'MCP confirms the app is running with its frontend mounted.' in (profile / 'launcher.log').read_text(errors='replace'):
+                    launcher_ready = True; break
                 time.sleep(.1)
             else: raise TimeoutError('launcher_deadline')
+            stage = 'observer_setup'
             observed = profile / 'fixture/next-preparation-observation.json'
-            observer = subprocess.Popen(['node', str(OBSERVER), str(manifest), str(observed)], cwd=ROOT, env=environment,
-                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            observer_errors = (profile/'observer.log').open('wb')
+            try:
+                observer = subprocess.Popen(['node', str(OBSERVER), str(manifest), str(observed)], cwd=ROOT, env=environment,
+                                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=observer_errors, start_new_session=True)
+            finally: observer_errors.close()
             app_pids = active_gui_pids(binary)
             if len(app_pids) != 1 or Path(f'/proc/{app_pids[0]}/exe').resolve() != binary:
                 raise RuntimeError('single_gui_ownership_failed')
             app_pid = app_pids[0]
             if (app_pid, 0) not in process_snapshot([launcher.pid]): raise RuntimeError('single_gui_ownership_failed')
-            totals, prior, peak_rss, sample_count = {}, {}, 0, 0
-            resource_samples, sampled_at = [], time.monotonic()
+            stage = 'observation'
+            prior, sampled_at = {}, time.monotonic()
             work_deadline = min(deadline, time.monotonic()+105)
             while observer.poll() is None and time.monotonic() < work_deadline:
                 sampled = process_snapshot([app_pid]) if app_pid else {}
@@ -330,21 +459,32 @@ def execute_attempt(attempt, track, binary, deadline):
             row.update(observation, status='completed', observerExitCode=observer.returncode,
                        sampledAppTreeCpuMs=sum(totals.values())*1000/os.sysconf('SC_CLK_TCK'),
                        sampledAppTreePeakRssBytes=peak_rss, processSamples=sample_count)
-            attach_preparation(row, safe_trace(profile / 'app.log'))
-            row['resourcePhases'] = resource_phases(row, resource_samples)
-            row['resourceSamples'] = resource_samples
     except (RuntimeError, TimeoutError) as error:
         row['originalFailure'] = row.get('originalFailure') or str(error)
         row['status'] = 'failed'
+        row['failureStage'] = stage
+        row['stopRemainingSetupAttempts'] = stage in ['seed', 'launcher', 'observer_setup']
     except Exception:
         row['originalFailure'] = row.get('originalFailure') or 'driver_error'; row['status'] = 'failed'
+        row['failureStage'] = stage
+        row['stopRemainingSetupAttempts'] = stage in ['seed', 'launcher', 'observer_setup']
     except KeyboardInterrupt:
         row['originalFailure'] = row.get('originalFailure') or 'interrupted'
         row['status'] = 'interrupted'
     finally:
+        launcher_exit = launcher.poll() if launcher is not None else None
+        row['observerStarted'] = observer is not None
+        row['observerExitCodeBeforeCleanup'] = observer.poll() if observer is not None else None
         clean_observer = stop_owned(observer)
         clean_launcher = stop_owned(launcher)
         row['cleanupCompleted'] = clean_observer and clean_launcher
+        try:
+            collect_attempt_evidence(row, profile, launcher_ready, launcher_exit, resource_samples)
+        except Exception:
+            row.setdefault('evidenceCaptureFailures', []).append('attempt_evidence_unavailable')
+        if resource_samples:
+            row.update(sampledAppTreeCpuMs=sum(totals.values())*1000/os.sysconf('SC_CLK_TCK'),
+                       sampledAppTreePeakRssBytes=peak_rss, processSamples=sample_count)
         if row['cleanupCompleted']:
             try: shutil.rmtree(profile)
             except OSError:
@@ -353,6 +493,16 @@ def execute_attempt(attempt, track, binary, deadline):
         if not row['cleanupCompleted']:
             row['retainedIsolatedProfile'] = str(profile)
             row['originalFailure'] = row.get('originalFailure') or 'owned_cleanup_failed'
+        if 'transitionOk' in row:
+            row['outcomes'].append(dict(stage='observation', transitionOk=row['transitionOk'],
+                originalFailure=row.get('partialObserverOriginalFailure', row.get('originalFailure'))))
+        cleanup_outcome = dict(stage='cleanup', completed=row['cleanupCompleted'],
+            observerStopped=clean_observer, launcherStopped=clean_launcher)
+        if not row['cleanupCompleted']:
+            cleanup_outcome['category'] = 'profile_cleanup_failed' if clean_observer and clean_launcher else 'owned_cleanup_failed'
+        row['outcomes'].append(cleanup_outcome)
+        if row.get('originalFailure'):
+            row['outcomes'].insert(0, dict(stage=row.get('failureStage', 'attempt'), category=row['originalFailure']))
     row['eligible'] = bool(row.get('transitionOk') and not row.get('originalFailure') and row['cleanupCompleted']
                            and row.get('sourceVideoId') == track['videoId'] and row.get('selectedFormatId')
                            and isinstance(row.get('observedHandoffDelayMs'), (int, float)))
@@ -368,6 +518,7 @@ def run(output, binary, track, phase='exploratory', budget_seconds=None):
     if active_gui_pids(binary): raise RuntimeError('existing_gui_refused')
     report = dict(schema=SCHEMA, phase=phase, qualification=False, promoted=False, status='running',
                   binarySha256=digest(binary), driverSha256=digest(__file__), observerSha256=digest(OBSERVER),
+                  binaryRelativePath=safe_repo_path(binary),
                   track=track, wholeBudgetSeconds=budget_seconds, warmups=0,
                   limitations=LIMITATIONS, attempts=[{**row, 'status': 'not_run', 'eligible': False} for row in plan(phase)])
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -386,6 +537,8 @@ def run(output, binary, track, phase='exploratory', budget_seconds=None):
                 if time.monotonic() >= deadline: report['status'] = 'outer_deadline'; break
                 result = execute_attempt(attempt, track, binary, deadline)
                 report['attempts'][index] = result; checkpoint()
+                if result.get('stopRemainingSetupAttempts'):
+                    report['status'] = 'setup_failed'; break
                 if not result.get('cleanupCompleted') or result.get('originalFailure') == 'existing_gui_refused':
                     report['status'] = 'cleanup_or_ownership_refusal'; break
                 if result.get('status') == 'interrupted': report['status'] = 'interrupted'; break

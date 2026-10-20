@@ -55,6 +55,16 @@ cannot overlap the following trial. The temporary profile is then removed. A
 failed cleanup stops the run and retains the profile rather than deleting files
 under a live app. A per-user lock prevents concurrent copies of this driver.
 
+A failed setup stops the run immediately; the remaining scheduled arms stay
+`not_run`. In particular, a stale executable is a launcher freshness failure,
+not a measured playback attempt. The report retains a typed launcher category,
+exit status before cleanup, readiness milestones, and a repository-relative
+stale-source path where available. Bounded log fingerprints, partial redacted
+traces, observer reports, resource samples, and separate stage outcomes survive
+profile removal. Raw log text, signed URLs, and credentials are not copied into
+the report. Cleanup failures are appended without replacing the original
+failure. The original result file is never rewritten by a later run.
+
 The report retains every planned attempt, original terminal failures, probe
 denials, cleanup failures, source/format differences, and redacted preparation
 events. The post-seek generation and operation IDs must correlate with the
