@@ -4855,6 +4855,52 @@ describe("saved recording navigation", () => {
     expect(document.querySelector("dialog.playlist-picker-dialog")).not.toBeNull();
   });
 
+  it("navigates exact catalog artist sections without search, playback or external navigation", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const handler = eventHandlers.get("automation-ui-navigation")!;
+    for (const [index, artist, section] of [
+      [1, { provider: "musicbrainz", id: "123e4567-e89b-12d3-a456-426614174000" }, "releases"],
+      [2, { provider: "musicbrainz", id: "123e4567-e89b-12d3-a456-426614174000" }, "tracks"],
+      [3, { provider: "discogs", id: "12345" }, "overview"],
+    ] as const) {
+      handler({ event: "automation-ui-navigation", id: index, payload: {
+        requestId: `catalog-section-${index}`, target: { kind: "catalog_artist", catalogArtist: artist, catalogArtistSection: section },
+      } });
+      await settle(); await settle();
+      expect(mocks.call).toHaveBeenCalledWith("get_artist_profile", { artist });
+      expect(document.querySelector(".artist-page .tabs button.active")?.textContent).toBe(section === "releases" ? "Discography" : section === "tracks" ? "Tracks" : "Overview");
+      expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete", {
+        requestId: `catalog-section-${index}`, destination: artist.id, status: "complete",
+      });
+    }
+    expect(mocks.call).toHaveBeenCalledWith("get_artist_tracks", expect.objectContaining({ artist: { provider: "musicbrainz", id: "123e4567-e89b-12d3-a456-426614174000" } }));
+    expect(mocks.call.mock.calls.some(([command]) => ["search_artists", "open_external_url", "resolve_playback_track", "playback_command"].includes(String(command)))).toBe(false);
+  });
+
+  it("rejects invalid catalog navigation bridge targets before changing route", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const handler = eventHandlers.get("automation-ui-navigation")!;
+    for (const [index, artist, section] of [
+      [1, { provider: "musicbrainz", id: "not-a-uuid" }, "tracks"],
+      [2, { provider: "discogs", id: "18446744073709551616" }, "overview"],
+      [3, { provider: "musicbrainz", id: "123e4567-e89b-12d3-a456-426614174000" }, "local"],
+      [4, { provider: "musicbrainz", id: "123e4567-e89b-12d3-a456-426614174000", script: "ignored" }, "overview"],
+    ] as const) {
+      handler({ event: "automation-ui-navigation", id: index, payload: { requestId: `invalid-catalog-${index}`,
+        target: { kind: "catalog_artist", catalogArtist: artist, catalogArtistSection: section } } });
+      await settle();
+      expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete", {
+        requestId: `invalid-catalog-${index}`, destination: artist.id, status: "failed",
+      });
+    }
+    expect(document.querySelector(".artist-page")).toBeNull();
+    expect(mocks.call).not.toHaveBeenCalledWith("get_artist_profile", expect.anything());
+  });
+
   it("opens ArtistPage source and provider anchors externally on desktop, including keyboard and middle clicks", async () => {
     artistProfileLinks = [
       { label: "Discogs", provider: "discogs", url: "https://www.discogs.com/artist/123" },
@@ -4878,6 +4924,16 @@ describe("saved recording navigation", () => {
     await settle();
     expect(keyboardClick.defaultPrevented).toBe(true);
     expect(mocks.call).toHaveBeenCalledWith("open_external_url", { url: "https://musicbrainz.org/artist/artist-1" });
+
+    const beforeMusicBrainzMiddle = mocks.call.mock.calls.filter(([command, args]) =>
+      command === "open_external_url" && (args as { url?: string } | undefined)?.url === sourceProfile.href).length;
+    const musicBrainzMiddle = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+    sourceProfile.dispatchEvent(musicBrainzMiddle);
+    await settle();
+    expect(musicBrainzMiddle.defaultPrevented).toBe(true);
+    expect(mocks.call.mock.calls.filter(([command, args]) =>
+      command === "open_external_url" && (args as { url?: string } | undefined)?.url === sourceProfile.href))
+      .toHaveLength(beforeMusicBrainzMiddle + 1);
 
     const providerLink = [...document.querySelectorAll<HTMLAnchorElement>(".artist-page a[target='_blank']")]
       .find((anchor) => anchor.textContent?.includes("Discogs"))!;

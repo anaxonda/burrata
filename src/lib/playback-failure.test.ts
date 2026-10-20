@@ -6,6 +6,13 @@ describe("automatic queue failure classification",()=>{
     for(const reason of ["No playable audio match was found for Network — Connection (Cancel Mix)","The resolved audio source identity does not match this recording","This source has no supported audio stream","Private video","Video has been removed"])
       expect(shouldSkipFailedTrack(reason),reason).toBe(true);
   });
+  it("skips only the exact verified-source identity mismatch as a terminal recording error",()=>{
+    const reason = "Verified source identity mismatch";
+    expect(classifyPlaybackFailure(reason)).toEqual({category:"recording_identity_mismatch",stage:"resolver",scope:"recording",retryable:false});
+    expect(shouldSkipFailedTrack(reason)).toBe(true);
+    for (const nearMiss of ["verified source identity mismatch", "Verified source identity mismatch: extra detail", "HTTP 403 unavailable"])
+      expect(shouldSkipFailedTrack(nearMiss), nearMiss).toBe(false);
+  });
   it("retains global failures and unknown errors even when unavailable appears",()=>{
     for(const reason of ["HTTP 403 unavailable", "HTTP 404 unavailable", "HTTP 410 unavailable", "Cancelled", "Network connection unavailable","HTTP 429 unavailable","HTTP status 503 unavailable","status code 502 unavailable","HTTP 500 unavailable","HTTP 504 unavailable","rate limit: unavailable","audio output device unavailable","20-second playback deadline","timeout: unavailable","temporarily unavailable","Unknown playback failure"])
       expect(shouldSkipFailedTrack(reason),reason).toBe(false);

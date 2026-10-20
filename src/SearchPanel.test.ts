@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // @ts-expect-error Exercise Svelte's browser runtime in jsdom.
 import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error Svelte internal client runtime has no public declarations
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 const apiCall = vi.hoisted(() => vi.fn());
@@ -10,8 +10,20 @@ import SearchPanel from "./SearchPanel.svelte";
 
 let destroy: (() => void) | undefined;
 const storage = new Map<string, string>();
+const originalResizeObserver = globalThis.ResizeObserver;
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), clear: () => storage.clear() } });
-afterEach(() => { vi.useRealTimers(); destroy?.(); destroy = undefined; document.body.innerHTML = ""; storage.clear(); apiCall.mockReset(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+});
+afterEach(() => {
+  vi.useRealTimers(); destroy?.(); destroy = undefined; document.body.innerHTML = ""; storage.clear(); apiCall.mockReset(); vi.restoreAllMocks();
+  if (originalResizeObserver) globalThis.ResizeObserver = originalResizeObserver;
+  else Reflect.deleteProperty(globalThis, "ResizeObserver");
+  if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+});
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); await tick(); }
 function deferred<T = unknown>() {
   let resolve!: (value: T) => void;
@@ -174,7 +186,7 @@ describe("SearchPanel", () => {
     const searchSource=vi.fn(async()=>({sourceId:"soundcloud",complete:false,nextCursor:"next-page",results:[row]}));
     const enrichSource=vi.fn(async()=>({id:"candidate",provider:"youtube",url:row.url,title:row.title,formats:[],permission:"unknown",confidence:"high",score:1,reasons:[],official:false,chapters:Array.from({length:10001},(_,i)=>({id:`chapter-${i}`,title:`Chapter ${i}`,startTime:i*2,endTime:i*2+1,confidence:"high"}))}));
     const instance=mount(SearchPanel,{target:document.body,props:{query:"chapters",initialSources:["soundcloud"],availableSources:[{id:"soundcloud",name:"SoundCloud",enabled:true,kinds:["track"]}],searchSource,enrichSource} as never});destroy=()=>unmount(instance);
-    await settle();document.querySelector<HTMLButtonElement>(".chapter-badge")!.click();await settle();
+    await settle();document.querySelector<HTMLButtonElement>('[aria-label="Actions for Chapter source"]')!.click();await settle();Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Track information"))?.click();await settle();document.querySelector<HTMLButtonElement>(".chapter-check")!.click();await settle();
     instance.captureNavigationSnapshot("chapter-budget");
     const saved=providerNavigationSnapshots.get<{rowsBySource:Record<string,unknown[]>;cursors:Record<string,string>;chaptersByRow:Record<string,unknown>;chapterMetadataEvicted:boolean}>("search-panel","chapter-budget","search-routes")!;
     expect(enrichSource).toHaveBeenCalledOnce();expect(saved.rowsBySource.soundcloud).toHaveLength(1);expect(saved.cursors.soundcloud).toBe("next-page");
@@ -1177,7 +1189,7 @@ describe("SearchPanel", () => {
     target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
     const badge = target.querySelector<HTMLElement>(".chapter-badge.available")!;
-    expect(badge.textContent).toContain("Chapters available · 1");
+    expect(badge.textContent).toContain("Chapters · 1");
     expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
     badge.click();
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -1189,7 +1201,7 @@ describe("SearchPanel", () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     await settle();
     expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
-    expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters available · 1");
+    expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters · 1");
   });
 
   it("mounts inspected chapter actions only while expanded and keeps metadata cached when collapsed", async () => {
@@ -1205,8 +1217,11 @@ describe("SearchPanel", () => {
     input.value = "Long set"; input.dispatchEvent(new Event("input", { bubbles: true }));
     target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
-    const inspect = target.querySelector<HTMLButtonElement>(".chapter-badge.unknown")!;
-    inspect.click();
+    target.querySelector<HTMLButtonElement>('[aria-label="Actions for Long set"]')!.click();
+    await settle();
+    Array.from(target.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Track information"))!.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>(".chapter-check")!.click();
     await settle();
     const badge = target.querySelector<HTMLElement>(".chapter-badge.available")!;
     expect(enrichSource).toHaveBeenCalledTimes(1);
@@ -1224,7 +1239,7 @@ describe("SearchPanel", () => {
     await settle();
     expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
     expect(enrichSource).toHaveBeenCalledTimes(1);
-    expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters available · 1");
+    expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters · 1");
   });
 
   it("does not advertise empty or unusable cached chapter lists", async () => {
@@ -1249,9 +1264,9 @@ describe("SearchPanel", () => {
 
     expect(target.querySelectorAll(".chapter-badge.available")).toHaveLength(0);
     expect(target.querySelectorAll(".chapter-details")).toHaveLength(0);
-    expect(target.querySelectorAll(".chapter-badge:not(.available)")).toHaveLength(2);
-    expect(target.textContent).not.toContain("Chapters available · 0");
-    expect(target.textContent).toContain("No chapters");
+    expect(target.querySelectorAll(".chapter-badge")).toHaveLength(0);
+    expect(target.textContent).not.toContain("Chapters unknown");
+    expect(target.textContent).not.toContain("No chapters");
   });
 
   it("collapses provider groups accessibly while retaining pagination and excluding hidden results from continuation", async () => {
@@ -1280,6 +1295,10 @@ describe("SearchPanel", () => {
     target.querySelector<HTMLInputElement>(".continue-setting input")!.click(); await settle();
     const initialAutomation = instance.inspectAutomationSearchUi(0, 10) as { revision: string; total: number; rows: { occurrenceToken: string; sourceId: string }[] };
     expect(initialAutomation.total).toBe(2);
+    expect(searchSource.mock.calls.map(([request]) => request.sourceIds[0])).toEqual(["musicbrainz", "discogs"]);
+    expect(initialAutomation.rows.map(row => row.sourceId)).toEqual(["discogs", "musicbrainz"]);
+    expect([...target.querySelectorAll<HTMLElement>(".source-group")].map(group => group.getAttribute("aria-label")))
+      .toEqual(["Discogs results", "MusicBrainz results"]);
 
     const mbGroup = [...target.querySelectorAll<HTMLElement>(".source-group")].find(group => group.getAttribute("aria-label") === "MusicBrainz results")!;
     const toggle = mbGroup.querySelector<HTMLButtonElement>(".source-toggle")!;
@@ -1312,6 +1331,6 @@ describe("SearchPanel", () => {
     expect(mbGroup.textContent).toContain("MB Later");
     const restoredAutomation = instance.inspectAutomationSearchUi(0, 10) as { total: number; rows: { sourceId: string }[] };
     expect(restoredAutomation.total).toBe(3);
-    expect(restoredAutomation.rows.map(row => row.sourceId)).toEqual(["musicbrainz", "musicbrainz", "discogs"]);
+    expect(restoredAutomation.rows.map(row => row.sourceId)).toEqual(["discogs", "musicbrainz", "musicbrainz"]);
   });
 });

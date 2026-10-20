@@ -119,6 +119,7 @@ enum UiNavigationTarget {
     SettingsCategory(String),
     SettingsControl(String),
     SpotifyArtist(String),
+    CatalogArtist(ArtistRef, String),
     SpotifyProfile(String),
     SpotifyPlaylist(String),
     HistoryDirection(String),
@@ -128,6 +129,7 @@ impl UiNavigationTarget {
         match self {
             Self::View(_) | Self::SettingsCategory(_) | Self::SettingsControl(_) => "view",
             Self::SpotifyArtist(_) => "spotify_artist",
+            Self::CatalogArtist(_, _) => "catalog_artist",
             Self::SpotifyProfile(_) => "spotify_profile",
             Self::SpotifyPlaylist(_) => "spotify_playlist",
             Self::HistoryDirection(_) => "history",
@@ -136,6 +138,7 @@ impl UiNavigationTarget {
     fn ack_key(&self) -> &str {
         match self {
             Self::View(view) => view,
+            Self::CatalogArtist(artist, _) => &artist.id,
             Self::SettingsCategory(_) | Self::SettingsControl(_) => "settings",
             Self::SpotifyArtist(id)
             | Self::SpotifyProfile(id)
@@ -153,6 +156,7 @@ impl UiNavigationTarget {
                 "kind":"view","view":"settings","settingsCategory":"playback","settingsControl":control
             }),
             Self::SpotifyArtist(id) => json!({"kind":"spotify_artist","spotifyArtistId":id}),
+            Self::CatalogArtist(artist, section) => json!({"kind":"catalog_artist","catalogArtist":artist,"catalogArtistSection":section}),
             Self::SpotifyProfile(id) => json!({"kind":"spotify_profile","spotifyProfileId":id}),
             Self::SpotifyPlaylist(id) => json!({"kind":"spotify_playlist","spotifyPlaylistId":id}),
             Self::HistoryDirection(direction) => {
@@ -165,6 +169,29 @@ fn parse_ui_navigation_request(arguments: &Value) -> Result<UiNavigationTarget, 
     let object = arguments
         .as_object()
         .ok_or_else(|| ToolError::bad("UI navigation arguments must be an object"))?;
+    if object.contains_key("catalogArtist") || object.contains_key("catalogArtistSection") {
+        if !object.keys().all(|key| matches!(key.as_str(), "catalogArtist" | "catalogArtistSection")) {
+            return Err(ToolError::bad("Catalog artist navigation accepts only an artist and optional section"));
+        }
+        let artist = object.get("catalogArtist").and_then(Value::as_object)
+            .filter(|artist| artist.len() == 2)
+            .ok_or_else(|| ToolError::bad("Catalog artist requires only provider and id"))?;
+        let provider = artist.get("provider").and_then(Value::as_str).unwrap_or("");
+        let id = artist.get("id").and_then(Value::as_str).unwrap_or("");
+        let valid = match provider {
+            "musicbrainz" => id.len() == 36 && Uuid::parse_str(id)
+                .is_ok_and(|value| value.to_string() == id.to_ascii_lowercase()),
+            "discogs" => id.parse::<u64>().is_ok_and(|value| value > 0 && value.to_string() == id),
+            _ => false,
+        };
+        if !valid { return Err(ToolError::bad("Catalog artist identity is invalid")); }
+        let section = match object.get("catalogArtistSection") {
+            None => "overview",
+            Some(Value::String(section)) if matches!(section.as_str(), "overview" | "releases" | "tracks") => section,
+            _ => return Err(ToolError::bad("Catalog artist section is unsupported")),
+        };
+        return Ok(UiNavigationTarget::CatalogArtist(ArtistRef { provider: provider.into(), id: id.into() }, section.into()));
+    }
     if let Some(category) = object.get("settingsCategory") {
         if object.len() == 3
             && object.get("view").and_then(Value::as_str) == Some("settings")
@@ -247,6 +274,10 @@ fn sanitize_ui_navigation_completion(
     let mut result =
         json!({"status":status,"targetKind":expected.kind(),"destination":expected.ack_key()});
     match expected {
+        UiNavigationTarget::CatalogArtist(artist, section) => {
+            result["catalogArtist"] = json!(artist);
+            result["catalogArtistSection"] = json!(section);
+        }
         UiNavigationTarget::SettingsCategory(category) => {
             result["settingsCategory"] = json!(category)
         }
@@ -258,7 +289,7 @@ fn sanitize_ui_navigation_completion(
     }
     if matches!(
         expected,
-        UiNavigationTarget::SpotifyPlaylist(_) | UiNavigationTarget::HistoryDirection(_)
+        UiNavigationTarget::SpotifyPlaylist(_) | UiNavigationTarget::HistoryDirection(_) | UiNavigationTarget::CatalogArtist(_, _)
     ) {
         result["completionScope"] = json!("route_transition");
     }
@@ -6792,7 +6823,7 @@ fn tool_definitions() -> Vec<Value> {
  ("play_search_result","Play one exact currently loaded search occurrence by its expiring UI token", "control"),
  ("interact_queue_ui","Dispatch finite synthetic queue DOM events in a marked isolated paused native profile; not a trusted OS gesture", "control"),
  ("set_player_panel","Open the playback queue, track information panel, or close the player panel", "control"),
- ("navigate_ui","Navigate to a finite view, one settings category, the Playback startup timeout control, exact Spotify artist/profile/playlist, or Back/Forward. settingsCategory is allowed only with view=settings; settingsControl is allowed only for playbackStartupTimeout under Playback settings", "control"),
+ ("navigate_ui","Navigate to a finite view, one settings category, the Playback startup timeout control, exact Spotify artist/profile/playlist, a validated MusicBrainz/Discogs catalog artist and section, or Back/Forward. settingsCategory is allowed only with view=settings; settingsControl is allowed only for playbackStartupTimeout under Playback settings", "control"),
  ("start_managed_provider_login","Open the isolated provider sign-in window; login remains interactive", "control"),
  ("preview_verification_playlist_intent","Prepare an exact new private empty UUID-title intent locally; requires explicit review and never creates remotely", "control"),("apply_verification_playlist_intent","Create a separately explicitly approved private empty intent exactly once; never retry unknown outcomes", "manage"),("create_verification_playlist","Create exactly one private empty Burrata verification playlist for the confirmed account; never automatically retry an unknown result", "control"),
  ("confirm_managed_provider_account","Verify the account in the owned login window and enable provider access", "control"),
@@ -6853,7 +6884,7 @@ fn tool_definitions() -> Vec<Value> {
  "set_player_panel"=>(json!({"panel":{"type":"string","enum":["queue","info","closed"]}}),json!(["panel"])),
  "identify_playing_track"=>(json!({"captureId":{"type":"string","minLength":36,"maxLength":36,"pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$","description":"Optional caller-generated UUID; pass the same value to cancel_playing_track_identification. Omit it for legacy uncancellable calls."}}),json!([])),
  "cancel_playing_track_identification"=>(json!({"captureId":{"type":"string","minLength":36,"maxLength":36,"pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}),json!(["captureId"])),
- "navigate_ui"=>(json!({"view":{"type":"string","enum":["library","favorites","history","downloads","settings","radio"]},"settingsCategory":{"type":"string","enum":UI_SETTINGS_CATEGORIES,"description":"Optional existing category; accepted only with view=settings"},"settingsControl":{"type":"string","enum":["playbackStartupTimeout"],"description":"Optional fixed control; requires view=settings and settingsCategory=playback"},"spotifyArtistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"spotifyProfileId":{"type":"string","minLength":1,"maxLength":256,"description":"Canonical Spotify user ID only; no URL, whitespace, separators or query"},"spotifyPlaylistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","minLength":22,"maxLength":22},"historyDirection":{"type":"string","enum":["back","forward"]}}),json!([])),
+ "navigate_ui"=>(json!({"catalogArtist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string","minLength":1,"maxLength":36}},"required":["provider","id"],"additionalProperties":false,"oneOf":[{"properties":{"provider":{"const":"musicbrainz"},"id":{"pattern":"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"}}},{"properties":{"provider":{"const":"discogs"},"id":{"pattern":"^[1-9][0-9]{0,19}$","maxLength":20}}}]},"catalogArtistSection":{"type":"string","enum":["overview","releases","tracks"],"description":"Optional catalog artist section; requires catalogArtist, defaults to overview"},"view":{"type":"string","enum":["library","favorites","history","downloads","settings","radio"]},"settingsCategory":{"type":"string","enum":UI_SETTINGS_CATEGORIES,"description":"Optional existing category; accepted only with view=settings"},"settingsControl":{"type":"string","enum":["playbackStartupTimeout"],"description":"Optional fixed control; requires view=settings and settingsCategory=playback"},"spotifyArtistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"spotifyProfileId":{"type":"string","minLength":1,"maxLength":256,"description":"Canonical Spotify user ID only; no URL, whitespace, separators or query"},"spotifyPlaylistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","minLength":22,"maxLength":22},"historyDirection":{"type":"string","enum":["back","forward"]}}),json!([])),
  "repair_spotify_durations_public"|"cancel_public_spotify_duration_repair"|"public_spotify_duration_repair_running"=>(json!({}),json!([])),
  "search_library"=>(json!({"query":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["query"])),
  "list_tracks_page"=>(json!({"view":{"type":"string","enum":["library","favorites","shortlist","collections"]},"collectionId":{"type":"string","maxLength":256},"query":{"type":"string","maxLength":500},"sortField":{"type":"string","enum":["sourceOrder","rank","title","artist","album","duration","durationSeconds","releaseDate","dateAdded","bpm","key","plays","views"]},"direction":{"type":"string","enum":["asc","desc"]},"minDurationSeconds":{"type":"integer","minimum":0,"maximum":4294967295u64},"maxDurationSeconds":{"type":"integer","minimum":0,"maximum":4294967295u64},"availability":{"type":"string","enum":["all","local","not-local"]},"provider":{"type":"string","maxLength":80},"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!(["view"])),
@@ -6877,7 +6908,7 @@ fn tool_definitions() -> Vec<Value> {
  {"type":"object","properties":{"action":{"const":"select"},"index":index,"modifier":{"enum":["none","ctrl","shift"]}},"required":["action","index","modifier"],"additionalProperties":false},
  {"type":"object","properties":{"action":{"const":"arrow"},"index":index,"direction":{"enum":["up","down"]}},"required":["action","index","direction"],"additionalProperties":false},
  {"type":"object","properties":{"action":{"const":"drag"},"from":index,"to":index},"required":["action","from","to"],"additionalProperties":false}]}); }
- if name=="navigate_ui" { input_schema["oneOf"]=json!([{"required":["view"]},{"required":["spotifyArtistId"]},{"required":["spotifyProfileId"]},{"required":["spotifyPlaylistId"]},{"required":["historyDirection"]}]); input_schema["if"]=json!({"required":["settingsCategory"]}); input_schema["then"]=json!({"required":["view"],"properties":{"view":{"const":"settings"}}}); input_schema["allOf"]=json!([{"if":{"required":["settingsControl"]},"then":{"required":["view","settingsCategory"],"properties":{"view":{"const":"settings"},"settingsCategory":{"const":"playback"}}}}]); }
+ if name=="navigate_ui" { input_schema["oneOf"]=json!([{"required":["view"]},{"required":["spotifyArtistId"]},{"required":["spotifyProfileId"]},{"required":["spotifyPlaylistId"]},{"required":["historyDirection"]},{"required":["catalogArtist"]}]); input_schema["if"]=json!({"required":["settingsCategory"]}); input_schema["then"]=json!({"required":["view"],"properties":{"view":{"const":"settings"}}}); input_schema["allOf"]=json!([{"if":{"required":["settingsControl"]},"then":{"required":["view","settingsCategory"],"properties":{"view":{"const":"settings"},"settingsCategory":{"const":"playback"}}}},{"if":{"required":["catalogArtistSection"]},"then":{"required":["catalogArtist"]}}]); }
  json!({"name":name,"description":description,"scope":scope,"inputSchema":input_schema})
  }).collect()
 }
@@ -7986,6 +8017,45 @@ mod tests {
     }
 
     #[test]
+    fn catalog_artist_navigation_validates_identity_section_and_completion() {
+        let id = "123e4567-e89b-12d3-a456-426614174000";
+        for (provider, id) in [("musicbrainz", id), ("discogs", "12345"), ("discogs", "18446744073709551615")] {
+            let artist = ArtistRef { provider: provider.into(), id: id.into() };
+            for section in ["overview", "releases", "tracks"] {
+                let target = parse_ui_navigation_request(&json!({"catalogArtist":artist,"catalogArtistSection":section})).unwrap();
+                assert_eq!(target, UiNavigationTarget::CatalogArtist(artist.clone(), section.into()));
+                assert_eq!(target.payload(), json!({"kind":"catalog_artist","catalogArtist":artist,"catalogArtistSection":section}));
+                let result = sanitize_ui_navigation_completion(&target, id, "complete").unwrap();
+                assert_eq!(result["completionScope"], "route_transition");
+                assert_eq!(result["catalogArtist"], json!(artist));
+                assert_eq!(result["catalogArtistSection"], section);
+                assert!(sanitize_ui_navigation_completion(&target, "other", "complete").is_err());
+            }
+        }
+        assert_eq!(parse_ui_navigation_request(&json!({"catalogArtist":{"provider":"musicbrainz","id":id}})).unwrap(),
+            UiNavigationTarget::CatalogArtist(ArtistRef {provider:"musicbrainz".into(),id:id.into()}, "overview".into()));
+        for arguments in [
+            json!({"catalogArtistSection":"tracks"}),
+            json!({"catalogArtist":null}),
+            json!({"catalogArtist":{"provider":"spotify","id":id}}),
+            json!({"catalogArtist":{"provider":"musicbrainz","id":"not-a-uuid"}}),
+            json!({"catalogArtist":{"provider":"musicbrainz","id":format!("https://musicbrainz.org/artist/{id}")}}),
+            json!({"catalogArtist":{"provider":"musicbrainz","id":id,"url":"https://example.org"}}),
+            json!({"catalogArtist":{"provider":"discogs","id":"0"}}),
+            json!({"catalogArtist":{"provider":"discogs","id":"01"}}),
+            json!({"catalogArtist":{"provider":"discogs","id":"-1"}}),
+            json!({"catalogArtist":{"provider":"discogs","id":"18446744073709551616"}}),
+            json!({"catalogArtist":{"provider":"discogs","id":123}}),
+            json!({"catalogArtist":{"provider":"musicbrainz","id":id},"catalogArtistSection":"local"}),
+            json!({"catalogArtist":{"provider":"musicbrainz","id":id},"catalogArtistSection":null}),
+            json!({"catalogArtist":{"provider":"musicbrainz","id":id},"view":"library"}),
+            json!({"catalogArtist":{"provider":"musicbrainz","id":id},"script":"arbitrary"}),
+        ] {
+            assert!(parse_ui_navigation_request(&arguments).is_err(), "accepted {arguments}");
+        }
+    }
+
+    #[test]
     fn navigate_ui_tool_is_control_scoped_and_bounded() {
         let tool = tool_definitions()
             .into_iter()
@@ -7998,11 +8068,11 @@ mod tests {
             .contains(&json!("radio")));
         assert_eq!(
             tool["inputSchema"]["properties"].as_object().unwrap().len(),
-            7
+            9
         );
         assert_eq!(
             tool["inputSchema"]["oneOf"],
-            json!([{"required":["view"]},{"required":["spotifyArtistId"]},{"required":["spotifyProfileId"]},{"required":["spotifyPlaylistId"]},{"required":["historyDirection"]}])
+            json!([{"required":["view"]},{"required":["spotifyArtistId"]},{"required":["spotifyProfileId"]},{"required":["spotifyPlaylistId"]},{"required":["historyDirection"]},{"required":["catalogArtist"]}])
         );
         assert_eq!(
             tool["inputSchema"]["properties"]["spotifyProfileId"]["maxLength"],

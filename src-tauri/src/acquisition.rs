@@ -1025,6 +1025,11 @@ async fn find_candidates_with_cancel_until_alias(
             && provider_ids
                 .iter()
                 .any(|provider| provider == &candidate.provider)
+            // Imported audio-search rows can retain an old candidate. For
+            // YouTube, bind its stable ID to the exact validated page before
+            // returning it; otherwise let the normal search replace the hint.
+            && (candidate.provider != "youtube"
+                || playback_youtube_search_url(&candidate).is_some())
         {
             return Ok(vec![candidate]);
         }
@@ -3888,11 +3893,10 @@ fn preview_audio_from_metadata(
         selected_format_id: safe_extractor_format_id(info["format_id"].as_str()),
         selected_format_has_video: info["vcodec"].as_str().is_some_and(|codec| codec != "none"),
         source_metadata: if candidate.provider == "youtube" {
-            let richer_metadata = if candidate
-                .uploader
-                .as_deref()
-                .is_some_and(|name| name.trim_end().ends_with("- Topic"))
-            {
+            // Topic status must come from this extraction response. Search
+            // hints and remembered candidates can be stale or have no
+            // uploader at all, so they cannot select the richer proof path.
+            let richer_metadata = if fresh_youtube_topic_identity(info) {
                 topic_identity_metadata(candidate, info)
             } else {
                 verified_youtube_channel_metadata(candidate, info)
@@ -4066,10 +4070,7 @@ fn playback_music_catalog_candidate(
 /// and is usable only when yt-dlp itself marks the current channel verified.
 fn verified_youtube_channel_metadata(candidate: &Candidate, info: &Value) -> Option<Value> {
     if candidate.provider != "youtube"
-        || candidate
-            .uploader
-            .as_deref()
-            .is_some_and(|name| name.trim_end().ends_with("- Topic"))
+        || fresh_youtube_topic_identity(info)
         || info["channel_is_verified"].as_bool() != Some(true)
     {
         return None;
@@ -4142,13 +4143,26 @@ fn youtube_identity_only_metadata(candidate: &Candidate, info: &Value) -> Option
     }))
 }
 
+fn fresh_youtube_topic_identity(info: &Value) -> bool {
+    [info["channel"].as_str(), info["uploader"].as_str()]
+        .into_iter()
+        .flatten()
+        .any(|name| name.trim_end().ends_with("- Topic"))
+}
+
 fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value> {
-    if candidate.provider != "youtube"
-        || !candidate
-            .uploader
-            .as_deref()
-            .is_some_and(|name| name.trim_end().ends_with("- Topic"))
-    {
+    let channel = info["channel"]
+        .as_str()
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && name.len() <= 200)?;
+    let track = info["track"]
+        .as_str()
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && name.len() <= 300)?;
+    let duration = info["duration"]
+        .as_f64()
+        .filter(|value| value.is_finite() && *value > 0.0)?;
+    if candidate.provider != "youtube" || !fresh_youtube_topic_identity(info) {
         return None;
     }
     let artists = info["artists"]
@@ -4174,9 +4188,7 @@ fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value>
                 && artists.iter().all(|artist| {
                     crate::matching::normalize(line).contains(&crate::matching::normalize(artist))
                 })
-                && crate::matching::normalize(line).contains(&crate::matching::normalize(
-                    info["track"].as_str().unwrap_or_default(),
-                ))
+                && crate::matching::normalize(line).contains(&crate::matching::normalize(track))
         })
         .map(str::to_owned)?;
     let channel_id = info["channel_id"].as_str().filter(|id| {
@@ -4189,12 +4201,12 @@ fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value>
     Some(serde_json::json!({
         "provider": "youtube",
         "channelId": channel_id,
-        "channel": info["channel"].as_str().unwrap_or_default(),
-        "track": info["track"].as_str().unwrap_or_default(),
+        "channel": channel,
+        "track": track,
         "artist": info["artist"].as_str().unwrap_or_default(),
         "artists": artists,
         "descriptionCreditLine": credit_line,
-        "duration": info["duration"].as_f64(),
+        "duration": duration,
     }))
 }
 
@@ -7175,6 +7187,81 @@ mod tests {
             .is_some());
     }
 
+    #[tokio::test]
+    async fn valid_embedded_youtube_candidate_is_reused() {
+        let candidate = Candidate {
+            id: "youtube:QWERTY12345".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=QWERTY12345".into(),
+            title: "Artist - Song".into(),
+            ..Candidate::default()
+        };
+        let track = Track {
+            provenance: serde_json::json!({
+                "sourceKind":"audioSearch",
+                "audioCandidate":candidate
+            }),
+            ..Track::default()
+        };
+        let found = find_candidates_with_cancel(
+            &track,
+            &["youtube".into()],
+            &Settings::default(),
+            idle_cancel().1,
+            10,
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "youtube:QWERTY12345");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stale_embedded_youtube_candidate_id_falls_through_to_search() {
+        let entry = serde_json::json!({
+            "id":"QWERTY12345",
+            "url":"https://www.youtube.com/watch?v=QWERTY12345",
+            "title":"John Williams, London Symphony Orchestra - Marion's Theme / The Crate",
+            "duration":128,
+            "uploader":"John Williams - Topic"
+        });
+        let output = serde_json::json!({"entries":[entry]}).to_string();
+        let (_directory, settings) = fake_tool(&format!("cat <<'JSON'\n{output}\nJSON"));
+        let stale = Candidate {
+            id: "youtube:ASDFGH12345".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=QWERTY12345".into(),
+            title: "stale imported candidate".into(),
+            ..Candidate::default()
+        };
+        let track = Track {
+            id: "fixture:audio-search-stale-candidate".into(),
+            provider: "musicbrainz".into(),
+            artist: "John Williams, London Symphony Orchestra".into(),
+            title: "Marion's Theme / The Crate".into(),
+            duration_seconds: Some(128.0),
+            provenance: serde_json::json!({
+                "sourceKind":"audioSearch",
+                "audioCandidate":stale
+            }),
+            ..Track::default()
+        };
+        let found = find_candidates_with_cancel(
+            &track,
+            &["youtube".into()],
+            &settings,
+            idle_cancel().1,
+            10,
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "youtube:QWERTY12345");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn playback_search_uses_provider_alternatives_after_imported_hint() {
@@ -7981,6 +8068,195 @@ mod tests {
     }
 
     #[test]
+    fn fresh_topic_metadata_supports_remembered_candidate_without_uploader_hint() {
+        let candidate = Candidate {
+            id: "youtube:PIJ6QOUnuCg".into(),
+            provider: "youtube".into(),
+            uploader: None,
+            ..Candidate::default()
+        };
+        let info = serde_json::json!({
+            "id":"PIJ6QOUnuCg",
+            "url":"https://rr1---sn.googlevideo.com/videoplayback?signature=redacted",
+            "ext":"webm","protocol":"https","format_id":"251",
+            "acodec":"opus","vcodec":"none","duration":413.0,
+            "channel_id":"UCGCTe_N5qNs1TmXl3foMRww",
+            "channel":"Domna Samiou - Topic",
+            "uploader":"Domna Samiou - Topic",
+            "artists":["Domna Samiou"],
+            "artist":"Domna Samiou",
+            "track":"Μοιρολόι (Ήπειρος)",
+            "album":"Ιστορικά - Κλέφτικα Τραγούδια",
+            "description":"Μοιρολόι (Ήπειρος) · Domna Samiou\nΙστορικά - Κλέφτικα Τραγούδια"
+        });
+        let audio = preview_audio_from_metadata(&candidate, &info).unwrap();
+        let metadata = audio.source_metadata.unwrap();
+        assert_eq!(metadata["channelId"], "UCGCTe_N5qNs1TmXl3foMRww");
+        assert_eq!(metadata["channel"], "Domna Samiou - Topic");
+        assert_eq!(metadata["track"], "Μοιρολόι (Ήπειρος)");
+        assert_eq!(metadata["artists"], serde_json::json!(["Domna Samiou"]));
+        assert_eq!(metadata["duration"], 413.0);
+        assert_eq!(
+            metadata["descriptionCreditLine"],
+            "Μοιρολόι (Ήπειρος) · Domna Samiou"
+        );
+    }
+
+    #[test]
+    fn public_moiroloi_topic_fixture_passes_fresh_verified_extractor_gate() {
+        // Allowlisted public yt-dlp metadata observed 2026-10-19 for
+        // https://www.youtube.com/watch?v=PIJ6QOUnuCg. This fixture contains
+        // no media URL, request headers, or signed query values.
+        let public_metadata = serde_json::json!({
+            "id":"PIJ6QOUnuCg",
+            "title":"Μοιρολόι (Ήπειρος)",
+            "channel_id":"UCGCTe_N5qNs1TmXl3foMRww",
+            "channel":"Domna Samiou - Topic",
+            "uploader":"Domna Samiou - Topic",
+            "artists":["Domna Samiou"],
+            "artist":"Domna Samiou",
+            "track":"Μοιρολόι (Ήπειρος)",
+            "album":"Ιστορικά - Κλέφτικα Τραγούδια",
+            "duration":413.0,
+            "description":"Provided to YouTube by DistroKid\nΜοιρολόι (Ήπειρος) · Domna Samiou\nΙστορικά - Κλέφτικα Τραγούδια\n℗ Domna Samiou Greek Folk Music Association\nAuto-generated by YouTube."
+        });
+        // Preview parsing needs a selected audio format. These transport fields
+        // are synthetic parser inputs and are not part of the public fixture.
+        let mut extractor_info = public_metadata;
+        extractor_info["url"] = serde_json::json!("https://rr1---sn.googlevideo.com/videoplayback");
+        extractor_info["ext"] = serde_json::json!("webm");
+        extractor_info["protocol"] = serde_json::json!("https");
+        extractor_info["format_id"] = serde_json::json!("251");
+        extractor_info["acodec"] = serde_json::json!("opus");
+        extractor_info["vcodec"] = serde_json::json!("none");
+
+        let track = Track {
+            id: "spotify:4MiDHSmsHlgaf8W2tzwT6Z".into(),
+            provider: "spotify".into(),
+            provider_id: "4MiDHSmsHlgaf8W2tzwT6Z".into(),
+            artist: "Domna Samiou".into(),
+            title: "Μοιρολόι (Ήπειρος)".into(),
+            duration_seconds: Some(413.32),
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            id: "youtube:PIJ6QOUnuCg".into(),
+            provider: "youtube".into(),
+            title: "Μοιρολόι (Ήπειρος)".into(),
+            uploader: None,
+            permission: "unknown".into(),
+            confidence: "review".into(),
+            ..Candidate::default()
+        };
+        let audio = preview_audio_from_metadata(&candidate, &extractor_info).unwrap();
+
+        // Mirror verify_resolved_identity's fresh extraction updates before
+        // calling the real verified-extractor recording matcher.
+        candidate.source_metadata = audio.source_metadata.clone();
+        candidate.uploader = audio.source_metadata.as_ref().and_then(|metadata| {
+            metadata["channel"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    metadata["uploader"]
+                        .as_str()
+                        .filter(|value| !value.is_empty())
+                })
+                .map(str::to_owned)
+        });
+        candidate.title = audio.resolved_title.clone().unwrap();
+        candidate.duration_seconds = audio.duration_seconds;
+        candidate.confidence = "review".into();
+        assert!(
+            crate::source_fallback::playback_recording_matches_verified_extractor(
+                &track, &candidate
+            )
+        );
+
+        let wrong_artist = Track {
+            artist: "Wrong Artist".into(),
+            ..track.clone()
+        };
+        assert!(
+            !crate::source_fallback::playback_recording_matches_verified_extractor(
+                &wrong_artist,
+                &candidate
+            )
+        );
+        let wrong_duration = Track {
+            duration_seconds: Some(420.0),
+            ..track
+        };
+        assert!(
+            !crate::source_fallback::playback_recording_matches_verified_extractor(
+                &wrong_duration,
+                &candidate
+            )
+        );
+        assert!(candidate
+            .source_metadata
+            .as_ref()
+            .unwrap()
+            .get("channelIsVerified")
+            .is_none());
+    }
+
+    #[test]
+    fn topic_proof_uses_fresh_channel_fields_not_candidate_hints() {
+        let stale_topic = Candidate {
+            id: "youtube:PIJ6QOUnuCg".into(),
+            provider: "youtube".into(),
+            uploader: Some("Wrong Artist - Topic".into()),
+            ..Candidate::default()
+        };
+        let fresh_non_topic = serde_json::json!({
+            "channel_id":"UC1234567890123456789012",
+            "channel":"Ordinary Channel",
+            "uploader":"Ordinary Channel",
+            "channel_is_verified":false,
+            "artists":["Wrong Artist"],
+            "track":"Some Song",
+            "duration":225.0,
+            "description":"Unrelated"
+        });
+        assert!(!fresh_youtube_topic_identity(&fresh_non_topic));
+        assert!(topic_identity_metadata(&stale_topic, &fresh_non_topic).is_none());
+        assert!(verified_youtube_channel_metadata(&stale_topic, &fresh_non_topic).is_none());
+
+        // A Topic uploader alone cannot stand in for missing fresh channel
+        // metadata, even when the search candidate carried the same hint.
+        let missing_channel = serde_json::json!({
+            "channel_id":"UC1234567890123456789012",
+            "uploader":"Right Artist - Topic",
+            "artists":["Right Artist"],
+            "track":"Some Song",
+            "duration":225.0,
+            "description":"Some Song · Right Artist"
+        });
+        assert!(topic_identity_metadata(&stale_topic, &missing_channel).is_none());
+
+        let fresh_topic = serde_json::json!({
+            "channel_id":"UC1234567890123456789012",
+            "channel":"Right Artist - Topic",
+            "uploader":"Right Artist - Topic",
+            "artists":["Right Artist"],
+            "track":"Some Song",
+            "duration":225.0,
+            "description":"Some Song · Right Artist"
+        });
+        assert!(topic_identity_metadata(&stale_topic, &fresh_topic).is_some());
+        let mut bad_channel_id = fresh_topic.clone();
+        bad_channel_id["channel_id"] = serde_json::json!("UC-short");
+        assert!(topic_identity_metadata(&stale_topic, &bad_channel_id).is_none());
+        let mut missing_duration = fresh_topic.clone();
+        missing_duration.as_object_mut().unwrap().remove("duration");
+        assert!(topic_identity_metadata(&stale_topic, &missing_duration).is_none());
+        let mut missing_credit = fresh_topic;
+        missing_credit.as_object_mut().unwrap().remove("artists");
+        assert!(topic_identity_metadata(&stale_topic, &missing_credit).is_none());
+    }
+
+    #[test]
     fn ordinary_youtube_identity_requires_fresh_verified_channel_fields() {
         let candidate = Candidate {
             provider: "youtube".into(),
@@ -8024,7 +8300,12 @@ mod tests {
             uploader: Some("KAROL G - Topic".into()),
             ..candidate
         };
-        assert!(verified_youtube_channel_metadata(&topic, &info).is_none());
+        // A stale Topic search label does not select Topic proof; a fresh
+        // verified non-Topic extractor response may still use its own proof.
+        assert_eq!(
+            verified_youtube_channel_metadata(&topic, &info).unwrap()["channelIsVerified"],
+            true
+        );
     }
 
     #[test]

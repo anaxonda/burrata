@@ -4001,13 +4001,13 @@
     activeArtistName = artist.name; activeArtistRef = null; activeArtistTrack = null; artistSection = "overview"; artistScroll = 0;
     await navigate("artist", false);
   }
-  async function discoverArtistRef(artist: ArtistRef) {
+  async function discoverArtistRef(artist: ArtistRef, initialSection: "overview" | "releases" | "tracks" = "overview") {
     rememberRoute();
     spotifyArtistId=""; spotifyAlbumId="";
     spotifyArtistSearchFallback=null;
     activeArtistTrack = null;
     activeArtistName = "";
-    artistSection = "overview"; artistScroll = 0;
+    artistSection = initialSection; artistScroll = 0;
     activeArtistRef = artist;
     await navigate("artist", false);
   }
@@ -5440,13 +5440,13 @@
         void call("automation_layout_complete",{requestId:request.requestId,layout:sample}).catch(()=>{});
       });
       let activeUiNavigationRequest: string | null = null;
-      const navigationListenerReady = register<{requestId:string;target:{kind:"view";view:"library"|"favorites"|"history"|"downloads"|"settings"|"radio";settingsCategory?:SettingsCategory;settingsControl?:string}|{kind:"spotify_artist";spotifyArtistId:string}|{kind:"spotify_profile";spotifyProfileId:string}|{kind:"spotify_playlist";spotifyPlaylistId:string}|{kind:"history";historyDirection:"back"|"forward"}}>("automation-ui-navigation", request => {
+      const navigationListenerReady = register<{requestId:string;target:{kind:"view";view:"library"|"favorites"|"history"|"downloads"|"settings"|"radio";settingsCategory?:SettingsCategory;settingsControl?:string}|{kind:"catalog_artist";catalogArtist:ArtistRef;catalogArtistSection?:"overview"|"releases"|"tracks"}|{kind:"spotify_artist";spotifyArtistId:string}|{kind:"spotify_profile";spotifyProfileId:string}|{kind:"spotify_playlist";spotifyPlaylistId:string}|{kind:"history";historyDirection:"back"|"forward"}}>("automation-ui-navigation", request => {
         activeUiNavigationRequest = request.requestId;
         const target = request.target;
-        const destination = target.kind === "view" ? target.view : target.kind === "spotify_artist" ? target.spotifyArtistId : target.kind === "spotify_profile" ? target.spotifyProfileId : target.kind === "spotify_playlist" ? target.spotifyPlaylistId : target.historyDirection;
+        const destination = target.kind === "catalog_artist" ? (target.catalogArtist?.id ?? "") : target.kind === "view" ? target.view : target.kind === "spotify_artist" ? target.spotifyArtistId : target.kind === "spotify_profile" ? target.spotifyProfileId : target.kind === "spotify_playlist" ? target.spotifyPlaylistId : target.historyDirection;
         const historyStack = target.kind === "history" ? (target.historyDirection === "back" ? backRoutes : forwardRoutes) : [];
         const historyRoute = historyStack[historyStack.length - 1];
-        const targetView = target.kind === "view" ? target.view : target.kind === "spotify_artist" ? "artist" : target.kind === "history" ? historyRoute?.view : "source-browser";
+        const targetView = target.kind === "view" ? target.view : (target.kind === "spotify_artist" || target.kind === "catalog_artist") ? "artist" : target.kind === "history" ? historyRoute?.view : "source-browser";
         const hasSettingsControl = "settingsControl" in target;
         const before = navigationRequest;
         let expectedNavigation = before + 1;
@@ -5460,6 +5460,13 @@
               }
               if (target.view === "radio" && playingRadioStation) selectedRadioStationId = playingRadioStation.id;
               await navigate(target.view);
+            } else if (target.kind === "catalog_artist") {
+              const artist = target.catalogArtist, section = target.catalogArtistSection ?? "overview";
+              const validArtist = artist && Object.keys(artist).length === 2 && typeof artist.id === "string" && (
+                artist.provider === "musicbrainz" ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(artist.id) :
+                artist.provider === "discogs" && /^[1-9][0-9]{0,19}$/.test(artist.id) && BigInt(artist.id) <= 18446744073709551615n);
+              if (!validArtist || !["overview","releases","tracks"].includes(section)) throw new Error("invalid catalog artist target");
+              await discoverArtistRef(artist, section);
             } else if (target.kind === "spotify_artist") {
               if (!/^[A-Za-z0-9]{22}$/.test(target.spotifyArtistId)) throw new Error("invalid target");
               spotifyNavigationSnapshotKey=null;spotifyArtistId = target.spotifyArtistId; spotifyAlbumId = ""; spotifyArtistSearchFallback = null; activeArtistName = ""; artistScroll = 0;
@@ -5482,6 +5489,7 @@
             await tick();
             if (disposed || activeUiNavigationRequest !== request.requestId || navigationRequest !== expectedNavigation || view !== targetView) return;
             if (target.kind === "view" && target.settingsCategory !== undefined && settingsCategory !== target.settingsCategory) return;
+            if (target.kind === "catalog_artist" && (activeArtistRef?.provider !== target.catalogArtist.provider || activeArtistRef?.id !== target.catalogArtist.id || artistSection !== (target.catalogArtistSection ?? "overview") || spotifyArtistId || spotifyAlbumId)) return;
             if (hasSettingsControl) {
               const control = document.getElementById("playback-startup-timeout") as HTMLSelectElement | null;
               if (!control || !control.isConnected || control.tagName !== "SELECT") throw new Error("Playback startup timeout control is unavailable");
@@ -5787,7 +5795,7 @@
     {:else if view === "artist"}
       <section class="artist-page-host">
         {#if spotifyArtistId || spotifyAlbumId}<SpotifyArtist bind:this={spotifyArtistComponent} navigationSnapshotKey={spotifyNavigationSnapshotKey} artistId={spotifyArtistId || spotifyAlbumId} initialAlbumId={spotifyAlbumId || null} searchArtistFallback={spotifyArtistSearchFallback} call={spotifyArtistCall} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} onPlay={playArtistTrack} onPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist} onSaveToLibrary={saveAlbumTracksToLibrary} onBrowseArtistProvider={browseArtistProvider} onFavorite={(track)=>void favorite(track)} onDownload={(track)=>void openDownloadChooser(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onArtist={(track)=>void discoverArtist(track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} onAlbumOpening={()=>rememberRoute()} initialScroll={artistScroll} onScroll={(value)=>artistScroll=value}/>{:else}
-        <ArtistPage bind:this={nativeArtistComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused}
+        <ArtistPage showSearchResultsButton={false} bind:this={nativeArtistComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused}
           activeTrack={activeArtistTrack}
           artistName={activeArtistName}
           initialArtistRef={activeArtistRef}

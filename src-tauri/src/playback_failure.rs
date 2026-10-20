@@ -101,6 +101,7 @@ pub fn classify(reason: &str) -> PlaybackFailure {
         "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
         "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.",
     ].contains(&reason);
+    let exact_verified_source_identity_mismatch = reason == "Verified source identity mismatch";
     if exact_no_match
         || message == "no playable audio match was found"
         || message.starts_with("no playable audio match was found for ")
@@ -110,6 +111,7 @@ pub fn classify(reason: &str) -> PlaybackFailure {
         return failure(NoMatch, Stage::Resolver, Recording, false, None);
     }
     if exact_identity
+        || exact_verified_source_identity_mismatch
         || [
             "the resolved audio source identity does not match this recording",
             "source identity changed during audio resolution; select it again",
@@ -388,6 +390,30 @@ mod tests {
             assert!(!should_skip_recording(&after));
         }
     }
+    #[test]
+    fn verified_internal_identity_mismatch_is_an_exact_terminal_recording_failure() {
+        let exact = classify("Verified source identity mismatch");
+        assert_eq!(
+            exact,
+            failure(
+                FailureCategory::RecordingIdentityMismatch,
+                FailureStage::Resolver,
+                FailureScope::Recording,
+                false,
+                None,
+            )
+        );
+        assert!(should_skip_recording(&exact));
+        for near_miss in [
+            "verified source identity mismatch",
+            "Verified source identity mismatch: extra detail",
+            "HTTP 403 unavailable",
+        ] {
+            let value = classify(near_miss);
+            assert!(!should_skip_recording(&value), "{near_miss}");
+        }
+    }
+
     #[test]
     fn frontend_and_native_policy_share_contract() {
         let cases: serde_json::Value = serde_json::from_str(include_str!(

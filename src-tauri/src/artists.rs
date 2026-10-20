@@ -2929,6 +2929,10 @@ fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Tra
         .and_then(Value::as_str)
         .map(str::to_owned);
     let release_date = value["first-release-date"].as_str().map(str::to_owned);
+    let duration_seconds = value["length"]
+        .as_f64()
+        .map(|length_ms| length_ms / 1000.0)
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0);
     let tags = named_items(&value["genres"]);
     let tag_list = if tags.is_empty() {
         named_items(&value["tags"])
@@ -2942,6 +2946,7 @@ fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Tra
         source_url: source_url.clone(),
         artist,
         title,
+        duration_seconds,
         release_date: release_date.clone(),
         genre: tag_list.first().cloned(),
         isrc,
@@ -3690,9 +3695,10 @@ mod tests {
     fn recording_tracks_keep_first_release_date_and_unknown_mix_provenance() {
         let track = parse_musicbrainz_recording(&json!({
             "id":"00000000-0000-4000-8000-000000000002", "title":"Night Drive",
-            "first-release-date":"2004-03-01", "isrcs":["USAAA0400001"],
+            "length":123456.5, "first-release-date":"2004-03-01", "isrcs":["USAAA0400001"],
             "artist-credit":[{"name":"Pulse","joinphrase":"","artist":{"id":"00000000-0000-4000-8000-000000000001","name":"Pulse"}}]
         }), &ArtistRef { provider:"musicbrainz".into(), id:"00000000-0000-4000-8000-000000000001".into() }).unwrap();
+        assert_eq!(track.duration_seconds, Some(123.4565));
         assert_eq!(track.release_date.as_deref(), Some("2004-03-01"));
         assert_eq!(track.isrc.as_deref(), Some("USAAA0400001"));
         assert!(track.version.is_none());
@@ -3701,6 +3707,67 @@ mod tests {
             track.provenance["mixVersion"],
             "unknown; no version inferred from artist or release text"
         );
+    }
+
+    #[test]
+    fn recording_tracks_keep_missing_or_invalid_musicbrainz_lengths_unknown() {
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: "00000000-0000-4000-8000-000000000001".into(),
+        };
+        for (label, length) in [
+            ("missing", None),
+            ("null", Some(json!(null))),
+            ("zero", Some(json!(0))),
+            ("negative", Some(json!(-1))),
+            ("string", Some(json!("180000"))),
+            ("object", Some(json!({"milliseconds":180000}))),
+        ] {
+            let mut recording = json!({
+                "id":"00000000-0000-4000-8000-000000000003",
+                "title":"Unknown Length",
+                "artist-credit":[{"name":"Pulse","joinphrase":"","artist":{"name":"Pulse"}}]
+            });
+            if let Some(length) = length {
+                recording["length"] = length;
+            }
+            let parsed = parse_musicbrainz_recording(&recording, &artist)
+                .unwrap_or_else(|| panic!("fixture should parse for {label}"));
+            assert_eq!(parsed.duration_seconds, None, "{label} length");
+        }
+    }
+
+    #[test]
+    fn recording_duration_refresh_preserves_existing_known_length() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            Store::open(&directory.path().join("artist-recording-duration.sqlite")).unwrap();
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: "00000000-0000-4000-8000-000000000001".into(),
+        };
+        let known = parse_musicbrainz_recording(
+            &json!({
+                "id":"00000000-0000-4000-8000-000000000004",
+                "title":"Cached Duration",
+                "length":180000,
+                "artist-credit":[{"name":"Pulse","joinphrase":"","artist":{"name":"Pulse"}}]
+            }),
+            &artist,
+        )
+        .unwrap();
+        store.save_track(&known).unwrap();
+        let refreshed_row = parse_musicbrainz_recording(
+            &json!({
+                "id":"00000000-0000-4000-8000-000000000004",
+                "title":"Cached Duration",
+                "artist-credit":[{"name":"Pulse","joinphrase":"","artist":{"name":"Pulse"}}]
+            }),
+            &artist,
+        )
+        .unwrap();
+        let refreshed = store.save_track(&refreshed_row).unwrap();
+        assert_eq!(refreshed.duration_seconds, Some(180.0));
     }
 
     #[test]

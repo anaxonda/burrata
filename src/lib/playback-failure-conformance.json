@@ -30,6 +30,16 @@
     "skip": true
   },
   {
+    "reason": "Verified source identity mismatch",
+    "failure": {
+      "category": "recording_identity_mismatch",
+      "stage": "resolver",
+      "scope": "recording",
+      "retryable": false
+    },
+    "skip": true
+  },
+  {
     "reason": "No playable audio match was found for Network — Connection (Cancel Mix)",
     "failure": {
       "category": "no_match",

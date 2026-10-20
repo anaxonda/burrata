@@ -50,6 +50,15 @@ function render(props: Record<string, unknown>) {
 }
 
 describe("ArtistPage", () => {
+  it("lets a host with global navigation hide the duplicate search-results button", async () => {
+    const ref = artist("host-navigation", "Host Artist");
+    const target = render({ initialArtistRef: ref.artist, showSearchResultsButton: false,
+      getArtistProfile: async () => profile(ref) });
+    await settle();
+    expect(target.querySelector(".artist-heading h2")?.textContent).toBe("Host Artist");
+    expect(target.querySelector("button.back")).toBeNull();
+  });
+
   it("renders albums with repeated unnumbered songs and repeated disc positions", async () => {
     const gillian = artist("gillian-welch", "Gillian Welch");
     const live = release("live", "The Palms, Davis CA", "https://musicbrainz.org/release/live", "Album");
@@ -387,7 +396,8 @@ describe("ArtistPage", () => {
     target.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!.dispatchEvent(new Event("change", { bubbles: true })); await settle();
     const rows = target.querySelectorAll(".shared-track-list li");
     expect(rows[0].textContent).toContain("Alpha");
-    rows[0].querySelector<HTMLButtonElement>("button")!.click(); await settle();
+    expect(rows[0].closest(".track-list-viewport")?.classList.contains("playlist")).toBe(true);
+    rows[0].querySelector<HTMLButtonElement>(".position-slot .row-play")!.click(); await settle();
     expect(onPlayTrack).toHaveBeenLastCalledWith(songs[1], [songs[1], songs[2], songs[0]], 0);
     const search = target.querySelector<HTMLInputElement>('[aria-label="Search loaded tracks"]')!;
     search.value = "Blue Record"; search.dispatchEvent(new Event("input", { bubbles: true })); await settle();
