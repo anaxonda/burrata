@@ -1,0 +1,835 @@
+{
+  "caveats": [
+    "Boundary-overlapping sample CPU is apportioned uniformly over that sample's actual interval.",
+    "A process-count/PSS bound uses sample endpoints whose intervals overlap each window; short-lived children can be missed between polls.",
+    "PSS values can be stale because the sampler reads smaps_rollup at no more than 1 Hz.",
+    "RSS sums double-count shared pages; PSS sums approximate proportional residency for the sampled processes, with cached endpoint values.",
+    "Sampler, MCP polling, Vite, and other external client CPU is excluded; no physical audibility is measured."
+  ],
+  "method": {
+    "one_core_percent": "CPU-seconds divided by requested window wall seconds times 100",
+    "paused_window": "first 2 seconds after pauseSentUnixMs",
+    "peak": "maximum full actual sample-interval one-core percentage among intervals overlapping the window",
+    "pss": "endpoint snapshots; refresh at most 1 Hz and may be stale within a window",
+    "window_cpu": "sample CPU deltas apportioned by actual monotonic sample interval overlap"
+  },
+  "schema": "burrata.native-cpu-summary/v1",
+  "trials": [
+    {
+      "actual_sample_dt_seconds_capture_wide": {
+        "interval_count": 168,
+        "max": 0.260378344,
+        "median": 0.1593751115,
+        "min": 0.127539548,
+        "p95": 0.2161831369
+      },
+      "binary_sha256": "064502c0a8e131a3b58ba8f5d2cbf159ba9bc5bca09559fda689b35dd2d52702",
+      "markers_unix_ms": {
+        "captureFinishedUnixMs": 1792467883220,
+        "commandReturnedUnixMs": 1792467859374,
+        "commandSentUnixMs": 1792467856213,
+        "firstObservedPlayingUnixMs": 1792467859392,
+        "pauseSentUnixMs": 1792467880275,
+        "samplerLaunchUnixMs": 1792467854350
+      },
+      "readiness": {
+        "command_to_first_observed_playing_ms": 3179,
+        "decoder_kind": "ffmpeg",
+        "first_audio_ms_after_native_request_start": 3120,
+        "first_observed_playing_unix_ms": 1792467859392,
+        "source_ready_ms_after_native_request_start": 2507
+      },
+      "root_pid": 1765234,
+      "root_start_ticks": 11976270,
+      "trial_index": 1,
+      "windows": {
+        "paused_first_2s_after_pause": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 15.3268241792637,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.0
+          },
+          "actual_interval_peak_one_core_percent_total": 15.3268241792637,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 13,
+            "max": 0.210939142,
+            "median": 0.147500731,
+            "min": 0.128235642,
+            "p95": 0.20326439859999995
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 2.0,
+          "cpu_seconds_by_role": {
+            "app": 0.13289216554518826,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.0
+          },
+          "cpu_seconds_total": 0.13289216554518826,
+          "one_core_percent_by_role": {
+            "app": 6.6446082772594135,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.0
+          },
+          "one_core_percent_total": 6.6446082772594135,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 1,
+              "min": 1
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 177269760,
+              "min": 177168384,
+              "samples": 13
+            },
+            "decoder": {
+              "max": 17468416,
+              "min": 17468416,
+              "samples": 13
+            },
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 245115904,
+              "min": 244745216,
+              "samples": 13
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 0,
+          "window_command_relative_seconds": [
+            24.062,
+            26.062
+          ],
+          "window_seconds": 2.0
+        },
+        "startup_0_5s_after_command": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 77.77390583748166,
+            "decoder": 13.999305200483594,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 115.21304654104944
+          },
+          "actual_interval_peak_one_core_percent_total": 167.99166240580314,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 31,
+            "max": 0.242813416,
+            "median": 0.152755132,
+            "min": 0.12895555,
+            "p95": 0.228347086
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 5.0,
+          "cpu_seconds_by_role": {
+            "app": 1.4069480274910675,
+            "decoder": 0.07999999999999995,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.8199349041535386
+          },
+          "cpu_seconds_total": 2.3068829316446062,
+          "one_core_percent_by_role": {
+            "app": 28.138960549821352,
+            "decoder": 1.599999999999999,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 16.398698083070773
+          },
+          "one_core_percent_total": 46.137658632892126,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 1,
+              "min": 0
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 166067200,
+              "min": 159929344,
+              "samples": 31
+            },
+            "decoder": {
+              "max": 17366016,
+              "min": 17292288,
+              "samples": 11
+            },
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 250033152,
+              "min": 235311104,
+              "samples": 31
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 0,
+          "window_command_relative_seconds": [
+            0.0,
+            5.0
+          ],
+          "window_seconds": 5.0
+        },
+        "steady_15_20s_after_command": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 53.12806195736627,
+            "decoder": 11.164358339752514,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 39.0752541891338
+          },
+          "actual_interval_peak_one_core_percent_total": 72.56832920839133,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 32,
+            "max": 0.260378344,
+            "median": 0.149698944,
+            "min": 0.128785883,
+            "p95": 0.2072653596
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 5.0,
+          "cpu_seconds_by_role": {
+            "app": 1.3507151009365534,
+            "decoder": 0.1224973945176986,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.2324973945176978
+          },
+          "cpu_seconds_total": 1.7057098899719498,
+          "one_core_percent_by_role": {
+            "app": 27.01430201873107,
+            "decoder": 2.449947890353972,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 4.649947890353956
+          },
+          "one_core_percent_total": 34.114197799439,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 1,
+              "min": 1
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 177168384,
+              "min": 169758720,
+              "samples": 32
+            },
+            "decoder": {
+              "max": 17435648,
+              "min": 17420288,
+              "samples": 32
+            },
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 252732416,
+              "min": 250238976,
+              "samples": 32
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 0,
+          "window_command_relative_seconds": [
+            15.0,
+            20.0
+          ],
+          "window_seconds": 5.0
+        }
+      }
+    },
+    {
+      "actual_sample_dt_seconds_capture_wide": {
+        "interval_count": 168,
+        "max": 0.275670902,
+        "median": 0.159027126,
+        "min": 0.126067697,
+        "p95": 0.22405321275
+      },
+      "binary_sha256": "064502c0a8e131a3b58ba8f5d2cbf159ba9bc5bca09559fda689b35dd2d52702",
+      "markers_unix_ms": {
+        "captureFinishedUnixMs": 1792468072954,
+        "commandReturnedUnixMs": 1792468046989,
+        "commandSentUnixMs": 1792468045880,
+        "firstObservedPlayingUnixMs": 1792468047003,
+        "pauseSentUnixMs": 1792468069988,
+        "samplerLaunchUnixMs": 1792468044069
+      },
+      "readiness": {
+        "command_to_first_observed_playing_ms": 1123,
+        "decoder_kind": "ffmpeg",
+        "first_audio_ms_after_native_request_start": 1079,
+        "first_observed_playing_unix_ms": 1792468047003,
+        "source_ready_ms_after_native_request_start": 890
+      },
+      "root_pid": 1765234,
+      "root_start_ticks": 11976270,
+      "trial_index": 2,
+      "windows": {
+        "paused_first_2s_after_pause": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 56.80910563108456,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 18.936368543694854
+          },
+          "actual_interval_peak_one_core_percent_total": 75.74547417477942,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 13,
+            "max": 0.247222613,
+            "median": 0.158938009,
+            "min": 0.131402483,
+            "p95": 0.22990776019999998
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 2.0,
+          "cpu_seconds_by_role": {
+            "app": 0.1849241074107089,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.00545773902145506
+          },
+          "cpu_seconds_total": 0.19038184643216394,
+          "one_core_percent_by_role": {
+            "app": 9.246205370535444,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.27288695107275296
+          },
+          "one_core_percent_total": 9.519092321608197,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 1,
+              "min": 1
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 177089536,
+              "min": 176779264,
+              "samples": 13
+            },
+            "decoder": {
+              "max": 15616000,
+              "min": 15616000,
+              "samples": 13
+            },
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 251063296,
+              "min": 250967040,
+              "samples": 13
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 0,
+          "window_command_relative_seconds": [
+            24.108,
+            26.108
+          ],
+          "window_seconds": 2.0
+        },
+        "startup_0_5s_after_command": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 86.07918768792163,
+            "decoder": 14.557244325295017,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 114.77225025056217
+          },
+          "actual_interval_peak_one_core_percent_total": 200.8514379384838,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 31,
+            "max": 0.275487075,
+            "median": 0.148644848,
+            "min": 0.129442052,
+            "p95": 0.22396215149999998
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 5.0,
+          "cpu_seconds_by_role": {
+            "app": 1.5751463204736706,
+            "decoder": 0.1276679207783099,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.38551839440508223
+          },
+          "cpu_seconds_total": 2.088332635657063,
+          "one_core_percent_by_role": {
+            "app": 31.502926409473414,
+            "decoder": 2.553358415566198,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 7.710367888101645
+          },
+          "one_core_percent_total": 41.766652713141255,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 1,
+              "min": 0
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 177653760,
+              "min": 176017408,
+              "samples": 31
+            },
+            "decoder": {
+              "max": 15476736,
+              "min": 15427584,
+              "samples": 23
+            },
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 255859712,
+              "min": 244120576,
+              "samples": 31
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 1,
+          "window_command_relative_seconds": [
+            0.0,
+            5.0
+          ],
+          "window_seconds": 5.0
+        },
+        "steady_15_20s_after_command": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 58.70974208271241,
+            "decoder": 11.504763930038633,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 25.903473993902917
+          },
+          "actual_interval_peak_one_core_percent_total": 80.05873920369874,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 32,
+            "max": 0.24747801,
+            "median": 0.142397416,
+            "min": 0.128944628,
+            "p95": 0.23838774164999998
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 5.0,
+          "cpu_seconds_by_role": {
+            "app": 1.4427307906903635,
+            "decoder": 0.12287851478139163,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.23745815162192505
+          },
+          "cpu_seconds_total": 1.8030674570936802,
+          "one_core_percent_by_role": {
+            "app": 28.85461581380727,
+            "decoder": 2.4575702956278325,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 4.749163032438501
+          },
+          "one_core_percent_total": 36.061349141873606,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 1,
+              "min": 1
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 176340992,
+              "min": 176296960,
+              "samples": 32
+            },
+            "decoder": {
+              "max": 15599616,
+              "min": 15546368,
+              "samples": 32
+            },
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 252257280,
+              "min": 251896832,
+              "samples": 32
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 0,
+          "window_command_relative_seconds": [
+            15.0,
+            20.0
+          ],
+          "window_seconds": 5.0
+        }
+      }
+    },
+    {
+      "actual_sample_dt_seconds_capture_wide": {
+        "interval_count": 167,
+        "max": 0.255928501,
+        "median": 0.159305867,
+        "min": 0.12643654,
+        "p95": 0.22472483329999998
+      },
+      "binary_sha256": "064502c0a8e131a3b58ba8f5d2cbf159ba9bc5bca09559fda689b35dd2d52702",
+      "markers_unix_ms": {
+        "captureFinishedUnixMs": 1792468270223,
+        "commandReturnedUnixMs": 1792468243368,
+        "commandSentUnixMs": 1792468243229,
+        "firstObservedPlayingUnixMs": 1792468243411,
+        "pauseSentUnixMs": 1792468267442,
+        "samplerLaunchUnixMs": 1792468241468
+      },
+      "readiness": {
+        "command_to_first_observed_playing_ms": 182,
+        "decoder_kind": "rodio",
+        "first_audio_ms_after_native_request_start": 36,
+        "first_observed_playing_unix_ms": 1792468243411,
+        "source_ready_ms_after_native_request_start": 15
+      },
+      "root_pid": 1765234,
+      "root_start_ticks": 11976270,
+      "trial_index": 3,
+      "windows": {
+        "paused_first_2s_after_pause": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 37.981876662686325,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 18.990938331343163
+          },
+          "actual_interval_peak_one_core_percent_total": 56.97281499402949,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 13,
+            "max": 0.21062677,
+            "median": 0.153833237,
+            "min": 0.131217395,
+            "p95": 0.200541064
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 2.0,
+          "cpu_seconds_by_role": {
+            "app": 0.16768347090922922,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.038841735454614584
+          },
+          "cpu_seconds_total": 0.2065252063638438,
+          "one_core_percent_by_role": {
+            "app": 8.384173545461461,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 1.9420867727307292
+          },
+          "one_core_percent_total": 10.32626031819219,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 0,
+              "min": 0
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 179717120,
+              "min": 179656704,
+              "samples": 13
+            },
+            "decoder": null,
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 254885888,
+              "min": 253888512,
+              "samples": 13
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 0,
+          "window_command_relative_seconds": [
+            24.213,
+            26.213
+          ],
+          "window_seconds": 2.0
+        },
+        "startup_0_5s_after_command": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 192.4726377429201,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 71.61772567178423
+          },
+          "actual_interval_peak_one_core_percent_total": 264.09036341470437,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 32,
+            "max": 0.255928501,
+            "median": 0.1596868355,
+            "min": 0.128763709,
+            "p95": 0.21834260234999997
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 5.0,
+          "cpu_seconds_by_role": {
+            "app": 1.8508586564656153,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.25620561854441604
+          },
+          "cpu_seconds_total": 2.1070642750100315,
+          "one_core_percent_by_role": {
+            "app": 37.01717312931231,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 5.124112370888321
+          },
+          "one_core_percent_total": 42.14128550020063,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 0,
+              "min": 0
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 179802112,
+              "min": 177845248,
+              "samples": 32
+            },
+            "decoder": null,
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 263740416,
+              "min": 248710144,
+              "samples": 32
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 1,
+          "window_command_relative_seconds": [
+            0.0,
+            5.0
+          ],
+          "window_seconds": 5.0
+        },
+        "steady_15_20s_after_command": {
+          "actual_interval_peak_one_core_percent_by_role": {
+            "app": 62.552774016140646,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 28.192515206351988
+          },
+          "actual_interval_peak_one_core_percent_total": 72.97823635216407,
+          "actual_sample_dt_seconds": {
+            "intervals_overlapping_window": 30,
+            "max": 0.244441539,
+            "median": 0.1807460235,
+            "min": 0.13042128,
+            "p95": 0.22075078789999997
+          },
+          "coverage_fraction": 1.0,
+          "covered_seconds": 5.0,
+          "cpu_seconds_by_role": {
+            "app": 1.5951273641865211,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 0.4191403548243985
+          },
+          "cpu_seconds_total": 2.0142677190109195,
+          "one_core_percent_by_role": {
+            "app": 31.90254728373042,
+            "decoder": 0.0,
+            "helper": 0.0,
+            "node_helper": 0.0,
+            "webview": 8.38280709648797
+          },
+          "one_core_percent_total": 40.28535438021839,
+          "process_count_bounds_by_role": {
+            "app": {
+              "max": 1,
+              "min": 1
+            },
+            "decoder": {
+              "max": 0,
+              "min": 0
+            },
+            "helper": {
+              "max": 0,
+              "min": 0
+            },
+            "node_helper": {
+              "max": 0,
+              "min": 0
+            },
+            "webview": {
+              "max": 2,
+              "min": 2
+            }
+          },
+          "pss_bytes_bounds_by_role": {
+            "app": {
+              "max": 179461120,
+              "min": 179406848,
+              "samples": 30
+            },
+            "decoder": null,
+            "helper": null,
+            "node_helper": null,
+            "webview": {
+              "max": 254924800,
+              "min": 253502464,
+              "samples": 30
+            }
+          },
+          "samples_with_possible_exit_or_reparent_omission": 0,
+          "window_command_relative_seconds": [
+            15.0,
+            20.0
+          ],
+          "window_seconds": 5.0
+        }
+      }
+    }
+  ]
+}

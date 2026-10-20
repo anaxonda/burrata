@@ -1,0 +1,6 @@
+{
+  "failure": "INCOMPLETE_RESEARCH_SETTINGS_FIXTURE",
+  "missingField": "autoPreview",
+  "appAudioStarted": false,
+  "correction": "Remove research application settings row; use application defaults and explicit setup-complete preference."
+}

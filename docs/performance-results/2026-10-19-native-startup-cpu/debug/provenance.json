@@ -1,0 +1,17 @@
+{
+  "sha256": "064502c0a8e131a3b58ba8f5d2cbf159ba9bc5bca09559fda689b35dd2d52702",
+  "localTrackId": "local:b0effa139e048d93cc6fa6ba8c5abb0bb655cbf7577fcdeb364f9b05ad7b5f61",
+  "publicTrackIds": [
+    "youtube:uZGRATckoBM",
+    "youtube:kzrZXghhy1k"
+  ],
+  "sourceCommit": "1ae3bbf",
+  "nativeRuntimeCommit": "b851e3e",
+  "fixtureSourceSha256": "16004878405c2176e4f93e14f7a41e7c5736904fb773d2a8633bc0eea243f8cb",
+  "pid": 1765234,
+  "buildProfile": "dev with CARGO_PROFILE_DEV_DEBUG=0; not optimized",
+  "frontend": "Vite development frontend",
+  "experimentEnabled": true,
+  "volume": 0,
+  "scope": "Linux isolated synthetic/public fixture; debug only; optimized comparison pending"
+}

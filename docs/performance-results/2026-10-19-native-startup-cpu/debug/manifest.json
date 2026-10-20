@@ -1,0 +1,18 @@
+{
+  "schema": "burrata.artifact-sha256/v1",
+  "artifacts": {
+    "paused-library.png": "6a842bb1511d7f1cfae136426f7110c774d069ed44602dc13354b01be23c4eea",
+    "provenance.json": "949ac96584993036f3249e2f63d775af6f842c457594755abbd52eacf4eafe27",
+    "sampler.py": "607ef59d9574f08c986a5d7b30b41048f58cfefa0c57efacbbe6207d667a370b",
+    "setup-failure.json": "1fe970c5a94ab4c39e550a59ad7e4b8401353d4506f1c518c2ac929f4d70e0d4",
+    "summarize.py": "0468e1b6083f51bfe32bd074f5857c5d9ab9285ee00a21ffec6255c076a86fbe",
+    "summary.json": "838289ae785cfa0c70211566b38828522231cb4b5b72db9d66393218704869e7",
+    "trial-1.cpu.jsonl": "2acac4390d32486ce59e2fd7ddb17ff52ffeb6dbe4c2040398bfb00873c59ba5",
+    "trial-1.json": "6789c305531910535b43b152c2debfeff320de8a8ce58302e440880b6c5c29eb",
+    "trial-2.cpu.jsonl": "b9117d4f89c2e04d7c442005299b3d9c9788d25833dcd383875fc7479e1f30d5",
+    "trial-2.json": "962fef9f9d887ac034b2f2f819409d0a9b0654f0b4e9e199006d70820125d688",
+    "trial-3.cpu.jsonl": "d923b1704249222cf0294e65a6566434d0ceb0f2fadadfd4273b50a27e9564c0",
+    "trial-3.json": "57d1743782c299d1c2579331b8357425207060be664452e8f553ed62c36c6d81",
+    "trial-driver.mjs": "f17309e7c3b16f5ce1b7fb09cf5863bd4ff5fcef34621c6386a43e10764ed7fe"
+  }
+}
