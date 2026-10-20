@@ -4304,6 +4304,7 @@ mod tests {
     struct AacHttpFixture {
         source: AudioSource,
         requests: Arc<AtomicU64>,
+        stalled_prefix_written: Arc<AtomicBool>,
         stop: Arc<AtomicBool>,
         worker: Option<thread::JoinHandle<()>>,
     }
@@ -4322,6 +4323,8 @@ mod tests {
         let worker_stop = stop.clone();
         let requests = Arc::new(AtomicU64::new(0));
         let worker_requests = requests.clone();
+        let stalled_prefix_written = Arc::new(AtomicBool::new(false));
+        let worker_stalled_prefix_written = stalled_prefix_written.clone();
         let worker = thread::spawn(move || {
             let mut clients = Vec::new();
             while !worker_stop.load(Ordering::Relaxed) {
@@ -4329,6 +4332,7 @@ mod tests {
                     Ok((mut stream, _)) => {
                         let stop = worker_stop.clone();
                         let requests = worker_requests.clone();
+                        let stalled_prefix_written = worker_stalled_prefix_written.clone();
                         clients.push(thread::spawn(move || {
                             stream.set_nonblocking(false).unwrap();
                             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
@@ -4345,7 +4349,8 @@ mod tests {
                             if offset>=bytes.len(){return;}
                             if write!(stream,"HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nAccept-Ranges: bytes\r\nContent-Type: audio/mp4\r\nConnection: close\r\n\r\n",bytes.len()-offset,offset,bytes.len()-1,bytes.len()).is_err(){return;}
                             let end=if mode==2 { bytes.len()/2 } else if mode==3 { 1024 } else { bytes.len() };
-                            if offset<end { let _=stream.write_all(&bytes[offset..end]); }
+                            if offset<end && stream.write_all(&bytes[offset..end]).is_err() { return; }
+                            if mode==3 { stalled_prefix_written.store(true, Ordering::Release); }
                             if mode==3 { while !stop.load(Ordering::Relaxed){thread::sleep(Duration::from_millis(5));} }
                         }));
                     }
@@ -4373,6 +4378,7 @@ mod tests {
                 }),
             },
             requests,
+            stalled_prefix_written,
             stop,
             worker: Some(worker),
         }
@@ -4462,17 +4468,74 @@ mod tests {
             );
             let _ = done.send(result);
         });
+        let test_started = Instant::now();
         let deadline = Instant::now() + Duration::from_secs(2);
-        while fixture.requests.load(Ordering::Relaxed) == 0 && Instant::now() < deadline {
+        while !fixture.stalled_prefix_written.load(Ordering::Acquire) && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(5));
         }
-        assert!(fixture.requests.load(Ordering::Relaxed) > 0);
+        let prefix_ready = fixture.stalled_prefix_written.load(Ordering::Acquire);
+        let prefix_ready_ms = test_started.elapsed().as_millis();
+        if !prefix_ready {
+            cancelled.store(true, Ordering::Relaxed);
+            fixture.stop.store(true, Ordering::Release);
+            let cleanup = finished.recv_timeout(Duration::from_secs(5));
+            if cleanup.is_ok() {
+                worker.join().unwrap();
+            }
+            eprintln!(
+                "{}",
+                serde_json::json!({"test":"finite_remote_aac_stalled_input_cancels_and_reaps_without_pcm",
+                    "prefixReadyMs":prefix_ready_ms,
+                    "cleanupCompleted":cleanup.is_ok(),
+                    "failure":"prefix_not_ready"})
+            );
+            panic!("stalled FFmpeg fixture did not write its prefix in time ({prefix_ready_ms}ms; cleanupCompleted={})", cleanup.is_ok());
+        }
         cancelled.store(true, Ordering::Relaxed);
-        finished
-            .recv_timeout(Duration::from_secs(2))
-            .expect("cancelled FFmpeg must stop promptly")
-            .unwrap();
+        let cancel_started = Instant::now();
+        let worker_result = match finished.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => {
+                let cancel_to_completion_ms = cancel_started.elapsed().as_millis();
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"test":"finite_remote_aac_stalled_input_cancels_and_reaps_without_pcm",
+                        "prefixReadyMs":prefix_ready_ms,
+                        "cancelToCompletionMs":cancel_to_completion_ms,
+                        "completedWithinBound":true,
+                        "workerOk":result.is_ok()})
+                );
+                Some(result)
+            }
+            Err(error) => {
+                let cancel_to_timeout_ms = cancel_started.elapsed().as_millis();
+                // Release the stalled peer so FFmpeg can unwind even if process
+                // termination is delayed on a loaded CI runner. Keep the original
+                // two-second cancellation bound as the assertion under test.
+                fixture.stop.store(true, Ordering::Release);
+                let cleanup = finished.recv_timeout(Duration::from_secs(5));
+                let cleanup_ms = cancel_started.elapsed().as_millis();
+                if cleanup.is_ok() {
+                    worker.join().unwrap();
+                }
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"test":"finite_remote_aac_stalled_input_cancels_and_reaps_without_pcm",
+                        "prefixReadyMs":prefix_ready_ms,
+                        "cancelToTimeoutMs":cancel_to_timeout_ms,
+                        "cleanupMs":cleanup_ms.saturating_sub(cancel_to_timeout_ms),
+                        "cleanupCompleted":cleanup.is_ok(),
+                        "failure":"cancel_timeout"})
+                );
+                panic!(
+                    "cancelled FFmpeg did not stop within 2s ({error:?}; cleanupCompleted={})",
+                    cleanup.is_ok()
+                );
+            }
+        };
         worker.join().unwrap();
+        worker_result
+            .expect("successful completion branch retains worker result")
+            .unwrap();
     }
 
     #[test]

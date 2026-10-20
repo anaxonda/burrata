@@ -1,11 +1,12 @@
-//! Test-only anonymous native HTTP experiment. No production resolver imports it.
+//! Internal anonymous native HTTP experiment, available only in tests or behind
+//! the off-default playback-direct-youtube-experiment feature.
 //! Mirrors the pinned VISIONOS_0_1 request/visitor fixtures; never claims catalog proof.
 use futures_util::StreamExt;
 use icu_normalizer::ComposingNormalizerBorrowed;
 use reqwest::{header::HeaderMap, Client, Method};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, future::Future, time::Duration};
+use std::{collections::BTreeMap, future::Future, sync::OnceLock, time::Duration};
 use tokio::{sync::watch, time::Instant};
 use url::Url;
 
@@ -22,25 +23,76 @@ const OPUS: &str = "audio/webm; codecs=\"opus\"";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Failure {
-    code: &'static str,
-    stage: &'static str,
+pub(crate) struct DirectFailure {
+    pub(crate) code: &'static str,
+    pub(crate) stage: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    http_status: Option<u16>,
+    pub(crate) http_status: Option<u16>,
 }
-type Result<T> = std::result::Result<T, Failure>;
-fn fail(code: &'static str, stage: &'static str) -> Failure {
-    Failure {
+type Result<T> = std::result::Result<T, DirectFailure>;
+fn fail(code: &'static str, stage: &'static str) -> DirectFailure {
+    DirectFailure {
         code,
         stage,
         http_status: None,
     }
 }
-impl Failure {
+impl DirectFailure {
     fn with_http_status(mut self, status: u16) -> Self {
         self.http_status = Some(status);
         self
     }
+}
+
+/// The URL and fresh title are private playback inputs, not diagnostic output.
+/// The caller must still attach its session epoch and run identity/access gates.
+pub(crate) struct DirectResolved {
+    pub(crate) audio: crate::acquisition::PreviewAudio,
+    pub(crate) valid_until_unix_ms: f64,
+}
+impl std::fmt::Debug for DirectResolved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DirectResolved")
+            .field("audio", &"<redacted>")
+            .field("valid_until_unix_ms", &self.valid_until_unix_ms)
+            .finish()
+    }
+}
+
+static ANONYMOUS_CLIENT: OnceLock<std::result::Result<DirectExperiment, DirectFailure>> =
+    OnceLock::new();
+
+/// Resolve only the caller's explicit provider ID. One cookie-free HTTP client
+/// is reused; anonymous visitor context is fetched afresh inside each resolve.
+/// This function neither caches media URLs nor creates recording/catalog proof.
+pub(crate) async fn resolve_explicit(
+    video_id: &str,
+    budget_ms: u64,
+    cancel: watch::Receiver<bool>,
+) -> std::result::Result<DirectResolved, DirectFailure> {
+    let started = Instant::now();
+    let request = Request {
+        video_id: video_id.to_owned(),
+        expected_video_id: video_id.to_owned(),
+        hl: "en".into(),
+        gl: "US".into(),
+        budget_ms,
+        format_id: 251,
+        expected_metadata: None,
+        visitor_mode: VisitorMode::AnonymousSource,
+    };
+    request.validate()?;
+    if *cancel.borrow() || cancel.has_changed().is_err() {
+        return Err(fail("CANCELLED", "request"));
+    }
+    let client = match ANONYMOUS_CLIENT.get_or_init(DirectExperiment::new) {
+        Ok(client) => client,
+        Err(error) => return Err(*error),
+    };
+    client
+        .resolve(&request, started + Duration::from_millis(budget_ms), cancel)
+        .await
+        .map(Resolved::into_explicit_audio)
 }
 
 #[derive(Clone, Deserialize)]
@@ -454,6 +506,7 @@ struct Resolved {
     // Fresh response facts only: these are neither artist credit proof nor a
     // verified-channel assertion. Never include them in safe reports or Debug.
     fresh_identity: FreshPlayerIdentity,
+    valid_until_unix_ms: f64,
 }
 // Intentionally neither Debug nor Serialize; a title/channel can contain URLs
 // or arbitrary provider text. A future identity adapter must opt in explicitly.
@@ -463,6 +516,18 @@ struct FreshPlayerIdentity {
     channel_id: Option<String>,
 }
 impl Resolved {
+    fn into_explicit_audio(self) -> DirectResolved {
+        let title = self.fresh_identity.title.clone();
+        let valid_until_unix_ms = self.valid_until_unix_ms;
+        let (mut audio, _) = self.into_preview_audio();
+        // This is the title from the same fresh player response and ID. Never
+        // substitute the requested title or infer artist/channel verification.
+        audio.resolved_title = Some(title);
+        DirectResolved {
+            audio,
+            valid_until_unix_ms,
+        }
+    }
     /// This is an explicit-source diagnostic, not a catalog identity proof.
     /// Unknown credits, verified-channel state and chapters remain absent.
     fn into_preview_audio(self) -> (crate::acquisition::PreviewAudio, SafeReport) {
@@ -561,8 +626,12 @@ fn select_audio(body: &Value, request: &Request, now: f64) -> Result<Resolved> {
     let duration = numeric(&metadata["lengthSeconds"])
         .filter(|v| *v >= 5.0)
         .ok_or(fail("METADATA_MISSING", "parse"))?;
-    if metadata["isLiveContent"] == true {
-        return Err(fail("METADATA_MISSING", "parse"));
+    if ["isLiveContent", "isLive", "isUpcoming"]
+        .iter()
+        .any(|key| metadata[*key] == true)
+        || json_truthy(&body["playabilityStatus"]["liveStreamability"])
+    {
+        return Err(fail("LIVE_OR_UPCOMING_SOURCE", "parse"));
     }
     if let Some(m) = &request.expected_metadata {
         if !normalized(title).contains(&normalized(&m.title_needle))
@@ -602,6 +671,15 @@ fn select_audio(body: &Value, request: &Request, now: f64) -> Result<Resolved> {
         .as_str()
         .filter(|v| !v.is_empty())
         .ok_or(fail("UNSUPPORTED_TRANSPORT", "format"))?;
+    // A player response may advertise SABR/HLS alongside valid direct audio.
+    // Never substitute those siblings for the selected format's own URL, nor
+    // accept the advertised streaming transport itself as a direct media URL.
+    if ["serverAbrStreamingUrl", "hlsManifestUrl"]
+        .iter()
+        .any(|key| data[*key].as_str() == Some(raw_url))
+    {
+        return Err(fail("UNSUPPORTED_TRANSPORT", "format"));
+    }
     let mut url = Url::parse(raw_url).map_err(|_| fail("INVALID_MEDIA_URL", "format"))?;
     let host = url.host_str().unwrap_or_default();
     // Narrower than the Node probe: only the production YouTube media host family.
@@ -655,6 +733,7 @@ fn select_audio(body: &Value, request: &Request, now: f64) -> Result<Resolved> {
     }
     Ok(Resolved {
         url,
+        valid_until_unix_ms: expiry,
         fresh_identity: FreshPlayerIdentity {
             title: title.to_owned(),
             channel_name: author.to_owned(),
@@ -799,6 +878,90 @@ mod tests {
         let absent = select_audio(&body(), &request(), 1_000_000.).unwrap();
         assert!(absent.fresh_identity.channel_id.is_none());
     }
+
+    #[test]
+    fn explicit_adapter_keeps_fresh_id_title_unknown_proof_and_minimum_expiry() {
+        let now = 1_000_000.;
+        for (url_expiry, expected_expiry) in [(Some(1075), 1_075_000.), (None, 1_120_000.)] {
+            let mut response = body();
+            response["videoDetails"]["title"] = json!("Fresh player title");
+            response["videoDetails"]["channelId"] = json!("private-channel-id");
+            response["streamingData"]["expiresInSeconds"] = json!("120");
+            let query = url_expiry.map_or("sig=private-signature".into(), |expiry| {
+                format!("expire={expiry}&sig=private-signature")
+            });
+            response["streamingData"]["adaptiveFormats"][0]["url"] = json!(format!(
+                "https://r1---fixture.googlevideo.com/videoplayback?{query}"
+            ));
+            let selected = select_audio(&response, &request(), now).unwrap();
+            let direct = selected.into_explicit_audio();
+            assert_eq!(direct.valid_until_unix_ms, expected_expiry);
+            assert_eq!(
+                direct.audio.resolved_provider_id.as_deref(),
+                Some("uZGRATckoBM")
+            );
+            assert_eq!(
+                direct.audio.resolved_title.as_deref(),
+                Some("Fresh player title")
+            );
+            assert_eq!(direct.audio.selected_format_id.as_deref(), Some("251"));
+            assert_eq!(direct.audio.codec.as_deref(), Some("opus"));
+            assert!(!direct.audio.selected_format_has_video);
+            assert!(direct.audio.source_metadata.is_none());
+            assert!(direct.audio.provider_session.is_none());
+            assert!(direct.audio.chapters.is_none());
+            let safe = format!("{direct:?}");
+            for private in [
+                "Fresh player title",
+                "private-channel-id",
+                "private-signature",
+                "googlevideo.com",
+            ] {
+                assert!(!safe.contains(private));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_wrapper_rejects_invalid_request_and_cancellation_before_network() {
+        let (_stop, cancel) = watch::channel(false);
+        for id in [
+            "",
+            "bad-id",
+            "https://www.youtube.com/watch?v=uZGRATckoBM",
+            "uZGRATckoB!",
+        ] {
+            let error = resolve_explicit(id, 1000, cancel.clone())
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "INVALID_PLAYBACK_REQUEST");
+            assert_eq!(error.stage, "request");
+            assert!(error.http_status.is_none());
+        }
+        for budget in [0, 20_001, u64::MAX] {
+            let error = resolve_explicit("uZGRATckoBM", budget, cancel.clone())
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, "INVALID_BUDGET");
+            assert!(error.http_status.is_none());
+        }
+        let (_stop, cancelled) = watch::channel(true);
+        let error = resolve_explicit("uZGRATckoBM", 1000, cancelled)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "CANCELLED");
+        assert_eq!(error.stage, "request");
+        assert!(error.http_status.is_none());
+        let (stop, closed) = watch::channel(false);
+        drop(stop);
+        assert_eq!(
+            resolve_explicit("uZGRATckoBM", 1000, closed)
+                .await
+                .unwrap_err()
+                .code,
+            "CANCELLED"
+        );
+    }
     #[test]
     fn exact_profile_and_visitor_request_goldens() {
         let golden: Value = serde_json::from_str(include_str!(
@@ -941,6 +1104,119 @@ mod tests {
         ] {
             assert!(!safe.contains(secret));
         }
+    }
+
+    #[test]
+    fn otherwise_valid_vod_metadata_rejects_live_upcoming_and_hls_only_markers() {
+        for key in ["isLiveContent", "isLive", "isUpcoming"] {
+            let mut response = body();
+            response["videoDetails"][key] = json!(true);
+            let error = select_player_response(200, &response.to_string(), &request(), 1_000_000.)
+                .unwrap_err();
+            assert_eq!(error.code, "LIVE_OR_UPCOMING_SOURCE", "marker {key}");
+            assert_eq!(error.stage, "parse");
+            assert_eq!(error.http_status, Some(200));
+        }
+        let mut live_streamability = body();
+        live_streamability["playabilityStatus"]["liveStreamability"] = json!({});
+        assert_eq!(
+            select_audio(&live_streamability, &request(), 1_000_000.)
+                .unwrap_err()
+                .code,
+            "LIVE_OR_UPCOMING_SOURCE"
+        );
+
+        let mut hls_only = body();
+        hls_only["streamingData"]["adaptiveFormats"] = json!([]);
+        hls_only["streamingData"]["hlsManifestUrl"] = json!("https://private.invalid/live.m3u8");
+        assert_eq!(
+            select_audio(&hls_only, &request(), 1_000_000.)
+                .unwrap_err()
+                .code,
+            "FORMAT_UNAVAILABLE"
+        );
+
+        let mut vod = body();
+        for key in ["isLiveContent", "isLive", "isUpcoming"] {
+            vod["videoDetails"][key] = json!(false);
+        }
+        vod["playabilityStatus"]["liveStreamability"] = Value::Null;
+        vod["streamingData"]["serverAbrStreamingUrl"] = Value::Null;
+        assert!(select_audio(&vod, &request(), 1_000_000.).is_ok());
+    }
+
+    #[test]
+    fn direct_opus_url_can_coexist_with_sabr_hls_siblings_without_selecting_them() {
+        let mut response = body();
+        response["streamingData"]["serverAbrStreamingUrl"] =
+            json!("https://private.invalid/?token=private-abr");
+        response["streamingData"]["hlsManifestUrl"] =
+            json!("https://private.invalid/?token=private-hls");
+        let selected = select_audio(&response, &request(), 1_000_000.).unwrap();
+        assert_eq!(selected.report.format_id, 251);
+        assert_eq!(
+            selected.url.host_str(),
+            Some("r1---fixture.googlevideo.com")
+        );
+        assert_eq!(selected.url.path(), "/videoplayback");
+
+        let mut only_sabr = response.clone();
+        only_sabr["streamingData"]["adaptiveFormats"] = json!([]);
+        only_sabr["streamingData"]
+            .as_object_mut()
+            .unwrap()
+            .remove("hlsManifestUrl");
+        assert_eq!(
+            select_audio(&only_sabr, &request(), 1_000_000.)
+                .unwrap_err()
+                .code,
+            "FORMAT_UNAVAILABLE"
+        );
+
+        let mut missing_direct = response.clone();
+        missing_direct["streamingData"]["adaptiveFormats"][0]["url"] = Value::Null;
+        assert_eq!(
+            select_audio(&missing_direct, &request(), 1_000_000.)
+                .unwrap_err()
+                .code,
+            "UNSUPPORTED_TRANSPORT"
+        );
+
+        // Even a URL that otherwise has the expected host/path is refused if
+        // it is exactly the transport advertised as SABR or an HLS manifest.
+        for sibling in ["serverAbrStreamingUrl", "hlsManifestUrl"] {
+            let mut substituted = response.clone();
+            substituted["streamingData"][sibling] =
+                substituted["streamingData"]["adaptiveFormats"][0]["url"].clone();
+            let error = select_audio(&substituted, &request(), 1_000_000.).unwrap_err();
+            assert_eq!(error.code, "UNSUPPORTED_TRANSPORT");
+            assert_eq!(error.stage, "format");
+            assert!(!serde_json::to_string(&error).unwrap().contains("private-"));
+        }
+
+        // The sibling correction never permits a ciphered or n-bearing row.
+        for cipher in ["cipher", "signatureCipher"] {
+            let mut invalid = response.clone();
+            invalid["streamingData"]["adaptiveFormats"][0][cipher] = json!("private-cipher");
+            assert_eq!(
+                select_audio(&invalid, &request(), 1_000_000.)
+                    .unwrap_err()
+                    .code,
+                "CIPHER_REQUIRED"
+            );
+        }
+        let mut n_required = response;
+        let raw = n_required["streamingData"]["adaptiveFormats"][0]["url"]
+            .as_str()
+            .unwrap();
+        n_required["streamingData"]["adaptiveFormats"][0]["url"] =
+            json!(format!("{raw}&n=private-n"));
+        assert_eq!(
+            select_audio(&n_required, &request(), 1_000_000.)
+                .unwrap_err()
+                .code,
+            "N_TRANSFORM_REQUIRED"
+        );
     }
     #[test]
     fn player_rejections_are_typed_and_never_select_an_alternate() {
@@ -1275,7 +1551,7 @@ mod tests {
                 let first_pcm_ms = pcm["firstPcmMs"]
                     .as_f64()
                     .map(|first| first + before_decode_ms);
-                Ok::<_, Failure>(
+                Ok::<_, DirectFailure>(
                     json!({"experiment":"native-direct-existing-decoder-v1","ok":ok,"metadata":metadata,
                     "accessMs":access_ms,"pcm":pcm,"firstPcmFromRequestMs":first_pcm_ms,
                     "wallMs":started.elapsed().as_secs_f64()*1000.0,"qualification":false,

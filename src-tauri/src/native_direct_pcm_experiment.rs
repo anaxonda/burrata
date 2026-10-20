@@ -24,6 +24,8 @@ pub(crate) struct PcmReport {
     pub(crate) wall_ms: f64,
     pub(crate) cleanup_ms: f64,
     pub(crate) decoder: Option<DecoderDiagnostics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) decoder_failure_stage: Option<&'static str>,
 }
 
 /// Decode a bounded range to 48 kHz stereo PCM and count frames actually
@@ -61,6 +63,7 @@ pub(crate) async fn collect_until_with_opus_control(
         wall_ms: 0.0,
         cleanup_ms: 0.0,
         decoder: None,
+        decoder_failure_stage: None,
     };
     if !position.is_finite()
         || position < 0.0
@@ -129,6 +132,7 @@ pub(crate) async fn collect_until_with_opus_control(
 
     let mut worker = Some(worker);
     let mut worker_result: Option<Result<(), String>> = None;
+    let mut worker_panicked = false;
     let mut failure = None;
     let mut sum_squares = 0.0f64;
     let mut sample_count = 0u64;
@@ -197,7 +201,13 @@ pub(crate) async fn collect_until_with_opus_control(
         }
         if let Some(handle) = worker.as_ref() {
             if handle.is_finished() {
-                worker_result = Some(worker.take().unwrap().join().unwrap_or(Err(String::new())));
+                match worker.take().unwrap().join() {
+                    Ok(result) => worker_result = Some(result),
+                    Err(_) => {
+                        worker_panicked = true;
+                        worker_result = Some(Err(String::new()));
+                    }
+                }
                 // The sender is closed now; iterate once to drain its final queued blocks.
                 continue;
             }
@@ -236,7 +246,13 @@ pub(crate) async fn collect_until_with_opus_control(
     }
     drop(rx);
     if let Some(handle) = worker.take() {
-        worker_result = Some(handle.join().unwrap_or(Err(String::new())));
+        match handle.join() {
+            Ok(result) => worker_result = Some(result),
+            Err(_) => {
+                worker_panicked = true;
+                worker_result = Some(Err(String::new()));
+            }
+        }
     }
     report.cleanup_ms = elapsed_ms(cleanup_started);
     if !report.ok {
@@ -247,6 +263,17 @@ pub(crate) async fn collect_until_with_opus_control(
                 "DECODER_FAILED"
             })
         });
+        if report.failure == Some("DECODER_FAILED") {
+            report.decoder_failure_stage = Some(if worker_panicked {
+                "WORKER_PANIC"
+            } else {
+                worker_result
+                    .as_ref()
+                    .and_then(|result| result.as_ref().err())
+                    .map(|error| decoder_failure_stage(error))
+                    .unwrap_or("UNKNOWN")
+            });
+        }
     }
     report.decoded_audio_ms = report.decoded_frames as f64 / 48.0;
     report.pcm_rms = (sample_count > 0).then(|| (sum_squares / sample_count as f64).sqrt());
@@ -256,6 +283,40 @@ pub(crate) async fn collect_until_with_opus_control(
         .clone();
     report.wall_ms = elapsed_ms(started);
     report
+}
+
+fn decoder_failure_stage(message: &str) -> &'static str {
+    let mut message = message;
+    for _ in 0..3 {
+        let unwrapped = [
+            "Stream creation failure:",
+            "Failed to fetch:",
+            "Failed to get response:",
+        ]
+        .iter()
+        .find_map(|prefix| message.strip_prefix(prefix));
+        match unwrapped {
+            Some(rest) => message = rest.trim_start(),
+            None => break,
+        }
+    }
+
+    [
+        ("could not open audio file", "SOURCE_OPEN"),
+        ("Storage creation failure", "NATIVE_STORAGE_SETUP"),
+        ("Native HTTP request failed", "NATIVE_HTTP_REQUEST"),
+        ("Native HTTP byte range", "NATIVE_HTTP_RANGE"),
+        ("Audio reader setup exceeded", "NATIVE_READER_DEADLINE"),
+        ("Local playback storage failed", "STORAGE_FAILURE"),
+        ("could not start ffmpeg", "FFMPEG_START"),
+        ("ffmpeg did not provide an audio pipe", "FFMPEG_PIPE"),
+        ("could not read ffmpeg audio", "FFMPEG_READ"),
+        ("ffmpeg exited with status", "FFMPEG_EXIT"),
+        ("ffmpeg process lock was poisoned", "FFMPEG_PROCESS_STATE"),
+    ]
+    .iter()
+    .find_map(|(prefix, stage)| message.starts_with(prefix).then_some(*stage))
+    .unwrap_or("UNKNOWN")
 }
 
 fn elapsed_ms(started: StdInstant) -> f64 {
@@ -321,6 +382,7 @@ mod tests {
         assert!(report.decoded_frames >= 48_000);
         assert!(report.decoded_frames < 48_000 * 2);
         assert!(report.decoder.is_some());
+        assert_eq!(report.decoder_failure_stage, None);
         let (source, path) = wav_source();
         let (_stop, cancel) = watch::channel(false);
         let tail = collect_until(
@@ -334,6 +396,7 @@ mod tests {
         let _ = fs::remove_file(path);
         assert!(!tail.ok);
         assert_eq!(tail.failure, Some("SHORT_PCM"));
+        assert_eq!(tail.decoder_failure_stage, None);
         assert!((20_000..=30_000).contains(&tail.decoded_frames));
     }
 
@@ -350,9 +413,85 @@ mod tests {
         )
         .await;
         assert_eq!(cancelled.failure, Some("CANCELLED"));
+        assert_eq!(cancelled.decoder_failure_stage, None);
         let (_stop, cancel) = watch::channel(false);
         let expired = collect_until(source, 0.0, 1.0, StdInstant::now(), cancel).await;
         let _ = fs::remove_file(path);
         assert_eq!(expired.failure, Some("TIMEOUT"));
+        assert_eq!(expired.decoder_failure_stage, None);
+    }
+
+    #[test]
+    fn decoder_failure_stages_are_fixed_and_only_strip_known_wrappers() {
+        let cases = [
+            ("could not open audio file: /secret/path", "SOURCE_OPEN"),
+            ("Storage creation failure: secret", "NATIVE_STORAGE_SETUP"),
+            (
+                "Native HTTP request failed: https://secret",
+                "NATIVE_HTTP_REQUEST",
+            ),
+            ("Native HTTP byte range: secret", "NATIVE_HTTP_RANGE"),
+            (
+                "Audio reader setup exceeded: secret",
+                "NATIVE_READER_DEADLINE",
+            ),
+            ("Local playback storage failed: secret", "STORAGE_FAILURE"),
+            ("could not start ffmpeg: secret", "FFMPEG_START"),
+            (
+                "ffmpeg did not provide an audio pipe: secret",
+                "FFMPEG_PIPE",
+            ),
+            ("could not read ffmpeg audio: secret", "FFMPEG_READ"),
+            ("ffmpeg exited with status 1: secret", "FFMPEG_EXIT"),
+            (
+                "ffmpeg process lock was poisoned: secret",
+                "FFMPEG_PROCESS_STATE",
+            ),
+        ];
+        for (message, expected) in cases {
+            assert_eq!(decoder_failure_stage(message), expected);
+        }
+
+        assert_eq!(
+            decoder_failure_stage(
+                "Stream creation failure: Failed to fetch: Failed to get response: could not start ffmpeg: secret"
+            ),
+            "FFMPEG_START"
+        );
+        assert_eq!(
+            decoder_failure_stage(
+                "Stream creation failure: Failed to fetch: Failed to get response: Stream creation failure: could not start ffmpeg"
+            ),
+            "UNKNOWN"
+        );
+        assert_eq!(
+            decoder_failure_stage("stderr: could not start ffmpeg"),
+            "UNKNOWN"
+        );
+        assert_eq!(
+            decoder_failure_stage("secret URL https://private.invalid"),
+            "UNKNOWN"
+        );
+    }
+
+    #[test]
+    fn reports_serialize_only_safe_failure_stage_codes() {
+        let report = PcmReport {
+            ok: false,
+            failure: Some("DECODER_FAILED"),
+            first_pcm_ms: None,
+            decoded_frames: 0,
+            decoded_audio_ms: 0.0,
+            pcm_rms: None,
+            wall_ms: 0.0,
+            cleanup_ms: 0.0,
+            decoder: None,
+            decoder_failure_stage: Some("NATIVE_HTTP_REQUEST"),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("NATIVE_HTTP_REQUEST"));
+        assert!(!json.contains("secret"));
+        assert!(!json.contains("private.invalid"));
+        assert!(!json.contains("\"decoderFailureStage\":null"));
     }
 }

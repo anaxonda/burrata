@@ -1684,6 +1684,7 @@ impl PlaybackService {
                         quality,
                         station,
                         duration,
+                        origin,
                     } = resolved;
                     let known_duration = duration
                         .or_else(|| {
@@ -1700,7 +1701,10 @@ impl PlaybackService {
                         let s = service.inner.state.lock().unwrap();
                         s.volume
                     };
-                    let chapter_candidate = candidate.clone();
+                    let chapter_candidate = origin
+                        .permits_automatic_chapter_inspection()
+                        .then(|| candidate.clone())
+                        .flatten();
                     {
                         let mut s = service.inner.state.lock().unwrap();
                         if s.generation != g {

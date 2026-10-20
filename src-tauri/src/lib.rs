@@ -74,7 +74,7 @@ mod webview_audio_transcode;
 mod webview_audio_transport;
 pub mod webview_identification;
 pub mod webview_radio_pcm;
-#[cfg(test)]
+#[cfg(any(test, feature = "playback-direct-youtube-experiment"))]
 mod youtube_direct_experiment;
 pub mod youtube_music;
 pub mod youtube_support;

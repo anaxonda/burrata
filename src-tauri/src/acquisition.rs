@@ -106,7 +106,7 @@ pub(crate) struct ProviderSessionStamp {
     expected: u64,
 }
 impl ProviderSessionStamp {
-    fn is_current(&self) -> bool {
+    pub(crate) fn is_current(&self) -> bool {
         self.epoch.load(Ordering::SeqCst) == self.expected
     }
 }
@@ -5141,7 +5141,10 @@ impl AcquisitionManager {
             .await
     }
 
-    fn playback_provider_stamp(&self, provider: &str) -> Result<ProviderSessionStamp, String> {
+    pub(crate) fn playback_provider_stamp(
+        &self,
+        provider: &str,
+    ) -> Result<ProviderSessionStamp, String> {
         // Supported provider names bound this map independently of recording count.
         if !matches!(
             provider,
@@ -5267,6 +5270,31 @@ impl AcquisitionManager {
                 },
             )
             .await
+    }
+
+    /// Direct experimental responses do not enter URL/access caches until their
+    /// response TTL and profile provenance can be represented in cache keys.
+    #[cfg(feature = "playback-direct-youtube-experiment")]
+    pub(crate) async fn validate_playback_audio_uncached_traced(
+        &self,
+        candidate: &Candidate,
+        audio: PreviewAudio,
+        cancel: watch::Receiver<bool>,
+        trace: crate::playback_sources::SourceTrace,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<PreviewAudio, String> {
+        let audio = validate_prepared_preview_audio(
+            audio,
+            cancel,
+            Some(trace),
+            &candidate.provider,
+            deadline,
+        )
+        .await?;
+        if !audio.provider_session_current() {
+            return Err("Audio source provider session changed during resolution".into());
+        }
+        Ok(audio)
     }
 
     pub(crate) async fn validate_playback_audio_traced(

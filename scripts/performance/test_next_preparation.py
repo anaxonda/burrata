@@ -20,6 +20,9 @@ class NextPreparationTests(unittest.TestCase):
     def test_windows_and_macos_discovery_imports_skip_before_linux_fixture_execution(self):
         script = r'''
 import builtins, runpy, subprocess, sys, unittest, unittest.mock
+from pathlib import Path
+# unittest discovery's sys.path addition is not inherited by a Python -c child.
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parent))
 # Warm the host's standard-library imports before simulating another platform.
 # In particular, Linux Python3.14 pathlib itself may import fcntl internally.
 import next_preparation
@@ -41,7 +44,10 @@ for platform in ['win32', 'darwin']:
     assert result.wasSuccessful() and result.testsRun == len(result.skipped)
 print('non-Linux discovery imports and skips safely')
 '''
-        result = subprocess.run([sys.executable, '-c', script, __file__], capture_output=True, timeout=5)
+        environment = dict(os.environ)
+        environment.pop('PYTHONPATH', None)
+        result = subprocess.run([sys.executable, '-c', script, str(Path(__file__).resolve())],
+                                env=environment, capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertIn(b'non-Linux discovery imports and skips safely', result.stdout)
 

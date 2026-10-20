@@ -472,7 +472,20 @@ async fn within_shared_deadline<T>(
         .unwrap_or_else(|_| Err(PLAYBACK_DEADLINE_MESSAGE.into()))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResolvedSourceOrigin {
+    Existing,
+    /// Anonymous experimental player response; chapter information is unknown.
+    DirectYoutube,
+}
+impl ResolvedSourceOrigin {
+    pub(crate) fn permits_automatic_chapter_inspection(self) -> bool {
+        self == Self::Existing
+    }
+}
+
 pub struct ResolvedSource {
+    pub origin: ResolvedSourceOrigin,
     pub source: AudioSource,
     pub candidate: Option<Candidate>,
     pub quality: Value,
@@ -776,6 +789,7 @@ pub(crate) async fn resolve_candidate_fresh_until(
             let duration = audio.duration_seconds.or(candidate.duration_seconds)
                 .filter(|value| value.is_finite() && *value >= 0.);
             Ok(ResolvedSource {
+                origin: ResolvedSourceOrigin::Existing,
                 source: AudioSource {
                     input: audio.url.clone(),
                     ffmpeg: crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"),
@@ -1252,6 +1266,220 @@ async fn prefer_with_grace<T>(
     }
 }
 
+#[cfg(feature = "playback-direct-youtube-experiment")]
+fn direct_youtube_enabled() -> bool {
+    std::env::var("BURRATA_DIRECT_YOUTUBE_EXPERIMENT").is_ok_and(|value| value == "1")
+}
+
+#[cfg(any(test, feature = "playback-direct-youtube-experiment"))]
+fn direct_youtube_explicit_id<'a>(
+    track: &Track,
+    candidate: &'a Candidate,
+    attempt_limit: usize,
+) -> Option<&'a str> {
+    if attempt_limit != 2
+        || track.provider != "youtube"
+        || candidate.provider != "youtube"
+        || track.local_path.is_some()
+        || track.asset_id.is_some()
+        || candidate.source.is_some()
+        || track.playback_range.is_some()
+        || track
+            .version
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        || candidate
+            .chapters
+            .as_ref()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || track.provenance["chapters"]
+            .as_array()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || !track
+            .duration_seconds
+            .is_some_and(|duration| duration.is_finite() && (5.0..=86_400.0).contains(&duration))
+    {
+        return None;
+    }
+    let id = candidate.id.strip_prefix("youtube:")?;
+    if track.provider_id != id
+        || acquisition::validate_source_url(&candidate.url, "youtube").is_err()
+        || acquisition::validate_source_url(&track.source_url, "youtube").is_err()
+        || acquisition::youtube_video_id(&candidate.url).as_deref() != Some(id)
+        || acquisition::youtube_video_id(&track.source_url).as_deref() != Some(id)
+    {
+        return None;
+    }
+    Some(id)
+}
+
+#[cfg(any(test, feature = "playback-direct-youtube-experiment"))]
+fn direct_youtube_opportunity_deadline(deadline: PlaybackDeadline) -> Option<PlaybackDeadline> {
+    // Include validation in the opportunity; preserve eight seconds for the
+    // existing extractor, rather than restarting its absolute deadline.
+    let available = deadline.remaining().checked_sub(Duration::from_secs(8))?;
+    if available < Duration::from_millis(250) {
+        return None;
+    }
+    Some(PlaybackDeadline::at(
+        (deadline.instant() - Duration::from_secs(8))
+            .min(tokio::time::Instant::now() + Duration::from_secs(4)),
+    ))
+}
+
+#[cfg(any(test, feature = "playback-direct-youtube-experiment"))]
+fn direct_youtube_foreground_context(trace: &SourceTrace) -> bool {
+    trace.webview_generation.is_none()
+        && trace
+            .native_operation_id
+            .as_deref()
+            .is_some_and(|id| !id.starts_with("preparation:"))
+}
+
+#[cfg(feature = "playback-direct-youtube-experiment")]
+async fn try_direct_youtube_explicit(
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    candidate: &Candidate,
+    cancel: watch::Receiver<bool>,
+    trace: &SourceTrace,
+    deadline: PlaybackDeadline,
+) -> Result<Option<acquisition::PreviewAudio>, String> {
+    try_direct_youtube_explicit_with(
+        acquisition,
+        track,
+        candidate,
+        cancel,
+        trace,
+        deadline,
+        |id, budget, cancel| async move {
+            crate::youtube_direct_experiment::resolve_explicit(&id, budget, cancel).await
+        },
+        |audio, cancel, trace, deadline| {
+            acquisition
+                .validate_playback_audio_uncached_traced(candidate, audio, cancel, trace, deadline)
+        },
+    )
+    .await
+}
+
+#[cfg(feature = "playback-direct-youtube-experiment")]
+async fn try_direct_youtube_explicit_with<R, RF, V, VF>(
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    candidate: &Candidate,
+    cancel: watch::Receiver<bool>,
+    trace: &SourceTrace,
+    deadline: PlaybackDeadline,
+    resolve: R,
+    validate: V,
+) -> Result<Option<acquisition::PreviewAudio>, String>
+where
+    R: FnOnce(String, u64, watch::Receiver<bool>) -> RF,
+    RF: std::future::Future<
+        Output = Result<
+            crate::youtube_direct_experiment::DirectResolved,
+            crate::youtube_direct_experiment::DirectFailure,
+        >,
+    >,
+    V: FnOnce(
+        acquisition::PreviewAudio,
+        watch::Receiver<bool>,
+        SourceTrace,
+        PlaybackDeadline,
+    ) -> VF,
+    VF: std::future::Future<Output = Result<acquisition::PreviewAudio, String>>,
+{
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    let Some(opportunity) = direct_youtube_opportunity_deadline(deadline) else {
+        return Ok(None);
+    };
+    let stamp = acquisition.playback_provider_stamp("youtube")?;
+    if !trace.try_spend_extraction() {
+        return Ok(None);
+    }
+    let started = Instant::now();
+    trace.event("direct_youtube_start", "youtube", json!({"budgetMs":opportunity.remaining().as_millis(),"attemptsUsed":trace.extraction_attempts_used()}));
+    let operation = async {
+        let id = candidate
+            .id
+            .strip_prefix("youtube:")
+            .ok_or("Direct source ID changed")?;
+        let resolved = resolve(
+            id.to_owned(),
+            opportunity.remaining().as_millis().min(20_000) as u64,
+            cancel.clone(),
+        )
+        .await
+        .map_err(|failure| {
+            trace.event(
+                "direct_youtube_failure",
+                "youtube",
+                json!({"code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status}),
+            );
+            if failure.code == "CANCELLED" {
+                "Cancelled".to_owned()
+            } else {
+                "Experimental direct source unavailable".to_owned()
+            }
+        })?;
+        let mut audio = resolved.audio;
+        audio.provider_session = Some(stamp.clone());
+        if !audio.provider_session_current() {
+            return Err("Audio source provider session changed during resolution".to_owned());
+        }
+        if !fresh_candidate_audio_identity_matches(track, candidate, &audio)
+            || audio
+                .duration_seconds
+                .zip(track.duration_seconds)
+                .is_none_or(|(fresh, expected)| (fresh - expected).abs() > 2.0)
+            || audio.resolved_title.as_deref().is_none_or(|fresh| {
+                let title = crate::matching::normalize(fresh);
+                title.is_empty()
+                    || (title != crate::matching::normalize(&candidate.title)
+                        && title != crate::matching::normalize(&track.title))
+            })
+        {
+            return Err("Experimental direct source identity rejected".to_owned());
+        }
+        let audio = validate(audio, cancel.clone(), trace.clone(), opportunity).await?;
+        // The parser caps this at both URL expiry and the player response TTL.
+        // No direct media URL enters the metadata/access caches in this first experiment.
+        if resolved.valid_until_unix_ms - chrono::Utc::now().timestamp_millis() as f64 <= 30_000.0 {
+            return Err("Experimental direct source expired".to_owned());
+        }
+        Ok(audio)
+    };
+    tokio::pin!(operation);
+    let result = tokio::select! {
+        biased;
+        _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".to_owned()),
+        _ = tokio::time::sleep_until(opportunity.instant()) => Err("Experimental direct source opportunity elapsed".to_owned()),
+        result = &mut operation => result,
+    };
+    trace.event("direct_youtube_end", "youtube", json!({"ok":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),"attemptsUsed":trace.extraction_attempts_used()}));
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if !stamp.is_current() {
+        return Err("Audio source provider session changed during resolution".into());
+    }
+    match result {
+        Ok(audio) => Ok(Some(audio)),
+        Err(error)
+            if error == "Cancelled"
+                || error == "Audio source provider session changed during resolution" =>
+        {
+            Err(error)
+        }
+        Err(_) if *cancel.borrow() => Err("Cancelled".into()),
+        Err(_) if deadline.remaining().is_zero() => Err(PLAYBACK_DEADLINE_MESSAGE.into()),
+        Err(_) => Ok(None),
+    }
+}
+
 async fn resolve_serial(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -1285,6 +1513,7 @@ async fn resolve_serial(
             .or(track.duration_seconds)
             .filter(|value| value.is_finite() && *value >= 0.);
         return Ok(ResolvedSource {
+            origin: ResolvedSourceOrigin::Existing,
             source: AudioSource {
                 input: path.to_owned(),
                 ffmpeg,
@@ -1317,6 +1546,7 @@ async fn resolve_serial(
             .find(|station| station.id == station_id)
             .ok_or("Radio station no longer exists")?;
         return Ok(ResolvedSource {
+            origin: ResolvedSourceOrigin::Existing,
             source: AudioSource {
                 input: station.stream_url.clone(),
                 ffmpeg,
@@ -1817,6 +2047,7 @@ async fn resolve_serial(
                         .filter(|value| value.is_finite() && *value >= 0.);
                     let quality = preview_audio_quality(&audio);
                     return Ok(ResolvedSource {
+                        origin: ResolvedSourceOrigin::Existing,
                         source: AudioSource {
                             input: audio.url,
                             ffmpeg,
@@ -1882,6 +2113,52 @@ async fn resolve_serial(
                             verified_artist_aliases.verified_recording_isrc(),
                             &candidate,
                         )));
+            #[cfg(feature = "playback-direct-youtube-experiment")]
+            if direct_youtube_enabled()
+                && direct_youtube_foreground_context(trace)
+                && trace.extraction_attempts_used() == 0
+                && direct_youtube_explicit_id(track, &candidate, attempt_limit).is_some()
+            {
+                if let Some(audio) = try_direct_youtube_explicit(
+                    acquisition,
+                    track,
+                    &candidate,
+                    cancel.clone(),
+                    trace,
+                    deadline,
+                )
+                .await?
+                {
+                    let quality = preview_audio_quality(&audio);
+                    let duration = audio.duration_seconds;
+                    candidate.source_metadata = None;
+                    if let Some(title) = audio.resolved_title.as_ref() {
+                        candidate.title = title.clone();
+                    }
+                    candidate.duration_seconds = audio.duration_seconds;
+                    // Explicit source proof is not a catalog crosswalk. Never
+                    // persist a mapping or pretend unknown chapters are empty.
+                    return Ok(ResolvedSource {
+                        origin: ResolvedSourceOrigin::DirectYoutube,
+                        source: AudioSource {
+                            input: audio.url,
+                            ffmpeg,
+                            headers: audio.headers,
+                            decoder_hint: Some(AudioSourceDecoderHint {
+                                mime_type: Some(audio.mime_type),
+                                codec: audio.codec,
+                                duration_seconds: audio.duration_seconds,
+                                content_length: audio.expected_content_length,
+                                has_video: audio.selected_format_has_video,
+                            }),
+                        },
+                        candidate: Some(candidate),
+                        quality,
+                        station: None,
+                        duration,
+                    });
+                }
+            }
             trace.event(
                 "extract_and_validate_start",
                 &provider,
@@ -1965,6 +2242,7 @@ async fn resolve_serial(
                         .filter(|value| value.is_finite() && *value >= 0.);
                     let quality = preview_audio_quality(&audio);
                     return Ok(ResolvedSource {
+                        origin: ResolvedSourceOrigin::Existing,
                         source: AudioSource {
                             input: audio.url,
                             ffmpeg,
@@ -2071,6 +2349,7 @@ async fn resolve_serial(
                                 .filter(|value| value.is_finite() && *value >= 0.);
                             let quality = preview_audio_quality(&audio);
                             return Ok(ResolvedSource {
+                                origin: ResolvedSourceOrigin::Existing,
                                 source: AudioSource {
                                     input: audio.url,
                                     ffmpeg,
@@ -3458,6 +3737,7 @@ async fn try_verified_candidate(
         .filter(|value| value.is_finite() && *value >= 0.);
     let quality = preview_audio_quality(&audio);
     Ok(ResolvedSource {
+        origin: ResolvedSourceOrigin::Existing,
         source: AudioSource {
             input: audio.url,
             ffmpeg: crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"),
@@ -3664,6 +3944,7 @@ async fn recover_inner(
         .filter(|value| value.is_finite() && *value >= 0.);
     let quality = preview_audio_quality(&audio);
     Ok(ResolvedSource {
+        origin: ResolvedSourceOrigin::Existing,
         source: AudioSource {
             input: audio.url,
             ffmpeg: crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"),
@@ -3827,6 +4108,167 @@ fn linked_candidate_with_bandcamp(track: &Track, bandcamp_enabled: bool) -> Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn direct_youtube_gate_preserves_explicit_source_and_rejects_ranges_and_catalog_rows() {
+        let track = Track {
+            id: "saved-library-occurrence".into(),
+            provider: "youtube".into(),
+            provider_id: "uZGRATckoBM".into(),
+            source_url: "https://www.youtube.com/watch?v=uZGRATckoBM".into(),
+            title: "Matthew".into(),
+            duration_seconds: Some(228.),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:uZGRATckoBM".into(),
+            provider: "youtube".into(),
+            url: track.source_url.clone(),
+            title: track.title.clone(),
+            ..Candidate::default()
+        };
+        assert_eq!(
+            direct_youtube_explicit_id(&track, &candidate, 2),
+            Some("uZGRATckoBM")
+        );
+        assert!(direct_youtube_explicit_id(&track, &candidate, 1).is_none());
+        for changed in [
+            Track {
+                provider: "spotify".into(),
+                ..track.clone()
+            },
+            Track {
+                provider_id: "aqz-KE-bpKQ".into(),
+                ..track.clone()
+            },
+            Track {
+                source_url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+                ..track.clone()
+            },
+            Track {
+                version: Some("Live".into()),
+                ..track.clone()
+            },
+            Track {
+                local_path: Some("local.wav".into()),
+                ..track.clone()
+            },
+            Track {
+                asset_id: Some("asset".into()),
+                ..track.clone()
+            },
+            Track {
+                duration_seconds: None,
+                ..track.clone()
+            },
+            Track {
+                duration_seconds: Some(f64::NAN),
+                ..track.clone()
+            },
+            Track {
+                provenance: json!({"chapters":[{"startTime":0}]}),
+                ..track.clone()
+            },
+        ] {
+            assert!(direct_youtube_explicit_id(&changed, &candidate, 2).is_none());
+        }
+        let chapter = crate::models::Chapter {
+            id: "chapter".into(),
+            title: "part".into(),
+            start_seconds: 0.,
+            end_seconds: 30.,
+            confidence: "review".into(),
+            suggested_track: None,
+            suggestion_confidence: None,
+        };
+        let changed = Candidate {
+            chapters: Some(vec![chapter]),
+            ..candidate.clone()
+        };
+        assert!(direct_youtube_explicit_id(&track, &changed, 2).is_none());
+        for changed in [
+            Candidate {
+                id: "youtube:aqz-KE-bpKQ".into(),
+                ..candidate.clone()
+            },
+            Candidate {
+                provider: "soundcloud".into(),
+                ..candidate.clone()
+            },
+            Candidate {
+                url: "http://www.youtube.com/watch?v=uZGRATckoBM".into(),
+                ..candidate.clone()
+            },
+            Candidate {
+                url: "https://www.youtube.com:444/watch?v=uZGRATckoBM".into(),
+                ..candidate.clone()
+            },
+            Candidate {
+                url: "https://user:private@www.youtube.com/watch?v=uZGRATckoBM".into(),
+                ..candidate.clone()
+            },
+            Candidate {
+                url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+                ..candidate.clone()
+            },
+        ] {
+            assert!(direct_youtube_explicit_id(&track, &changed, 2).is_none());
+        }
+    }
+
+    #[test]
+    fn direct_youtube_opportunity_preserves_absolute_fallback_reserve() {
+        let original = PlaybackDeadline::after(Duration::from_secs(20));
+        let first = direct_youtube_opportunity_deadline(original).unwrap();
+        assert!(first.remaining() <= Duration::from_secs(4));
+        assert!(first.remaining() > Duration::from_secs(3));
+        let late_original = PlaybackDeadline::after(Duration::from_secs(10));
+        let late = direct_youtube_opportunity_deadline(late_original).unwrap();
+        assert_eq!(
+            late.instant(),
+            late_original.instant() - Duration::from_secs(8)
+        );
+        assert!(
+            direct_youtube_opportunity_deadline(PlaybackDeadline::after(Duration::from_secs(8)))
+                .is_none()
+        );
+        assert!(
+            direct_youtube_opportunity_deadline(PlaybackDeadline::after(Duration::from_secs(1)))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn direct_youtube_foreground_context_excludes_webview_and_preparations() {
+        assert!(direct_youtube_foreground_context(&SourceTrace::new(
+            Some("native-start".into()),
+            None,
+            None
+        )));
+        assert!(!direct_youtube_foreground_context(&SourceTrace::new(
+            Some("preparation:owner".into()),
+            None,
+            None
+        )));
+        assert!(!direct_youtube_foreground_context(&SourceTrace::new(
+            None,
+            None,
+            Some(1)
+        )));
+        assert!(!direct_youtube_foreground_context(&SourceTrace::new(
+            Some("native-start".into()),
+            None,
+            Some(1)
+        )));
+    }
+
+    #[test]
+    fn direct_source_origin_keeps_unknown_chapters_on_demand() {
+        assert!(ResolvedSourceOrigin::Existing.permits_automatic_chapter_inspection());
+        assert!(!ResolvedSourceOrigin::DirectYoutube.permits_automatic_chapter_inspection());
+        let candidate = Candidate::default();
+        assert!(candidate.chapters.is_none());
+    }
+
     use super::*;
 
     #[test]
@@ -6991,3 +7433,7 @@ mod failed_candidate_request_tests {
         .is_err());
     }
 }
+
+#[cfg(all(test, feature = "playback-direct-youtube-experiment"))]
+#[path = "playback_direct_youtube_tests.rs"]
+mod direct_youtube_integration_tests;

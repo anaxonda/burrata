@@ -13,6 +13,9 @@ experimental-opus = ["dep:symphonia-experiment", "dep:symphonia-opus-adapter"]
 # Diagnostic-only early playback verification overlap experiment. Disabled in
 # ordinary builds; additionally requires BURRATA_PLAYBACK_EARLY_CANDIDATE_EXPERIMENT=1.
 playback-early-candidate-experiment = []
+# Internal anonymous direct-HTTP player experiment. Ordinary builds retain the
+# existing resolver; playback additionally checks an explicit runtime opt-in.
+playback-direct-youtube-experiment = []
 
 [lib]
 name = "burrata_lib"

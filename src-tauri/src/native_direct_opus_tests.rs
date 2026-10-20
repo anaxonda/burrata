@@ -33,6 +33,7 @@ impl RangeServer {
         let thread_requests = requests.clone();
         let thread_stop = stop.clone();
         let thread = thread::spawn(move || {
+            let mut connections = Vec::new();
             while !thread_stop.load(Ordering::Relaxed) {
                 let (mut stream, _) = match listener.accept() {
                     Ok(value) => value,
@@ -42,53 +43,72 @@ impl RangeServer {
                     }
                     Err(_) => break,
                 };
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                let Some(request) = read_headers(&mut stream) else {
-                    continue;
-                };
-                let index = thread_requests.fetch_add(1, Ordering::Relaxed) + 1;
-                if stall_from.is_some_and(|threshold| index >= threshold) {
-                    while !thread_stop.load(Ordering::Relaxed) {
-                        thread::sleep(Duration::from_millis(5));
+                let bytes = bytes.clone();
+                let requests = thread_requests.clone();
+                let stop = thread_stop.clone();
+                connections.push(thread::spawn(move || {
+                    // The production access validator issues head and tail range
+                    // requests concurrently; service each independently so the
+                    // fixture does not rely on runner-specific socket scheduling.
+                    // Some platforms inherit the listener's nonblocking mode on
+                    // accepted sockets; read_headers expects a blocking stream.
+                    stream
+                        .set_nonblocking(false)
+                        .expect("configure accepted fixture socket as blocking");
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+                    let Some(request) = read_headers(&mut stream) else {
+                        return;
+                    };
+                    let index = requests.fetch_add(1, Ordering::Relaxed) + 1;
+                    if stall_from.is_some_and(|threshold| index >= threshold) {
+                        while !stop.load(Ordering::Relaxed) {
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        return;
                     }
-                    continue;
-                }
-                let range = request
-                    .lines()
-                    .find_map(|line| {
-                        line.strip_prefix("range:")
-                            .or_else(|| line.strip_prefix("Range:"))
-                    })
-                    .and_then(|line| line.trim().strip_prefix("bytes="))
-                    .and_then(|value| value.split_once('-'))
-                    .and_then(|(start, end)| {
-                        Some((
-                            start.parse::<usize>().ok()?,
-                            if end.is_empty() {
-                                bytes.len() - 1
-                            } else {
-                                end.parse::<usize>().ok()?
-                            },
-                        ))
-                    });
-                let (start, end, status) = if let Some((start, end)) = range {
-                    if start >= bytes.len() || end < start {
-                        let _ = stream.write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-                        continue;
+                    let range = request
+                        .lines()
+                        // HTTP field names are case-insensitive. Do not depend on
+                        // reqwest/hyper choosing the same wire casing on every OS.
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("range").then_some(value)
+                        })
+                        .and_then(|line| line.trim().strip_prefix("bytes="))
+                        .and_then(|value| value.split_once('-'))
+                        .and_then(|(start, end)| {
+                            Some((
+                                start.parse::<usize>().ok()?,
+                                if end.is_empty() {
+                                    bytes.len() - 1
+                                } else {
+                                    end.parse::<usize>().ok()?
+                                },
+                            ))
+                        });
+                    let (start, end, status) = if let Some((start, end)) = range {
+                        if start >= bytes.len() || end < start {
+                            let _ = stream.write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                            return;
+                        }
+                        (start, end.min(bytes.len() - 1), "206 Partial Content")
+                    } else {
+                        (0, bytes.len() - 1, "200 OK")
+                    };
+                    let payload = &bytes[start..=end];
+                    let headers = if status.starts_with("206") {
+                        format!("HTTP/1.1 {status}\r\nContent-Type: audio/webm\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{end}/{}\r\nConnection: close\r\n\r\n", payload.len(), bytes.len())
+                    } else {
+                        format!("HTTP/1.1 {status}\r\nContent-Type: audio/webm\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", payload.len())
+                    };
+                    if stream.write_all(headers.as_bytes()).is_ok() {
+                        let _ = stream.write_all(payload);
                     }
-                    (start, end.min(bytes.len() - 1), "206 Partial Content")
-                } else {
-                    (0, bytes.len() - 1, "200 OK")
-                };
-                let payload = &bytes[start..=end];
-                let headers = if status.starts_with("206") {
-                    format!("HTTP/1.1 {status}\r\nContent-Type: audio/webm\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{end}/{}\r\nConnection: close\r\n\r\n", payload.len(), bytes.len())
-                } else {
-                    format!("HTTP/1.1 {status}\r\nContent-Type: audio/webm\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", payload.len())
-                };
-                if stream.write_all(headers.as_bytes()).is_ok() {
-                    let _ = stream.write_all(payload);
-                }
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                }));
+            }
+            for connection in connections {
+                let _ = connection.join();
             }
         });
         Self {
@@ -124,6 +144,41 @@ fn read_headers(stream: &mut TcpStream) -> Option<String> {
         bytes.extend_from_slice(&buffer[..count]);
     }
     String::from_utf8(bytes).ok()
+}
+
+#[test]
+fn range_server_handles_fragmented_case_insensitive_concurrent_requests() {
+    let bytes = Arc::new(vec![b'x'; 4096]);
+    let server = RangeServer::start(bytes, None);
+    let barrier = Arc::new(std::sync::Barrier::new(3));
+    let clients = ["rAnGe", "RANGE"].map(|field| {
+        let address = server.address;
+        let barrier = barrier.clone();
+        thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            barrier.wait();
+            let request = format!("{field}: bytes=0-1\r\nConnection: close\r\n");
+            stream
+                .write_all(b"GET /fixture.webm HTTP/1.1\r\nHost: localhost\r\n")
+                .unwrap();
+            stream.write_all(request.as_bytes()).unwrap();
+            stream.write_all(b"\r\n").unwrap();
+            let mut response = Vec::new();
+            stream.read_to_end(&mut response).unwrap();
+            String::from_utf8(response).unwrap()
+        })
+    });
+    barrier.wait();
+    for client in clients {
+        let response = client.join().unwrap();
+        assert!(response.starts_with("HTTP/1.1 206 Partial Content\r\n"));
+        assert!(response.contains("Content-Range: bytes 0-1/4096\r\n"));
+        assert!(response.ends_with("\r\n\r\nxx"));
+    }
+    assert_eq!(server.requests.load(Ordering::Relaxed), 2);
 }
 
 struct Fixture {
