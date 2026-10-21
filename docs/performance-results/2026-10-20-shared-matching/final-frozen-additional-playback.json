@@ -1,0 +1,857 @@
+{
+  "createdAt": "2026-10-21T03:32:21.621Z",
+  "buildSha256": "1f8edbe450144917622338ae1d5529d7382f1e00b35691420630503d479c785b",
+  "results": [
+    {
+      "name": "Baba Wutacatifo downloaded",
+      "trackId": "youtube:O86b5FwZTyQ",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 417,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.036724,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 1632,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 0.974298,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.250204,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 2886,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 1.970378,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.491243,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4109,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 2.968492,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.716228,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5320,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 3.965282,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.929405,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6551,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 5.215781,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.154812,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "youtube:O86b5FwZTyQ",
+        "title": "Baba Wutacatifo",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 345,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "O86b5FwZTyQ"
+      },
+      "afterIdentity": {
+        "id": "youtube:O86b5FwZTyQ",
+        "title": "Baba Wutacatifo",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 345,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "O86b5FwZTyQ"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "The Arsenal original YouTube entry",
+      "trackId": "youtube:fFyxl-ZAaAA",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1925,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.028016,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3137,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 0.991855,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.239916,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4355,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 1.987175,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.450302,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5566,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 2.983898,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.659085,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6777,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 3.979992,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.870143,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8008,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 4.981585,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.096493,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "youtube:fFyxl-ZAaAA",
+        "title": "The Arsenal",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "fFyxl-ZAaAA"
+      },
+      "afterIdentity": {
+        "id": "youtube:fFyxl-ZAaAA",
+        "title": "The Arsenal",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "fFyxl-ZAaAA"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "The Arsenal identified YouTube entry",
+      "trackId": "youtube:7QdmKMFvWsg",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 7133,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.039047,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8344,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 0.990493,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.248871,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9573,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 1.98553,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.46605,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10803,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 2.982094,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.689991,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12017,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 3.978419,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.907386,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13253,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 5.982431,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.141543,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "youtube:7QdmKMFvWsg",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "7QdmKMFvWsg"
+      },
+      "afterIdentity": {
+        "id": "youtube:7QdmKMFvWsg",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "7QdmKMFvWsg"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "The Arsenal imported entry",
+      "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1130,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.063688,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 2342,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 0.744305,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.272341,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3568,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 1.740218,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.490742,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4784,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 2.736547,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.704897,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5994,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 4.734286,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.915713,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7216,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 5.735694,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.137455,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "import",
+        "providerId": "33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227"
+      },
+      "afterIdentity": {
+        "id": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "import",
+        "providerId": "33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Gama Lami Extended Mix",
+      "trackId": "youtube:79s7ZxEZY08",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1311,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.035596,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 2520,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 0.241565,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.245685,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3731,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 2.235136,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.451452,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4942,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 3.24375,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.658532,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6151,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 4.244186,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.867643,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7380,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 5.253133,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.089736,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "youtube:79s7ZxEZY08",
+        "title": "Afro Exotiq-Gama Lami (feat. Sazi Cele) [Extended Mix]",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 414,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "79s7ZxEZY08"
+      },
+      "afterIdentity": {
+        "id": "youtube:79s7ZxEZY08",
+        "title": "Afro Exotiq-Gama Lami (feat. Sazi Cele) [Extended Mix]",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 414,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "79s7ZxEZY08"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ],
+  "sourceCommit": "7b5a065714e061d9633a8c92905183fbefbb9542"
+}

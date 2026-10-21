@@ -1,0 +1,72 @@
+{
+  "success": true,
+  "tag": "v0.1.5",
+  "sourceCommit": "7b5a065714e061d9633a8c92905183fbefbb9542",
+  "mainUrl": "https://github.com/anaxonda/burrata/releases/tag/v0.1.5",
+  "supportUrl": "https://github.com/anaxonda/burrata/releases/tag/support-v0.1.5",
+  "supportAssetCount": 99,
+  "allSupportAssetsInventoriedByManifest": true,
+  "verifiedMetadataDownloads": [
+    {
+      "name": "burrata-linux-x64-7b5a065714e061d9633a8c92905183fbefbb9542-artifact-inventory.json",
+      "bytes": 792,
+      "sha256": "0966ccb7348082ecb2bfdbe8a5994a3e69eab5fc6da7e17d8672ba6bddf394a9"
+    },
+    {
+      "name": "burrata-macos-arm64-7b5a065714e061d9633a8c92905183fbefbb9542-artifact-inventory.json",
+      "bytes": 449,
+      "sha256": "ac8e4e936c9d8614d9d773fc4173015133ced0f6818d51ea938e8de209f9ff37"
+    },
+    {
+      "name": "burrata-windows-x64-7b5a065714e061d9633a8c92905183fbefbb9542-artifact-inventory.json",
+      "bytes": 467,
+      "sha256": "ffee5698a2c2d6e1f1737a605e7cdb284916058b0bfd6d1e45ccbb6bbdaaa25a"
+    },
+    {
+      "name": "burrata-extensions-7b5a065714e061d9633a8c92905183fbefbb9542-extension-inventory.json",
+      "bytes": 425,
+      "sha256": "dd6c1f927010c4f8fe9142635088795de6e14307317a35c4bdb509a5c262582e"
+    },
+    {
+      "name": "burrata-linux-x64-7b5a065714e061d9633a8c92905183fbefbb9542-smoke-evidence.json",
+      "bytes": 9428,
+      "sha256": "acf55a48fb9f33b4c01862d17e862b975e47dcdcbfe2c7288af1831739946a95"
+    },
+    {
+      "name": "burrata-macos-arm64-7b5a065714e061d9633a8c92905183fbefbb9542-smoke-evidence.json",
+      "bytes": 8949,
+      "sha256": "f66e4e6a7f29222feb71ccca195009daf797862b1827b2198a09849ad22947c4"
+    },
+    {
+      "name": "burrata-windows-x64-7b5a065714e061d9633a8c92905183fbefbb9542-smoke-evidence.json",
+      "bytes": 8963,
+      "sha256": "e95330aa54ae67363663cb3becedf0022e0486e1994e50b95528232a1487e9a5"
+    },
+    {
+      "name": "youtube-support.json",
+      "bytes": 1038,
+      "sha256": "a0e34a89dec263a31de38d1076a0f946a2cad655599f0c0aa567ae9aa80349d4"
+    }
+  ],
+  "installedSmoke": [
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "status": "passed",
+      "installer": "Burrata_0.1.5_amd64.deb",
+      "audioClockAdvanceSeconds": 0.906
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "status": "passed",
+      "installer": "Burrata_0.1.5_aarch64.dmg",
+      "audioClockAdvanceSeconds": 0.91
+    },
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "status": "passed",
+      "installer": "Burrata_0.1.5_x64-setup.exe",
+      "audioClockAdvanceSeconds": 0.907
+    }
+  ],
+  "scope": "All main download bytes are verified separately. Supporting inventories, acceptance records and helper feed are verified here; supporting binary archives are covered by the release assembly checks."
+}

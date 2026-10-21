@@ -1,0 +1,79 @@
+{
+  "tag": "v0.1.5",
+  "url": "https://github.com/anaxonda/burrata/releases/tag/v0.1.5",
+  "publishedAt": "2026-10-21T04:04:29Z",
+  "prerelease": false,
+  "success": true,
+  "downloads": [
+    {
+      "name": "Burrata-0.1.5-1.x86_64.rpm",
+      "bytes": 252433000,
+      "sha256": "25f7555b05b12be75d4955a026bfc160387a48b4a426c99dc0cfb0afa272dc93",
+      "manifestMatched": true,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/Burrata-0.1.5-1.x86_64.rpm"
+    },
+    {
+      "name": "Burrata_0.1.5_aarch64.dmg",
+      "bytes": 172454609,
+      "sha256": "a1e5373880a7d23ee7dd6206a811fc0499989ffd8e96d0f2af2352fd630456c1",
+      "manifestMatched": true,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/Burrata_0.1.5_aarch64.dmg"
+    },
+    {
+      "name": "Burrata_0.1.5_amd64.AppImage",
+      "bytes": 381946360,
+      "sha256": "fc51928956f94408d6b7a8f4d951e206dd9d7017434604bc9db114e073e3dde8",
+      "manifestMatched": true,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/Burrata_0.1.5_amd64.AppImage"
+    },
+    {
+      "name": "Burrata_0.1.5_amd64.deb",
+      "bytes": 252111928,
+      "sha256": "0baa8476b36aad6f06269b21b425cdee8baf9a88f9c57e5e709c2c2c4fcd5f90",
+      "manifestMatched": true,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/Burrata_0.1.5_amd64.deb"
+    },
+    {
+      "name": "Burrata_0.1.5_x64-setup.exe",
+      "bytes": 340908165,
+      "sha256": "008f82728d03266947c2bced2327ba269b5f4cb7aa665eea59e6540e3b8a42aa",
+      "manifestMatched": true,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/Burrata_0.1.5_x64-setup.exe"
+    },
+    {
+      "name": "chrome-extension-0.2.3.zip",
+      "bytes": 94491,
+      "sha256": "4736bfecd2e8c8575c860f46d203610d71d5f91a36d4c7baca6d39e801224e3b",
+      "manifestMatched": true,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/chrome-extension-0.2.3.zip",
+      "extensionVersion": "0.2.3"
+    },
+    {
+      "name": "firefox-extension-0.2.3.xpi",
+      "bytes": 130447,
+      "sha256": "9a8ba4f435c8f4485cfe1c5e2ffb93a904192dbfad02b7ae2c44e4560ea1b88b",
+      "manifestMatched": true,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/firefox-extension-0.2.3.xpi",
+      "extensionVersion": "0.2.3",
+      "amoSignatureFilesPresent": true
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "bytes": 651,
+      "sha256": "3ba5d71b8eb9bc42551b9792fb5e7324bbbd1262ac7b3774180977278a42176a",
+      "manifestMatched": false,
+      "githubDigestMatched": true,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.5/SHA256SUMS.txt"
+    }
+  ],
+  "latest": true,
+  "metadataRecheckedAt": "2026-10-21T04:08:30.971416+00:00",
+  "assetDigestsUnchangedAfterPromotion": true
+}

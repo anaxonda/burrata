@@ -1,0 +1,193 @@
+{
+  "buildSha256": "1f8edbe450144917622338ae1d5529d7382f1e00b35691420630503d479c785b",
+  "ids": [
+    "musicbrainz:57d7a096-fafc-4af9-828d-1ea5299bda3e",
+    "youtube:7QdmKMFvWsg"
+  ],
+  "success": true,
+  "samples": [
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio"
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Audio preview failed. Trying another match\u2026",
+      "position": null,
+      "paused": null,
+      "readyState": null,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Audio preview failed. Trying another match\u2026",
+      "position": null,
+      "paused": null,
+      "readyState": null,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Audio preview failed. Trying another match\u2026",
+      "position": null,
+      "paused": null,
+      "readyState": null,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Audio preview failed. Trying another match\u2026",
+      "position": null,
+      "paused": null,
+      "readyState": null,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Audio preview failed. Trying another match\u2026"
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0,
+      "paused": false,
+      "readyState": 0,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0,
+      "paused": false,
+      "readyState": 0,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0,
+      "paused": false,
+      "readyState": 0,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0,
+      "paused": false,
+      "readyState": 0,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0,
+      "paused": false,
+      "readyState": 0,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0,
+      "paused": false,
+      "readyState": 0,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0,
+      "paused": false,
+      "readyState": 0,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "buffering",
+      "playerMessage": "Loading verified audio\u2026",
+      "position": 0.113758,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 1.122042,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 2.140021,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 3.16603,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 4.186378,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 5.193063,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    }
+  ],
+  "sourceCommit": "7b5a065714e061d9633a8c92905183fbefbb9542"
+}

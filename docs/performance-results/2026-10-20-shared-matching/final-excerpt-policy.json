@@ -1,0 +1,35 @@
+{
+  "buildSha256": "1f8edbe450144917622338ae1d5529d7382f1e00b35691420630503d479c785b",
+  "results": [
+    {
+      "level": "flexible",
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "assetPresent": true,
+      "approximate": true,
+      "localPathPresent": false
+    },
+    {
+      "level": "balanced",
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "assetPresent": false,
+      "approximate": false,
+      "localPathPresent": false
+    },
+    {
+      "level": "exact",
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "assetPresent": false,
+      "approximate": false,
+      "localPathPresent": false
+    },
+    {
+      "level": "flexible",
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "assetPresent": true,
+      "approximate": true,
+      "localPathPresent": false
+    }
+  ],
+  "success": true,
+  "sourceCommit": "7b5a065714e061d9633a8c92905183fbefbb9542"
+}

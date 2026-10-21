@@ -1,0 +1,2992 @@
+{
+  "createdAt": "2026-10-21T03:25:40.954Z",
+  "buildSha256": "1f8edbe450144917622338ae1d5529d7382f1e00b35691420630503d479c785b",
+  "results": [
+    {
+      "name": "DJ Tai Vocal Remix",
+      "trackId": "traxsource:15057930",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 6154,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.073476,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7368,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 0.992862,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.285356,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8611,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 1.986515,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.509504,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9845,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 2.981392,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.742901,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11056,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 3.976536,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.959936,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12266,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 5.986489,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.177981,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:15057930",
+        "title": "(I'm Sick) I've Been Infected Wit House Musick (Remix)",
+        "artist": "Mike Dunn, DJ Tai",
+        "album": null,
+        "version": "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)",
+        "durationSeconds": 494,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15057930"
+      },
+      "afterIdentity": {
+        "id": "traxsource:15057930",
+        "title": "(I'm Sick) I've Been Infected Wit House Musick (Remix)",
+        "artist": "Mike Dunn, DJ Tai",
+        "album": null,
+        "version": "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)",
+        "durationSeconds": 494,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15057930"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Untitled Dub 1",
+      "trackId": "traxsource:15019328",
+      "playToolError": true,
+      "samples": [
+        {
+          "elapsedMs": 12250,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13479,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 14688,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 15922,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 17148,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 18377,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 19603,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 20813,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 22040,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 23267,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 24498,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 25725,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 26944,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 28171,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 29397,
+          "trackId": "traxsource:15019328",
+          "status": "idle",
+          "paused": true,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": false,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:15019328",
+        "title": "Untitled Dub 1",
+        "artist": "Masaki Morii",
+        "album": null,
+        "version": "(5:47)",
+        "durationSeconds": 347,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15019328"
+      },
+      "afterIdentity": {
+        "id": "traxsource:15019328",
+        "title": "Untitled Dub 1",
+        "artist": "Masaki Morii",
+        "album": null,
+        "version": "(5:47)",
+        "durationSeconds": 347,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15019328"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "It's All About The Love For You",
+      "trackId": "traxsource:14798487",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 6090,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": 0.043868,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7300,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 0.2371,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": 1.252993,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8526,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 2.23139,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": 2.468787,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9735,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 3.227941,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": 3.679554,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10956,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 4.228115,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": 4.895087,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12165,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 5.226495,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": 6.108942,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:14798487",
+        "title": "It's All About The Love For You",
+        "artist": "Larry La Birt, Corey Holmes",
+        "album": null,
+        "version": "(5:30)",
+        "durationSeconds": 330,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "14798487"
+      },
+      "afterIdentity": {
+        "id": "traxsource:14798487",
+        "title": "It's All About The Love For You",
+        "artist": "Larry La Birt, Corey Holmes",
+        "album": null,
+        "version": "(5:30)",
+        "durationSeconds": 330,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "14798487"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Baba Extended Mix",
+      "trackId": "traxsource:15066872",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 8624,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source did not provide a supported audio format.",
+          "media": {
+            "currentTime": 0.044623,
+            "duration": 294.214512471,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9836,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio preview failed. Trying another match\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11067,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio preview failed. Trying another match\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12281,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio preview failed. Trying another match\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13489,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio preview failed. Trying another match\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 14697,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio preview failed. Trying another match\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 15908,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio preview failed. Trying another match\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 17121,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Audio preview failed. Trying another match\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {}
+        },
+        {
+          "elapsedMs": 18349,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": false,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Loading verified audio\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0,
+            "duration": null,
+            "paused": false,
+            "readyState": 0,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 19559,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": false,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Loading verified audio\u2026",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0,
+            "duration": null,
+            "paused": false,
+            "readyState": 0,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 20771,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": {
+            "canPlayType": "maybe",
+            "elapsedMs": 3524,
+            "mediaErrorCode": null,
+            "mimeFamily": "audio/webm",
+            "networkState": 2,
+            "phase": "play",
+            "readyState": 0,
+            "resumeRequested": false,
+            "streamKind": "direct"
+          },
+          "playerMessage": "The source could not be loaded because of a network error. A refreshed verified source could not start: Audio startup exceeded the 20-second playback deadline.",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 21980,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": {
+            "canPlayType": "maybe",
+            "elapsedMs": 3524,
+            "mediaErrorCode": null,
+            "mimeFamily": "audio/webm",
+            "networkState": 2,
+            "phase": "play",
+            "readyState": 0,
+            "resumeRequested": false,
+            "streamKind": "direct"
+          },
+          "playerMessage": "The source could not be loaded because of a network error. A refreshed verified source could not start: Audio startup exceeded the 20-second playback deadline.",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 23211,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": {
+            "canPlayType": "maybe",
+            "elapsedMs": 3524,
+            "mediaErrorCode": null,
+            "mimeFamily": "audio/webm",
+            "networkState": 2,
+            "phase": "play",
+            "readyState": 0,
+            "resumeRequested": false,
+            "streamKind": "direct"
+          },
+          "playerMessage": "The source could not be loaded because of a network error. A refreshed verified source could not start: Audio startup exceeded the 20-second playback deadline.",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 24493,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": {
+            "canPlayType": "maybe",
+            "elapsedMs": 3524,
+            "mediaErrorCode": null,
+            "mimeFamily": "audio/webm",
+            "networkState": 2,
+            "phase": "play",
+            "readyState": 0,
+            "resumeRequested": false,
+            "streamKind": "direct"
+          },
+          "playerMessage": "The source could not be loaded because of a network error. A refreshed verified source could not start: Audio startup exceeded the 20-second playback deadline.",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 25741,
+          "trackId": "traxsource:15066872",
+          "status": "buffering",
+          "paused": true,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": {
+            "canPlayType": "maybe",
+            "elapsedMs": 3524,
+            "mediaErrorCode": null,
+            "mimeFamily": "audio/webm",
+            "networkState": 2,
+            "phase": "play",
+            "readyState": 0,
+            "resumeRequested": false,
+            "streamKind": "direct"
+          },
+          "playerMessage": "The source could not be loaded because of a network error. A refreshed verified source could not start: Audio startup exceeded the 20-second playback deadline.",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": null,
+            "duration": null,
+            "paused": null,
+            "readyState": null,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": false,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:15066872",
+        "title": "Baba",
+        "artist": "Ralmm, Emil lassaria",
+        "album": null,
+        "version": "Extended Mix (4:54)",
+        "durationSeconds": 294,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15066872"
+      },
+      "afterIdentity": {
+        "id": "traxsource:15066872",
+        "title": "Baba",
+        "artist": "Ralmm, Emil lassaria",
+        "album": null,
+        "version": "Extended Mix (4:54)",
+        "durationSeconds": 294,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15066872"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Nighttime in the Backyard",
+      "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 4558,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.037196,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5769,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 0.74229,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.24746,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6978,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 1.738379,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.451267,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8201,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 2.735157,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.66535,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9411,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 3.732023,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.879969,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10640,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 5.734778,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.105205,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+        "title": "Nighttime in the Backyard",
+        "artist": "Lucas Santtana & Arto Lindsay",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a"
+      },
+      "afterIdentity": {
+        "id": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+        "title": "Nighttime in the Backyard",
+        "artist": "Lucas Santtana & Arto Lindsay",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "velib\u2019bleu",
+      "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 10278,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.051441,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11488,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 0.489712,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.258557,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12699,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 1.483565,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.461765,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13925,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 3.475342,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.679861,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 15154,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 4.476319,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.904722,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 16365,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 5.473582,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.123914,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+        "title": "velib'bleu",
+        "artist": "\u0e0c\u0e2d\u0e19",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": "FR9W12639430",
+        "provider": "radio_song",
+        "providerId": "33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0"
+      },
+      "afterIdentity": {
+        "id": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+        "title": "velib'bleu",
+        "artist": "\u0e0c\u0e2d\u0e19",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": "FR9W12639430",
+        "provider": "radio_song",
+        "providerId": "33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "To Miroloi Tis Manas",
+      "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2354,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.035147,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3565,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 0.983942,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.246599,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4785,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 1.980193,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.45706,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5993,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 2.976809,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.665963,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7209,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 3.973788,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.879374,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8419,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 4.975236,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.091614,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+        "title": "To Miroloi Tis Manas",
+        "artist": "Lakis Chalkias",
+        "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+        "version": null,
+        "durationSeconds": 127.626,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "2Q9DpDilWFbnGzEbX5AIBS"
+      },
+      "afterIdentity": {
+        "id": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+        "title": "To Miroloi Tis Manas",
+        "artist": "Lakis Chalkias",
+        "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+        "version": null,
+        "durationSeconds": 127.626,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "2Q9DpDilWFbnGzEbX5AIBS"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Diaraby with Ry Cooder",
+      "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 4630,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.033446,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5843,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 0.488794,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.253627,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7057,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 1.498116,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.478951,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8287,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 3.510392,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.708823,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9497,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 4.511097,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.92653,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10724,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 5.516343,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.138676,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+        "title": "Diaraby  (w/ Ry Cooder)",
+        "artist": "Ali Farka Tour\u00e9",
+        "album": "Ali Farka Tour\u00e9",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25"
+      },
+      "afterIdentity": {
+        "id": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+        "title": "Diaraby  (w/ Ry Cooder)",
+        "artist": "Ali Farka Tour\u00e9",
+        "album": "Ali Farka Tour\u00e9",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "How Much Are They?",
+      "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 4839,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.049863,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6050,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 0.492858,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.259501,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7282,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 1.488775,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.478625,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8510,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 2.48621,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.7066,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9719,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 4.482079,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.918372,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10948,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 5.479572,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.144168,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+        "title": "How Much Are They?",
+        "artist": "Holger Czukay, Jah Wobble & Jaki Liebezeit",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3"
+      },
+      "afterIdentity": {
+        "id": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+        "title": "How Much Are They?",
+        "artist": "Holger Czukay, Jah Wobble & Jaki Liebezeit",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Mia Kokkini Triandafillia",
+      "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2224,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.182401,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3597,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 0.485948,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.546614,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4904,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 2.475291,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.848616,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6133,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 3.470646,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.070465,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7343,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 4.471199,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 5.282395,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "afterIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Turtledove",
+      "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2652,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.046739,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3863,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 0.494424,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.25445,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5080,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 1.488473,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.463596,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6290,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 3.479597,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.668892,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7502,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 4.480178,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.87983,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8726,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 5.482368,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.103819,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+        "title": "Turtledove (Epiros) [feat. Michalis Zambas]",
+        "artist": "Domna Samiou, Michalis Zambas",
+        "album": "The Great North Wind and Other Traditional Songs for Children",
+        "version": null,
+        "durationSeconds": 207.173,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4k12ME3HT8Q8t6DHNZM1Em"
+      },
+      "afterIdentity": {
+        "id": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+        "title": "Turtledove (Epiros) [feat. Michalis Zambas]",
+        "artist": "Domna Samiou, Michalis Zambas",
+        "album": "The Great North Wind and Other Traditional Songs for Children",
+        "version": null,
+        "durationSeconds": 207.173,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4k12ME3HT8Q8t6DHNZM1Em"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "\u039c\u03bf\u03b9\u03c1\u03bf\u03bb\u03cc\u03b9",
+      "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1885,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.032741,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3096,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 0.491836,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.241114,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4314,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 1.486715,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.450288,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5525,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 2.4832,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.659822,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6733,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 4.481481,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.868417,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7945,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 5.479388,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.079706,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+        "title": "\u039c\u03bf\u03b9\u03c1\u03bf\u03bb\u03cc\u03b9 (\u0389\u03c0\u03b5\u03b9\u03c1\u03bf\u03c2)",
+        "artist": "Domna Samiou",
+        "album": "\u0399\u03c3\u03c4\u03bf\u03c1\u03b9\u03ba\u03ac - \u039a\u03bb\u03ad\u03c6\u03c4\u03b9\u03ba\u03b1 \u03a4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9\u03b1",
+        "version": null,
+        "durationSeconds": 413.32,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4MiDHSmsHlgaf8W2tzwT6Z"
+      },
+      "afterIdentity": {
+        "id": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+        "title": "\u039c\u03bf\u03b9\u03c1\u03bf\u03bb\u03cc\u03b9 (\u0389\u03c0\u03b5\u03b9\u03c1\u03bf\u03c2)",
+        "artist": "Domna Samiou",
+        "album": "\u0399\u03c3\u03c4\u03bf\u03c1\u03b9\u03ba\u03ac - \u039a\u03bb\u03ad\u03c6\u03c4\u03b9\u03ba\u03b1 \u03a4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9\u03b1",
+        "version": null,
+        "durationSeconds": 413.32,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4MiDHSmsHlgaf8W2tzwT6Z"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Matthew",
+      "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1830,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.045678,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3040,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 0.739005,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.259543,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4253,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 1.736733,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.468262,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5462,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 2.734237,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.674841,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6674,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 4.733453,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.88657,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7889,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 5.733489,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.10018,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:1Ua153c9hxARpugkSb1VPh",
+        "title": "Matthew",
+        "artist": "John Denver",
+        "album": "The Essential John Denver",
+        "version": null,
+        "durationSeconds": 222.426,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "1Ua153c9hxARpugkSb1VPh"
+      },
+      "afterIdentity": {
+        "id": "spotify:1Ua153c9hxARpugkSb1VPh",
+        "title": "Matthew",
+        "artist": "John Denver",
+        "album": "The Essential John Denver",
+        "version": null,
+        "durationSeconds": 222.426,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "1Ua153c9hxARpugkSb1VPh"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Cowboy with Billy Strings",
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2073,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.039078,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3288,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 0.492576,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.254568,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4512,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 1.488236,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.470417,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5723,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 2.485412,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.682177,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6933,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 4.482562,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.891112,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8158,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 5.480228,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.115965,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "album": "Middle of Nowhere",
+        "version": null,
+        "durationSeconds": 219.357,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "6ULjjAbwB2BoTZthQKv1Q2"
+      },
+      "afterIdentity": {
+        "id": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "album": "Middle of Nowhere",
+        "version": null,
+        "durationSeconds": 219.357,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "6ULjjAbwB2BoTZthQKv1Q2"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Reckless",
+      "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2399,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.03325,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3618,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 0.238924,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.246634,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4828,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 2.231681,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.453837,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6039,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 3.228499,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.660628,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7250,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 4.229111,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.871684,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8459,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 5.226842,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.08195,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+        "title": "Reckless",
+        "artist": "Nipsey Hussle,Bino Rideaux,Static Major",
+        "album": "Prolific",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "catalog",
+        "providerId": "discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35"
+      },
+      "afterIdentity": {
+        "id": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+        "title": "Reckless",
+        "artist": "Nipsey Hussle,Bino Rideaux,Static Major",
+        "album": "Prolific",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "catalog",
+        "providerId": "discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ],
+  "sourceCommit": "7b5a065714e061d9633a8c92905183fbefbb9542"
+}

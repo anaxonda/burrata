@@ -1,0 +1,29 @@
+{
+  "sourceCommit": "7b5a065714e061d9633a8c92905183fbefbb9542",
+  "binarySha256": "1f8edbe450144917622338ae1d5529d7382f1e00b35691420630503d479c785b",
+  "sessions": {
+    "accountRevisions": {
+      "spotify": 1,
+      "youtube": 1
+    },
+    "confirmedAccounts": {
+      "spotify": true,
+      "youtube": true
+    },
+    "connectionSeen": false,
+    "credentialStorage": "os-keyring",
+    "enabled": true,
+    "mode": "native-ready",
+    "running": true,
+    "transport": "native-webview-http",
+    "youtubeLoginPage": null,
+    "youtubeReconnectRequired": false
+  },
+  "stats": {
+    "assets": 16,
+    "playlists": 46,
+    "tracks": 5081
+  },
+  "layoutFindings": [],
+  "normalProfile": true
+}

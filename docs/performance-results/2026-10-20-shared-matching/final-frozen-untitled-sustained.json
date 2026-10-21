@@ -1,0 +1,177 @@
+{
+  "createdAt": "2026-10-21T03:30:55.960Z",
+  "buildSha256": "1f8edbe450144917622338ae1d5529d7382f1e00b35691420630503d479c785b",
+  "results": [
+    {
+      "name": "Untitled Dub 1",
+      "trackId": "traxsource:15019328",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 5242,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 0.046846,
+            "duration": 347.463411458,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6455,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 0.486516,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 1.284416,
+            "duration": 347.463411458,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7697,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 1.481103,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 2.512068,
+            "duration": 347.463411458,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8910,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 3.473535,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 3.729274,
+            "duration": 347.463411458,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10121,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 4.474224,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 4.940554,
+            "duration": 347.463411458,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11332,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 5.47152,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": "The source could not be loaded because of a network error.",
+          "media": {
+            "currentTime": 6.152899,
+            "duration": 347.463411458,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:15019328",
+        "title": "Untitled Dub 1",
+        "artist": "Masaki Morii",
+        "album": null,
+        "version": "(5:47)",
+        "durationSeconds": 347,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15019328"
+      },
+      "afterIdentity": {
+        "id": "traxsource:15019328",
+        "title": "Untitled Dub 1",
+        "artist": "Masaki Morii",
+        "album": null,
+        "version": "(5:47)",
+        "durationSeconds": 347,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15019328"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ],
+  "sourceCommit": "7b5a065714e061d9633a8c92905183fbefbb9542"
+}
