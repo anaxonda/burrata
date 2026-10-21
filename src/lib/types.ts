@@ -64,6 +64,7 @@ export interface CandidatePreviewStatus {
 }
 export interface Preview {
   matching?: {evaluatorVersion:string;level:"exact"|"balanced"|"flexible";assessment:{relationship:"exact"|"probable"|"alternative"|"unresolved"};resolvedRecording:{title:string;artist?:string|null;version?:string|null;sourceId:string}};
+  approximateExcerpt?: Pick<ApproximateExcerptProvenance, "label" | "source"> | null;
   sourceTransport?: string;
   sourceHeaderPolicy?: {headerCount:number;authorization:boolean;cookie:boolean;referer:boolean;origin:boolean;userAgent:boolean;other:boolean};
   sourceGeneration?: number;
@@ -78,6 +79,17 @@ export interface Preview {
   canVolume: boolean;
   canAutoplay: boolean;
   isExcerpt: boolean;
+}
+export interface ApproximateExcerptProvenance {
+  schemaVersion?: number;
+  policy?: string;
+  evaluatorVersion?: string;
+  relationship?: string;
+  label?: string;
+  source?: { provider?: string; id?: string; title?: string; durationSeconds?: number };
+  startSeconds?: number;
+  endSeconds?: number;
+  boundaryUncertaintySeconds?: number;
 }
 export interface NativePlaybackSnapshot {
   failure?: PlaybackFailure | null;
@@ -106,7 +118,7 @@ export interface NativePlaybackSnapshot {
   shuffle: boolean;
   repeat: "off" | "all" | "one" | string;
   playerMessage: string;
-  quality: { assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string };
+  quality: { assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string; sourceKind?: string; label?: string; approximateExcerpt?: ApproximateExcerptProvenance };
   chapter?: { title: string; startSeconds: number; endSeconds?: number } | null;
   radioNowPlaying?: { id: string; title: string; artist: string; stationName: string; metadata?: Record<string, unknown> | null } | null;
   radioHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];

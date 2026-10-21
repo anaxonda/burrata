@@ -8,6 +8,7 @@
 extern "C" {}
 
 pub mod acquisition;
+mod album_excerpt_audio;
 pub mod analysis;
 mod artist_alias_discovery;
 mod artist_alias_lookup;
@@ -23,6 +24,7 @@ mod bandcamp_fallback;
 pub mod browser_bridge;
 pub mod candidate_preview;
 pub mod collection_sources;
+mod compilation_excerpt;
 pub mod connections;
 mod directory_browser;
 pub mod discovery;
@@ -2716,15 +2718,33 @@ async fn resolve_preview(
     track: Track,
     request_generation: Option<u64>,
 ) -> Result<serde_json::Value> {
+    let mut approximate_excerpt = None;
     let preview = if let Some(path) = &track.local_path {
         if let Some(asset) = state.store.get_asset_by_path(path)? {
-            Preview {
-                kind: "local".into(),
-                url: state.local_audio.url_for(&asset.id)?,
-                can_seek: true,
-                can_volume: true,
-                can_autoplay: true,
-                is_excerpt: false,
+            let settings = state.store.settings()?;
+            if !crate::compilation_excerpt::asset_proof_is_eligible(
+                &track,
+                &asset.track.provenance,
+                settings.matching_level,
+            ) || !crate::compilation_excerpt::asset_file_hash_matches(&asset)
+            {
+                metadata_preview(&track)
+            } else {
+                if asset.track.provenance["automaticExcerpt"].is_object() {
+                    let proof = &asset.track.provenance["automaticExcerpt"];
+                    approximate_excerpt = Some(serde_json::json!({
+                        "label":"Approximate album excerpt",
+                        "source":{"provider":proof["source"]["provider"],"id":proof["source"]["id"]}
+                    }));
+                }
+                Preview {
+                    kind: "local".into(),
+                    url: state.local_audio.url_for(&asset.id)?,
+                    can_seek: true,
+                    can_volume: true,
+                    can_autoplay: true,
+                    is_excerpt: approximate_excerpt.is_some(),
+                }
             }
         } else {
             metadata_preview(&track)
@@ -2735,6 +2755,11 @@ async fn resolve_preview(
         metadata_preview(&track)
     };
     let mut value = serde_json::to_value(&preview).map_err(|error| error.to_string())?;
+    if let Some(marker) = approximate_excerpt {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("approximateExcerpt".into(), marker);
+        }
+    }
     if let Some(generation) = request_generation {
         let (stop, cancel) = {
             let mut gate = state
@@ -2968,11 +2993,28 @@ async fn resolve_playback_track(
         gate.finish(request_generation, &stop);
         let current = gate.generation == request_generation && !*cancel.borrow();
         if current {
-            let source = if let Some(path) = track.local_path.as_deref() {
+            let source = if let Some(asset_id) = resolved.quality["assetId"].as_str() {
                 let asset = state
                     .store
-                    .get_asset_by_path(path)?
-                    .ok_or("Local audio is not registered in the library")?;
+                    .get_asset_by_id(asset_id)?
+                    .ok_or("Resolved local asset is unavailable")?;
+                if asset.path != resolved.source.input {
+                    return Err("Resolved local asset changed during playback startup".into());
+                }
+                if !crate::compilation_excerpt::asset_file_hash_matches(&asset) {
+                    return Err(
+                        "Resolved excerpt contents no longer match their verified hash".into(),
+                    );
+                }
+                if asset.track.provenance["automaticExcerpt"].is_object()
+                    && !crate::compilation_excerpt::asset_proof_is_eligible(
+                        &track,
+                        &asset.track.provenance,
+                        state.store.settings()?.matching_level,
+                    )
+                {
+                    return Err("Matching policy changed during excerpt playback startup".into());
+                }
                 let settings = state.store.settings()?;
                 crate::native_output::AudioSource {
                     input: asset.path,
@@ -3004,7 +3046,8 @@ async fn resolve_playback_track(
     if webview_audio_transport::is_hls(&resolved.source) {
         resolved.quality["mimeType"] = serde_json::json!("application/vnd.apple.mpegurl");
     }
-    let local_source = track.local_path.is_some();
+    let resolved_asset_id = resolved.quality["assetId"].as_str();
+    let local_source = resolved_asset_id.is_some();
     let mut relayed = false;
     let convert = resolved.station.is_some()
         && webview_audio_transcode::needs_live_ogg_conversion(
@@ -3018,11 +3061,29 @@ async fn resolve_playback_track(
                 .and_then(serde_json::Value::as_str),
             webview_capabilities.as_ref(),
         );
-    let mut url = if let Some(path) = track.local_path.as_deref() {
+    let mut url = if let Some(asset_id) = resolved_asset_id {
         let asset = state
             .store
-            .get_asset_by_path(path)?
-            .ok_or("Local audio is not registered in the library")?;
+            .get_asset_by_id(asset_id)?
+            .ok_or("Verified excerpt asset is unavailable")?;
+        if asset.path != resolved.source.input {
+            return Err("Resolved local asset changed during playback startup".into());
+        }
+        if !crate::compilation_excerpt::asset_file_hash_matches(&asset) {
+            return Err("Resolved excerpt contents no longer match their verified hash".into());
+        }
+        if asset.track.provenance["automaticExcerpt"].is_object()
+            && !crate::compilation_excerpt::asset_proof_is_eligible(
+                &track,
+                &asset.track.provenance,
+                state.store.settings()?.matching_level,
+            )
+        {
+            return Err("Matching policy changed during excerpt playback startup".into());
+        }
+        if asset.hash != resolved.quality["hash"].as_str().unwrap_or_default() {
+            return Err("Verified excerpt asset changed after proof validation".into());
+        }
         state.local_audio.url_for(&asset.id)?
     } else if convert || webview_audio_transport::needs_relay(&resolved.source) {
         relayed = true;
@@ -3064,13 +3125,24 @@ async fn resolve_playback_track(
         .as_ref()
         .map(|candidate| candidate.title.as_str())
         .unwrap_or(track.title.as_str());
+    let approximate_excerpt =
+        if resolved.quality["sourceKind"].as_str() == Some("approximateAlbumExcerpt") {
+            let proof = &resolved.quality["approximateExcerpt"];
+            Some(serde_json::json!({
+                "label": "Approximate album excerpt",
+                "source": {"provider":proof["source"]["provider"],"id":proof["source"]["id"]}
+            }))
+        } else {
+            None
+        };
     let preview = serde_json::json!({
         "kind": if local_source { "local" } else { "audio" },
         "url": url,
         "canSeek": can_seek,
         "canVolume": true,
         "canAutoplay": true,
-        "isExcerpt": track.playback_range.is_some(),
+        "isExcerpt": track.playback_range.is_some() || approximate_excerpt.is_some(),
+        "approximateExcerpt": approximate_excerpt,
         "provider": provider,
         "title": title,
         "durationSeconds": duration,

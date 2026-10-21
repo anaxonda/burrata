@@ -1,0 +1,402 @@
+{
+  "startedAt": "2026-10-21T03:06:22.974Z",
+  "buildSha256": "64fa085d4589281c9f5a75d1b8ca258214c1ab4ea7bb04ec147f2a64ba23cc7a",
+  "success": true,
+  "assetReady": true,
+  "initialSamples": [
+    {
+      "elapsedMs": 2429,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "paused": true,
+      "playerMessage": "The resolved audio source identity does not match this recording"
+    }
+  ],
+  "assetPolls": [
+    {
+      "elapsedMs": 2437,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 5493,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 8561,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 11642,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 14716,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 17779,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 20856,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 23901,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 26939,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 29996,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 33065,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 36116,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 39184,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 42247,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 45320,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 48384,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 51424,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 54909,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 57952,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 61019,
+      "assetPresent": true,
+      "approximate": true
+    }
+  ],
+  "samples": [
+    {
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "playing",
+      "playerMessage": "Playing preview",
+      "position": 0.182555,
+      "duration": 97.764,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "playing",
+      "playerMessage": "Playing preview",
+      "position": 1.189798,
+      "duration": 97.764,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "playing",
+      "playerMessage": "Playing preview",
+      "position": 2.202183,
+      "duration": 97.764,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "playing",
+      "playerMessage": "Playing preview",
+      "position": 3.209401,
+      "duration": 97.764,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "playing",
+      "playerMessage": "Playing preview",
+      "position": 4.235122,
+      "duration": 97.764,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "playing",
+      "playerMessage": "Playing preview",
+      "position": 5.250181,
+      "duration": 97.764,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    }
+  ],
+  "beforeIdentity": {
+    "id": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "title": "Level 2 - Miami (Insane)",
+    "artist": "Pengus",
+    "album": "Neon Drive Game Soundtrack",
+    "albumArtist": null,
+    "version": null,
+    "durationSeconds": 98,
+    "isrc": null,
+    "provider": "musicbrainz",
+    "providerId": "046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "sourceUrl": "https://musicbrainz.org/recording/046f845d-a86a-4022-b9f5-2bdcf64af662"
+  },
+  "initialPlay": {
+    "toolError": true,
+    "error": {
+      "error": {
+        "code": "OPERATION_FAILED",
+        "message": "Error: The resolved audio source identity does not match this recording"
+      }
+    }
+  },
+  "proof": {
+    "albumDurationSeconds": 2498.3659999999995,
+    "albumFingerprint": "d67ef9969f569107cbd10d59d681c6938489c2cebebef9d21797aaab05089ff2",
+    "anchors": [
+      {
+        "score": 0.9931804185903874,
+        "sourceStartSeconds": 175.911,
+        "thirdScores": [
+          0.9938728741925684,
+          0.9934035395888862,
+          0.9920309618637974
+        ],
+        "trackId": 1124235111
+      },
+      {
+        "score": 0.9962829898071126,
+        "sourceStartSeconds": 1297.031,
+        "thirdScores": [
+          0.9971217937072652,
+          0.995771627201388,
+          0.9958669361291932
+        ],
+        "trackId": 1124235122
+      },
+      {
+        "score": 0.9613896698693104,
+        "sourceStartSeconds": 1953.979,
+        "thirdScores": [
+          0.9655551143058632,
+          0.9563881735528664,
+          0.9601338908690472
+        ],
+        "trackId": 1124235128
+      }
+    ],
+    "approximate": true,
+    "boundaryUncertaintySeconds": 2,
+    "catalogAssessment": {
+      "action": "accept",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "agree",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "versionAgrees",
+        "runtimeAgrees"
+      ],
+      "relationship": "exact"
+    },
+    "catalogTrackArtist": "Pengus",
+    "endBoundary": {
+      "confident": true,
+      "cue_seconds": 2006.700125,
+      "displacement_seconds": 0.01002901951687818,
+      "expected_seconds": 2006.6900959804832,
+      "quiet_window_rms": 9.424891021613932e-06,
+      "surrounding_rms": 0.27896373741768726
+    },
+    "endSeconds": 2006.700125,
+    "evaluatorVersion": "1",
+    "expectedEndSeconds": 2006.6900959804832,
+    "expectedStartSeconds": 1908.9412626008864,
+    "label": "Approximate album excerpt",
+    "policy": "flexible",
+    "relationship": "probable",
+    "requestFingerprint": "78cc881595fa9bc51b462bcc632a4724997cdce4775bc1da4637d18f3909775a",
+    "schemaVersion": 1,
+    "source": {
+      "albumMetadataTitle": null,
+      "audioBitrateKbps": 48.784,
+      "audioCodec": "mp4a.40.5",
+      "catalogAlbum": "Neon Drive Game Soundtrack",
+      "durationSeconds": 2499.256625,
+      "id": "youtube:U6bGnc68PSM",
+      "provider": "youtube",
+      "reportedAlbumArtist": null,
+      "reportedArtist": null,
+      "selectedFormatId": "139",
+      "sourceAlbumTitle": "Neon Drive - Full Original Soundtrack by Pengus",
+      "title": "Neon Drive - Full Original Soundtrack by Pengus",
+      "url": "https://www.youtube.com/watch?v=U6bGnc68PSM"
+    },
+    "sourceSha256": "f49840358ee1baa8d08ee1fdb00605d32bf2d7812be1ce66a43ae210a7beeae2",
+    "startBoundary": {
+      "confident": true,
+      "cue_seconds": 1908.95125,
+      "displacement_seconds": 0.009987399113697393,
+      "expected_seconds": 1908.9412626008864,
+      "quiet_window_rms": 4.0210961401349816e-05,
+      "surrounding_rms": 0.20056500685107412
+    },
+    "startSeconds": 1908.95125,
+    "targetScore": 0.9613896698693104,
+    "targetThirdScores": [
+      0.9655551143058632,
+      0.9563881735528664,
+      0.9601338908690472
+    ],
+    "targetTrackId": 1124235128
+  },
+  "hydratedIdentity": {
+    "id": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "title": "Level 2 - Miami (Insane)",
+    "artist": "Pengus",
+    "album": "Neon Drive Game Soundtrack",
+    "albumArtist": null,
+    "version": null,
+    "durationSeconds": 98,
+    "isrc": null,
+    "provider": "musicbrainz",
+    "providerId": "046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "sourceUrl": "https://musicbrainz.org/recording/046f845d-a86a-4022-b9f5-2bdcf64af662"
+  },
+  "replay": {
+    "absolutePosition": 0,
+    "canSeek": true,
+    "canVolume": true,
+    "chapterId": null,
+    "clientId": "d1d7088e-9a76-4b49-a02a-f93dfbfde41b",
+    "currentIndex": 0,
+    "diagnostics": {
+      "recentTrackFailures": []
+    },
+    "duration": 97.764,
+    "entryId": "232dbb93-cc3f-4a30-97c6-4a1629ca8000",
+    "failureHistoryRevision": "5",
+    "failureHistoryUpdate": {
+      "kind": "full"
+    },
+    "lastMediaFailure": null,
+    "lastMediaFailureSource": null,
+    "lastResolvedSource": null,
+    "lastStartupFailure": null,
+    "mediaError": null,
+    "paused": false,
+    "playerMessage": "Playing preview",
+    "position": 0,
+    "previewKind": "local",
+    "protocolVersion": 1,
+    "queue": [
+      {
+        "artist": "Pengus",
+        "id": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+        "title": "Level 2 - Miami (Insane)"
+      }
+    ],
+    "queueEntryIds": [
+      "232dbb93-cc3f-4a30-97c6-4a1629ca8000"
+    ],
+    "queueRevision": "1:4278622827:2493325759:2354691303:3330778895",
+    "queueUpdate": {
+      "kind": "full"
+    },
+    "radioHistory": [],
+    "radioNowPlaying": null,
+    "readyState": 4,
+    "repeat": "off",
+    "seekSerial": 0,
+    "sessionId": "513a5880-1fba-445b-81fe-ffb92ccbd215",
+    "shuffle": false,
+    "sourceGeneration": 1792551423072006,
+    "stateSequence": 625,
+    "status": "playing",
+    "track": {
+      "album": "Neon Drive Game Soundtrack",
+      "artist": "Pengus",
+      "artworkFilePath": null,
+      "artworkUrl": null,
+      "durationSeconds": 98,
+      "id": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "localPath": "[local profile path omitted]",
+      "sourceUrl": "https://musicbrainz.org/recording/046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "title": "Level 2 - Miami (Insane)"
+    },
+    "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "volume": 0.8
+  },
+  "excerptDurationMatches": true,
+  "captureSaved": true,
+  "afterIdentity": {
+    "id": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "title": "Level 2 - Miami (Insane)",
+    "artist": "Pengus",
+    "album": "Neon Drive Game Soundtrack",
+    "albumArtist": null,
+    "version": null,
+    "durationSeconds": 98,
+    "isrc": null,
+    "provider": "musicbrainz",
+    "providerId": "046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "sourceUrl": "https://musicbrainz.org/recording/046f845d-a86a-4022-b9f5-2bdcf64af662"
+  },
+  "savedIdentityUnchanged": true,
+  "qualificationNote": "Intermediate64fa build, after a narrowly verified missing-target test journal was manually cleared. Automatic journal recovery and final-source checks still pending."
+}

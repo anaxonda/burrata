@@ -1,0 +1,402 @@
+{
+  "videoId": "U6bGnc68PSM",
+  "metadataHandoffValidated": true,
+  "formatId": 139,
+  "codec": "audio/mp4; codecs=\"mp4a.40.5\"",
+  "durationSeconds": 2499,
+  "expectedTotalBytes": 15240596,
+  "transport": "sequential HTTP Range; 512 KiB; no redirects",
+  "rangeCount": 30,
+  "bytesReceived": 15240596,
+  "networkBudgetMs": 90000,
+  "pcmBytes": 79976212,
+  "decodedDurationSeconds": 2499.256625,
+  "fullDownload": true,
+  "fingerprintSummary": {
+    "method": "Chromaprint raw 32-bit Hamming; full-compilation offset search, candidate/reference frame scale 0.90..1.10 in 0.02 steps; diagnostic ranking only",
+    "compilationDurationSeconds": 2499.26,
+    "compilationFingerprintFrames": 20165,
+    "selfControl": {
+      "meanDifferentBitsPerFrame": 0,
+      "normalizedHamming": 0,
+      "exact": true
+    },
+    "variants": {
+      "base": {
+        "appleTrackId": 1124235111,
+        "recordingDurationMs": 124286,
+        "previewDurationSeconds": 29.93,
+        "fingerprintFrames": 220,
+        "bestOffsetSeconds": 176.12,
+        "candidateFramesPerPreviewFrame": 1.0,
+        "meanDifferentBitsPerFrame": 1.059,
+        "normalizedHamming": 0.0331
+      },
+      "hard": {
+        "appleTrackId": 1124235121,
+        "recordingDurationMs": 108073,
+        "previewDurationSeconds": 29.93,
+        "fingerprintFrames": 220,
+        "bestOffsetSeconds": 1190.2,
+        "candidateFramesPerPreviewFrame": 1.0,
+        "meanDifferentBitsPerFrame": 0.882,
+        "normalizedHamming": 0.02756
+      },
+      "insane": {
+        "appleTrackId": 1124235128,
+        "recordingDurationMs": 97714,
+        "previewDurationSeconds": 29.93,
+        "fingerprintFrames": 220,
+        "bestOffsetSeconds": 1956.03,
+        "candidateFramesPerPreviewFrame": 1.0,
+        "meanDifferentBitsPerFrame": 0.991,
+        "normalizedHamming": 0.03097
+      }
+    },
+    "pairwiseApplePreviewControls": {
+      "base_vs_hardNormalizedHamming": 0.42585,
+      "base_vs_insaneNormalizedHamming": 0.45114,
+      "hard_vs_insaneNormalizedHamming": 0.4456,
+      "interpretation": "Apple previews are distinguishable by Chromaprint; these are wrong-variant controls, not acceptance thresholds."
+    }
+  },
+  "publicCatalogControls": [
+    {
+      "trackId": 1124235111,
+      "title": "Level 2 Miami",
+      "durationMs": 124286
+    },
+    {
+      "trackId": 1124235121,
+      "title": "Level 2 Miami (Hard Difficulty)",
+      "durationMs": 108073
+    },
+    {
+      "trackId": 1124235128,
+      "title": "Level 2 Miami (Insane Difficulty)",
+      "durationMs": 97714
+    }
+  ],
+  "bandcampPublicAlbumPage": {
+    "status": 200,
+    "publicRenderedTitleCount": 16,
+    "visibleDifficultyVariants": [
+      "Level 8 Vector (Hard)",
+      "Level 8 Vector (Insane)"
+    ],
+    "level2HardOrInsaneVisible": false,
+    "bonusTracksNoteVisible": true,
+    "restrictedContentAccessed": false
+  },
+  "scope": {
+    "audioDownloaded": "public full soundtrack compilation via anonymous-source AAC, itag 139; 30 exact Range responses",
+    "use": "diagnostic fingerprint location only; no production binding, no auto-acceptance",
+    "sourceType": "full 2499s compilation, no public chapter metadata identifying individual track boundaries"
+  },
+  "appleAlbumSequence": {
+    "albumId": 1124234965,
+    "trackCount": 24,
+    "totalDurationMs": 2498366,
+    "totalDurationSeconds": 2498.366,
+    "compilationDecodedDurationSeconds": 2499.256625,
+    "durationDifferenceSeconds": 0.8906,
+    "tracks": [
+      {
+        "trackNumber": 1,
+        "trackId": 1124235110,
+        "title": "Level 1 City",
+        "durationMs": 130732,
+        "cumulativeStartSeconds": 0.0
+      },
+      {
+        "trackNumber": 2,
+        "trackId": 1124235111,
+        "title": "Level 2 Miami",
+        "durationMs": 124286,
+        "cumulativeStartSeconds": 130.732,
+        "previewMatchOffsetSeconds": 176.911,
+        "previewStartsSecondsIntoTrack": 46.179,
+        "cumulativeEndSeconds": 255.018
+      },
+      {
+        "trackNumber": 3,
+        "trackId": 1124235112,
+        "title": "Level 3 Science Fiction",
+        "durationMs": 129421,
+        "cumulativeStartSeconds": 255.018
+      },
+      {
+        "trackNumber": 4,
+        "trackId": 1124235113,
+        "title": "Level 4 Stardust",
+        "durationMs": 127559,
+        "cumulativeStartSeconds": 384.439
+      },
+      {
+        "trackNumber": 5,
+        "trackId": 1124235114,
+        "title": "Level 5 Blade Driver",
+        "durationMs": 133189,
+        "cumulativeStartSeconds": 511.998
+      },
+      {
+        "trackNumber": 6,
+        "trackId": 1124235115,
+        "title": "Level 6 Valkyrie",
+        "durationMs": 127645,
+        "cumulativeStartSeconds": 645.187
+      },
+      {
+        "trackNumber": 7,
+        "trackId": 1124235116,
+        "title": "Level 7 Mechanics",
+        "durationMs": 120000,
+        "cumulativeStartSeconds": 772.832
+      },
+      {
+        "trackNumber": 8,
+        "trackId": 1124235117,
+        "title": "Neon Drive Menu Loop",
+        "durationMs": 61440,
+        "cumulativeStartSeconds": 892.832
+      },
+      {
+        "trackNumber": 9,
+        "trackId": 1124235118,
+        "title": "Neon Drive Trailer 1",
+        "durationMs": 32381,
+        "cumulativeStartSeconds": 954.272
+      },
+      {
+        "trackNumber": 10,
+        "trackId": 1124235119,
+        "title": "Neon Drive Trailer 2",
+        "durationMs": 43111,
+        "cumulativeStartSeconds": 986.653
+      },
+      {
+        "trackNumber": 11,
+        "trackId": 1124235120,
+        "title": "Level 1 City (Hard Difficulty)",
+        "durationMs": 113680,
+        "cumulativeStartSeconds": 1029.764
+      },
+      {
+        "trackNumber": 12,
+        "trackId": 1124235121,
+        "title": "Level 2 Miami (Hard Difficulty)",
+        "durationMs": 108073,
+        "cumulativeStartSeconds": 1143.444,
+        "previewMatchOffsetSeconds": 1189.923,
+        "previewStartsSecondsIntoTrack": 46.479,
+        "cumulativeEndSeconds": 1251.517
+      },
+      {
+        "trackNumber": 13,
+        "trackId": 1124235122,
+        "title": "Level 3 Science Fiction (Hard Difficulty)",
+        "durationMs": 112540,
+        "cumulativeStartSeconds": 1251.517
+      },
+      {
+        "trackNumber": 14,
+        "trackId": 1124235123,
+        "title": "Level 4 Stardust (Hard Difficulty)",
+        "durationMs": 110859,
+        "cumulativeStartSeconds": 1364.057
+      },
+      {
+        "trackNumber": 15,
+        "trackId": 1124235124,
+        "title": "Level 5 Blade Driver (Hard Difficulty)",
+        "durationMs": 115791,
+        "cumulativeStartSeconds": 1474.916
+      },
+      {
+        "trackNumber": 16,
+        "trackId": 1124235125,
+        "title": "Level 6 Valkyrie (Hard Difficulty)",
+        "durationMs": 110652,
+        "cumulativeStartSeconds": 1590.707
+      },
+      {
+        "trackNumber": 17,
+        "trackId": 1124235126,
+        "title": "Level 7 Mechanics (Hard Difficulty)",
+        "durationMs": 104824,
+        "cumulativeStartSeconds": 1701.359
+      },
+      {
+        "trackNumber": 18,
+        "trackId": 1124235127,
+        "title": "Level 1 City (Insane Difficulty)",
+        "durationMs": 102078,
+        "cumulativeStartSeconds": 1806.183
+      },
+      {
+        "trackNumber": 19,
+        "trackId": 1124235128,
+        "title": "Level 2 Miami (Insane Difficulty)",
+        "durationMs": 97714,
+        "cumulativeStartSeconds": 1908.261,
+        "previewMatchOffsetSeconds": 1954.979,
+        "previewStartsSecondsIntoTrack": 46.718,
+        "cumulativeEndSeconds": 2005.975
+      },
+      {
+        "trackNumber": 20,
+        "trackId": 1124235129,
+        "title": "Level 3 Science Fiction (Insane Difficulty)",
+        "durationMs": 100701,
+        "cumulativeStartSeconds": 2005.975
+      },
+      {
+        "trackNumber": 21,
+        "trackId": 1124235130,
+        "title": "Level 4 Stardust (Insane Difficulty)",
+        "durationMs": 98618,
+        "cumulativeStartSeconds": 2106.676
+      },
+      {
+        "trackNumber": 22,
+        "trackId": 1124235131,
+        "title": "Level 5 Blade Driver (Insane Difficulty)",
+        "durationMs": 102499,
+        "cumulativeStartSeconds": 2205.294
+      },
+      {
+        "trackNumber": 23,
+        "trackId": 1124235132,
+        "title": "Level 6 Valkyrie (Insane Difficulty)",
+        "durationMs": 97870,
+        "cumulativeStartSeconds": 2307.793
+      },
+      {
+        "trackNumber": 24,
+        "trackId": 1124235133,
+        "title": "Level 7 Mechanics (Insane Difficulty)",
+        "durationMs": 92703,
+        "cumulativeStartSeconds": 2405.663
+      }
+    ]
+  },
+  "sampleExactWaveformAlignment": {
+    "method": "Full trimmed Apple preview FFT cross-correlation over exact 8 kHz sample offsets within +/-2s of Chromaprint match; tested candidate/reference rate scales 0.999,1.000,1.001; selected 1.000 for each. Split into equal thirds for consistency.",
+    "selfIdentityControl": {
+      "normalizedCorrelation": 1.0,
+      "offsetSeconds": 0.0
+    },
+    "controls": {
+      "base": {
+        "offsetSeconds": 176.911,
+        "wholeTrimmedPreviewCorrelation": 0.9931597742423667,
+        "fourSecondCorrelation": 0.9924939759777549,
+        "thirdsCorrelation": [
+          0.9939245741025275,
+          0.9934623282544526,
+          0.9918390517660662
+        ]
+      },
+      "hard": {
+        "offsetSeconds": 1189.923,
+        "wholeTrimmedPreviewCorrelation": 0.9923865837733516,
+        "fourSecondCorrelation": 0.9946241659304991,
+        "thirdsCorrelation": [
+          0.9937460686365,
+          0.9916061211001023,
+          0.9909500347390279
+        ]
+      },
+      "insane": {
+        "offsetSeconds": 1954.979,
+        "wholeTrimmedPreviewCorrelation": 0.9617560372067175,
+        "fourSecondCorrelation": 0.9644203451589536,
+        "thirdsCorrelation": [
+          0.9657156464839314,
+          0.9567325470023811,
+          0.9607008261443514
+        ]
+      }
+    }
+  },
+  "boundaryInference": {
+    "level2InsaneTrackNumber": 19,
+    "expectedStartFromAppleCumulativeSeconds": 1908.261,
+    "expectedEndFromAppleCumulativeSeconds": 2005.975,
+    "ApplePreviewMatchAtCompilationSeconds": 1954.979,
+    "matchOffsetWithinExpectedTrackSeconds": 46.718,
+    "corroboratingBaseAndHardPreviewStartsWithinTheirAppleTrackOffsetsSeconds": [
+      46.179,
+      46.479
+    ],
+    "status": "consistent with album-ordered compilation; inferred segment interval, not manually bound source"
+  },
+  "supersededPriorCoarseNcc": "A previous seed-window localizer returned a wrong offset; the included sampleExactWaveformAlignment supersedes it and scans the full trimmed preview at sample resolution.",
+  "boundaryCalibration": {
+    "analysisPath": "/tmp/burrata-pengus-boundary-inspection.json",
+    "inspectedAlbumJoinCount": 23,
+    "selectedJoinSignalMetrics": [
+      {
+        "trackNumber": 2,
+        "title": "Level 2 Miami",
+        "boundarySeconds": 130.732,
+        "nearestMin100msWindowStart": 130.832,
+        "min100msRmsWithin4s": 9e-06,
+        "median100msRmsWithin4s": 0.013835,
+        "rmsAtBoundaryBefore1s": 0.002692,
+        "rmsAtBoundaryAfter1s": 0.167079
+      },
+      {
+        "trackNumber": 12,
+        "title": "Level 2 Miami (Hard Difficulty)",
+        "boundarySeconds": 1143.444,
+        "nearestMin100msWindowStart": 1143.744,
+        "min100msRmsWithin4s": 1.2e-05,
+        "median100msRmsWithin4s": 0.017586,
+        "rmsAtBoundaryBefore1s": 0.005776,
+        "rmsAtBoundaryAfter1s": 0.141007
+      },
+      {
+        "trackNumber": 18,
+        "title": "Level 1 City (Insane Difficulty)",
+        "boundarySeconds": 1806.183,
+        "nearestMin100msWindowStart": 1806.183,
+        "min100msRmsWithin4s": 0.0,
+        "median100msRmsWithin4s": 0.00228,
+        "rmsAtBoundaryBefore1s": 0.000358,
+        "rmsAtBoundaryAfter1s": 0.095608
+      },
+      {
+        "trackNumber": 19,
+        "title": "Level 2 Miami (Insane Difficulty)",
+        "boundarySeconds": 1908.261,
+        "nearestMin100msWindowStart": 1908.861,
+        "min100msRmsWithin4s": 7.6e-05,
+        "median100msRmsWithin4s": 0.011065,
+        "rmsAtBoundaryBefore1s": 0.004825,
+        "rmsAtBoundaryAfter1s": 0.097938
+      },
+      {
+        "trackNumber": 20,
+        "title": "Level 3 Science Fiction (Insane Difficulty)",
+        "boundarySeconds": 2005.975,
+        "nearestMin100msWindowStart": 2006.575,
+        "min100msRmsWithin4s": 1.4e-05,
+        "median100msRmsWithin4s": 0.002325,
+        "rmsAtBoundaryBefore1s": 0.000685,
+        "rmsAtBoundaryAfter1s": 0.140978
+      },
+      {
+        "trackNumber": 24,
+        "title": "Level 7 Mechanics (Insane Difficulty)",
+        "boundarySeconds": 2405.663,
+        "nearestMin100msWindowStart": 2406.363,
+        "min100msRmsWithin4s": 0.0,
+        "median100msRmsWithin4s": 0.003414,
+        "rmsAtBoundaryBefore1s": 0.001448,
+        "rmsAtBoundaryAfter1s": 0.00022
+      }
+    ],
+    "conclusion": "The cumulative Apple interval remains plausible, but the PCM has fades or near-silence around joins and no uniform isolated marker; source start/end cannot be bounded to under 1 second from this PCM inspection alone."
+  }
+}

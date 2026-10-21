@@ -2401,6 +2401,18 @@
     ? nativeCanonicalChapter ?? {title:nativeSnapshot.chapter.title,startTime:nativeSnapshot.chapter.startSeconds,endTime:nativeSnapshot.chapter.endSeconds ?? Number.POSITIVE_INFINITY,id:"native",confidence:"native"}
     : playingCandidate?.chapters?.find((item) => position >= item.startTime && position < item.endTime));
   const playerAudioSource = $derived.by(() => {
+    const approximateNativeSource = nativeActive() && nativeSnapshot?.quality?.sourceKind === "approximateAlbumExcerpt";
+    const excerpt = nativeActive() ? nativeSnapshot?.quality?.approximateExcerpt : preview?.approximateExcerpt;
+    const approximateLocalAsset = !nativeActive() && preview?.kind === "local" && excerpt?.label === "Approximate album excerpt";
+    if (approximateNativeSource || approximateLocalAsset) {
+      const sourceId = excerpt?.source?.id;
+      const candidateProvider = nativeActive() ? nativeSnapshot?.candidate?.provider : playingCandidate?.provider;
+      const provider = excerpt?.source?.provider || candidateProvider || preview?.provider ||
+        (typeof sourceId === "string" ? sourceId.split(":", 1)[0] : undefined);
+      const names: Record<string, string> = { youtube: "YouTube", soundcloud: "SoundCloud", monochrome: "Monochrome" };
+      const label = excerpt?.label || nativeSnapshot?.quality?.label || "Approximate album excerpt";
+      return provider ? `${label} · ${names[provider] ?? provider}` : label;
+    }
     if (!preview || !["audio", "local", "direct"].includes(preview.kind)) return "";
     if (preview.kind === "local") return "Local file";
     const providerId = preview.provider || (preview.isExcerpt ? playingTrack?.provider : playingCandidate?.provider);
@@ -2927,7 +2939,7 @@
       const budgetMs = Math.floor(resolveDeadline - performance.now());
       if (budgetMs <= 0) break;
       try {
-        const result = await boundedPreviewResolution(request, call<{preview: Preview; candidate: Candidate | null}>("resolve_playback_track", {
+        const result = await boundedPreviewResolution(request, call<{preview: Preview; candidate: Candidate | null; quality?: {sourceKind?: string; approximateExcerpt?: import("./lib/types").ApproximateExcerptProvenance}}>("resolve_playback_track", {
           track: t, requestGeneration: request, selectedCandidate: queueCandidates[t.id] ?? null, budgetMs, webviewCapabilities: webviewAudioCapabilities(),
           failedCandidates: recovery.exactSourceOnly ? [] : [...recovery.tried].slice(-2).map(key => {
             const separator = key.indexOf(":");
@@ -2947,7 +2959,11 @@
         recovery.sourceStartupDeadline = recovering || attemptLimit
           ? overallDeadline : sourceAttemptDeadline(recovery, sourceAttempt);
         if (result.candidate) candidates = [result.candidate];
-        if (await startResolvedPreviewAudio(t, result.candidate, result.preview, request)) return;
+        const resolvedPreview = result.preview.kind === "local" && !result.preview.approximateExcerpt
+          && result.quality?.sourceKind === "approximateAlbumExcerpt" && result.quality.approximateExcerpt
+          ? { ...result.preview, approximateExcerpt: { label: result.quality.approximateExcerpt.label, source: result.quality.approximateExcerpt.source } }
+          : result.preview;
+        if (await startResolvedPreviewAudio(t, result.candidate, resolvedPreview, request)) return;
         if (!previewRequests.isCurrent(request)) return;
         if (!recovery.failureReason) recovery.failureReason = recovery.stallCause
           ? `${recovery.stallCause} The verified source did not start.`
@@ -2996,7 +3012,7 @@
     recovery.sourceStartupDeadline = recovery.deadline ?? performance.now() + budgetMs;
     recovery.attempts++;
     try {
-      const result = await boundedPreviewResolution(request, call<{preview: Preview; candidate: Candidate | null}>("resolve_playback_track", {
+      const result = await boundedPreviewResolution(request, call<{preview: Preview; candidate: Candidate | null; quality?: {sourceKind?: string; approximateExcerpt?: import("./lib/types").ApproximateExcerptProvenance}}>("resolve_playback_track", {
         track: t, requestGeneration: request, selectedCandidate: queueCandidates[t.id] ?? null,
         refreshCandidateFresh: true, refreshCandidate: candidate, budgetMs, failedCandidates: [], webviewCapabilities: webviewAudioCapabilities(),
       }));
@@ -3007,7 +3023,11 @@
         return false;
       }
       candidates = [result.candidate];
-      if (await startResolvedPreviewAudio(t, result.candidate, result.preview, request)) return true;
+      const resolvedPreview = result.preview.kind === "local" && !result.preview.approximateExcerpt
+        && result.quality?.sourceKind === "approximateAlbumExcerpt" && result.quality.approximateExcerpt
+        ? { ...result.preview, approximateExcerpt: { label: result.quality.approximateExcerpt.label, source: result.quality.approximateExcerpt.source } }
+        : result.preview;
+      if (await startResolvedPreviewAudio(t, result.candidate, resolvedPreview, request)) return true;
       if (!recovery.failureReason.startsWith(cause)) recovery.failureReason = `${cause} The refreshed source could not start.`;
     } catch (failure) {
       if (!previewRequests.isCurrent(request)) return false;
@@ -5547,6 +5567,7 @@
       void refreshRemotePlaylistBindings();
       register<{trackId:string;title:string;provider:string}>("playback-source-ready", result => {
         if (result.provider === "bandcamp") setNotice(`A verified Bandcamp source is ready for ${result.title}. You can play it again.`);
+        else if (result.provider === "approximateAlbumExcerpt") setNotice(`An approximate album excerpt is ready for ${result.title}. You can play it again.`);
       });
       register<QueuedPlayRequest>("automation-queued-playback",request=>{void handleQueuedPlayback(request);});
       register<{operationId:string;requestId?:string}>("automation-queued-playback-cancelled",cancelQueuedPlayback);

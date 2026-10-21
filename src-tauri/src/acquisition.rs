@@ -315,6 +315,9 @@ const PREVIEW_AUDIO_FORMAT_SELECTOR: &str = "bestaudio[ext=m4a][protocol^=http][
 const PREVIEW_AUDIO_ALTERNATE_FORMAT_SELECTOR: &str = "bestaudio[ext=webm][protocol^=http][protocol!*=dash]/bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio";
 const PREVIEW_AUDIO_YOUTUBE_FORMAT_SELECTOR: &str = "bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio/worst[ext=mp4][acodec!=none][vcodec!=none][protocol^=http][protocol!*=dash]";
 const PREVIEW_AUDIO_YOUTUBE_ALTERNATE_FORMAT_SELECTOR: &str = "bestaudio[ext=webm][protocol^=http][protocol!*=dash]/bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio/worst[ext=mp4][acodec!=none][vcodec!=none][protocol^=http][protocol!*=dash]";
+/// Small AAC representation used only for background album waveform evidence.
+/// Normal playback continues to use the higher-quality selectors above.
+const ALBUM_EVIDENCE_AUDIO_SELECTOR: &str = "worstaudio[ext=m4a][protocol^=http][protocol!*=dash]";
 const MAX_PREVIEW_FILE_SIZE: u64 = 16 * 1024 * 1024 * 1024;
 const PREVIEW_TAIL_PROBE_THRESHOLD: u64 = 1024 * 1024;
 
@@ -364,6 +367,70 @@ pub struct PreviewAudio {
     pub expected_content_length: Option<u64>,
     #[serde(skip_serializing)]
     pub headers: Vec<(String, String)>,
+}
+
+pub(crate) fn album_evidence_audio_diagnostic(code: &'static str, audio: &PreviewAudio) -> Value {
+    let safe_format_id = audio.selected_format_id.as_deref().filter(|value| {
+        !value.is_empty()
+            && value.len() <= 24
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    });
+    let safe_codec = audio.codec.as_deref().filter(|value| {
+        !value.is_empty()
+            && value.len() <= 48
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    });
+    serde_json::json!({
+        "code": code,
+        "formatId": safe_format_id,
+        "codec": safe_codec,
+        "durationSeconds": audio.duration_seconds.filter(|value| value.is_finite() && (0.0..=5000.0).contains(value)),
+        "bitrateKbps": audio.bitrate_kbps.filter(|value| value.is_finite() && (0.0..=10000.0).contains(value)),
+    })
+}
+
+fn album_evidence_access_failure_code(error: &str) -> (&'static str, Option<u16>) {
+    if let Some(status) = error
+        .strip_prefix("Audio source denied stream access (HTTP ")
+        .and_then(|value| value.strip_suffix(')'))
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|status| (100..=599).contains(status))
+    {
+        return ("http_status", Some(status));
+    }
+    let code = match error {
+        "Audio source did not honor a bounded byte-range request"
+        | "Audio source returned an invalid byte range"
+        | "Audio source returned an inconsistent byte range"
+        | "Audio source returned a truncated byte range"
+        | "Audio source returned an oversized byte range" => "range_rejected",
+        "The audio source returned a web page instead of audio" => "html_response",
+        "Audio stream resolution timed out" | "yt-dlp operation timed out" => "timeout",
+        "Audio stream access check failed" | "Audio stream could not deliver audio bytes" => {
+            "network_error"
+        }
+        "The audio source returned an empty stream" => "empty_stream",
+        _ => "access_check_failed",
+    };
+    (code, None)
+}
+
+pub(crate) fn album_evidence_access_diagnostic(
+    code: &'static str,
+    error: &str,
+    audio: &PreviewAudio,
+) -> Value {
+    let (access_code, http_status) = album_evidence_access_failure_code(error);
+    let mut diagnostic = album_evidence_audio_diagnostic(code, audio);
+    diagnostic["accessCode"] = serde_json::json!(access_code);
+    if let Some(status) = http_status {
+        diagnostic["httpStatus"] = serde_json::json!(status);
+    }
+    diagnostic
 }
 
 impl PreviewAudio {
@@ -494,6 +561,16 @@ fn should_force_managed_mweb(
     managed_provider_args_installed: bool,
 ) -> bool {
     provider == "youtube" && uses_managed_ytdlp(configured_ytdlp) && managed_provider_args_installed
+}
+
+fn should_force_managed_mweb_for_extraction(
+    provider: &str,
+    configured_ytdlp: &str,
+    managed_provider_args_installed: bool,
+    format_selector_override: Option<&str>,
+) -> bool {
+    format_selector_override.is_none()
+        && should_force_managed_mweb(provider, configured_ytdlp, managed_provider_args_installed)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3221,6 +3298,15 @@ pub async fn inspect_candidate(
     inspect_with_cancel(track, candidate, settings, cancel).await
 }
 
+pub(crate) async fn inspect_candidate_cancelled(
+    track: &Track,
+    candidate: &Candidate,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+) -> Result<Candidate, String> {
+    inspect_with_cancel(track, candidate, settings, cancel).await
+}
+
 pub async fn inspect_chapters(
     track: &Track,
     candidate: &Candidate,
@@ -3296,6 +3382,24 @@ async fn resolve_preview_audio_with_options(
     .await
 }
 
+async fn extract_album_evidence_preview_audio(
+    candidate: &Candidate,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+) -> Result<PreviewAudio, String> {
+    extract_preview_audio_with_prepared_alternate(
+        candidate,
+        settings,
+        cancel,
+        false,
+        None,
+        preview_operation_deadline(settings),
+        None,
+        Some(ALBUM_EVIDENCE_AUDIO_SELECTOR),
+    )
+    .await
+}
+
 async fn resolve_preview_audio_with_trace(
     candidate: &Candidate,
     settings: &Settings,
@@ -3333,6 +3437,7 @@ async fn resolve_preview_audio_with_prepared_alternate(
         trace.clone(),
         deadline,
         prepared,
+        None,
     )
     .await?;
     if matches!(candidate.provider.as_str(), "youtube" | "soundcloud") {
@@ -3350,6 +3455,7 @@ async fn extract_preview_audio_with_prepared_alternate(
     trace: Option<crate::playback_sources::SourceTrace>,
     deadline: crate::playback_sources::PlaybackDeadline,
     prepared: Option<Arc<Mutex<Option<PreviewAudio>>>>,
+    format_selector_override: Option<&'static str>,
 ) -> Result<PreviewAudio, String> {
     if *cancel.borrow() {
         return Err("Cancelled".into());
@@ -3462,10 +3568,11 @@ async fn extract_preview_audio_with_prepared_alternate(
     let (managed_provider_args_installed, mut provider_invocation) = helper_result?;
     // The bundled provider supports token-bearing mobile web playback. Avoid
     // selecting a TV URL that does not use the available GVS token provider.
-    if should_force_managed_mweb(
+    if should_force_managed_mweb_for_extraction(
         &candidate.provider,
         &settings.yt_dlp_path,
         managed_provider_args_installed,
+        format_selector_override,
     ) {
         args.extend([
             "--extractor-args".into(),
@@ -3477,7 +3584,11 @@ async fn extract_preview_audio_with_prepared_alternate(
         "--no-playlist".into(),
         "--skip-download".into(),
         "--format".into(),
-        preview_audio_format_selector(alternate_format, candidate.provider == "youtube").into(),
+        format_selector_override
+            .unwrap_or_else(|| {
+                preview_audio_format_selector(alternate_format, candidate.provider == "youtube")
+            })
+            .into(),
         "--".into(),
         candidate.url.clone(),
     ]);
@@ -5712,6 +5823,7 @@ impl AcquisitionManager {
                         Some(trace.with_shared_lookup(worker_id)),
                         deadline,
                         prepared,
+                        None,
                     )
                     .await?;
                     audio.provider_session = Some(stamp.clone());
@@ -5775,6 +5887,7 @@ impl AcquisitionManager {
                         alternate_format,
                         Some(trace.with_shared_lookup(worker_id)),
                         deadline,
+                        None,
                         None,
                     )
                     .await?;
@@ -6007,6 +6120,54 @@ impl AcquisitionManager {
                 resolve_preview_audio_with_options(candidate, settings, cancel, alternate_format)
             })
             .await
+    }
+
+    /// Resolve a fresh small AAC representation for album waveform evidence.
+    /// This bypasses the ordinary quality/cache path; the candidate identity,
+    /// duration and audio access checks still run before returning the URL.
+    pub(crate) async fn resolve_album_evidence_audio_fresh_cancelled(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        failure_stage: &mut &'static str,
+        failure_diagnostic: &mut Option<Value>,
+    ) -> Result<PreviewAudio, String> {
+        self.invalidate_preview_audio(candidate, settings);
+        let deadline = preview_operation_deadline(settings);
+        *failure_stage = "source_audio_extract";
+        let audio = extract_album_evidence_preview_audio(candidate, settings, cancel.clone())
+            .await
+            .map_err(|_| "Fresh evidence audio extraction failed")?;
+        let codec_is_aac = audio.codec.as_deref().is_some_and(|codec| {
+            codec.eq_ignore_ascii_case("aac") || codec.to_ascii_lowercase().starts_with("mp4a.")
+        });
+        if audio.mime_type != "audio/mp4" || !codec_is_aac {
+            *failure_stage = "source_audio_format";
+            *failure_diagnostic = Some(album_evidence_audio_diagnostic("format_rejected", &audio));
+            return Err("Album evidence requires an AAC/M4A source representation".into());
+        }
+        if matches!(candidate.provider.as_str(), "youtube" | "soundcloud") {
+            *failure_stage = "source_audio_access";
+            validate_prepared_preview_audio(
+                audio.clone(),
+                cancel,
+                None,
+                &candidate.provider,
+                deadline,
+            )
+            .await
+            .map_err(|error| {
+                *failure_diagnostic = Some(album_evidence_access_diagnostic(
+                    "access_rejected",
+                    &error,
+                    &audio,
+                ));
+                "Fresh evidence audio access check failed".to_owned()
+            })
+        } else {
+            Ok(audio)
+        }
     }
 
     /// Invalidate signed URLs and rejected extractor profiles after a provider
@@ -8086,6 +8247,25 @@ mod tests {
             ManagedProviderAction::SystemFallback
         );
         assert!(!should_force_managed_mweb("youtube", "", false));
+    }
+
+    #[test]
+    fn album_evidence_override_keeps_default_client_but_normal_playback_keeps_mweb() {
+        assert!(should_force_managed_mweb_for_extraction(
+            "youtube", "", true, None
+        ));
+        assert!(!should_force_managed_mweb_for_extraction(
+            "youtube",
+            "",
+            true,
+            Some(ALBUM_EVIDENCE_AUDIO_SELECTOR),
+        ));
+        assert!(!should_force_managed_mweb_for_extraction(
+            "soundcloud",
+            "",
+            true,
+            Some(ALBUM_EVIDENCE_AUDIO_SELECTOR),
+        ));
     }
 
     #[test]
@@ -12173,6 +12353,102 @@ echo "$result"
                 < youtube_alternate.find("/worst[ext=mp4]").unwrap()
         );
         assert!(!preview_audio_format_selector(false, false).contains("/worst[ext=mp4]"));
+        assert_eq!(
+            ALBUM_EVIDENCE_AUDIO_SELECTOR,
+            "worstaudio[ext=m4a][protocol^=http][protocol!*=dash]"
+        );
+        assert!(!ALBUM_EVIDENCE_AUDIO_SELECTOR.contains("bestaudio"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn album_evidence_failure_diagnostics_keep_only_safe_format_facts() {
+        let audio = PreviewAudio {
+            provider_session: None,
+            url: "https://media.googlevideo.com/audio?signature=private-secret".into(),
+            mime_type: "audio/mp4".into(),
+            codec: Some("mp4a.40.5".into()),
+            bitrate_kbps: Some(48.784),
+            duration_seconds: Some(2499.0),
+            selected_format_id: Some("139".into()),
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: Some("private source title".into()),
+            resolved_provider_id: Some("abcdefghijk".into()),
+            chapters: None,
+            expected_content_length: None,
+            headers: vec![("Authorization".into(), "private".into())],
+        };
+        let diagnostic = album_evidence_audio_diagnostic("access_rejected", &audio);
+        assert_eq!(diagnostic["code"], "access_rejected");
+        assert_eq!(diagnostic["formatId"], "139");
+        assert_eq!(diagnostic["codec"], "mp4a.40.5");
+        assert_eq!(diagnostic["durationSeconds"], 2499.0);
+        assert_eq!(diagnostic["bitrateKbps"], 48.784);
+        let serialized = diagnostic.to_string();
+        assert!(!serialized.contains("private-secret"));
+        assert!(!serialized.contains("private source title"));
+        assert!(!serialized.contains("Authorization"));
+
+        let denied = album_evidence_access_diagnostic(
+            "access_rejected",
+            "Audio source denied stream access (HTTP 403)",
+            &audio,
+        );
+        assert_eq!(denied["accessCode"], "http_status");
+        assert_eq!(denied["httpStatus"], 403);
+        assert!(!denied.to_string().contains("HTTP 403"));
+        let range = album_evidence_access_diagnostic(
+            "access_rejected",
+            "Audio source returned an inconsistent byte range",
+            &audio,
+        );
+        assert_eq!(range["accessCode"], "range_rejected");
+        assert!(range.get("httpStatus").is_none());
+        let unknown = album_evidence_access_diagnostic(
+            "access_rejected",
+            "untrusted response with private payload",
+            &audio,
+        );
+        assert_eq!(unknown["accessCode"], "access_check_failed");
+        assert!(!unknown.to_string().contains("private payload"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn album_evidence_extraction_selects_fresh_low_bitrate_aac_139() {
+        let directory = tempfile::tempdir().unwrap();
+        let args_path = directory.path().join("format-args");
+        let args_path_display = args_path.to_string_lossy();
+        let script = format!(
+            "printf '%s\\n' \"$@\" > '{args_path_display}'\ncat <<'JSON'\n{{\"id\":\"evidence139\",\"title\":\"Fixture Album full soundtrack\",\"duration\":2500,\"url\":\"https://rr1.googlevideo.com/videoplayback?token=private\",\"protocol\":\"https\",\"ext\":\"m4a\",\"acodec\":\"mp4a.40.5\",\"vcodec\":\"none\",\"format_id\":\"139\",\"abr\":48,\"filesize\":4096}}\nJSON"
+        );
+        let (_tool_dir, settings) = fake_tool(&script);
+        let candidate = Candidate {
+            id: "youtube:evidence139".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=evidence139".into(),
+            ..Candidate::default()
+        };
+        let audio = with_playback_test_public_addresses(extract_album_evidence_preview_audio(
+            &candidate,
+            &settings,
+            idle_cancel().1,
+        ))
+        .await
+        .unwrap();
+        assert_eq!(audio.selected_format_id.as_deref(), Some("139"));
+        assert_eq!(audio.codec.as_deref(), Some("mp4a.40.5"));
+        assert_eq!(audio.bitrate_kbps, Some(48.0));
+        let args = std::fs::read_to_string(args_path).unwrap();
+        let format_position = args
+            .lines()
+            .position(|argument| argument == "--format")
+            .expect("evidence extraction must specify a format selector");
+        assert_eq!(
+            args.lines().nth(format_position + 1),
+            Some(ALBUM_EVIDENCE_AUDIO_SELECTOR)
+        );
     }
 
     #[test]

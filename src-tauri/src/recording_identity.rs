@@ -290,8 +290,18 @@ fn game_level_difficulty(base: &str, label: &str) -> bool {
         return false;
     }
     let remainder = after_level[digit_count..].trim_start();
-    if !(remainder.starts_with('-') || remainder.starts_with(':'))
-        || remainder[1..].trim().is_empty()
+    let has_separator = remainder.starts_with('-') || remainder.starts_with(':');
+    // Catalogs commonly omit the punctuation used by the original game
+    // caption ("Level 2 Miami") while retaining the same level/work token.
+    // This remains a contextual rule: it only classifies a trailing known
+    // difficulty label on a numbered-level title.
+    let work = remainder
+        .strip_prefix('-')
+        .or_else(|| remainder.strip_prefix(':'))
+        .unwrap_or(remainder)
+        .trim();
+    if work.is_empty()
+        || (!has_separator && !crate::matching::normalize(label).ends_with(" difficulty"))
     {
         return false;
     }
@@ -410,6 +420,13 @@ mod tests {
         let parsed = parse_title("Level 2 - Miami (Insane Difficulty)");
         assert_eq!(parsed.title, "Level 2 - Miami");
         assert_eq!(parsed.version.as_deref(), Some("Insane Difficulty"));
+        let catalog = parse_title("Level 2 Miami (Insane Difficulty)");
+        assert_eq!(catalog.title, "Level 2 Miami");
+        assert_eq!(catalog.version.as_deref(), Some("Insane Difficulty"));
+        assert_eq!(
+            parse_title("Level 2 Miami (Insane)").title,
+            "Level 2 Miami (Insane)"
+        );
         let ordinary = parse_title("Song (Insane)");
         assert_eq!(ordinary.title, "Song (Insane)");
         assert!(ordinary.version.is_none());

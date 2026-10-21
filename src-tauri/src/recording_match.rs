@@ -470,7 +470,8 @@ fn level_work(value: &str) -> Option<(String, String)> {
     let remainder = value["level ".len() + count..].trim_start();
     let work = remainder
         .strip_prefix('-')
-        .or_else(|| remainder.strip_prefix(':'))?
+        .or_else(|| remainder.strip_prefix(':'))
+        .unwrap_or(remainder)
         .trim()
         .to_owned();
     (!work.is_empty()).then_some((level, work))
@@ -487,7 +488,29 @@ fn album_prefix_matches(album: &str, candidate_prefix: &str) -> bool {
 fn contextual_game_level_title(track: &Track, candidate: &str) -> Option<String> {
     let requested = parse_title(&track.title);
     let (requested_level, requested_work) = level_work(&requested.title)?;
-    let requested_difficulty = difficulty_label(requested.version.as_deref()?)?;
+    let requested_version = track.version.as_deref().or(requested.version.as_deref())?;
+    let requested_difficulty = difficulty_label(requested_version)?;
+
+    // Catalog metadata frequently writes the same level/work without the
+    // dash or colon present in the requested title. Treat that spelling as
+    // equivalent only when both sides parse as numbered game levels and both
+    // carry the same explicit, recognized difficulty label.
+    let parsed_candidate = parse_title(candidate);
+    if let (Some(actual_version), Some((actual_level, actual_work))) = (
+        parsed_candidate.version.as_deref(),
+        level_work(&parsed_candidate.title),
+    ) {
+        let actual_difficulty = difficulty_label(actual_version)?;
+        if actual_level == requested_level
+            && actual_difficulty == requested_difficulty
+            && crate::matching::normalize_title_ignoring_intraword_apostrophes(&actual_work)
+                == crate::matching::normalize_title_ignoring_intraword_apostrophes(&requested_work)
+        {
+            return Some(format!(
+                "Level {requested_level} - {requested_work} ({requested_version})"
+            ));
+        }
+    }
     let album = track.album.as_deref()?;
     let lower = candidate.to_ascii_lowercase();
     let mut search_from = 0;

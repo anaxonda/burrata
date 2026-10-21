@@ -1,0 +1,126 @@
+{
+  "buildSha256": "dcee5fef5ae80387c9d5a059c35a377949977cbd3f959b96eceab0e37830e014",
+  "events": [
+    {
+      "atUnixMs": 1792540740864,
+      "details": {
+        "httpStatus": 403
+      },
+      "elapsedMs": 6604,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "verified_source_transport_recovery_start",
+      "provider": "youtube",
+      "resolutionId": "43dad5d6-ff41-46ec-bb46-f0b2991ac266",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374015
+    },
+    {
+      "atUnixMs": 1792540740865,
+      "details": {
+        "attemptsUsed": 2,
+        "budgetMs": 5999
+      },
+      "elapsedMs": 6605,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "mapped_direct_youtube_start",
+      "provider": "youtube",
+      "resolutionId": "43dad5d6-ff41-46ec-bb46-f0b2991ac266",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374015
+    },
+    {
+      "atUnixMs": 1792540741386,
+      "details": {
+        "attemptsUsed": 2,
+        "elapsedMs": 521,
+        "ok": true
+      },
+      "elapsedMs": 7126,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "mapped_direct_youtube_end",
+      "provider": "youtube",
+      "resolutionId": "43dad5d6-ff41-46ec-bb46-f0b2991ac266",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374015
+    },
+    {
+      "atUnixMs": 1792540741386,
+      "details": {
+        "ok": true
+      },
+      "elapsedMs": 7126,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "verified_source_transport_recovery_end",
+      "provider": "youtube",
+      "resolutionId": "43dad5d6-ff41-46ec-bb46-f0b2991ac266",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374015
+    },
+    {
+      "atUnixMs": 1792540763135,
+      "details": {
+        "attemptsUsed": 1,
+        "budgetMs": 3999
+      },
+      "elapsedMs": 13,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "mapped_direct_youtube_start",
+      "provider": "youtube",
+      "resolutionId": "111040c5-7d27-4eda-9792-b2cbe7fdf372",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374017
+    },
+    {
+      "atUnixMs": 1792540764027,
+      "details": {
+        "attemptsUsed": 1,
+        "elapsedMs": 891,
+        "ok": true
+      },
+      "elapsedMs": 905,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "mapped_direct_youtube_end",
+      "provider": "youtube",
+      "resolutionId": "111040c5-7d27-4eda-9792-b2cbe7fdf372",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374017
+    },
+    {
+      "atUnixMs": 1792540771339,
+      "details": {
+        "attemptsUsed": 1,
+        "budgetMs": 3999
+      },
+      "elapsedMs": 14,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "mapped_direct_youtube_start",
+      "provider": "youtube",
+      "resolutionId": "a6f1f594-e82b-43b4-b702-e92246bda7aa",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374018
+    },
+    {
+      "atUnixMs": 1792540771789,
+      "details": {
+        "attemptsUsed": 1,
+        "elapsedMs": 450,
+        "ok": true
+      },
+      "elapsedMs": 464,
+      "nativeOperationId": null,
+      "nativeSeekOperationId": null,
+      "phase": "mapped_direct_youtube_end",
+      "provider": "youtube",
+      "resolutionId": "a6f1f594-e82b-43b4-b702-e92246bda7aa",
+      "sharedLookupId": null,
+      "webviewGeneration": 1792540514374018
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "createdAt": "2026-10-21T01:57:29.422Z",
+  "buildSha256": "d200961c156d6451efdc5bb1d35728324682ad6e59ba1425218f7d859dcd4408",
+  "results": [
+    {
+      "name": "Gama Lami Extended Mix",
+      "trackId": "youtube:79s7ZxEZY08",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2434,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.048189,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3649,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 0.74495,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.269603,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4893,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 1.741433,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.508909,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6258,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 3.735595,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.870891,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7479,
+          "trackId": "youtube:79s7ZxEZY08",
+          "status": "playing",
+          "paused": false,
+          "position": 4.736058,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:79s7ZxEZY08"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 5.092635,
+            "duration": 413.106213151,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "youtube:79s7ZxEZY08",
+        "title": "Afro Exotiq-Gama Lami (feat. Sazi Cele) [Extended Mix]",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 414,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "79s7ZxEZY08"
+      },
+      "afterIdentity": {
+        "id": "youtube:79s7ZxEZY08",
+        "title": "Afro Exotiq-Gama Lami (feat. Sazi Cele) [Extended Mix]",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 414,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "79s7ZxEZY08"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ]
+}

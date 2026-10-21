@@ -3806,6 +3806,66 @@ impl Store {
         promote_track(&tx, &asset.track.id)?;
         tx.commit().map_err(err)
     }
+    pub(crate) fn save_flexible_excerpt_asset(
+        &self,
+        asset: &LocalAsset,
+        request_fingerprint: &str,
+    ) -> Result<()> {
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction().map_err(err)?;
+        let settings_payload: Option<String> = tx
+            .query_row(
+                "SELECT value FROM settings WHERE key='application'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        let settings = settings_payload
+            .map(decode::<Settings>)
+            .transpose()?
+            .unwrap_or_default();
+        if settings.matching_level != crate::recording_match::MatchLevel::Flexible
+            || !settings.background_source_preparation
+            || !settings.streaming_fallback_enabled
+            || crate::compilation_excerpt::request_fingerprint(
+                &asset.track,
+                crate::recording_match::MatchLevel::Flexible,
+            ) != request_fingerprint
+            || asset.track.provenance["automaticExcerpt"]["requestFingerprint"].as_str()
+                != Some(request_fingerprint)
+            || !crate::compilation_excerpt::asset_proof_is_eligible(
+                &asset.track,
+                &asset.track.provenance,
+                crate::recording_match::MatchLevel::Flexible,
+            )
+        {
+            return Err("Flexible excerpt request changed before asset publication".into());
+        }
+        let current_metadata: Option<(String, bool, Option<String>, String)> = tx.query_row(
+            "SELECT l.metadata,r.favorite,r.disposition,r.manual_metadata FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id=?1 AND l.provider=?2 AND l.provider_id=?3",
+            params![asset.track.id, asset.track.provider, asset.track.provider_id],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+        ).optional().map_err(err)?;
+        let current_track = current_metadata
+            .map(|(metadata, favorite, disposition, manual)| {
+                let track = decode::<Track>(metadata)?;
+                apply_hydration_metadata(track, (favorite, disposition, manual))
+            })
+            .transpose()?
+            .map(|(track, _)| track);
+        if current_track.is_none_or(|track| {
+            crate::compilation_excerpt::request_fingerprint(
+                &track,
+                crate::recording_match::MatchLevel::Flexible,
+            ) != request_fingerprint
+        }) {
+            return Err("Catalog recording changed before excerpt publication".into());
+        }
+        ensure_track(&tx, &asset.track)?;
+        tx.execute("INSERT INTO local_assets(id,recording_id,path,hash,payload) VALUES(?1,(SELECT recording_id FROM catalog_listings WHERE id=?2),?3,?4,?5) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,path=excluded.path,hash=excluded.hash", params![asset.id,asset.track.id,asset.path,asset.hash,encode(asset)?]).map_err(err)?;
+        tx.commit().map_err(err)
+    }
     pub fn save_autotag_record(
         &self,
         asset_id: &str,
@@ -5379,12 +5439,20 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
             assets.entry(recording).or_default().push(asset);
         }
     }
+    let matching_level = current_matching_level(conn);
     let selected = recordings
         .iter()
         .map(|recording| {
             let rows = assets.get(recording).map(Vec::as_slice).unwrap_or(&[]);
             let preferred = preferences.get(recording).and_then(Option::as_deref);
-            (recording.clone(), select_hydration_asset(rows, preferred))
+            let request = tracks
+                .iter()
+                .find(|(track, _)| recording_for_id.get(&track.id) == Some(recording))
+                .map(|(track, _)| track);
+            let rows = request
+                .map(|track| eligible_hydration_rows(rows, track, matching_level))
+                .unwrap_or_else(|| rows.to_vec());
+            (recording.clone(), select_hydration_asset(&rows, preferred))
         })
         .collect::<HashMap<_, _>>();
     let pairs = selected
@@ -5441,7 +5509,7 @@ type SelectedHydrationAsset = (AssetHydrationRow, Option<AnalysisHydrationRow>);
 fn hydrate(conn: &Connection, track: Track) -> Result<Track> {
     let values: RecordingHydration = conn.query_row("SELECT r.favorite,r.disposition,r.manual_metadata FROM recordings r JOIN catalog_listings l ON l.recording_id=r.id WHERE l.id=?1", [&track.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
     let (track, manual) = apply_hydration_metadata(track, values)?;
-    let selected = load_hydration_asset(conn, &track.id)?;
+    let selected = load_hydration_asset(conn, &track)?;
     finish_hydration(track, manual, selected)
 }
 
@@ -5477,8 +5545,9 @@ fn apply_hydration_metadata(
 
 fn load_hydration_asset(
     conn: &Connection,
-    listing_id: &str,
+    request: &Track,
 ) -> Result<Option<SelectedHydrationAsset>> {
+    let listing_id = request.id.as_str();
     let mut asset_stmt = conn
         .prepare("SELECT id,path,hash,payload FROM local_assets WHERE recording_id=(SELECT recording_id FROM catalog_listings WHERE id=?1) ORDER BY rowid ASC")
         .map_err(err)?;
@@ -5498,7 +5567,8 @@ fn load_hydration_asset(
         "SELECT value FROM settings WHERE key=('preferredAsset.' || (SELECT recording_id FROM catalog_listings WHERE id=?1))",
         [listing_id], |r| r.get(0)).optional().map_err(err)?;
     let preferred = preferred.map(decode::<String>).transpose()?;
-    let row = select_hydration_asset(&asset_rows, preferred.as_deref());
+    let eligible = eligible_hydration_rows(&asset_rows, request, current_matching_level(conn));
+    let row = select_hydration_asset(&eligible, preferred.as_deref());
     row.map(|row| {
         let analysis = conn.query_row(
             "SELECT status,version,payload FROM asset_analyses WHERE asset_id=?1 AND file_hash=?2 ORDER BY updated_at DESC LIMIT 1",
@@ -5506,6 +5576,39 @@ fn load_hydration_asset(
         ).optional().map_err(err)?;
         Ok((row, analysis))
     }).transpose()
+}
+
+fn current_matching_level(conn: &Connection) -> crate::recording_match::MatchLevel {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key='application'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|value| decode::<Settings>(value).ok())
+    .map(|settings| settings.matching_level)
+    .unwrap_or_default()
+}
+
+fn eligible_hydration_rows(
+    rows: &[AssetHydrationRow],
+    request: &Track,
+    level: crate::recording_match::MatchLevel,
+) -> Vec<AssetHydrationRow> {
+    rows.iter()
+        .filter(|row| {
+            serde_json::from_str::<LocalAsset>(&row.3)
+                .ok()
+                .is_some_and(|asset| {
+                    crate::compilation_excerpt::asset_proof_is_eligible(
+                        request,
+                        &asset.track.provenance,
+                        level,
+                    )
+                })
+        })
+        .cloned()
+        .collect()
 }
 
 fn select_hydration_asset(
@@ -5533,6 +5636,9 @@ fn finish_hydration(
     manual: serde_json::Value,
     selected: Option<SelectedHydrationAsset>,
 ) -> Result<Track> {
+    if let Some(provenance) = track.provenance.as_object_mut() {
+        provenance.remove("approximateExcerpt");
+    }
     let manual_fields = track.provenance["manualFields"]
         .as_object()
         .cloned()
@@ -5542,6 +5648,13 @@ fn finish_hydration(
     track.local_availability = "none".into();
     if let Some(((asset_id, path, _hash, payload), analysis)) = selected {
         let asset: LocalAsset = decode(payload)?;
+        if asset.track.provenance["automaticExcerpt"].is_object() {
+            if !track.provenance.is_object() {
+                track.provenance = serde_json::json!({});
+            }
+            track.provenance["approximateExcerpt"] =
+                asset.track.provenance["automaticExcerpt"].clone();
+        }
         if asset.track.provenance["autotag"].is_object() {
             let overlay = serde_json::to_value(&asset.track).map_err(err)?;
             let mut display = serde_json::to_value(&track).map_err(err)?;
@@ -5678,6 +5791,124 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = Store::open(&d.path().join("library.sqlite")).unwrap();
         (d, s)
+    }
+
+    #[test]
+    fn flexible_excerpt_publication_is_transactional_policy_scoped_and_preserves_catalog_row() {
+        let (directory, store) = db();
+        let mut requested = track("excerpt-policy", "");
+        requested.title = "Verified soundtrack recording".into();
+        requested.duration_seconds = Some(180.0);
+        requested.album = Some("Fixture Album".into());
+        store.save_track(&requested).unwrap();
+        let raw_before: String = store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT metadata FROM catalog_listings WHERE id=?1",
+                [&requested.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let mut settings = store.settings().unwrap();
+        settings.matching_level = crate::recording_match::MatchLevel::Flexible;
+        settings.background_source_preparation = true;
+        settings.streaming_fallback_enabled = true;
+        store.save_settings(&settings).unwrap();
+        let proof = crate::compilation_excerpt::test_eligible_excerpt_proof(&requested);
+        let request = crate::compilation_excerpt::request_fingerprint(
+            &requested,
+            crate::recording_match::MatchLevel::Flexible,
+        );
+        let path = directory.path().join("verified-excerpt.flac");
+        std::fs::write(&path, b"verified excerpt").unwrap();
+        let mut asset_track = requested.clone();
+        // `finalize_download` sets the embedded track duration to the actual
+        // cut length, which differs slightly from the catalog runtime.
+        asset_track.duration_seconds = Some(179.4);
+        asset_track.provenance["automaticExcerpt"] = proof["automaticExcerpt"].clone();
+        let mut asset = LocalAsset {
+            id: "asset-verified-excerpt".into(),
+            recording_id: requested.id.clone(),
+            path: path.to_string_lossy().into_owned(),
+            hash: crate::media::hash_file(&path).unwrap(),
+            source_codec: "flac".into(),
+            final_codec: "flac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: Some(48_000),
+            channels: Some(2),
+            bit_depth: Some(24),
+            duration_seconds: Some(179.4),
+            size_bytes: Some(16),
+            bitrate_origin: None,
+            processing: "verified excerpt".into(),
+            track: asset_track,
+        };
+
+        assert_ne!(
+            crate::compilation_excerpt::request_fingerprint(
+                &asset.track,
+                crate::recording_match::MatchLevel::Flexible
+            ),
+            request,
+            "finalized media duration must not replace catalog request identity"
+        );
+        crate::compilation_excerpt::restore_requested_track_duration_for_excerpt_asset(
+            &mut asset, &requested,
+        );
+        assert_eq!(asset.track.duration_seconds, Some(180.0));
+        assert_eq!(asset.duration_seconds, Some(179.4));
+
+        store.save_flexible_excerpt_asset(&asset, &request).unwrap();
+        let hydrated = store.get_track(&requested.id).unwrap().unwrap();
+        assert_eq!(hydrated.local_path.as_deref(), Some(path.to_str().unwrap()));
+        assert_eq!(
+            hydrated.provenance["approximateExcerpt"]["relationship"],
+            "probable"
+        );
+        let raw_after: String = store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT metadata FROM catalog_listings WHERE id=?1",
+                [&requested.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            raw_after, raw_before,
+            "excerpt proof must not rewrite the catalog listing"
+        );
+
+        for level in [
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchLevel::Exact,
+        ] {
+            settings.matching_level = level;
+            store.save_settings(&settings).unwrap();
+            let hidden = store.get_track(&requested.id).unwrap().unwrap();
+            assert!(hidden.local_path.is_none());
+            assert!(hidden.provenance.get("approximateExcerpt").is_none());
+            let stale_queued =
+                crate::playback_sources::reconcile_stale_local_asset(&store, &hydrated, false)
+                    .unwrap();
+            assert!(stale_queued.local_path.is_none());
+            assert!(stale_queued.asset_id.is_none());
+            assert!(stale_queued.provenance.get("approximateExcerpt").is_none());
+            assert!(store.get_asset_by_id(&asset.id).unwrap().is_some());
+        }
+
+        let mut stale_asset = asset.clone();
+        stale_asset.id = "asset-stale-policy".into();
+        assert!(store
+            .save_flexible_excerpt_asset(&stale_asset, &request)
+            .is_err());
+        assert!(store.get_asset_by_id(&stale_asset.id).unwrap().is_none());
+        assert_eq!(raw_after, raw_before);
     }
 
     #[test]

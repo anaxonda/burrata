@@ -61,6 +61,7 @@ fn gate() -> &'static Mutex<PreparationGate> {
     GATE.get_or_init(Default::default)
 }
 pub(crate) fn yield_to_playback() {
+    crate::compilation_excerpt::yield_to_playback();
     if let Ok(mut state) = gate().lock() {
         state.foreground(Instant::now());
     }

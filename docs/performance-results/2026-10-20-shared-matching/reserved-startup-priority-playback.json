@@ -1,0 +1,347 @@
+{
+  "createdAt": "2026-10-21T00:07:19.041Z",
+  "buildSha256": "dcee5fef5ae80387c9d5a059c35a377949977cbd3f959b96eceab0e37830e014",
+  "results": [
+    {
+      "name": "Diaraby with Ry Cooder",
+      "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 5841,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.059521,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7070,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 0.750423,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.288885,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8288,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 1.993323,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.499866,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9525,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 2.98882,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.728094,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10755,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 3.983627,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.955769,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11965,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 5.993576,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.179501,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+        "title": "Diaraby  (w/ Ry Cooder)",
+        "artist": "Ali Farka Tour\u00e9",
+        "album": "Ali Farka Tour\u00e9",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25"
+      },
+      "afterIdentity": {
+        "id": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+        "title": "Diaraby  (w/ Ry Cooder)",
+        "artist": "Ali Farka Tour\u00e9",
+        "album": "Ali Farka Tour\u00e9",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Mia Kokkini Triandafillia",
+      "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2106,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.047499,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3315,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 0.751662,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.283701,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4524,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 1.748917,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.490056,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5750,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 2.746364,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.707147,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6960,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 4.745197,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.923142,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8244,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 5.745754,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.206084,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "afterIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ],
+  "frontendAppSha256": "63d89f97787553de2a065a7194cc631a91ee62cf2456a7cbc47c3e4fef1861b5"
+}

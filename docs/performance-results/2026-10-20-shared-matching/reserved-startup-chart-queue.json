@@ -1,0 +1,761 @@
+{
+  "buildSha256": "dcee5fef5ae80387c9d5a059c35a377949977cbd3f959b96eceab0e37830e014",
+  "frontendAppSha256": "7e6dd7ce33c62031223b76576e5c2c75d0b49b480833c929fd30c515cec0711c",
+  "trackIds": [
+    "traxsource:15057930",
+    "traxsource:15019328",
+    "traxsource:14798487"
+  ],
+  "transitions": [
+    {
+      "expectedTrackId": "traxsource:15057930",
+      "success": true,
+      "samples": [
+        {
+          "trackId": "traxsource:15057930",
+          "index": 0,
+          "status": "playing",
+          "position": 0.088112,
+          "duration": 493.795555555,
+          "reportedDuration": 494,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:mVvwOJJRwXo",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15057930",
+          "index": 0,
+          "status": "playing",
+          "position": 1.103264,
+          "duration": 493.795555555,
+          "reportedDuration": 494,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:mVvwOJJRwXo",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15057930",
+          "index": 0,
+          "status": "playing",
+          "position": 2.112093,
+          "duration": 493.795555555,
+          "reportedDuration": 494,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:mVvwOJJRwXo",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15057930",
+          "index": 0,
+          "status": "playing",
+          "position": 3.127267,
+          "duration": 493.795555555,
+          "reportedDuration": 494,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:mVvwOJJRwXo",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15057930",
+          "index": 0,
+          "status": "playing",
+          "position": 4.152446,
+          "duration": 493.795555555,
+          "reportedDuration": 494,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:mVvwOJJRwXo",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15057930",
+          "index": 0,
+          "status": "playing",
+          "position": 5.164903,
+          "duration": 493.795555555,
+          "reportedDuration": 494,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:mVvwOJJRwXo",
+            "provider": "youtube"
+          }
+        }
+      ]
+    },
+    {
+      "expectedTrackId": "traxsource:15019328",
+      "success": true,
+      "samples": [
+        {
+          "trackId": "traxsource:15057930",
+          "index": 0,
+          "status": "playing",
+          "position": 493.274985,
+          "duration": 493.795555555,
+          "reportedDuration": 494,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:mVvwOJJRwXo",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 0,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 0,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 0.194901,
+          "duration": 0,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "playing",
+          "position": 1.212031,
+          "duration": 0.194901,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "playing",
+          "position": 2.22353,
+          "duration": 1.212031,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "playing",
+          "position": 3.232888,
+          "duration": 2.22353,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "playing",
+          "position": 4.242338,
+          "duration": 3.232888,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "playing",
+          "position": 5.2642,
+          "duration": 4.242338,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 4,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        }
+      ]
+    },
+    {
+      "expectedTrackId": "traxsource:14798487",
+      "success": false,
+      "samples": [
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "playing",
+          "position": 5.325816,
+          "duration": 5.287051,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 6.345513,
+          "duration": 5.325816,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 7.382004,
+          "duration": 6.345513,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 8.40132,
+          "duration": 7.382004,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 9.428625,
+          "duration": 8.40132,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 10.466215,
+          "duration": 9.428625,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 11.491032,
+          "duration": 10.466215,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 12.517601,
+          "duration": 11.491032,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 13.54143,
+          "duration": 12.517601,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 14.551773,
+          "duration": 13.54143,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 15.567882,
+          "duration": 14.551773,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 16.585114,
+          "duration": 15.567882,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 17.607931,
+          "duration": 16.585114,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 18.625159,
+          "duration": 17.607931,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 19.642123,
+          "duration": 18.625159,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 20.661514,
+          "duration": 19.642123,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 21.690467,
+          "duration": 20.661514,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 22.715986,
+          "duration": 21.690467,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 23.739411,
+          "duration": 22.715986,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "position": 24.772399,
+          "duration": 23.739411,
+          "reportedDuration": 347,
+          "canSeek": true,
+          "paused": false,
+          "readyState": 2,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "buffering",
+          "reportedDuration": 347,
+          "canSeek": true,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        },
+        {
+          "trackId": "traxsource:15019328",
+          "index": 1,
+          "status": "idle",
+          "position": null,
+          "duration": null,
+          "reportedDuration": 347,
+          "canSeek": false,
+          "paused": null,
+          "readyState": null,
+          "errorCode": null,
+          "source": {
+            "id": "youtube:Se4-OPD-nEs",
+            "provider": "youtube"
+          }
+        }
+      ]
+    }
+  ],
+  "success": false
+}

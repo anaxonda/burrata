@@ -1,0 +1,80 @@
+{
+  "startedAt": "2026-10-21T01:20:49.644Z",
+  "buildSha256": "5f28f7976a65dadc53d21bf62febd7136b8aae465332e0a6d28ec1de6a821bd5",
+  "success": false,
+  "assetReady": false,
+  "initialSamples": [
+    {
+      "elapsedMs": 13456,
+      "trackId": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+      "status": "idle",
+      "paused": true,
+      "playerMessage": "The resolved audio source identity does not match this recording"
+    }
+  ],
+  "assetPolls": [
+    {
+      "elapsedMs": 13464,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 16519,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 19560,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 22600,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 25654,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 28738,
+      "assetPresent": false,
+      "approximate": false
+    },
+    {
+      "elapsedMs": 31798,
+      "assetPresent": false,
+      "approximate": false
+    }
+  ],
+  "samples": [],
+  "beforeIdentity": {
+    "id": "musicbrainz:046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "title": "Level 2 - Miami (Insane)",
+    "artist": "Pengus",
+    "album": "Neon Drive Game Soundtrack",
+    "albumArtist": null,
+    "version": null,
+    "durationSeconds": 98,
+    "isrc": null,
+    "provider": "musicbrainz",
+    "providerId": "046f845d-a86a-4022-b9f5-2bdcf64af662",
+    "sourceUrl": "https://musicbrainz.org/recording/046f845d-a86a-4022-b9f5-2bdcf64af662"
+  },
+  "initialPlay": {
+    "toolError": true,
+    "error": {
+      "error": {
+        "code": "OPERATION_FAILED",
+        "message": "Error: The resolved audio source identity does not match this recording"
+      }
+    }
+  },
+  "backgroundFailure": {
+    "stage": "catalog_album",
+    "reason": "catalog album could not be verified"
+  },
+  "failure": "Background verifier rejected: {\"stage\":\"catalog_album\",\"reason\":\"catalog album could not be verified\"}"
+}

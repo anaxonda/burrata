@@ -1500,7 +1500,7 @@ struct PublicationJournal {
 
 // Persist the intent before linking the final file. Recovery checks its checksum,
 // so a crash between filesystem publication and the SQLite commit is recoverable.
-fn journaled_publish(
+pub(crate) fn journaled_publish(
     path: &Path,
     settings: &Settings,
     job_id: &str,
@@ -1711,10 +1711,55 @@ pub async fn finalize_download(
     profile: &str,
     job_id: &str,
 ) -> Result<LocalAsset, String> {
+    finalize_download_inner(path, track, candidate, settings, profile, job_id, None).await
+}
+
+pub(crate) async fn finalize_download_with_diagnostic(
+    path: &Path,
+    track: &Track,
+    candidate: &Candidate,
+    settings: &Settings,
+    profile: &str,
+    job_id: &str,
+    failure_stage: &mut &'static str,
+) -> Result<LocalAsset, String> {
+    finalize_download_inner(
+        path,
+        track,
+        candidate,
+        settings,
+        profile,
+        job_id,
+        Some(failure_stage),
+    )
+    .await
+}
+
+fn set_finalize_diagnostic_stage(
+    failure_stage: &mut Option<&mut &'static str>,
+    stage: &'static str,
+) {
+    if let Some(failure_stage) = failure_stage.as_mut() {
+        **failure_stage = stage;
+    }
+}
+
+async fn finalize_download_inner(
+    path: &Path,
+    track: &Track,
+    candidate: &Candidate,
+    settings: &Settings,
+    profile: &str,
+    job_id: &str,
+    mut failure_stage: Option<&mut &'static str>,
+) -> Result<LocalAsset, String> {
+    set_finalize_diagnostic_stage(&mut failure_stage, "finalize_validate_profile");
     if !matches!(profile, "source" | "mp3") {
         return Err("Unknown output profile".into());
     }
+    set_finalize_diagnostic_stage(&mut failure_stage, "finalize_probe_source");
     let original = probe(path, settings).await?;
+    set_finalize_diagnostic_stage(&mut failure_stage, "finalize_duration_gate");
     if let Some(expected) = candidate.duration_seconds {
         if expected.is_finite()
             && expected > 0.0
@@ -1733,8 +1778,11 @@ pub async fn finalize_download(
             source_track.provenance["artworkSource"] = serde_json::json!("audio source thumbnail");
         }
     }
+    set_finalize_diagnostic_stage(&mut failure_stage, "finalize_analysis");
     let tagged_track = analyze_missing_fields(path, &source_track, settings).await;
+    set_finalize_diagnostic_stage(&mut failure_stage, "finalize_staging_directory");
     let stage = staging(settings, job_id)?;
+    set_finalize_diagnostic_stage(&mut failure_stage, "finalize_output_extension");
     let extension = published_audio_extension(&original.codec, path)?;
     let staged = stage.join(format!("tagged-{}.{}", uuid::Uuid::new_v4(), extension));
     let remux = path
@@ -1742,6 +1790,7 @@ pub async fn finalize_download(
         .and_then(|e| e.to_str())
         .is_none_or(|e| !e.eq_ignore_ascii_case(extension));
     let result: Result<LocalAsset, String> = async {
+        set_finalize_diagnostic_stage(&mut failure_stage, "finalize_remux");
         if remux {
             transcode(path, &staged, settings, false).await?;
         } else {
@@ -1749,12 +1798,15 @@ pub async fn finalize_download(
                 .await
                 .map_err(|e| format!("Cannot stage audio: {e}"))?;
         }
+        set_finalize_diagnostic_stage(&mut failure_stage, "finalize_artwork");
         let cover = artwork(track).await?;
         let p = staged.clone();
         let t = tagged_track.clone();
+        set_finalize_diagnostic_stage(&mut failure_stage, "finalize_tag");
         tokio::task::spawn_blocking(move || tag_media(&p, &t, cover))
             .await
             .map_err(|e| e.to_string())??;
+        set_finalize_diagnostic_stage(&mut failure_stage, "finalize_probe_output");
         let final_info = probe(&staged, settings).await?;
         if final_info.codec != original.codec
             || (final_info.duration - original.duration).abs() > 1.0
@@ -1762,6 +1814,7 @@ pub async fn finalize_download(
             return Err("Tagging or remux unexpectedly changed audio".into());
         }
         let p = staged.clone();
+        set_finalize_diagnostic_stage(&mut failure_stage, "finalize_hash");
         let hash = tokio::task::spawn_blocking(move || hash_file(&p))
             .await
             .map_err(|e| e.to_string())??;
@@ -1792,6 +1845,7 @@ pub async fn finalize_download(
             },
             track: tagged_track,
         };
+        set_finalize_diagnostic_stage(&mut failure_stage, "finalize_publish");
         journaled_publish(
             &staged,
             settings,
@@ -1809,6 +1863,7 @@ pub async fn finalize_download(
     }
     let asset = result?;
     if profile == "mp3" {
+        set_finalize_diagnostic_stage(&mut failure_stage, "finalize_mp3_export");
         export_mp3(&asset, settings).await
     } else {
         Ok(asset)
@@ -2566,6 +2621,57 @@ mod tests {
         }
     }
     use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires root-provided scratch AAC excerpt and catalog fixture; never touches app library"]
+    async fn scratch_pengus_excerpt_finalization_diagnostic() {
+        let track_path = std::env::var("BURRATA_EXCERPT_REPRO_TRACK_JSON")
+            .expect("set path to the sanitized catalog track JSON fixture");
+        let excerpt_path = std::env::var("BURRATA_EXCERPT_REPRO_AUDIO")
+            .expect("set path to the local AAC excerpt scratch file");
+        let track: Track = serde_json::from_slice(&fs::read(track_path).unwrap()).unwrap();
+        let mut track = track;
+        // Keep this diagnostic focused on finalization, not optional key/BPM
+        // analysis; these values are outside the recording identity gate.
+        track.bpm = Some(120.0);
+        track.key = Some("C".into());
+        let directory = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            music_directory: directory.path().to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:U6bGnc68PSM".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=U6bGnc68PSM".into(),
+            title: "Neon Drive - Full Original Soundtrack by Pengus".into(),
+            duration_seconds: Some(97.714),
+            ..Candidate::default()
+        };
+        let mut stage = "scratch_start";
+        match finalize_download_with_diagnostic(
+            Path::new(&excerpt_path),
+            &track,
+            &candidate,
+            &settings,
+            "source",
+            "scratch-pengus-excerpt",
+            &mut stage,
+        )
+        .await
+        {
+            Ok(asset) => eprintln!(
+                "SCRATCH_EXCERPT_FINALIZE_OK stage={stage} codec={} duration={:?}",
+                asset.final_codec, asset.duration_seconds
+            ),
+            Err(error) => {
+                let bounded_error = error.chars().take(240).collect::<String>();
+                eprintln!("SCRATCH_EXCERPT_FINALIZE_FAILED stage={stage} error={bounded_error}");
+                panic!("scratch excerpt finalization failed at {stage}");
+            }
+        }
+    }
+
     #[test]
     fn sanitizes_portable_names() {
         assert_eq!(safe_component("../CON: /?"), ".._CON_ __");
@@ -2669,6 +2775,91 @@ mod tests {
         acknowledge_publication(&settings, job).unwrap();
         assert!(recover_publications(&settings).unwrap().is_empty());
         assert!(Path::new(&asset.path).exists());
+    }
+
+    #[test]
+    fn publication_recovery_clears_missing_target_intent_before_same_job_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            music_directory: directory.path().to_string_lossy().into(),
+            ..Settings::default()
+        };
+        let job = "album-excerpt-retry";
+        let stage = staging(&settings, job).unwrap();
+        let first_audio = stage.join("first.m4a");
+        fs::write(&first_audio, b"first attempt").unwrap();
+        let mut first_asset = LocalAsset {
+            id: "first-asset".into(),
+            recording_id: "recording".into(),
+            path: String::new(),
+            hash: hash_file(&first_audio).unwrap(),
+            source_codec: "aac".into(),
+            final_codec: "aac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: Some(90.0),
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "fixture".into(),
+            track: Track::default(),
+        };
+        journaled_publish(
+            &first_audio,
+            &settings,
+            job,
+            "Artist - Title",
+            "m4a",
+            &mut first_asset,
+            None,
+        )
+        .unwrap();
+        let journal = directory
+            .path()
+            .join(".burrata-staging")
+            .join(job)
+            .join("publication.json");
+        assert!(journal.is_file());
+
+        // Simulate a crash after journaling but before the final hard-link.
+        fs::remove_file(&first_asset.path).unwrap();
+        assert!(recover_publications(&settings).unwrap().is_empty());
+        assert!(!journal.exists());
+
+        let retry_audio = stage.join("retry.m4a");
+        fs::write(&retry_audio, b"retry attempt").unwrap();
+        let mut retry_asset = LocalAsset {
+            id: "retry-asset".into(),
+            recording_id: "recording".into(),
+            path: String::new(),
+            hash: hash_file(&retry_audio).unwrap(),
+            source_codec: "aac".into(),
+            final_codec: "aac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: Some(90.0),
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "fixture".into(),
+            track: Track::default(),
+        };
+        journaled_publish(
+            &retry_audio,
+            &settings,
+            job,
+            "Artist - Title",
+            "m4a",
+            &mut retry_asset,
+            None,
+        )
+        .unwrap();
+        assert_eq!(recover_publications(&settings).unwrap().len(), 1);
+        assert!(Path::new(&retry_asset.path).is_file());
     }
 
     #[test]

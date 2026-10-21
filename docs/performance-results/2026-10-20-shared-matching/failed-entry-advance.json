@@ -1,0 +1,95 @@
+{
+  "buildSha256": "d200961c156d6451efdc5bb1d35728324682ad6e59ba1425218f7d859dcd4408",
+  "ids": [
+    "musicbrainz:57d7a096-fafc-4af9-828d-1ea5299bda3e",
+    "youtube:7QdmKMFvWsg"
+  ],
+  "success": true,
+  "samples": [
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 0.078498,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 1.112185,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 2.129099,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 3.142418,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 4.156168,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    },
+    {
+      "trackId": "youtube:7QdmKMFvWsg",
+      "index": 1,
+      "status": "playing",
+      "playerMessage": "Playing youtube audio",
+      "position": 5.164577,
+      "paused": false,
+      "readyState": 4,
+      "errorCode": null
+    }
+  ],
+  "play": {
+    "toolError": null,
+    "currentIndex": 1,
+    "trackId": "youtube:7QdmKMFvWsg",
+    "status": "playing",
+    "diagnostics": {
+      "recentTrackFailures": [
+        {
+          "artist": "John Williams",
+          "category": "recording_identity_unverified",
+          "entryId": "8efd6b2a-605e-4027-b881-0b862b484d57",
+          "generation": 1792547046810008,
+          "operationId": "19147a82-1932-47b4-aeff-790feacec490",
+          "outcome": "skipped",
+          "provider": "musicbrainz",
+          "providerId": "57d7a096-fafc-4af9-828d-1ea5299bda3e",
+          "queueRevision": "2:537125620:4223406472:2391699286:2221644660",
+          "reason": "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.",
+          "title": "[data track]",
+          "trackId": "musicbrainz:57d7a096-fafc-4af9-828d-1ea5299bda3e",
+          "version": null
+        }
+      ]
+    }
+  }
+}

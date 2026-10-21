@@ -1,0 +1,17 @@
+{
+  "startedAt": "2026-10-21T02:45:06.056Z",
+  "buildSha256": "206d22538badc837d09778a96cbc220c5bb36633e52a68f85363e49a0319b4ae",
+  "success": false,
+  "assetReady": false,
+  "backgroundFailure": {
+    "stage": "publication",
+    "reason": "verified excerpt could not be safely published"
+  },
+  "lastAssetPoll": [
+    {
+      "elapsedMs": 59662,
+      "assetPresent": false,
+      "approximate": false
+    }
+  ]
+}

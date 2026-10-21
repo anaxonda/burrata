@@ -5653,6 +5653,70 @@ describe("saved recording navigation", () => {
     else expect(document.querySelector(".player-status")?.getAttribute("title")).toContain("Configured playback sources unavailable");
   });
 
+  it("announces when a background approximate album excerpt becomes ready without autoplay", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const startsBefore = mocks.call.mock.calls.filter(([command]) => ["resolve_playback_track", "play_tracks", "playback_command"].includes(String(command))).length;
+
+    eventHandlers.get("playback-source-ready")?.({ event: "playback-source-ready", id: 1, payload: {
+      trackId: savedTrack.id, title: "Saved Recording", provider: "approximateAlbumExcerpt",
+    } });
+    await settle();
+
+    expect(document.querySelector(".banner.notice[role='status']")?.textContent).toContain("An approximate album excerpt is ready for Saved Recording. You can play it again.");
+    expect(mocks.call.mock.calls.filter(([command]) => ["resolve_playback_track", "play_tracks", "playback_command"].includes(String(command)))).toHaveLength(startsBefore);
+  });
+
+  it.each(["preview marker", "quality fallback"] as const)("labels an unhydrated approximate excerpt using the current source %s", async sourceMarker => {
+    previewMode = "fallback";
+    const excerpt = {
+      schemaVersion: 1, policy: "flexible", evaluatorVersion: "1", relationship: "probable",
+      label: "Approximate album excerpt", source: { provider: "youtube", id: "youtube:album-upload" },
+      startSeconds: 83, endSeconds: 126, boundaryUncertaintySeconds: 2,
+    };
+    // This queue entry is intentionally unhydrated: the server may resolve a
+    // cached excerpt asset without changing the original track object.
+    const track: Track = { ...savedTrack, provenance: {} };
+    savedChartTracks = [track];
+    playbackResolverCandidates = [youtubeCandidate(track)];
+    const base = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      const result = await base(command, args) as { preview?: Preview } | undefined;
+      if (command !== "resolve_playback_track" || !result?.preview) return result;
+      if (sourceMarker === "preview marker") return { ...result, preview: { ...result.preview, kind: "local", approximateExcerpt: {
+        label: "Approximate album excerpt", source: { provider: "youtube", id: "youtube:album-upload" },
+      } } };
+      return { ...result, preview: { ...result.preview, kind: "local" }, quality: { sourceKind: "approximateAlbumExcerpt", approximateExcerpt: excerpt } };
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();
+    await settle();
+
+    expect(document.querySelector(".player-source")?.textContent).toBe("Approximate album excerpt · YouTube");
+  });
+
+  it("does not label a stale approximate excerpt marker on an ordinary remote stream", async () => {
+    previewMode = "fallback";
+    const track: Track = { ...savedTrack, provenance: { approximateExcerpt: {
+      schemaVersion: 1, policy: "flexible", relationship: "probable", label: "Approximate album excerpt",
+      source: { provider: "youtube", id: "youtube:old-album-upload" },
+    } } };
+    savedChartTracks = [track];
+    playbackResolverCandidates = [youtubeCandidate(track)];
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();
+    await settle();
+
+    expect(document.querySelector(".player-source")?.textContent).toBe("Streaming from YouTube");
+  });
+
   it.each([false,true])("midstream recovery enabled=%s excludes unconfigured sources", async enabled => {
     previewMode="fallback";configuredPreferredStreamingSource="monochrome";streamingFallbackEnabled=enabled;streamingFallbackSources=["soundcloud"];
     monochromeCandidates=[{...youtubeCandidate(savedTrack),id:"monochrome:174208180224667648",provider:"monochrome",url:"https://tracks.monochrome.st/track/174208180224667648",confidence:"high",score:0.97}];
@@ -7974,6 +8038,23 @@ describe("native playback frontend", () => {
       && starts.has(String((args as { command?: { action?: string } } | undefined)?.command?.action)))).toBe(false);
     expect(mocks.call.mock.calls.some(([command]) => command === "play_tracks" || command === "resolve_preview")).toBe(false);
   }
+
+  it("keeps the approximate album excerpt caption for a native asset-backed playback", async () => {
+    const excerpt = {
+      schemaVersion: 1, policy: "flexible", evaluatorVersion: "1", relationship: "probable",
+      label: "Approximate album excerpt", source: { provider: "youtube", id: "youtube:album-upload" },
+      startSeconds: 83, endSeconds: 126, boundaryUncertaintySeconds: 2,
+    };
+    const track: Track = { ...savedTrack, localPath: "/music/approximate.flac", provenance: { approximateExcerpt: excerpt } };
+    mountNative(makeNativeSnapshot({ revision: 1, status: "playing", paused: false, trackId: track.id, track,
+      candidate: youtubeCandidate(track), queue: [track], currentIndex: 0,
+      quality: { sourceKind: "approximateAlbumExcerpt", label: "Approximate album excerpt", approximateExcerpt: excerpt } }));
+    await settle();
+
+    expect(document.querySelector(".player-source")?.textContent).toBe("Approximate album excerpt · YouTube");
+    expect(document.querySelector(".player-source")?.textContent).not.toContain("Local file");
+    expectNoPlaybackStart();
+  });
 
   it("keeps the canonical paused track marked in catalog artist recordings", async () => {
     artistProfileTopTracks = [savedTrack];

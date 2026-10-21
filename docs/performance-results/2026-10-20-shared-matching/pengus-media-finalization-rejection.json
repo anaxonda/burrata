@@ -1,0 +1,17 @@
+{
+  "startedAt": "2026-10-21T02:57:30.382Z",
+  "buildSha256": "64fa085d4589281c9f5a75d1b8ca258214c1ab4ea7bb04ec147f2a64ba23cc7a",
+  "success": false,
+  "assetReady": false,
+  "backgroundFailure": {
+    "stage": "publication_finalize",
+    "reason": "verified excerpt media finalization failed"
+  },
+  "lastAssetPoll": [
+    {
+      "elapsedMs": 60014,
+      "assetPresent": false,
+      "approximate": false
+    }
+  ]
+}

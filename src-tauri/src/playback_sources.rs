@@ -865,6 +865,25 @@ fn fresh_candidate_audio_identity_matches(
     }
 }
 
+fn resolved_registered_local_duration(
+    track: &Track,
+    asset_track: &Track,
+    asset_duration_seconds: Option<f64>,
+) -> Option<f64> {
+    let duration = track
+        .playback_range
+        .as_ref()
+        .map(|range| range.end_time - range.start_time)
+        .or_else(|| {
+            if asset_track.provenance["automaticExcerpt"].is_object() {
+                asset_duration_seconds
+            } else {
+                track.duration_seconds
+            }
+        });
+    duration.filter(|value| value.is_finite() && *value >= 0.)
+}
+
 struct CancelSourceChildren(watch::Sender<bool>);
 impl Drop for CancelSourceChildren {
     fn drop(&mut self) {
@@ -895,11 +914,32 @@ async fn resolve_inner(
         json!({"durationMs":settings_started.elapsed().as_millis()}),
     );
     let explicit_source = source_resolution_is_pinned(track, selected.is_some(), &settings, false);
+    let automatic_source = !explicit_source && selected.is_none();
     resolve_after_local_preflight(store, track, explicit_source, |prepared_track| {
         Box::pin(async move {
             let bandcamp_track = prepared_track.clone();
             let mut effective_track = prepared_track;
+            let excerpt_request_track = effective_track.clone();
             crate::recording_identity::hydrate_identifiers(&mut effective_track);
+            if selected.is_none()
+                && !source_resolution_is_pinned(&effective_track, false, &settings, true)
+                && effective_track.local_path.is_none()
+            {
+                if let Some(asset) = crate::compilation_excerpt::cached_asset(
+                    store,
+                    &excerpt_request_track,
+                    &settings,
+                ) {
+                    effective_track.local_path = Some(asset.path.clone());
+                    effective_track.asset_id = Some(asset.id.clone());
+                    effective_track.local_availability = "available".into();
+                    if !effective_track.provenance.is_object() {
+                        effective_track.provenance = json!({});
+                    }
+                    effective_track.provenance["approximateExcerpt"] =
+                        asset.track.provenance["automaticExcerpt"].clone();
+                }
+            }
             let mut effective_trace = trace.clone();
             if !source_resolution_is_pinned(&effective_track, selected.is_some(), &settings, true)
                 && effective_track.provider == "radio_song"
@@ -950,8 +990,17 @@ async fn resolve_inner(
                 attempt_limit,
             );
             if !bandcamp_allowed {
-                return resolve_inner_prepared(store, acquisition, &effective_track, selected, cancel,
-                    settings, &effective_trace, failed, deadline, attempt_limit).await;
+                let background_allowed = automatic_source
+                    && !*cancel.borrow()
+                    && !trace.native_operation_id.as_deref().is_some_and(|id| id.starts_with("preparation:"));
+                let result = resolve_inner_prepared(store, acquisition, &effective_track, selected, cancel,
+                    settings.clone(), &effective_trace, failed, deadline, attempt_limit).await;
+                if result.is_err() && background_allowed {
+                    crate::compilation_excerpt::schedule(
+                        std::sync::Arc::new(acquisition.clone()), effective_track, settings,
+                    );
+                }
+                return result;
             }
             let (stop, child) = watch::channel(false);
             let _stop = CancelSourceChildren(stop);
@@ -978,6 +1027,11 @@ async fn resolve_inner(
             };
             if result.is_err() && !*cancel.borrow() && !trace.native_operation_id.as_deref().is_some_and(|id| id.starts_with("preparation:")) {
                 crate::bandcamp_fallback::schedule_verification(acquisition, &bandcamp_track, &settings);
+                if automatic_source {
+                    crate::compilation_excerpt::schedule(
+                        std::sync::Arc::new(acquisition.clone()), effective_track, settings.clone(),
+                    );
+                }
             }
             result
         })
@@ -1033,7 +1087,7 @@ where
     resolve(prepared_track).await
 }
 
-fn reconcile_stale_local_asset(
+pub(crate) fn reconcile_stale_local_asset(
     store: &Store,
     incoming: &Track,
     explicit_source: bool,
@@ -1041,6 +1095,17 @@ fn reconcile_stale_local_asset(
     let Some(path) = incoming.local_path.as_deref() else {
         return Ok(incoming.clone());
     };
+    let settings = store.settings()?;
+    if let Some(asset) = store.get_asset_by_path(path)? {
+        if !crate::compilation_excerpt::asset_proof_is_eligible(
+            incoming,
+            &asset.track.provenance,
+            settings.matching_level,
+        ) || !crate::compilation_excerpt::asset_file_hash_matches(&asset)
+        {
+            return Ok(without_stale_local_asset(incoming));
+        }
+    }
     if Path::new(path).is_file() || incoming.playback_range.is_some() {
         return Ok(incoming.clone());
     }
@@ -1071,6 +1136,9 @@ fn without_stale_local_asset(incoming: &Track) -> Track {
     prepared.local_path = None;
     prepared.asset_id = None;
     prepared.local_availability = "missing".into();
+    if let Some(provenance) = prepared.provenance.as_object_mut() {
+        provenance.remove("approximateExcerpt");
+    }
     prepared
 }
 
@@ -1951,12 +2019,9 @@ async fn resolve_serial(
         if !Path::new(path).is_file() {
             return Err("Downloaded audio file is missing".into());
         }
-        let duration = track
-            .playback_range
-            .as_ref()
-            .map(|range| range.end_time - range.start_time)
-            .or(track.duration_seconds)
-            .filter(|value| value.is_finite() && *value >= 0.);
+        let approximate_excerpt = asset.track.provenance["automaticExcerpt"].is_object();
+        let duration =
+            resolved_registered_local_duration(track, &asset.track, asset.duration_seconds);
         return Ok(ResolvedSource {
             origin: ResolvedSourceOrigin::Existing,
             source: AudioSource {
@@ -1968,6 +2033,7 @@ async fn resolve_serial(
             candidate: None,
             quality: json!({
                 "assetId": asset.id,
+                "hash": asset.hash,
                 "codec": asset.final_codec,
                 "bitrateKbps": asset.final_bitrate,
                 "bitrateOrigin": asset.bitrate_origin,
@@ -1975,7 +2041,9 @@ async fn resolve_serial(
                 "channels": asset.channels,
                 "bitDepth": asset.bit_depth,
                 "durationSeconds": asset.duration_seconds,
-                "sizeBytes": asset.size_bytes
+                "sizeBytes": asset.size_bytes,
+                "sourceKind": if approximate_excerpt { "approximateAlbumExcerpt" } else { "localAsset" },
+                "approximateExcerpt": asset.track.provenance["automaticExcerpt"]
             }),
             station: None,
             duration,
@@ -5955,6 +6023,31 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn local_approximate_excerpt_uses_measured_asset_duration_without_changing_catalog_track() {
+        let catalog_track = Track {
+            duration_seconds: Some(180.0),
+            ..Track::default()
+        };
+        let asset_track = Track {
+            duration_seconds: Some(180.0),
+            provenance: json!({"automaticExcerpt":{"approximate":true}}),
+            ..catalog_track.clone()
+        };
+        assert_eq!(
+            resolved_registered_local_duration(&catalog_track, &asset_track, Some(179.4)),
+            Some(179.4)
+        );
+        assert_eq!(catalog_track.duration_seconds, Some(180.0));
+
+        let ordinary_asset_track = Track::default();
+        assert_eq!(
+            resolved_registered_local_duration(&catalog_track, &ordinary_asset_track, Some(179.4)),
+            Some(180.0),
+            "ordinary local assets keep existing catalog-duration behavior"
+        );
+    }
 
     #[test]
     fn serial_resolution_distinguishes_no_rows_from_rejected_identity_and_keeps_failures() {

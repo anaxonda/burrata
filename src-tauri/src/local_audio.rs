@@ -8,6 +8,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+use sha2::Digest;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -119,6 +120,17 @@ async fn serve(store: &Store, id: &str, request_headers: &HeaderMap, head: bool)
         Ok(None) => return empty(StatusCode::NOT_FOUND),
         Err(_) => return empty(StatusCode::INTERNAL_SERVER_ERROR),
     };
+    let settings = match store.settings() {
+        Ok(settings) => settings,
+        Err(_) => return empty(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    if !crate::compilation_excerpt::asset_proof_is_eligible(
+        &asset.track,
+        &asset.track.provenance,
+        settings.matching_level,
+    ) {
+        return empty(StatusCode::NOT_FOUND);
+    }
     let path = PathBuf::from(asset.path);
     let metadata = match tokio::fs::symlink_metadata(&path).await {
         Ok(m) => m,
@@ -131,7 +143,7 @@ async fn serve(store: &Store, id: &str, request_headers: &HeaderMap, head: bool)
         Ok(p) => p,
         Err(_) => return empty(StatusCode::NOT_FOUND),
     };
-    let file = match open_no_follow(canonical.clone()).await {
+    let mut file = match open_no_follow(canonical.clone()).await {
         Ok(f) => f,
         Err(_) => return empty(StatusCode::NOT_FOUND),
     };
@@ -139,6 +151,33 @@ async fn serve(store: &Store, id: &str, request_headers: &HeaderMap, head: bool)
         Ok(m) => m.len(),
         Err(_) => return empty(StatusCode::NOT_FOUND),
     };
+    if asset.track.provenance["automaticExcerpt"].is_object() {
+        const MAX_VERIFIED_EXCERPT_BYTES: u64 = 50 * 1024 * 1024;
+        if size == 0 || size > MAX_VERIFIED_EXCERPT_BYTES {
+            return empty(StatusCode::NOT_FOUND);
+        }
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        if file.seek(std::io::SeekFrom::Start(0)).await.is_err() {
+            return empty(StatusCode::NOT_FOUND);
+        }
+        let mut digest = sha2::Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = match file.read(&mut buffer).await {
+                Ok(read) => read,
+                Err(_) => return empty(StatusCode::NOT_FOUND),
+            };
+            if read == 0 {
+                break;
+            }
+            digest.update(&buffer[..read]);
+        }
+        if format!("{:x}", digest.finalize()) != asset.hash
+            || file.seek(std::io::SeekFrom::Start(0)).await.is_err()
+        {
+            return empty(StatusCode::NOT_FOUND);
+        }
+    }
     if size == 0 {
         let mut response = Response::builder()
             .status(StatusCode::OK)
@@ -390,9 +429,21 @@ mod tests {
             provider: "fixture".into(),
             provider_id: "recording-1".into(),
             title: "Fixture recording".into(),
+            artist: "Fixture artist".into(),
+            duration_seconds: Some(180.0),
             ..Track::default()
         };
         store.save_track(&track).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.matching_level = crate::recording_match::MatchLevel::Flexible;
+        settings.background_source_preparation = true;
+        store.save_settings(&settings).unwrap();
+        let proof = crate::compilation_excerpt::test_eligible_excerpt_proof(&track);
+        assert!(crate::compilation_excerpt::asset_proof_is_eligible(
+            &track,
+            &proof,
+            settings.matching_level,
+        ));
         store
             .save_asset(&LocalAsset {
                 sample_rate: None,
@@ -410,15 +461,44 @@ mod tests {
                 source_bitrate: None,
                 final_bitrate: None,
                 processing: "copied".into(),
-                track,
+                track: track.clone(),
             })
             .unwrap();
 
-        let manager = LocalAudioManager::new(store);
+        let excerpt_path = directory.path().join("excerpt.opus");
+        let excerpt_bytes = b"verified excerpt fixture";
+        tokio::fs::write(&excerpt_path, excerpt_bytes)
+            .await
+            .unwrap();
+        let mut excerpt_track = track.clone();
+        excerpt_track.provenance["automaticExcerpt"] = proof["automaticExcerpt"].clone();
+        store
+            .save_asset(&LocalAsset {
+                sample_rate: None,
+                channels: None,
+                bit_depth: None,
+                duration_seconds: Some(180.0),
+                size_bytes: Some(excerpt_bytes.len() as u64),
+                bitrate_origin: None,
+                id: "asset-verified-excerpt".into(),
+                recording_id: track.id.clone(),
+                path: excerpt_path.to_string_lossy().into_owned(),
+                hash: format!("{:x}", sha2::Sha256::digest(excerpt_bytes)),
+                source_codec: "opus".into(),
+                final_codec: "opus".into(),
+                source_bitrate: None,
+                final_bitrate: None,
+                processing: "copied".into(),
+                track: excerpt_track,
+            })
+            .unwrap();
+
+        let manager = LocalAudioManager::new(store.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         manager.set_base_url(format!("http://{address}"));
         let audio_url = manager.url_for("asset-fixture-1").unwrap();
+        let excerpt_url = manager.url_for("asset-verified-excerpt").unwrap();
         let router = manager.router();
         let server = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
@@ -549,6 +629,25 @@ mod tests {
             size.to_string()
         );
         assert!(response.bytes().await.unwrap().is_empty());
+
+        let response = client.get(&excerpt_url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.bytes().await.unwrap().as_ref(), excerpt_bytes);
+        tokio::fs::write(&excerpt_path, b"corrupt excerpt bytes")
+            .await
+            .unwrap();
+        let response = client.get(&excerpt_url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        tokio::fs::write(&excerpt_path, excerpt_bytes)
+            .await
+            .unwrap();
+
+        // The same queued local URL stops serving the excerpt as soon as the
+        // user changes to a policy that does not authorize this proof.
+        settings.matching_level = crate::recording_match::MatchLevel::Balanced;
+        store.save_settings(&settings).unwrap();
+        let response = client.get(&excerpt_url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
         server.abort();
     }
 }

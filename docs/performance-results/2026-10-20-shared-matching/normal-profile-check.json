@@ -1,0 +1,29 @@
+{
+  "buildSha256": "206d22538badc837d09778a96cbc220c5bb36633e52a68f85363e49a0319b4ae",
+  "sessions": {
+    "accountRevisions": {
+      "spotify": 1,
+      "youtube": 1
+    },
+    "confirmedAccounts": {
+      "spotify": true,
+      "youtube": true
+    },
+    "connectionSeen": false,
+    "credentialStorage": "os-keyring",
+    "enabled": true,
+    "mode": "native-ready",
+    "running": true,
+    "transport": "native-webview-http",
+    "youtubeLoginPage": null,
+    "youtubeReconnectRequired": false
+  },
+  "stats": {
+    "assets": 15,
+    "playlists": 45,
+    "tracks": 4980
+  },
+  "captureInspected": true,
+  "layoutFindings": [],
+  "note": "Library row layout inspected; Pengus remained failed pending publication correction."
+}

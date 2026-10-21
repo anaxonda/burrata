@@ -1,0 +1,102 @@
+{
+  "cases": [
+    {
+      "profile": "mweb",
+      "exitCode": 1,
+      "elapsedMs": 4974,
+      "errorFlags": {
+        "formatUnavailable": true,
+        "http403": false,
+        "http429": false,
+        "signIn": false,
+        "challenge": false,
+        "unsupported": false
+      }
+    },
+    {
+      "profile": "default",
+      "exitCode": 0,
+      "elapsedMs": 3972,
+      "errorFlags": {
+        "formatUnavailable": false,
+        "http403": false,
+        "http429": false,
+        "signIn": false,
+        "challenge": false,
+        "unsupported": false
+      },
+      "selected": {
+        "id": "U6bGnc68PSM",
+        "format_id": "139",
+        "acodec": "mp4a.40.5",
+        "vcodec": "none",
+        "ext": "m4a",
+        "protocol": "https",
+        "abr": 48.784,
+        "duration": 2499
+      },
+      "formats": [
+        {
+          "format_id": "sb2",
+          "ext": "mhtml",
+          "protocol": "mhtml",
+          "acodec": "none",
+          "abr": 0
+        },
+        {
+          "format_id": "sb1",
+          "ext": "mhtml",
+          "protocol": "mhtml",
+          "acodec": "none",
+          "abr": 0
+        },
+        {
+          "format_id": "sb0",
+          "ext": "mhtml",
+          "protocol": "mhtml",
+          "acodec": "none",
+          "abr": 0
+        },
+        {
+          "format_id": "233",
+          "ext": "mp4",
+          "protocol": "m3u8_native",
+          "acodec": null,
+          "abr": null
+        },
+        {
+          "format_id": "234",
+          "ext": "mp4",
+          "protocol": "m3u8_native",
+          "acodec": null,
+          "abr": null
+        },
+        {
+          "format_id": "139",
+          "ext": "m4a",
+          "protocol": "https",
+          "acodec": "mp4a.40.5",
+          "abr": 48.784
+        },
+        {
+          "format_id": "140",
+          "ext": "m4a",
+          "protocol": "https",
+          "acodec": "mp4a.40.2",
+          "abr": 129.473
+        },
+        {
+          "format_id": "251",
+          "ext": "webm",
+          "protocol": "https",
+          "acodec": "opus",
+          "abr": 136.144
+        }
+      ],
+      "probe": {
+        "status": 206,
+        "bytes": 1024
+      }
+    }
+  ]
+}

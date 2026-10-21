@@ -1,0 +1,668 @@
+{
+  "createdAt": "2026-10-21T01:55:10.367Z",
+  "buildSha256": "d200961c156d6451efdc5bb1d35728324682ad6e59ba1425218f7d859dcd4408",
+  "results": [
+    {
+      "name": "Baba Wutacatifo downloaded",
+      "trackId": "youtube:O86b5FwZTyQ",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 506,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": null,
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.037391,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 1746,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 0.973344,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": null,
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.2758,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 2961,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 1.974665,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": null,
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.499144,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4173,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 2.975143,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": null,
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.712812,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5390,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 3.976063,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": null,
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.92637,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6599,
+          "trackId": "youtube:O86b5FwZTyQ",
+          "status": "playing",
+          "paused": false,
+          "position": 5.978753,
+          "duration": 345,
+          "currentIndex": 0,
+          "source": null,
+          "lastStartupFailure": null,
+          "playerMessage": "Playing",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.142553,
+            "duration": 344.878049886,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "youtube:O86b5FwZTyQ",
+        "title": "Baba Wutacatifo",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 345,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "O86b5FwZTyQ"
+      },
+      "afterIdentity": {
+        "id": "youtube:O86b5FwZTyQ",
+        "title": "Baba Wutacatifo",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 345,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "O86b5FwZTyQ"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "The Arsenal original YouTube entry",
+      "trackId": "youtube:fFyxl-ZAaAA",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2644,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.035677,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3858,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 0.239374,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.251744,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5070,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 2.232753,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.460783,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6280,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 3.229944,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.667899,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7490,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 4.230651,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.878238,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8700,
+          "trackId": "youtube:fFyxl-ZAaAA",
+          "status": "playing",
+          "paused": false,
+          "position": 5.228629,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:fFyxl-ZAaAA"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.088838,
+            "duration": 431.186439909,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "youtube:fFyxl-ZAaAA",
+        "title": "The Arsenal",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "fFyxl-ZAaAA"
+      },
+      "afterIdentity": {
+        "id": "youtube:fFyxl-ZAaAA",
+        "title": "The Arsenal",
+        "artist": "",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "fFyxl-ZAaAA"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "The Arsenal identified YouTube entry",
+      "trackId": "youtube:7QdmKMFvWsg",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 15082,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.044071,
+            "duration": 431.321,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 16292,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 0.236908,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.268608,
+            "duration": 431.321,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 17500,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 2.227568,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.470611,
+            "duration": 431.321,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 18713,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 3.223159,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.676251,
+            "duration": 431.321,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 19924,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 4.223275,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.887185,
+            "duration": 431.321,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 21134,
+          "trackId": "youtube:7QdmKMFvWsg",
+          "status": "playing",
+          "paused": false,
+          "position": 5.219909,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.104846,
+            "duration": 431.321,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "youtube:7QdmKMFvWsg",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "7QdmKMFvWsg"
+      },
+      "afterIdentity": {
+        "id": "youtube:7QdmKMFvWsg",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": 432,
+        "isrc": null,
+        "provider": "youtube",
+        "providerId": "7QdmKMFvWsg"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "The Arsenal imported entry",
+      "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1538,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.068241,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 2754,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 0.746593,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.279153,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3964,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 1.742505,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.486063,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5176,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 2.73855,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.692233,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6385,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 4.735164,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.901519,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7594,
+          "trackId": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+          "status": "playing",
+          "paused": false,
+          "position": 5.736183,
+          "duration": 431,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:7QdmKMFvWsg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.111385,
+            "duration": 431.357097505,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "import",
+        "providerId": "33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227"
+      },
+      "afterIdentity": {
+        "id": "import:33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227",
+        "title": "The Arsenal",
+        "artist": "Motivesoul & VUSCARE",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "import",
+        "providerId": "33b50b14b67167353b08b0d63c23e1b7db0c0f6bbfeff9b22abc6663a1796227"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ]
+}

@@ -1,0 +1,2558 @@
+{
+  "createdAt": "2026-10-21T00:11:41.007Z",
+  "buildSha256": "dcee5fef5ae80387c9d5a059c35a377949977cbd3f959b96eceab0e37830e014",
+  "results": [
+    {
+      "name": "DJ Tai Vocal Remix",
+      "trackId": "traxsource:15057930",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 7358,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.058587,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8572,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 0.506299,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.276412,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9798,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 1.501093,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.494871,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11010,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 3.492669,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.701139,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12220,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 4.492719,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.911178,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13429,
+          "trackId": "traxsource:15057930",
+          "status": "playing",
+          "paused": false,
+          "position": 5.489825,
+          "duration": 494,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:mVvwOJJRwXo"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.12107,
+            "duration": 493.795555555,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:15057930",
+        "title": "(I'm Sick) I've Been Infected Wit House Musick (Remix)",
+        "artist": "Mike Dunn, DJ Tai",
+        "album": null,
+        "version": "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)",
+        "durationSeconds": 494,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15057930"
+      },
+      "afterIdentity": {
+        "id": "traxsource:15057930",
+        "title": "(I'm Sick) I've Been Infected Wit House Musick (Remix)",
+        "artist": "Mike Dunn, DJ Tai",
+        "album": null,
+        "version": "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)",
+        "durationSeconds": 494,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15057930"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Untitled Dub 1",
+      "trackId": "traxsource:15019328",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 5989,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.046879,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7209,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 0.501619,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.2758,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8442,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 1.497422,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.497559,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9671,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 3.503335,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.724792,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10900,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 4.503571,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.953751,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12115,
+          "trackId": "traxsource:15019328",
+          "status": "playing",
+          "paused": false,
+          "position": 5.501072,
+          "duration": 347,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Se4-OPD-nEs"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.17349,
+            "duration": 347.393741496,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:15019328",
+        "title": "Untitled Dub 1",
+        "artist": "Masaki Morii",
+        "album": null,
+        "version": "(5:47)",
+        "durationSeconds": 347,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15019328"
+      },
+      "afterIdentity": {
+        "id": "traxsource:15019328",
+        "title": "Untitled Dub 1",
+        "artist": "Masaki Morii",
+        "album": null,
+        "version": "(5:47)",
+        "durationSeconds": 347,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15019328"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "It's All About The Love For You",
+      "trackId": "traxsource:14798487",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 6716,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.048813,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7938,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 0.751887,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.28148,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9169,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 1.747687,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.503691,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10385,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 2.763524,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.719812,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11593,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 3.76021,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.929951,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12804,
+          "trackId": "traxsource:14798487",
+          "status": "playing",
+          "paused": false,
+          "position": 5.767634,
+          "duration": 330,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:iHugvFBKbF0"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.145853,
+            "duration": 330.28063492,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:14798487",
+        "title": "It's All About The Love For You",
+        "artist": "Larry La Birt, Corey Holmes",
+        "album": null,
+        "version": "(5:30)",
+        "durationSeconds": 330,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "14798487"
+      },
+      "afterIdentity": {
+        "id": "traxsource:14798487",
+        "title": "It's All About The Love For You",
+        "artist": "Larry La Birt, Corey Holmes",
+        "album": null,
+        "version": "(5:30)",
+        "durationSeconds": 330,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "14798487"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Baba Extended Mix",
+      "trackId": "traxsource:15066872",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 7553,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.067962,
+            "duration": 294.336171875,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8762,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 0.25082,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.273744,
+            "duration": 294.336171875,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9990,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 2.236469,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.485113,
+            "duration": 294.336171875,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11223,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 3.232749,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.70963,
+            "duration": 294.336171875,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 12455,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 4.232568,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.940598,
+            "duration": 294.336171875,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13666,
+          "trackId": "traxsource:15066872",
+          "status": "playing",
+          "paused": false,
+          "position": 5.228008,
+          "duration": 294,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:CZg0jfBo8Gc"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.167687,
+            "duration": 294.336171875,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "traxsource:15066872",
+        "title": "Baba",
+        "artist": "Ralmm, Emil lassaria",
+        "album": null,
+        "version": "Extended Mix (4:54)",
+        "durationSeconds": 294,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15066872"
+      },
+      "afterIdentity": {
+        "id": "traxsource:15066872",
+        "title": "Baba",
+        "artist": "Ralmm, Emil lassaria",
+        "album": null,
+        "version": "Extended Mix (4:54)",
+        "durationSeconds": 294,
+        "isrc": null,
+        "provider": "traxsource",
+        "providerId": "15066872"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Nighttime in the Backyard",
+      "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 4348,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.055074,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5558,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 0.748095,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.264717,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6774,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 1.744674,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.47424,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7983,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 2.741817,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.681392,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9200,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 3.739292,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.897759,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10421,
+          "trackId": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+          "status": "playing",
+          "paused": false,
+          "position": 5.741265,
+          "duration": 197.76,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2065435071"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.115592,
+            "duration": 197.76,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+        "title": "Nighttime in the Backyard",
+        "artist": "Lucas Santtana & Arto Lindsay",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a"
+      },
+      "afterIdentity": {
+        "id": "radio_song:dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a",
+        "title": "Nighttime in the Backyard",
+        "artist": "Lucas Santtana & Arto Lindsay",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "dad27f0c3bb7a811e5e15012b0d28f6e3377a2297b60f0f2d8aed30cf014295a"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "velib\u2019bleu",
+      "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 10627,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.081376,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11870,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 0.245154,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.346623,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 13083,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 2.239381,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.557619,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 14307,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 3.23687,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.774425,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 15517,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 4.237832,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.989779,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 16742,
+          "trackId": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+          "status": "playing",
+          "paused": false,
+          "position": 5.235707,
+          "duration": 203,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:SytYIsc986A"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.210758,
+            "duration": 203.267482993,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+        "title": "velib'bleu",
+        "artist": "\u0e0c\u0e2d\u0e19",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": "FR9W12639430",
+        "provider": "radio_song",
+        "providerId": "33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0"
+      },
+      "afterIdentity": {
+        "id": "radio_song:33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0",
+        "title": "velib'bleu",
+        "artist": "\u0e0c\u0e2d\u0e19",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": "FR9W12639430",
+        "provider": "radio_song",
+        "providerId": "33de3cc016c326530670327b5d19ef6810cd05edd04e4fb63cab186b8f645cc0"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "To Miroloi Tis Manas",
+      "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 5359,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.030153,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6568,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 0.418252,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.992406,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7779,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 1.41397,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.196891,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9003,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 2.410933,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.415843,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10217,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 4.407877,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.628043,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 11427,
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "status": "playing",
+          "paused": false,
+          "position": 5.405268,
+          "duration": 127.626,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:264536741330165760"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 5.841291,
+            "duration": 127.626666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+        "title": "To Miroloi Tis Manas",
+        "artist": "Lakis Chalkias",
+        "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+        "version": null,
+        "durationSeconds": 127.626,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "2Q9DpDilWFbnGzEbX5AIBS"
+      },
+      "afterIdentity": {
+        "id": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+        "title": "To Miroloi Tis Manas",
+        "artist": "Lakis Chalkias",
+        "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+        "version": null,
+        "durationSeconds": 127.626,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "2Q9DpDilWFbnGzEbX5AIBS"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Diaraby with Ry Cooder",
+      "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 4270,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.040304,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5480,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 0.506443,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.248471,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6696,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 1.502177,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.456285,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7915,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 3.496723,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.670095,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9142,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 4.497448,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.896094,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10352,
+          "trackId": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+          "status": "playing",
+          "paused": false,
+          "position": 5.495535,
+          "duration": 446.826,
+          "currentIndex": 0,
+          "source": {
+            "provider": "monochrome",
+            "id": "monochrome:177409920331984896"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing monochrome audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.112136,
+            "duration": 446.826666666,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+        "title": "Diaraby  (w/ Ry Cooder)",
+        "artist": "Ali Farka Tour\u00e9",
+        "album": "Ali Farka Tour\u00e9",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25"
+      },
+      "afterIdentity": {
+        "id": "radio_song:e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25",
+        "title": "Diaraby  (w/ Ry Cooder)",
+        "artist": "Ali Farka Tour\u00e9",
+        "album": "Ali Farka Tour\u00e9",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "e31fad4f0fccc8a66b77d4cc32a6a87a50d961d3d0a6809a2b7de025d3edef25"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "How Much Are They?",
+      "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 4274,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.050479,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5491,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 0.995797,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.263215,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6701,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 1.991229,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.469921,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7912,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 2.987816,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.675799,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 9122,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 3.984513,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.886403,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 10333,
+          "trackId": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+          "status": "playing",
+          "paused": false,
+          "position": 4.985478,
+          "duration": 290.573,
+          "currentIndex": 0,
+          "source": {
+            "provider": "bandcamp",
+            "id": "bandcamp:2981567756"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing bandcamp audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.097191,
+            "duration": 290.573333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+        "title": "How Much Are They?",
+        "artist": "Holger Czukay, Jah Wobble & Jaki Liebezeit",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3"
+      },
+      "afterIdentity": {
+        "id": "radio_song:7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3",
+        "title": "How Much Are They?",
+        "artist": "Holger Czukay, Jah Wobble & Jaki Liebezeit",
+        "album": null,
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "radio_song",
+        "providerId": "7d1c3e0a663197d29b2885420a975642b60ab6ff1df7b54f7bf5b64400f930d3"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Mia Kokkini Triandafillia",
+      "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2148,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.056475,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3357,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 1.000851,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.295146,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4568,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 1.996921,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.50271,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5793,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 2.993769,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.718583,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7002,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 3.990823,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.933351,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8214,
+          "trackId": "spotify:312Jqtrb8ZGiFYEsZlz751",
+          "status": "playing",
+          "paused": false,
+          "position": 4.99221,
+          "duration": 129,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ZeZsXDAc3vU"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.145691,
+            "duration": 129.386916099,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "afterIdentity": {
+        "id": "spotify:312Jqtrb8ZGiFYEsZlz751",
+        "title": "Mia Kokkini Triandafillia",
+        "artist": "Dioni",
+        "album": "Polyphonic Songs of Epirus",
+        "version": null,
+        "durationSeconds": 129.386,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "312Jqtrb8ZGiFYEsZlz751"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Turtledove",
+      "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1813,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.056107,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3022,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 0.25716,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.281789,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4233,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 2.251369,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.487769,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5442,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 3.25176,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.694636,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6655,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 4.251724,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.906096,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7870,
+          "trackId": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+          "status": "playing",
+          "paused": false,
+          "position": 5.249969,
+          "duration": 207,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:Rc9t-2VlOpg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.120263,
+            "duration": 207.173333333,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+        "title": "Turtledove (Epiros) [feat. Michalis Zambas]",
+        "artist": "Domna Samiou, Michalis Zambas",
+        "album": "The Great North Wind and Other Traditional Songs for Children",
+        "version": null,
+        "durationSeconds": 207.173,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4k12ME3HT8Q8t6DHNZM1Em"
+      },
+      "afterIdentity": {
+        "id": "spotify:4k12ME3HT8Q8t6DHNZM1Em",
+        "title": "Turtledove (Epiros) [feat. Michalis Zambas]",
+        "artist": "Domna Samiou, Michalis Zambas",
+        "album": "The Great North Wind and Other Traditional Songs for Children",
+        "version": null,
+        "durationSeconds": 207.173,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4k12ME3HT8Q8t6DHNZM1Em"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "\u039c\u03bf\u03b9\u03c1\u03bf\u03bb\u03cc\u03b9",
+      "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1622,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.047502,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 2833,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 0.748896,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.275628,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4043,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 1.744459,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.479853,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5253,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 2.74164,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.685264,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6465,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 4.739294,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.897789,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7720,
+          "trackId": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+          "status": "playing",
+          "paused": false,
+          "position": 5.740859,
+          "duration": 413,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:PIJ6QOUnuCg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.155323,
+            "duration": 413.32,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+        "title": "\u039c\u03bf\u03b9\u03c1\u03bf\u03bb\u03cc\u03b9 (\u0389\u03c0\u03b5\u03b9\u03c1\u03bf\u03c2)",
+        "artist": "Domna Samiou",
+        "album": "\u0399\u03c3\u03c4\u03bf\u03c1\u03b9\u03ba\u03ac - \u039a\u03bb\u03ad\u03c6\u03c4\u03b9\u03ba\u03b1 \u03a4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9\u03b1",
+        "version": null,
+        "durationSeconds": 413.32,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4MiDHSmsHlgaf8W2tzwT6Z"
+      },
+      "afterIdentity": {
+        "id": "spotify:4MiDHSmsHlgaf8W2tzwT6Z",
+        "title": "\u039c\u03bf\u03b9\u03c1\u03bf\u03bb\u03cc\u03b9 (\u0389\u03c0\u03b5\u03b9\u03c1\u03bf\u03c2)",
+        "artist": "Domna Samiou",
+        "album": "\u0399\u03c3\u03c4\u03bf\u03c1\u03b9\u03ba\u03ac - \u039a\u03bb\u03ad\u03c6\u03c4\u03b9\u03ba\u03b1 \u03a4\u03c1\u03b1\u03b3\u03bf\u03cd\u03b4\u03b9\u03b1",
+        "version": null,
+        "durationSeconds": 413.32,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "4MiDHSmsHlgaf8W2tzwT6Z"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Matthew",
+      "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2201,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.051606,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3410,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 0.242729,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.269,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4619,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 2.239053,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.474695,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5837,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 3.236793,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.688761,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7046,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 4.237128,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.899329,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8275,
+          "trackId": "spotify:1Ua153c9hxARpugkSb1VPh",
+          "status": "playing",
+          "paused": false,
+          "position": 5.485231,
+          "duration": 225,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:ps9X-DXUFGY"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.120464,
+            "duration": 224.653061224,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "spotify:1Ua153c9hxARpugkSb1VPh",
+        "title": "Matthew",
+        "artist": "John Denver",
+        "album": "The Essential John Denver",
+        "version": null,
+        "durationSeconds": 222.426,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "1Ua153c9hxARpugkSb1VPh"
+      },
+      "afterIdentity": {
+        "id": "spotify:1Ua153c9hxARpugkSb1VPh",
+        "title": "Matthew",
+        "artist": "John Denver",
+        "album": "The Essential John Denver",
+        "version": null,
+        "durationSeconds": 222.426,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "1Ua153c9hxARpugkSb1VPh"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Cowboy with Billy Strings",
+      "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 1996,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.041449,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3205,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 0.255944,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.254838,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4414,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 2.248835,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.458045,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 5636,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 3.245569,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.673873,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6844,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 4.246331,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.884557,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8070,
+          "trackId": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+          "status": "playing",
+          "paused": false,
+          "position": 5.746638,
+          "duration": 219,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:LpORDp_4QAw"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.105415,
+            "duration": 219.357528344,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": true,
+      "beforeIdentity": {
+        "id": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "album": "Middle of Nowhere",
+        "version": null,
+        "durationSeconds": 219.357,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "6ULjjAbwB2BoTZthQKv1Q2"
+      },
+      "afterIdentity": {
+        "id": "spotify:6ULjjAbwB2BoTZthQKv1Q2",
+        "title": "Everybody Wants To Be A Cowboy (feat. Billy Strings)",
+        "artist": "Kacey Musgraves, Billy Strings",
+        "album": "Middle of Nowhere",
+        "version": null,
+        "durationSeconds": 219.357,
+        "isrc": null,
+        "provider": "spotify",
+        "providerId": "6ULjjAbwB2BoTZthQKv1Q2"
+      },
+      "savedIdentityUnchanged": true
+    },
+    {
+      "name": "Reckless",
+      "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+      "playToolError": false,
+      "samples": [
+        {
+          "elapsedMs": 2383,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 0,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 0.052615,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 3594,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 0.749936,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 1.262326,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 4803,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 1.74525,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 2.465862,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 6014,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 2.741704,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 3.670825,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 7224,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 4.738778,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 4.881449,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        },
+        {
+          "elapsedMs": 8435,
+          "trackId": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+          "status": "playing",
+          "paused": false,
+          "position": 5.745443,
+          "duration": 139,
+          "currentIndex": 0,
+          "source": {
+            "provider": "youtube",
+            "id": "youtube:FXIvaktRqZg"
+          },
+          "lastStartupFailure": null,
+          "playerMessage": "Playing youtube audio",
+          "lastMediaFailure": null,
+          "media": {
+            "currentTime": 6.093137,
+            "duration": 138.533968253,
+            "paused": false,
+            "readyState": 4,
+            "errorCode": null
+          }
+        }
+      ],
+      "success": true,
+      "requestUnchanged": false,
+      "beforeIdentity": {
+        "id": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+        "title": "Reckless",
+        "artist": "Nipsey Hussle,Bino Rideaux,Static Major",
+        "album": "Prolific",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "catalog",
+        "providerId": "discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35"
+      },
+      "afterIdentity": {
+        "id": "catalog:discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35",
+        "title": "Reckless",
+        "artist": "Nipsey Hussle,Bino Rideaux,Static Major",
+        "album": "Prolific",
+        "version": null,
+        "durationSeconds": null,
+        "isrc": null,
+        "provider": "catalog",
+        "providerId": "discogs:cbc4d8dc9037d7577fc623e7c39cbe4d547d66faec80d0e052f40b8ac4620e35"
+      },
+      "savedIdentityUnchanged": true
+    }
+  ],
+  "frontendAppSha256": "7e6dd7ce33c62031223b76576e5c2c75d0b49b480833c929fd30c515cec0711c",
+  "sourceCommit": "7cb1fceb837ef871176cc542e0c99cb586700ce2"
+}
