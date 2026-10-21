@@ -7682,6 +7682,58 @@ describe("saved recording navigation", () => {
 
   });
 
+  it("gives a source resolved after a slow lookup a bounded chance to start", async () => {
+    previewMode = "fallback";
+    let clock = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    afterPlaybackResolver = () => { clock = 14_000; };
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();
+    await settle();
+
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
+    const resolution = mocks.call.mock.calls.find(([command]) => command === "resolve_playback_track")![1];
+    expect(resolution.budgetMs).toBeGreaterThan(0);
+    expect(resolution.budgetMs).toBeLessThanOrEqual(20_000);
+  });
+
+  it("tries one distinct alternate after the first candidate exhausts its startup window", async () => {
+    vi.useFakeTimers();
+    previewMode = "fallback";
+    let clock = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const first = { ...youtubeCandidate(savedTrack), id: "youtube:hung-first" };
+    const alternate = { ...youtubeCandidate(savedTrack), id: "youtube:working-alternate" };
+    playbackResolverCandidates = [first, alternate];
+    let playCalls = 0;
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => {
+      playCalls++;
+      return playCalls === 1 ? new Promise<void>(() => {}) : Promise.resolve();
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();
+    await settle();
+    expect(playCalls).toBe(1);
+
+    clock += 5_000;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settle();
+
+    const resolutions = mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track");
+    expect(resolutions).toHaveLength(2);
+    expect((resolutions[1][1] as { failedCandidates: { provider: string; id: string }[] }).failedCandidates)
+      .toContainEqual({ provider: first.provider, id: first.id });
+    expect(playCalls).toBe(2);
+    expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
+  });
+
   it("discovers an alternative when cached audio fails after playback starts", async () => {
     previewMode = "direct";
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);

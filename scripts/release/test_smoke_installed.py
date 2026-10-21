@@ -243,6 +243,27 @@ class InstalledWebviewAudioTests(unittest.TestCase):
 
 
 class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
+    def test_audio_checker_outer_timeout_covers_all_documented_gate_budgets(self):
+        with tempfile.TemporaryDirectory(prefix="burrata-audio-budget-") as directory:
+            root = pathlib.Path(directory)
+            target = "synthetic-target"
+            tools = root / "tools" / target
+            tools.mkdir(parents=True)
+            (tools / ("burrata-mcp.exe" if smoke.sys.platform == "win32" else "burrata-mcp")).touch()
+            completed = subprocess.CompletedProcess([], 1, json.dumps({
+                "status": "failed", "failureCategory": "audio_not_ready",
+            }).encode(), b"")
+            with patch.object(smoke.shutil, "which", return_value="synthetic-node"), \
+                    patch.object(smoke, "run", return_value=completed) as runner:
+                with self.assertRaises(smoke.SmokeFailure):
+                    smoke.run_mcp_webview_audio(root, target, root / "automation.json", {}, "local:fixture")
+
+        self.assertEqual(runner.call_args.kwargs["timeout"], smoke.WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS)
+        # Frontend readiness + mute/play/pause Tauri ceilings + playback gate
+        # + inspection and steady-sample time + bounded IPC/process slack.
+        required = 30 + (3 * 45) + 10 + 5 + 1 + 20
+        self.assertGreaterEqual(smoke.WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS, required)
+
     def _run_payload(self, payload, returncode=0):
         with tempfile.TemporaryDirectory(prefix="burrata-audio-evidence-") as directory:
             root = pathlib.Path(directory)

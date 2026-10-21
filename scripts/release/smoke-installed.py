@@ -29,6 +29,9 @@ TARGETS = {
 }
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "src-tauri" / "src" / "schema.sql"
+# Budget 30s for explicit frontend readiness, three awaited playback controls
+# (45s each), the 10s clock-start deadline, final sample and IPC/process slack.
+WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS = 220
 
 
 class SmokeFailure(RuntimeError):
@@ -541,7 +544,8 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
     if not node or not mcp.is_file():
         raise SmokeFailure("WebView audio", "installed MCP launcher or Node.js is unavailable")
     result = run([node, ROOT / "scripts/release/check-installed-webview-audio.mjs",
-                  mcp, discovery, track_id], timeout=75, env=env, check=False)
+                  mcp, discovery, track_id], timeout=WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS,
+                 env=env, check=False)
     diagnostics = None
     try:
         payload = json.loads(result.stdout.decode().strip().splitlines()[-1])

@@ -1321,7 +1321,9 @@
     track: Track;
     tried: Set<string>;
     attempts: number;
+    sourceAttempts?: number;
     deadline?: number;
+    sourceStartupDeadline?: number;
     liveRecoveryDeadline?: number;
     exactSourceOnly?: boolean;
     transportRefreshUsed?: boolean;
@@ -2650,14 +2652,33 @@
     if(!isCurrent()){handle.destroy();throw new Error("Audio setup cancelled");}
     audioStreamHandle=handle;
   }
-  function boundedPreviewResolution<T>(request: number, operation: Promise<T>): Promise<T | undefined> {
-    const deadline = automaticPreviewRecovery?.request === request ? automaticPreviewRecovery.deadline : undefined;
+  function boundedPreviewResolution<T>(request: number, operation: Promise<T>, deadlineOverride?: number): Promise<T | undefined> {
+    const deadline = deadlineOverride ?? (automaticPreviewRecovery?.request === request ? automaticPreviewRecovery.deadline : undefined);
     return withinPreviewStartupBudget(() => previewRequests.resolve(request, operation), deadline, () => previewRequests.isCurrent(request));
   }
   function playbackStartupTimeoutSeconds(): number {
     return [20, 30, 45].includes(Number(settings.playbackStartupTimeoutSeconds)) ? Number(settings.playbackStartupTimeoutSeconds) : 20;
   }
   function playbackStartupTimeoutMs(): number { return playbackStartupTimeoutSeconds() * 1000; }
+  const finalSourceResolutionReserveMs = 3_000;
+  const candidateStartupWindowMs = 5_000;
+  function sourceIsAuthoritative(track: Track): boolean {
+    return Boolean(queueCandidates[track.id] || track.playbackRange ||
+      ["audioSearch", "youtubeRadio"].includes(String((track.provenance as Record<string, unknown>)?.sourceKind)));
+  }
+  function firstSourceStartupDeadline(recovery: NonNullable<typeof automaticPreviewRecovery>): number {
+    const overallDeadline = recovery.deadline ?? performance.now() + playbackStartupTimeoutMs();
+    return overallDeadline;
+  }
+  function sourceAttemptDeadline(recovery: NonNullable<typeof automaticPreviewRecovery>, attempt: number): number {
+    const overall = recovery.deadline ?? performance.now() + playbackStartupTimeoutMs();
+    if (recovery.exactSourceOnly || attempt > 1) return overall;
+    // Resolver latency can consume the preferred reserve. Give a newly
+    // resolved candidate a real chance to start, while preserving time for
+    // one alternate whenever the original deadline permits it.
+    const now = performance.now();
+    return Math.min(overall, Math.max(now + 2_000, Math.min(now + candidateStartupWindowMs, overall - finalSourceResolutionReserveMs)));
+  }
   // Keep late play settlements and their queued media events from reviving a cancelled source.
   const blockedStartupNodes = new WeakSet<HTMLAudioElement>();
   const startupPlayOwners = new WeakMap<HTMLAudioElement, object>();
@@ -2767,7 +2788,8 @@
       if (!inspected) return false;
       candidate = inspected;
     }
-    const deadline = automaticPreviewRecovery?.request === request ? automaticPreviewRecovery.deadline : undefined;
+    const deadline = automaticPreviewRecovery?.request === request
+      ? automaticPreviewRecovery.sourceStartupDeadline ?? automaticPreviewRecovery.deadline : undefined;
     const budgetMs = Math.floor((deadline ?? performance.now() + playbackStartupTimeoutMs()) - performance.now());
     if (budgetMs <= 0) throw new Error(`Audio startup exceeded the ${playbackStartupTimeoutSeconds()}-second playback deadline.`);
     const result = await boundedPreviewResolution(request, call<Preview>("resolve_candidate_audio", {candidate, requestGeneration: request, trackId: t.id, budgetMs}));
@@ -2792,6 +2814,8 @@
     const recovery = automaticPreviewRecovery;
     const recoveryDeadline = recovery?.request === request && recovery.track.id === t.id ? recovery.deadline : undefined;
     const deadline = recoveryDeadline ?? performance.now() + playbackStartupTimeoutMs();
+    const sourceDeadline = automaticPreviewRecovery?.request === request && automaticPreviewRecovery.track.id === t.id
+      ? automaticPreviewRecovery.sourceStartupDeadline ?? deadline : deadline;
     let attemptActive = true;
     const startupStartedAt = performance.now();
     const resumeRequested = pendingResumePosition > 0;
@@ -2800,9 +2824,9 @@
     let progressCheck: ReturnType<typeof setInterval> | undefined;
     node.volume = volume;
     try {
-      await withinPreviewStartupBudget(() => prepareAudioStream(request, stillCurrent), deadline, stillCurrent);
+      await withinPreviewStartupBudget(() => prepareAudioStream(request, stillCurrent), sourceDeadline, stillCurrent);
       startupPhase = 'resume_seek';
-      await withinPreviewStartupBudget(() => seekPendingResume(request, stillCurrent), deadline, stillCurrent);
+      await withinPreviewStartupBudget(() => seekPendingResume(request, stillCurrent), sourceDeadline, stillCurrent);
       if (!stillCurrent()) return false;
       startupPhase = 'play';
       if (requiredRecoveryResume?.request === request && requiredRecoveryResume.verifiedAtMs === null) {
@@ -2836,7 +2860,7 @@
           }, 25);
         });
         return progressed;
-      }, deadline, stillCurrent);
+      }, sourceDeadline, stillCurrent);
       if (progressCheck !== undefined) { clearInterval(progressCheck); progressCheck = undefined; }
       if (!stillCurrent()) return false;
       const requiredResume = requiredRecoveryResume;
@@ -2881,54 +2905,66 @@
 
   async function findAndStartPreviewSource(t: Track, request: number, recovering = false, attemptLimit?: 1) {
     const previous = automaticPreviewRecovery?.track.id === t.id ? automaticPreviewRecovery : undefined;
-    const recovery = automaticPreviewRecovery = {
+    const recovery: NonNullable<typeof automaticPreviewRecovery> = automaticPreviewRecovery = {
       request, track: t, tried: recovering ? previous?.tried ?? new Set<string>() : new Set<string>(),
       attempts: recovering ? previous?.attempts ?? 0 : 0,
+      sourceAttempts: recovering ? previous?.sourceAttempts ?? 0 : 0,
       deadline: previous?.deadline ?? performance.now() + playbackStartupTimeoutMs(),
-      exactSourceOnly: Boolean(queueCandidates[t.id] || t.playbackRange || ["audioSearch", "youtubeRadio"].includes(String((t.provenance as Record<string, unknown>)?.sourceKind))),
+      exactSourceOnly: sourceIsAuthoritative(t),
       failureReason: previous?.failureReason,
       stallCause: recovering ? previous?.stallCause : undefined,
     };
-    const budgetMs = Math.floor(recovery.deadline - performance.now());
-    if (budgetMs <= 0) {
-      previewStatus = recovery.failureReason || recovery.stallCause || `Audio lookup exceeded the ${playbackStartupTimeoutSeconds()}-second playback deadline; try again or choose a source.`;
-      return;
-    }
-    if (recovery.attempts >= 2) {
-      previewStatus = recovery.failureReason || "The verified sources could not play. Choose another source.";
-      return;
-    }
+    const overallDeadline = recovery.deadline ?? performance.now() + playbackStartupTimeoutMs();
     previewStatus = "Finding a verified playback source…";
-    try {
-      const result = await boundedPreviewResolution(request, call<{preview: Preview; candidate: Candidate | null}>("resolve_playback_track", {
-        track: t, requestGeneration: request, selectedCandidate: queueCandidates[t.id] ?? null, budgetMs, webviewCapabilities: webviewAudioCapabilities(),
-        failedCandidates: recovery.exactSourceOnly ? [] : [...recovery.tried].slice(-2).map(key => {
-          const separator = key.indexOf(":");
-          return { provider: key.slice(0, separator), id: key.slice(separator + 1) };
-        }),
-        ...(attemptLimit ? { attemptLimit } : {}),
-      }));
-      if (!result || !previewRequests.isCurrent(request)) return;
-      const key = result.candidate ? candidateKey(result.candidate) : null;
-      if (key && recovery.tried.has(key)) {
-        previewStatus = recovery.failureReason || "The verified source could not be decoded. Choose another source.";
-        return;
-      }
-      if (key) {
-        recovery.tried.add(key);
-        while (recovery.tried.size > 2) recovery.tried.delete(recovery.tried.values().next().value!);
-      }
-      recovery.attempts++;
-      if (result.candidate) candidates = [result.candidate];
-      if (await startResolvedPreviewAudio(t, result.candidate, result.preview, request)) return;
-      if (previewRequests.isCurrent(request)) previewStatus = recovery.failureReason || "The verified source did not provide playable audio.";
-    } catch (failure) {
+    const maxSources = recovery.exactSourceOnly || attemptLimit ? 1 : 2;
+    const sourceLimit = attemptLimit ? 1 : Math.min(maxSources, Math.max(0, maxSources - (recovery.sourceAttempts ?? 0)));
+    for (let index = 0; index < sourceLimit; index++) {
       if (!previewRequests.isCurrent(request)) return;
-      recovery.failureReason = recovery.stallCause
-        ? `${recovery.stallCause} Another verified source could not be resolved: ${safePreviewError(failure)}`
-        : safePreviewError(failure);
-      previewStatus = recovery.failureReason;
+      const sourceAttempt = (recovery.sourceAttempts ?? 0) + 1;
+      const resolveDeadline = sourceAttempt === 1 || recovering || attemptLimit
+        ? overallDeadline
+        : Math.max(performance.now(), overallDeadline - finalSourceResolutionReserveMs);
+      const budgetMs = Math.floor(resolveDeadline - performance.now());
+      if (budgetMs <= 0) break;
+      try {
+        const result = await boundedPreviewResolution(request, call<{preview: Preview; candidate: Candidate | null}>("resolve_playback_track", {
+          track: t, requestGeneration: request, selectedCandidate: queueCandidates[t.id] ?? null, budgetMs, webviewCapabilities: webviewAudioCapabilities(),
+          failedCandidates: recovery.exactSourceOnly ? [] : [...recovery.tried].slice(-2).map(key => {
+            const separator = key.indexOf(":");
+            return { provider: key.slice(0, separator), id: key.slice(separator + 1) };
+          }),
+          ...(attemptLimit ? { attemptLimit } : {}),
+        }), resolveDeadline);
+        if (!result || !previewRequests.isCurrent(request)) break;
+        const key = result.candidate ? candidateKey(result.candidate) : null;
+        if (key && recovery.tried.has(key) && !recovering && !attemptLimit && !recovery.exactSourceOnly) {
+          recovery.failureReason = recovery.failureReason || "The resolver returned a playback source that was already tried.";
+          break;
+        }
+        if (key) recovery.tried.add(key);
+        recovery.sourceAttempts = sourceAttempt;
+        recovery.attempts++;
+        recovery.sourceStartupDeadline = recovering || attemptLimit
+          ? overallDeadline : sourceAttemptDeadline(recovery, sourceAttempt);
+        if (result.candidate) candidates = [result.candidate];
+        if (await startResolvedPreviewAudio(t, result.candidate, result.preview, request)) return;
+        if (!previewRequests.isCurrent(request)) return;
+        if (!recovery.failureReason) recovery.failureReason = recovery.stallCause
+          ? `${recovery.stallCause} The verified source did not start.`
+          : "The verified source did not provide playable audio.";
+        if (sourceAttempt >= maxSources || performance.now() >= overallDeadline) break;
+      } catch (failure) {
+        if (!previewRequests.isCurrent(request)) return;
+        recovery.failureReason = recovery.stallCause
+          ? `${recovery.stallCause} Another verified source could not be resolved: ${safePreviewError(failure)}`
+          : safePreviewError(failure);
+        break;
+      }
     }
+    if ((recovery.sourceAttempts ?? 0) === 0 && performance.now() >= overallDeadline) {
+      recovery.failureReason = recovery.failureReason || `Audio lookup exceeded the ${playbackStartupTimeoutSeconds()}-second playback deadline; try again or choose a source.`;
+    }
+    previewStatus = recovery.failureReason || "The verified sources could not play. Choose another source.";
     if (previewRequests.isCurrent(request)) { preview = null; paused = true; }
   }
 
@@ -2954,8 +2990,10 @@
       }
       recovery.transportRecoveryWindowUsed = true;
       recovery.deadline = performance.now() + 8_000;
+      recovery.sourceStartupDeadline = recovery.deadline;
       budgetMs = 8_000;
     }
+    recovery.sourceStartupDeadline = recovery.deadline ?? performance.now() + budgetMs;
     recovery.attempts++;
     try {
       const result = await boundedPreviewResolution(request, call<{preview: Preview; candidate: Candidate | null}>("resolve_playback_track", {
@@ -3191,7 +3229,8 @@
     clearTimeout(autoTimer);
     const request = nextPreviewRequest();
     successfulRecoveryAttachment = null;
-    automaticPreviewRecovery = { request, track: t, tried: new Set(), attempts: 0, deadline: performance.now() + playbackStartupTimeoutMs() };
+    automaticPreviewRecovery = { request, track: t, tried: new Set(), attempts: 0, sourceAttempts: 0,
+      exactSourceOnly: sourceIsAuthoritative(t), deadline: performance.now() + playbackStartupTimeoutMs() };
     audio?.pause();
     if (preview?.sessionId) await call("stop_candidate_preview", { sessionId: preview.sessionId }).catch((e) => (error = String(e)));
     if (!previewRequests.isCurrent(request)) return;
@@ -3217,7 +3256,8 @@
       let result: Preview | undefined;
       try {
         const recovery = automaticPreviewRecovery;
-        const deadline = recovery?.request === request && recovery.track.id === t.id ? recovery.deadline : undefined;
+        const deadline = recovery?.request === request && recovery.track.id === t.id
+          ? recovery.sourceStartupDeadline ?? firstSourceStartupDeadline(recovery) : undefined;
         result = await withinPreviewStartupBudget(
           () => previewRequests.resolve(
             request,
@@ -3233,13 +3273,20 @@
       if (!result || !previewRequests.isCurrent(request)) return;
       if (["audio", "local", "direct"].includes(result.kind)) {
         preview = result;
+        const recovery = automaticPreviewRecovery;
+        if (recovery?.request === request && recovery.track.id === t.id) {
+          recovery.sourceStartupDeadline = sourceAttemptDeadline(recovery, 1);
+          recovery.sourceAttempts = (recovery.sourceAttempts ?? 0) + 1;
+          if (playingCandidate && !recovery.exactSourceOnly) recovery.tried.add(candidateKey(playingCandidate));
+        }
         await tick();
         if (!previewRequests.isCurrent(request)) return;
         if (audio) {
           const node = audio;
           const startupGeneration = ++audioStartupGeneration;
           const recovery = automaticPreviewRecovery;
-          const deadline = recovery?.request === request && recovery.track.id === t.id ? recovery.deadline : undefined;
+          const deadline = recovery?.request === request && recovery.track.id === t.id
+            ? recovery.sourceStartupDeadline ?? recovery.deadline : undefined;
           let attemptActive = true;
           const startupStartedAt = performance.now();
           const resumeRequested = pendingResumePosition > 0;
@@ -3472,6 +3519,9 @@
     if (steadyPlayback && !ownedSeek) {
       oldRequest.deadline = performance.now() + playbackStartupTimeoutMs();
       oldRequest.attempts = 0;
+      oldRequest.sourceAttempts = 0;
+      oldRequest.sourceStartupDeadline = undefined;
+      oldRequest.tried = new Set<string>();
       oldRequest.liveRecoveryDeadline = undefined;
       oldRequest.transportRefreshUsed = false;
       oldRequest.transportRecoveryWindowUsed = false;
@@ -3524,6 +3574,11 @@
           await findAndStartPreviewSource(track, request, true, 1);
           return;
         }
+        previewStatus = oldRequest.failureReason ?? failureReason;
+        lastMediaFailure = failureReason;
+        return;
+      }
+      if (refreshCandidate && oldRequest.transportRefreshUsed) {
         previewStatus = oldRequest.failureReason ?? failureReason;
         lastMediaFailure = failureReason;
         return;
