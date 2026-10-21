@@ -1,0 +1,30 @@
+{
+  "candidate": "kZHXnY5lh2I",
+  "transport": "VISIONOS_0_1 anonymous-source",
+  "metadataHandoffValidated": true,
+  "formatId": 140,
+  "codec": "audio/mp4; codecs=\"mp4a.40.2\"",
+  "metadataDurationSeconds": 110,
+  "metadataMatchesExpected": true,
+  "probeStage": "decode",
+  "fullPlaybackClaim": false,
+  "encodedBytes": 1782177,
+  "pcmPath": "/tmp/burrata-pengus-candidate.f32",
+  "pcmBytes": 3521260,
+  "decodedDurationSeconds": 110.039375,
+  "waveformComparison": {
+    "comparison": "offset-aligned normalized waveform correlation; 8kHz mono; reference trimmed 1s at each edge",
+    "referenceDurationSeconds": 29.929125,
+    "candidateDurationSeconds": 110.039375,
+    "matchedOffsetSeconds": 72.192375,
+    "overallCorrelation": 0.05741929641539039,
+    "thirdsCorrelation": [
+      0.09060531009482206,
+      0.023187464906964023,
+      0.051995500151160945
+    ],
+    "thresholdOverall": 0.96,
+    "thresholdEachThird": 0.94,
+    "passesExistingVerifier": false
+  }
+}

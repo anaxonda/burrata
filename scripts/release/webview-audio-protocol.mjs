@@ -5,6 +5,39 @@ export function webviewMediaProbeConfirmsEngine(playbackState, mediaInspection) 
     && mediaInspection?.applicable === true;
 }
 
+/**
+ * Wait for the app's explicit frontend-readiness response before inspecting media.
+ * Only FRONTEND_NOT_READY is transient here; every other inspection error is terminal.
+ */
+export async function waitForFrontendReady(inspect, {
+  timeoutMs = 30_000,
+  pollIntervalMs = 250,
+  now = () => performance.now(),
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+} = {}) {
+  if (typeof inspect !== 'function' || !Number.isFinite(timeoutMs) || timeoutMs <= 0
+      || !Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0
+      || typeof now !== 'function' || typeof sleep !== 'function') {
+    throw new TypeError('Invalid frontend readiness wait options');
+  }
+  const deadline = now() + timeoutMs;
+  let lastNotReady;
+  while (now() < deadline) {
+    try {
+      return await inspect();
+    } catch (error) {
+      if (error?.code !== 'FRONTEND_NOT_READY') throw error;
+      lastNotReady = error;
+    }
+    const remaining = deadline - now();
+    if (remaining <= 0) break;
+    await sleep(Math.min(pollIntervalMs, remaining));
+  }
+  throw lastNotReady ?? Object.assign(new Error('Frontend readiness deadline expired'), {
+    code: 'FRONTEND_NOT_READY',
+  });
+}
+
 function sampleReady(snapshot, playback, trackId) {
   const media = snapshot?.media;
   return playback?.status === 'playing'

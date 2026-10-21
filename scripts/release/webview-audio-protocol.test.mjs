@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { webviewMediaProbeConfirmsEngine } from './webview-audio-protocol.mjs';
+import { waitForFrontendReady, webviewMediaProbeConfirmsEngine } from './webview-audio-protocol.mjs';
 
 test('accepts the actual WebView DTO when playback_state omits engine', () => {
   const playbackState = { status: 'idle', trackId: null, queueTotal: 0 };
@@ -16,6 +16,51 @@ test('requires the media inspection itself to confirm applicable WebView ownersh
     { engine: 'webview', applicable: false }), false);
   assert.equal(webviewMediaProbeConfirmsEngine({ engine: 'native' },
     { engine: 'webview', applicable: true }), false);
+});
+
+test('waits only for the explicit frontend-not-ready response before the first media sample', async () => {
+  let now = 0;
+  let attempts = 0;
+  const media = { engine: 'webview', applicable: true };
+  const result = await waitForFrontendReady(async () => {
+    attempts += 1;
+    if (attempts < 3) throw Object.assign(new Error('not ready'), { code: 'FRONTEND_NOT_READY' });
+    return media;
+  }, {
+    timeoutMs: 1_000,
+    pollIntervalMs: 250,
+    now: () => now,
+    sleep: async ms => { now += ms; },
+  });
+  assert.equal(result, media);
+  assert.equal(attempts, 3);
+  assert.equal(now, 500);
+});
+
+test('does not retry terminal inspection errors', async () => {
+  let attempts = 0;
+  const failure = Object.assign(new Error('inspection failed'), { code: 'TIMEOUT' });
+  await assert.rejects(waitForFrontendReady(async () => {
+    attempts += 1;
+    throw failure;
+  }, { timeoutMs: 1_000 }), error => error === failure);
+  assert.equal(attempts, 1);
+});
+
+test('frontend readiness deadline expires only after explicit not-ready replies', async () => {
+  let now = 0;
+  let attempts = 0;
+  await assert.rejects(waitForFrontendReady(async () => {
+    attempts += 1;
+    throw Object.assign(new Error('not ready'), { code: 'FRONTEND_NOT_READY' });
+  }, {
+    timeoutMs: 500,
+    pollIntervalMs: 250,
+    now: () => now,
+    sleep: async ms => { now += ms; },
+  }), error => error.code === 'FRONTEND_NOT_READY');
+  assert.equal(attempts, 2);
+  assert.equal(now, 500);
 });
 
 import { createWebviewAudioSmokeGate } from './webview-audio-protocol.mjs';

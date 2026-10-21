@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { createWebviewAudioSmokeGate, webviewMediaProbeConfirmsEngine } from './webview-audio-protocol.mjs';
+import { createWebviewAudioSmokeGate, waitForFrontendReady, webviewMediaProbeConfirmsEngine } from './webview-audio-protocol.mjs';
 
 const [command, discoveryPath, trackId] = process.argv.slice(2);
 if (!command || !discoveryPath || !/^local:[a-f0-9]{64}$/.test(trackId ?? '')) {
@@ -31,21 +31,22 @@ let failureCode = null;
 function safeCode(value) {
   return typeof value === 'string' && safeErrorCodes.has(value) ? value : null;
 }
-async function call(name, args = {}) {
+async function call(name, args = {}, timeoutMs = MCP_CALL_TIMEOUT_MS) {
+  failureCode = null;
   failedTool = name;
   let response;
   try {
-    response = await client.callTool({ name, arguments: args }, { timeout: MCP_CALL_TIMEOUT_MS });
+    response = await client.callTool({ name, arguments: args }, { timeout: timeoutMs });
   } catch (error) {
     failureCode = error?.name === 'TimeoutError' || error?.name === 'AbortError'
       ? 'MCP_CLIENT_TIMEOUT' : 'MCP_TRANSPORT_ERROR';
-    throw Object.assign(new Error('mcp_failure'), { category: 'mcp_failure' });
+    throw Object.assign(new Error('mcp_failure'), { category: 'mcp_failure', code: failureCode });
   }
   if (response.isError === true) {
     failureCode = safeCode(response.structuredContent?.error?.code)
       ?? safeCode(response.structuredContent?.code)
       ?? 'MCP_TOOL_ERROR';
-    throw Object.assign(new Error('mcp_failure'), { category: 'mcp_failure' });
+    throw Object.assign(new Error('mcp_failure'), { category: 'mcp_failure', code: failureCode });
   }
   failedTool = null;
   return response.structuredContent?.result ?? response.structuredContent ?? null;
@@ -83,7 +84,10 @@ try {
   currentPhase = 'initial_playback_state';
   const initial = await call('playback_state', { offset: 0, limit: 1 });
   currentPhase = 'initial_media_sample';
-  const initialMedia = await call('inspect_webview_media');
+  const initialMedia = await waitForFrontendReady(
+    () => call('inspect_webview_media', {}, 7_000),
+    { timeoutMs: 30_000, pollIntervalMs: 250, sleep },
+  );
   if (!webviewMediaProbeConfirmsEngine(initial, initialMedia)) {
     throw Object.assign(new Error('webview_engine_unavailable'), { category: 'webview_engine_unavailable' });
   }

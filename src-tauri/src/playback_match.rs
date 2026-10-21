@@ -219,7 +219,7 @@ pub(super) fn verify(
             source_id: expected_id.into(),
             policy: level,
             relationship: a.relationship,
-            evidence: json!({"matching":metadata["matching"],"title":resolved.title,"artist":metadata["artist"],"artists":metadata["artists"],"artistNames":metadata["artistNames"],"artistCount":metadata["artistCount"],"version":metadata["version"],"track":metadata["track"],"duration":resolved.duration_seconds,"isrc":metadata["isrc"]}),
+            evidence: json!({"matching":metadata["matching"],"title":resolved.title,"artist":metadata["artist"],"artists":metadata["artists"],"artistNames":metadata["artistNames"],"artistCount":metadata["artistCount"],"version":metadata["version"],"track":metadata["track"],"duration":resolved.duration_seconds,"isrc":metadata["isrc"],"identityMetadata":bounded_identity_metadata(metadata)}),
         };
         let _ = store.save_matching_evidence(&record);
     }
@@ -268,6 +268,11 @@ pub(super) fn restore_evidence(
     if !metadata.is_object() {
         *metadata = json!({});
     }
+    if let Some(identity_metadata) = e["identityMetadata"].as_object() {
+        for (field, value) in identity_metadata {
+            metadata[field] = value.clone();
+        }
+    }
     for field in [
         "artist",
         "artists",
@@ -282,6 +287,68 @@ pub(super) fn restore_evidence(
             metadata[field] = e[field].clone();
         }
     }
+}
+
+/// Preserve only the small, structured fields the evaluator needs to reproduce
+/// a fresh decision. Raw provider payloads, URLs, credentials and large text
+/// blobs never enter this record.
+fn bounded_identity_metadata(metadata: &Value) -> Value {
+    let mut result = serde_json::Map::new();
+    for field in [
+        "provider",
+        "artist",
+        "artists",
+        "artistNames",
+        "artistCount",
+        "channel",
+        "channelId",
+        "channelIsVerified",
+        "catalog",
+        "catalogTitle",
+        "catalogArtist",
+        "descriptionCreditLine",
+        "duration",
+        "isPreview",
+        "isrc",
+        "label",
+        "mix",
+        "playbackMusicCatalogCandidate",
+        "recordingId",
+        "title",
+        "track",
+        "trackId",
+        "version",
+        "workId",
+    ] {
+        let Some(value) = metadata.get(field) else {
+            continue;
+        };
+        let bounded = match value {
+            Value::String(text)
+                if text.chars().count() <= 1024 && !text.chars().any(char::is_control) =>
+            {
+                Some(value.clone())
+            }
+            Value::Array(values) if values.len() <= 32 => {
+                let items = values
+                    .iter()
+                    .filter(|item| {
+                        item.as_str().is_some_and(|text| {
+                            text.chars().count() <= 256 && !text.chars().any(char::is_control)
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                Some(Value::Array(items))
+            }
+            Value::Bool(_) | Value::Number(_) => Some(value.clone()),
+            _ => None,
+        };
+        if let Some(value) = bounded {
+            result.insert(field.to_owned(), value);
+        }
+    }
+    Value::Object(result)
 }
 pub(super) fn cached_direct_allowed(
     store: &Store,

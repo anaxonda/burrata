@@ -1465,16 +1465,31 @@ fn direct_youtube_mapped_anchors(
     proof: Option<&Value>,
     attempt_limit: usize,
 ) -> Option<VerifiedYoutubeRecordingAnchors> {
+    if track
+        .version
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return None;
+    }
+    mapped_youtube_anchors(track, candidate, proof, attempt_limit)
+}
+
+/// Fresh identity verification may authorize same-operation recovery for an
+/// explicit version. The cached promotion path above intentionally keeps its
+/// stricter flat-track-only rule.
+fn mapped_youtube_anchors(
+    track: &Track,
+    candidate: &Candidate,
+    proof: Option<&Value>,
+    attempt_limit: usize,
+) -> Option<VerifiedYoutubeRecordingAnchors> {
     if attempt_limit != 2
         || candidate.provider != "youtube"
         || candidate.source.is_some()
         || track.local_path.is_some()
         || track.asset_id.is_some()
         || track.playback_range.is_some()
-        || track
-            .version
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty())
         || candidate
             .chapters
             .as_ref()
@@ -1504,6 +1519,20 @@ fn direct_youtube_opportunity_deadline(deadline: PlaybackDeadline) -> Option<Pla
     Some(PlaybackDeadline::at(
         (deadline.instant() - Duration::from_secs(8))
             .min(tokio::time::Instant::now() + Duration::from_secs(4)),
+    ))
+}
+
+fn direct_youtube_recovery_deadline(deadline: PlaybackDeadline) -> Option<PlaybackDeadline> {
+    // Fresh denied-source recovery has already spent the primary extractor
+    // budget. Give this one same-ID retry at most six seconds, while retaining
+    // one second of the original absolute deadline for the media handoff.
+    let remaining = deadline.remaining();
+    if remaining <= Duration::from_secs(1) {
+        return None;
+    }
+    Some(PlaybackDeadline::at(
+        (deadline.instant() - Duration::from_secs(1))
+            .min(tokio::time::Instant::now() + Duration::from_secs(6)),
     ))
 }
 
@@ -1709,10 +1738,92 @@ where
     ) -> VF,
     VF: std::future::Future<Output = Result<acquisition::PreviewAudio, String>>,
 {
+    try_direct_youtube_mapped_with_opportunity(
+        acquisition,
+        candidate,
+        anchors,
+        cancel,
+        trace,
+        deadline,
+        direct_youtube_opportunity_deadline,
+        resolve,
+        validate,
+    )
+    .await
+}
+
+async fn try_direct_youtube_mapped_recovery_with<R, RF, V, VF>(
+    acquisition: &AcquisitionManager,
+    candidate: &Candidate,
+    anchors: &VerifiedYoutubeRecordingAnchors,
+    cancel: watch::Receiver<bool>,
+    trace: &SourceTrace,
+    deadline: PlaybackDeadline,
+    resolve: R,
+    validate: V,
+) -> Result<Option<acquisition::PreviewAudio>, String>
+where
+    R: FnOnce(String, u64, watch::Receiver<bool>) -> RF,
+    RF: std::future::Future<
+        Output = Result<
+            crate::youtube_direct_experiment::DirectResolved,
+            crate::youtube_direct_experiment::DirectFailure,
+        >,
+    >,
+    V: FnOnce(
+        acquisition::PreviewAudio,
+        watch::Receiver<bool>,
+        SourceTrace,
+        PlaybackDeadline,
+    ) -> VF,
+    VF: std::future::Future<Output = Result<acquisition::PreviewAudio, String>>,
+{
+    try_direct_youtube_mapped_with_opportunity(
+        acquisition,
+        candidate,
+        anchors,
+        cancel,
+        trace,
+        deadline,
+        direct_youtube_recovery_deadline,
+        resolve,
+        validate,
+    )
+    .await
+}
+
+async fn try_direct_youtube_mapped_with_opportunity<R, RF, V, VF, D>(
+    acquisition: &AcquisitionManager,
+    candidate: &Candidate,
+    anchors: &VerifiedYoutubeRecordingAnchors,
+    cancel: watch::Receiver<bool>,
+    trace: &SourceTrace,
+    deadline: PlaybackDeadline,
+    opportunity_deadline: D,
+    resolve: R,
+    validate: V,
+) -> Result<Option<acquisition::PreviewAudio>, String>
+where
+    D: FnOnce(PlaybackDeadline) -> Option<PlaybackDeadline>,
+    R: FnOnce(String, u64, watch::Receiver<bool>) -> RF,
+    RF: std::future::Future<
+        Output = Result<
+            crate::youtube_direct_experiment::DirectResolved,
+            crate::youtube_direct_experiment::DirectFailure,
+        >,
+    >,
+    V: FnOnce(
+        acquisition::PreviewAudio,
+        watch::Receiver<bool>,
+        SourceTrace,
+        PlaybackDeadline,
+    ) -> VF,
+    VF: std::future::Future<Output = Result<acquisition::PreviewAudio, String>>,
+{
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
-    let Some(opportunity) = direct_youtube_opportunity_deadline(deadline) else {
+    let Some(opportunity) = opportunity_deadline(deadline) else {
         return Ok(None);
     };
     let stamp = acquisition.playback_provider_stamp("youtube")?;
@@ -3751,14 +3862,15 @@ fn fresh_denied_source_recovery_anchors(
     trace: &SourceTrace,
     settings: &Settings,
 ) -> Option<VerifiedYoutubeRecordingAnchors> {
+    let proof = proof?;
+    recoverable_source_transport_status(error)?;
     if pinned
         || !crate::acquisition::uses_managed_ytdlp(&settings.yt_dlp_path)
         || !audio.resolved_title.as_ref().is_some_and(|title| {
             crate::matching::normalize(title) == crate::matching::normalize(&candidate.title)
         })
         || audio.duration_seconds != candidate.duration_seconds
-        || proof?.kind == RecordingProofKind::ExplicitSource
-        || crate::playback_failure::classify(error).http_status != Some(403)
+        || proof.kind == RecordingProofKind::ExplicitSource
         || !audio.provider_session_current()
         || audio
             .chapters
@@ -3771,8 +3883,43 @@ fn fresh_denied_source_recovery_anchors(
     {
         return None;
     }
-    let value = persisted_v2_youtube_recording_anchors(proof?.kind, candidate, audio)?;
-    direct_youtube_mapped_anchors(track, candidate, Some(&value), attempt_limit)
+    let value = persisted_v2_youtube_recording_anchors(proof.kind, candidate, audio)?;
+    let anchors = mapped_youtube_anchors(track, candidate, Some(&value), attempt_limit)?;
+    (anchors.kind == proof.kind).then_some(anchors)
+}
+
+fn recoverable_source_transport_status(error: &str) -> Option<u16> {
+    // The shared failure classifier intentionally treats only 4xx/5xx as HTTP
+    // failures. Read a redirect code here only from explicit status syntax; this
+    // recovery retries the same verified ID through AAC and never follows the
+    // redirect response.
+    let status = crate::playback_failure::classify(error)
+        .http_status
+        .or_else(|| explicit_redirect_status(error))?;
+    matches!(status, 301 | 302 | 303 | 307 | 308 | 403).then_some(status)
+}
+
+fn explicit_redirect_status(error: &str) -> Option<u16> {
+    let message = error.to_ascii_lowercase();
+    for (index, _) in message.char_indices() {
+        let remaining = &message[index..];
+        for prefix in [
+            "http error ",
+            "http status ",
+            "http ",
+            "status code ",
+            "status ",
+        ] {
+            if let Some(tail) = remaining.strip_prefix(prefix) {
+                let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
+                let status = digits.parse::<u16>().ok()?;
+                if matches!(status, 301 | 302 | 303 | 307 | 308) {
+                    return Some(status);
+                }
+            }
+        }
+    }
+    None
 }
 
 async fn validate_or_recover_denied_source(
@@ -3816,11 +3963,11 @@ async fn validate_or_recover_denied_source(
             trace.event(
                 "verified_source_transport_recovery_start",
                 "youtube",
-                json!({"httpStatus":403}),
+                json!({"httpStatus":recoverable_source_transport_status(&error)}),
             );
             // AAC preserves the existing seekable MP4 path on macOS WebView;
             // the experimental Opus first-choice route remains opt-in.
-            let recovered = try_direct_youtube_mapped_with(
+            let recovered = try_direct_youtube_mapped_recovery_with(
                 acquisition,
                 candidate,
                 &anchors,
@@ -4405,13 +4552,6 @@ fn remember_verified_source(
         }
         _ => return,
     };
-    if let Some(policy) = candidate
-        .source_metadata
-        .as_ref()
-        .and_then(|m| m.get("matching"))
-    {
-        persisted_proof["matching"] = policy.clone();
-    }
     policy_matching::save_locator(
         store,
         fingerprint,
@@ -5220,6 +5360,26 @@ mod tests {
     }
 
     #[test]
+    fn fresh_recovery_has_a_small_bounded_budget_after_primary_reserve_expires() {
+        let late_original = PlaybackDeadline::after(Duration::from_secs(4));
+        assert!(direct_youtube_opportunity_deadline(late_original).is_none());
+        let recovery = direct_youtube_recovery_deadline(late_original).unwrap();
+        assert!(recovery.remaining() <= Duration::from_secs(3));
+        assert!(recovery.remaining() > Duration::from_secs(2));
+        assert_eq!(
+            recovery.instant(),
+            late_original.instant() - Duration::from_secs(1)
+        );
+
+        let short = PlaybackDeadline::after(Duration::from_millis(900));
+        assert!(direct_youtube_recovery_deadline(short).is_none());
+        let long = PlaybackDeadline::after(Duration::from_secs(30));
+        let capped = direct_youtube_recovery_deadline(long).unwrap();
+        assert!(capped.remaining() <= Duration::from_secs(6));
+        assert!(capped.instant() < long.instant());
+    }
+
+    #[test]
     fn direct_youtube_defaults_on_with_explicit_rollback() {
         assert!(direct_youtube_policy(None));
         assert!(direct_youtube_policy(Some("1")));
@@ -5315,7 +5475,54 @@ mod tests {
         )
         .unwrap();
         assert_eq!(anchors.video_id, "ps9X-DXUFGY");
+        for status in [301, 302, 303, 307, 308] {
+            assert_eq!(
+                recoverable_source_transport_status(&format!("HTTP {status}: redirect")),
+                Some(status)
+            );
+            let error = format!("HTTP {status}: redirect");
+            assert_eq!(
+                fresh_denied_source_recovery_anchors(
+                    &track, &candidate, &audio, proof, &error, false, 2, &trace, &settings,
+                )
+                .as_ref()
+                .map(|value| value.video_id.as_str()),
+                Some("ps9X-DXUFGY")
+            );
+        }
+        for status in [300, 304, 306, 401, 429, 500] {
+            assert_eq!(
+                recoverable_source_transport_status(&format!("HTTP {status}")),
+                None
+            );
+        }
+        let versioned_track = Track {
+            version: Some("Extended Mix".into()),
+            ..track.clone()
+        };
+        let versioned = fresh_denied_source_recovery_anchors(
+            &versioned_track,
+            &candidate,
+            &audio,
+            proof,
+            "HTTP 302: Found",
+            false,
+            2,
+            &trace,
+            &settings,
+        )
+        .expect("fresh identity proof should permit same-operation versioned recovery");
+        assert_eq!(versioned.video_id, "ps9X-DXUFGY");
+        let persisted =
+            persisted_v2_youtube_recording_anchors(proof.unwrap().kind, &candidate, &audio)
+                .unwrap();
+        assert!(
+            direct_youtube_mapped_anchors(&versioned_track, &candidate, Some(&persisted), 2,)
+                .is_none()
+        );
         for error in [
+            "HTTP 300",
+            "HTTP 304",
             "HTTP 401",
             "HTTP 429",
             "HTTP 500",
@@ -5325,7 +5532,7 @@ mod tests {
         ] {
             assert!(allowed(&audio, proof, error, false, 2, &trace, &settings).is_none());
         }
-        assert!(allowed(&audio, None, "HTTP 403", false, 2, &trace, &settings).is_none());
+        assert!(allowed(&audio, None, "HTTP 302", false, 2, &trace, &settings).is_none());
         assert!(allowed(&audio, proof, "HTTP 403", true, 2, &trace, &settings).is_none());
         assert!(allowed(&audio, proof, "HTTP 403", false, 1, &trace, &settings).is_none());
         assert!(allowed(
@@ -8666,6 +8873,7 @@ mod tests {
             .unwrap()
             .get("channel")
             .is_none());
+        assert!(proof_json.get("matching").is_none());
         let mut checked = remembered.clone();
         let cache_proof = verify_resolved_identity_with_aliases_and_proofs(
             &track,
@@ -8727,6 +8935,109 @@ mod tests {
             )
             .is_none());
         }
+    }
+
+    #[test]
+    fn shared_policy_topic_evidence_round_trips_for_cached_mapping_promotion() {
+        let track = Track {
+            id: "spotify:matthew-policy-cache".into(),
+            provider: "spotify".into(),
+            provider_id: "matthew-policy-cache".into(),
+            title: "Matthew".into(),
+            artist: "John Denver".into(),
+            duration_seconds: Some(222.426),
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:uZGRATckoBM".into(),
+            url: "https://www.youtube.com/watch?v=uZGRATckoBM".into(),
+            title: "John Denver - Matthew".into(),
+            duration_seconds: Some(228.0),
+            ..Candidate::default()
+        };
+        let audio = acquisition::PreviewAudio {
+            url: "https://r1---fixture.googlevideo.com/videoplayback?sig=fixture".into(),
+            mime_type: "audio/mp4".into(),
+            codec: Some("mp4a.40.2".into()),
+            bitrate_kbps: None,
+            duration_seconds: Some(228.0),
+            source_metadata: Some(json!({
+                "provider":"youtube", "channel":"John Denver - Topic",
+                "channelId":"UC-cnCe5zradDZlcI8YZboBg", "channelIsVerified":true,
+                "artist":"John Denver", "artists":["John Denver"], "artistCount":1,
+                "track":"Matthew", "descriptionCreditLine":"Matthew · John Denver",
+                "duration":228.0
+            })),
+            resolved_title: Some("John Denver - Matthew".into()),
+            resolved_provider_id: Some("uZGRATckoBM".into()),
+            chapters: Some(vec![]),
+            selected_format_id: Some("140".into()),
+            selected_format_has_video: false,
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("topic-cache.sqlite")).unwrap();
+        store.save_track(&track).unwrap();
+        let level = crate::recording_match::MatchLevel::Balanced;
+        let proof = policy_matching::verify(
+            &track,
+            &[],
+            &[],
+            None,
+            &mut candidate,
+            &audio,
+            true,
+            level,
+            &store,
+        )
+        .expect("fresh Topic evidence should pass the shared resolved policy");
+        assert!(candidate.source_metadata.as_ref().unwrap()["matching"].is_object());
+        let fingerprint = recording_identity_fingerprint(&track).unwrap();
+        remember_verified_source(
+            &store,
+            &track,
+            &candidate,
+            &audio,
+            Some(&proof),
+            Some(&fingerprint),
+        );
+        let mapping = store
+            .verified_playback_source(&track.id, &fingerprint, "youtube")
+            .unwrap()
+            .unwrap();
+        let proof_json = mapping.verification_proof.as_ref().unwrap();
+        assert_eq!(proof_json.as_object().unwrap().len(), 6);
+        let mut restored = remembered_candidate(&track, &mapping).unwrap();
+        policy_matching::restore_evidence(&store, &track, &mut restored, level);
+        assert_eq!(
+            restored.source_metadata.as_ref().unwrap()["channel"],
+            "John Denver - Topic"
+        );
+        assert_eq!(
+            restored.source_metadata.as_ref().unwrap()["channelId"],
+            "UC-cnCe5zradDZlcI8YZboBg"
+        );
+        assert!(policy_matching::cached_direct_allowed(
+            &store, &track, &restored, level
+        ));
+        assert!(direct_youtube_mapped_anchors(&track, &restored, Some(proof_json), 2).is_some());
+
+        let mut other_level = restored.clone();
+        policy_matching::restore_evidence(
+            &store,
+            &track,
+            &mut other_level,
+            crate::recording_match::MatchLevel::Flexible,
+        );
+        assert!(!policy_matching::cached_direct_allowed(
+            &store,
+            &track,
+            &other_level,
+            crate::recording_match::MatchLevel::Flexible,
+        ));
     }
 
     #[test]
