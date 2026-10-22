@@ -8372,8 +8372,7 @@ impl AcquisitionManager {
                 .is_some_and(|id| !job.candidate.formats.iter().any(|format| &format.id == id))
             {
                 return Err(
-                    "Selected audio format is no longer available; inspect and choose again"
-                        .into(),
+                    "Selected audio format is no longer available; inspect and choose again".into(),
                 );
             }
             let same_candidate = job.candidate.clone();
@@ -10159,7 +10158,10 @@ mod tests {
         .unwrap();
         assert!(uploader_only.artist.is_empty());
         assert_eq!(uploader_only.album, None);
-        assert!(uploader_only.provenance.get("sourceReportedMetadata").is_none());
+        assert!(uploader_only
+            .provenance
+            .get("sourceReportedMetadata")
+            .is_none());
 
         candidate.source_metadata = Some(serde_json::json!({
             "sourceMetadataOrigin":"ytDlpFullInfo",
@@ -10176,7 +10178,10 @@ mod tests {
         .unwrap();
         assert!(mismatched_id.artist.is_empty());
         assert_eq!(mismatched_id.album, None);
-        assert!(mismatched_id.provenance.get("sourceReportedMetadata").is_none());
+        assert!(mismatched_id
+            .provenance
+            .get("sourceReportedMetadata")
+            .is_none());
 
         candidate.source_metadata = Some(serde_json::json!({
             "sourceMetadataOrigin":"ytDlpFullInfo",
@@ -14377,9 +14382,7 @@ mod tests {
         let duplicate_aliases = duplicate_tracks
             .iter()
             .map(|track| {
-                crate::artist_credit_aliases::cached_verified_playback_artist_aliases(
-                    &store, track,
-                )
+                crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, track)
             })
             .collect::<Vec<_>>();
         let mut unnumbered = candidates[0].clone();
@@ -14400,9 +14403,10 @@ mod tests {
             "sourceMetadataOrigin":"slskdFilename",
             "filenameObservations":crate::recording_filename::filename_observations(&filename, rows[0].0),
         }));
-        assert!(unnumbered.source_metadata.as_ref().unwrap()["filenameObservations"]
-            ["trackNumber"]
-            .is_null());
+        assert!(
+            unnumbered.source_metadata.as_ref().unwrap()["filenameObservations"]["trackNumber"]
+                .is_null()
+        );
         let mut duplicate_assessment_context =
             crate::recording_match_context::AssessmentContext::default();
         for (track, aliases) in duplicate_tracks.iter().zip(&duplicate_aliases) {
@@ -14418,7 +14422,10 @@ mod tests {
                 aliases.release_runtime_variants(),
                 &mut duplicate_assessment_context,
             );
-            assert_eq!(assessment.action, crate::recording_match::MatchAction::Accept);
+            assert_eq!(
+                assessment.action,
+                crate::recording_match::MatchAction::Accept
+            );
             assert_eq!(
                 assessment.dimensions.title,
                 crate::recording_match::Comparison::Agree

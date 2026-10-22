@@ -1678,7 +1678,9 @@ impl AutoTagger {
             .iter()
             .any(|field| asset.track.provenance["manualFields"][field] == true)
         {
-            return Err("A manually tagged field cannot be replaced by recognition metadata".into());
+            return Err(
+                "A manually tagged field cannot be replaced by recognition metadata".into(),
+            );
         }
 
         let settings = self.store.settings().map_err(|e| e.to_string())?;
@@ -1690,7 +1692,9 @@ impl AutoTagger {
             || updated.track.provider_id != asset.track.provider_id
             || updated.track.source_url != asset.track.source_url
         {
-            return Err("Recognition tagging unexpectedly changed the library recording identity".into());
+            return Err(
+                "Recognition tagging unexpectedly changed the library recording identity".into(),
+            );
         }
 
         job.input_hash = updated.hash.clone();
@@ -2373,7 +2377,11 @@ fn recognition_metadata(
     let mut approved = approved_fields.to_vec();
     approved.sort();
     approved.dedup();
-    if approved.is_empty() || approved.iter().any(|field| !FIELDS.contains(&field.as_str())) {
+    if approved.is_empty()
+        || approved
+            .iter()
+            .any(|field| !FIELDS.contains(&field.as_str()))
+    {
         return Err("Recognition review supports artist, title, and ISRC only".into());
     }
     if recognition.provider != "songrec" || recognition.excerpt_count < 2 {

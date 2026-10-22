@@ -424,12 +424,11 @@ impl DirectoryBrowser {
                 let asset = match asset {
                     Some(asset)
                         if self.asset_is_current_for_browse(
-                            &root,
-                            &relative,
-                            &path,
-                            &text,
-                            &asset,
-                        ) => Some(asset),
+                            &root, &relative, &path, &text, &asset,
+                        ) =>
+                    {
+                        Some(asset)
+                    }
                     _ => None,
                 };
                 let (asset_id, track) = match asset {
@@ -2263,8 +2262,7 @@ mod tests {
         // preserving the stored hash, journal, and recording provenance.
         let original_hash = asset.hash.clone();
         asset.track.provenance["retagJournalId"] = serde_json::json!("journal-1");
-        asset.track.provenance["identityStatus"] =
-            serde_json::json!("source_reported_unverified");
+        asset.track.provenance["identityStatus"] = serde_json::json!("source_reported_unverified");
         let future = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
         fs::File::open(&path)
             .unwrap()
@@ -2294,7 +2292,11 @@ mod tests {
             .unwrap()
             .remove("directoryBrowserFingerprint");
         assert!(!stamp_registered_asset_fingerprint(&manager.inner.store, &mut asset).unwrap());
-        assert!(asset.track.provenance.get("directoryBrowserFingerprint").is_none());
+        assert!(asset
+            .track
+            .provenance
+            .get("directoryBrowserFingerprint")
+            .is_none());
     }
     #[test]
     fn legacy_asset_verifies_hash_on_first_browse_then_reuses_metadata_and_exact_asset() {
