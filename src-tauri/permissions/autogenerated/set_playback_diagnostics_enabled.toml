@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-playback-diagnostics-enabled"
+description = "Enables the set_playback_diagnostics_enabled command without any pre-configured scope."
+commands.allow = ["set_playback_diagnostics_enabled"]
+
+[[permission]]
+identifier = "deny-set-playback-diagnostics-enabled"
+description = "Denies the set_playback_diagnostics_enabled command without any pre-configured scope."
+commands.deny = ["set_playback_diagnostics_enabled"]

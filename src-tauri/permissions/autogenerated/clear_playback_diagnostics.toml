@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-playback-diagnostics"
+description = "Enables the clear_playback_diagnostics command without any pre-configured scope."
+commands.allow = ["clear_playback_diagnostics"]
+
+[[permission]]
+identifier = "deny-clear-playback-diagnostics"
+description = "Denies the clear_playback_diagnostics command without any pre-configured scope."
+commands.deny = ["clear_playback_diagnostics"]

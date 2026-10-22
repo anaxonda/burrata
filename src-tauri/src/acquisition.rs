@@ -4993,6 +4993,29 @@ fn validate_bandcamp_tail_probe(
     Ok(())
 }
 
+fn preview_redirect_host_class(url: Option<&url::Url>) -> &'static str {
+    let Some(url) = url else {
+        return "invalid";
+    };
+    let Some(host) = url.host_str() else {
+        return "invalid";
+    };
+    if url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && (host == "googlevideo.com" || host.ends_with(".googlevideo.com"))
+    {
+        "googlevideo"
+    } else if matches!(
+        host,
+        "accounts.google.com" | "consent.youtube.com" | "consent.google.com"
+    ) {
+        "account"
+    } else {
+        "other"
+    }
+}
+
 async fn send_preview_range(
     client: &reqwest::Client,
     stream: &url::Url,
@@ -5036,6 +5059,24 @@ async fn send_preview_range(
             trace.event("stream_probe_end", provider, serde_json::json!({"role":role,"attempt":attempt+1,"durationMs":probe_started.elapsed().as_millis(),"ok":response_result.is_ok(),"status":response_result.as_ref().ok().map(|r| r.status().as_u16()),"errorClass":error_class}));
         }
         let response = response_result?;
+        if response.status().is_redirection() {
+            if let Some(trace) = &trace {
+                let destination = response
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| stream.join(value).ok());
+                trace.event(
+                    "stream_redirect",
+                    provider,
+                    serde_json::json!({
+                        "status":response.status().as_u16(),"role":role,
+                        "sourceHostClass":preview_redirect_host_class(Some(stream)),
+                        "destinationHostClass":preview_redirect_host_class(destination.as_ref())
+                    }),
+                );
+            }
+        }
         if attempt == 0 && provider != "bandcamp" {
             let Some(delay) = preview_access_retry_delay(response.status()) else {
                 return Ok(response);

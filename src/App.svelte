@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PlaybackDiagnosticsSettings from "./PlaybackDiagnosticsSettings.svelte";
   import { WebviewNextCandidatePrefetch } from "./lib/webview-next-candidate-prefetch";
   import {dispatchQueueUi,queueUiMoves,type QueueUiAction,type QueueUiResult} from './lib/queue-ui-automation';
   import { createWebviewMediaEventRecorder } from "./lib/webview-media-events";
@@ -5820,6 +5821,10 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       setNotice("Music folder saved.");
     });
   }
+  async function savePlaybackDiagnosticsEnabled(enabled: boolean) {
+    await call("set_playback_diagnostics_enabled", {enabled});
+    settings = {...settings, playbackDiagnosticsEnabled:enabled};
+  }
   async function saveSettingsFields(keys: (keyof Settings)[], message: string) {
     const changes = Object.fromEntries(keys.map(key=>[key,settings[key]]));
     await run(async()=>{
@@ -6500,6 +6505,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
         {/if}{#if settingsCategory === "connections"}<AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} /><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void searchProviderPlaylists(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
         {/if}{#if settingsCategory === "advanced"}<details class="settings-advanced" open><summary><strong>Tools & diagnostics</strong><span>Executable paths and dependency checks</span></summary>
+          <PlaybackDiagnosticsSettings {call} enabled={settings.playbackDiagnosticsEnabled === true} onEnabledChange={savePlaybackDiagnosticsEnabled} />
           <ToolSetup {settings} {dependencies} onChange={(value)=>(settings=value)} onCheck={()=>void run(async()=>(dependencies=await call<Dependency[]>("check_dependencies")))} onSave={()=>void saveSettingsFields(["ytDlpPath","ffmpegPath","ffprobePath","jsRuntimePath"],"Tool paths saved.")} checking={busy>0} />
         </details>
         {/if}{#if settingsCategory === "integrations"}<details class="settings-advanced" open><summary><strong>AI control</strong><span>Local MCP connections and permissions</span></summary>

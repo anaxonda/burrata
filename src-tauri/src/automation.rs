@@ -6291,6 +6291,22 @@ impl AutomationService {
                     crate::recording_match::MatchStage::Resolved,
                 ))
             }
+            "get_playback_diagnostics_status" => json!(crate::playback_diagnostics::status()),
+            "get_playback_diagnostics_report" => json!(crate::playback_diagnostics::export()),
+            "clear_playback_diagnostics" => json!(crate::playback_diagnostics::clear()),
+            "set_playback_diagnostics_enabled" => {
+                let enabled = a
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| ToolError::bad("enabled is required"))?;
+                let mut settings = self.store.settings().map_err(ToolError::failed)?;
+                settings.playback_diagnostics_enabled = enabled;
+                self.store
+                    .save_settings(&settings)
+                    .map_err(ToolError::failed)?;
+                crate::playback_diagnostics::set_enabled(enabled);
+                json!(crate::playback_diagnostics::status())
+            }
             "start_slskd_search" => {
                 json!({"searchId":self.acquisition.start_slskd_search(&str_arg(&a,"query",500)?).await.map_err(ToolError::failed)?})
             }
@@ -6751,6 +6767,8 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "search_audio_sources"
         | "inspect_audio_source"
         | "assess_download_source"
+        | "get_playback_diagnostics_status"
+        | "get_playback_diagnostics_report"
         | "download_jobs"
         | "analysis_status"
         | "search_playback_history"
@@ -6826,6 +6844,8 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "download_loaded_catalog_release_album"
         | "download_loaded_local_playlist"
         | "retry_download"
+        | "set_playback_diagnostics_enabled"
+        | "clear_playback_diagnostics"
         | "cancel_download"
         | "analyze_library"
         | "retry_autotag"
@@ -7752,7 +7772,7 @@ fn tool_definitions() -> Vec<Value> {
  ("cancel_playing_track_identification","Cancel one native or WebView audio identification request by its captureId UUID", "control"),
  ("play_tracks_queued","Accept an exact playback queue without waiting for sound; caller UUID permits receipt recovery", "control"),("get_playback_operation","Get queued playback operation status by caller UUID", "control"),("cancel_playback_operation","Cancel only the named playback operation; supports pre-cancel", "control"),
  ("playback_state","Get player state", "control"),("play_tracks","Play specific track IDs", "control"),("pause_playback","Pause playback", "control"),("resume_playback","Resume playback", "control"),("queue_tracks","Queue specific track IDs", "control"),("seek_playback","Seek in seconds", "control"),("set_volume","Set volume from 0 to 1", "control"),("create_playlist","Create a playlist", "control"),("add_tracks_to_playlist","Append track IDs to a playlist", "control"),
- ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().map(|(name,description,_scope)|{
+ ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("get_playback_diagnostics_status","Read bounded playback diagnostic logging status", "read"),("get_playback_diagnostics_report","Read sanitized opt-in playback diagnostic events", "read"),("set_playback_diagnostics_enabled","Enable or disable opt-in playback diagnostic logging", "manage"),("clear_playback_diagnostics","Clear captured playback diagnostic events", "manage"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().map(|(name,description,_scope)|{
  let scope=tool_scope(name).unwrap_or("read");
  let (properties,required)=match name{
  "preview_verification_playlist_intent"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]}}),json!(["provider"])),
@@ -7818,7 +7838,7 @@ fn tool_definitions() -> Vec<Value> {
  "get_playback_operation"|"cancel_playback_operation"=>(json!({"operationId":{"type":"string","format":"uuid","minLength":36,"maxLength":36}}),json!(["operationId"])),
  "play_tracks"=>(json!({"trackIds":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"string"}}}),json!(["trackIds"])),"queue_tracks"=>(json!({"trackIds":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"string"}},"mode":{"type":"string","enum":["append","replace","next"]}}),json!(["trackIds"])),"seek_playback"=>(json!({"position":{"type":"number","minimum":0}}),json!(["position"])),"set_volume"=>(json!({"volume":{"type":"number","minimum":0,"maximum":1}}),json!(["volume"])),
  "create_playlist"=>(json!({"name":{"type":"string"},"idempotencyKey":{"type":"string"}}),json!(["name"])),"add_tracks_to_playlist"=>(json!({"playlistId":{"type":"string"},"trackIds":{"type":"array","items":{"type":"string"}},"idempotencyKey":{"type":"string"}}),json!(["playlistId","trackIds"])),
- "search_audio_sources"=>(json!({"trackId":{"type":"string"},"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["youtube","soundcloud","monochrome"]}}}),json!(["providers"])),"inspect_audio_source"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"}}),json!(["trackId","candidate"])),"assess_download_source"=>(json!({"trackId":{"type":"string","minLength":1,"maxLength":300},"candidate":{"type":"object","description":"Explicit provider candidate; track identity is loaded from the saved library entry"}}),json!(["trackId","candidate"])),"start_slskd_search"=>(json!({"query":{"type":"string"}}),json!(["query"])),"get_slskd_search"|"cancel_slskd_search"=>(json!({"searchId":{"type":"string"}}),json!(["searchId"])),"download_candidate"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"},"formatId":{"type":"string"},"outputProfile":{"type":"string","enum":["source","mp3"]},"chapterIds":{"type":"array","items":{"type":"string"}},"disposition":{"type":"object","properties":{"mode":{"type":"string","enum":["keep","replace"]},"targetAssetId":{"type":"string"},"expectedHash":{"type":"string"}},"required":["mode"],"additionalProperties":false},"idempotencyKey":{"type":"string"}}),json!(["trackId","candidate"])),
+ "search_audio_sources"=>(json!({"trackId":{"type":"string"},"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["youtube","soundcloud","monochrome"]}}}),json!(["providers"])),"inspect_audio_source"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"}}),json!(["trackId","candidate"])),"assess_download_source"=>(json!({"trackId":{"type":"string","minLength":1,"maxLength":300},"candidate":{"type":"object","description":"Explicit provider candidate; track identity is loaded from the saved library entry"}}),json!(["trackId","candidate"])),"set_playback_diagnostics_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),"start_slskd_search"=>(json!({"query":{"type":"string"}}),json!(["query"])),"get_slskd_search"|"cancel_slskd_search"=>(json!({"searchId":{"type":"string"}}),json!(["searchId"])),"download_candidate"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"},"formatId":{"type":"string"},"outputProfile":{"type":"string","enum":["source","mp3"]},"chapterIds":{"type":"array","items":{"type":"string"}},"disposition":{"type":"object","properties":{"mode":{"type":"string","enum":["keep","replace"]},"targetAssetId":{"type":"string"},"expectedHash":{"type":"string"}},"required":["mode"],"additionalProperties":false},"idempotencyKey":{"type":"string"}}),json!(["trackId","candidate"])),
  "retry_download"|"cancel_download"=>(json!({"jobId":{"type":"string"}}),json!(["jobId"])),"download_jobs"|"analysis_status"=>(json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),"export_mixxx_playlist"=>(json!({"playlistId":{"type":"string"}}),json!(["playlistId"])),"analyze_library"=>(json!({"assetIds":{"type":"array","items":{"type":"string"}},"force":{"type":"boolean"}}),json!([])),_ => (json!({}),json!([]))};
  let mut input_schema=json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
  if name=="search_radio_stations" { input_schema["properties"]["query"]["maxLength"]=json!(100); input_schema["anyOf"]=json!([{"required":["query"]},{"required":["country"]},{"required":["tag"]}]); }

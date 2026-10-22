@@ -58,6 +58,11 @@
     "allow-retry-download",
     "allow-list-jobs",
     "allow-get-settings",
+    "allow-get-playback-diagnostics-status",
+    "allow-set-playback-diagnostics-enabled",
+    "allow-clear-playback-diagnostics",
+    "allow-export-playback-diagnostics",
+
     "allow-get-diagnostics",
     "allow-save-settings",
     "allow-check-dependencies",

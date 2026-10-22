@@ -52,6 +52,8 @@ pub mod native_output;
 mod opus_experiment;
 pub mod pcm_tap;
 pub mod playback;
+pub mod playback_diagnostics;
+mod playback_diagnostics_context;
 pub mod playback_failure;
 pub mod playback_history;
 pub mod playback_radio;
@@ -5207,6 +5209,65 @@ fn get_diagnostics(state: State<'_, AppState>) -> Vec<String> {
         .unwrap_or_default()
 }
 #[tauri::command]
+fn get_playback_diagnostics_status() -> playback_diagnostics::DiagnosticsStatus {
+    playback_diagnostics::status()
+}
+#[tauri::command]
+fn set_playback_diagnostics_enabled(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<playback_diagnostics::DiagnosticsStatus> {
+    let mut settings = state.store.settings()?;
+    settings.playback_diagnostics_enabled = enabled;
+    state.store.save_settings(&settings)?;
+    playback_diagnostics::set_enabled(enabled);
+    Ok(playback_diagnostics::status())
+}
+#[tauri::command]
+fn clear_playback_diagnostics() -> playback_diagnostics::DiagnosticsStatus {
+    playback_diagnostics::clear()
+}
+#[tauri::command]
+async fn export_playback_diagnostics(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value> {
+    use tauri_plugin_dialog::DialogExt;
+    let settings = state.store.settings()?;
+    let diagnostics = playback_diagnostics::export();
+    let playback_context = playback_diagnostics_context::project(
+        &state.playback.snapshot_page(0, 1),
+        tools::target_triple(),
+    );
+    let count = diagnostics.status.event_count;
+    let helpers = acquisition::check_dependencies(&settings).await.into_iter().map(|dependency| {
+        let version = dependency.version.as_deref().and_then(playback_diagnostics::numeric_helper_version);
+        serde_json::json!({"name":dependency.name,"available":dependency.available,"version":version})
+    }).collect::<Vec<_>>();
+    let report = serde_json::json!({"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
+    tauri::async_runtime::spawn_blocking(move || {
+        let picked = app
+            .dialog()
+            .file()
+            .set_title("Export playback diagnostic report")
+            .add_filter("JSON report", &["json"])
+            .set_file_name("burrata-playback-diagnostics.json")
+            .blocking_save_file();
+        let Some(picked) = picked else {
+            return Ok(serde_json::json!({"cancelled":true}));
+        };
+        let path = picked
+            .into_path()
+            .map_err(|_| "Chosen report path is unavailable".to_owned())?;
+        let bytes = serde_json::to_vec_pretty(&report)
+            .map_err(|_| "Could not serialize diagnostic report".to_owned())?;
+        std::fs::write(&path, bytes).map_err(|_| "Could not write diagnostic report".to_owned())?;
+        Ok(serde_json::json!({"cancelled":false,"path":path.to_string_lossy(),"eventCount":count}))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+#[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> Result<Settings> {
     state.store.settings()
 }
@@ -5276,7 +5337,9 @@ fn save_settings(
     if !settings.background_source_preparation {
         source_preparation::yield_to_playback();
     }
-    state.store.save_settings(&settings)
+    state.store.save_settings(&settings)?;
+    playback_diagnostics::set_enabled(settings.playback_diagnostics_enabled);
+    Ok(())
 }
 #[tauri::command]
 async fn get_song_radio(
@@ -5980,6 +6043,7 @@ pub fn run() {
                 candidate_preview::enable_candidate_autoplay(&window).map_err(std::io::Error::other)?;
             }
             let settings = store.settings().map_err(std::io::Error::other)?;
+            playback_diagnostics::set_enabled(settings.playback_diagnostics_enabled);
             let history = Arc::new(playback_history::PlaybackHistory::open(&dir.join("playback-history.sqlite")).map_err(std::io::Error::other)?);
             let mut diagnostics=Vec::new();
             startup_mark("store.recovery.begin");
@@ -6285,6 +6349,11 @@ pub fn run() {
             retry_download,
             list_jobs,
             get_settings,
+            get_playback_diagnostics_status,
+            set_playback_diagnostics_enabled,
+            clear_playback_diagnostics,
+            export_playback_diagnostics,
+
             get_diagnostics,
             save_settings,
             check_dependencies,

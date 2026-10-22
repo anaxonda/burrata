@@ -206,6 +206,7 @@ pub(crate) struct SourceTrace {
     id: uuid::Uuid,
     started: Instant,
     enabled: bool,
+    environment_enabled: bool,
     native_operation_id: Option<String>,
     native_seek_operation_id: Option<String>,
     webview_generation: Option<u64>,
@@ -232,10 +233,13 @@ impl SourceTrace {
                     })
             })
         }
+        let environment_enabled =
+            std::env::var("BURRATA_PLAYBACK_TRACE").is_ok_and(|value| value == "1");
         Self {
             id: uuid::Uuid::new_v4(),
             started: Instant::now(),
-            enabled: std::env::var("BURRATA_PLAYBACK_TRACE").is_ok_and(|value| value == "1"),
+            enabled: environment_enabled || crate::playback_diagnostics::is_enabled(),
+            environment_enabled,
             native_operation_id: safe_id(native_operation_id),
             native_seek_operation_id: safe_id(native_seek_operation_id),
             webview_generation,
@@ -285,7 +289,7 @@ impl SourceTrace {
         if self.test_sink.is_some() {
             return true;
         }
-        self.enabled
+        self.enabled || crate::playback_diagnostics::is_enabled()
     }
 
     pub(crate) fn elapsed_ms(&self) -> u128 {
@@ -299,7 +303,7 @@ impl SourceTrace {
     }
 
     pub(crate) fn event(&self, phase: &'static str, provider: &str, details: Value) {
-        if !self.enabled {
+        if !self.is_enabled() {
             #[cfg(test)]
             if let Some(sink) = &self.test_sink {
                 sink(self.payload(phase, provider, details));
@@ -309,11 +313,16 @@ impl SourceTrace {
         // Callers supply bounded categorical enums, counts, timings and booleans.
         // Never record source URLs, titles, IDs, subprocess arguments or errors.
         let payload = self.payload(phase, provider, details);
+        if crate::playback_diagnostics::is_enabled() {
+            crate::playback_diagnostics::record_safe_event(payload.clone());
+        }
         #[cfg(test)]
         if let Some(sink) = &self.test_sink {
             sink(payload.clone());
         }
-        eprintln!("burrata_playback_phase {}", payload);
+        if self.environment_enabled {
+            eprintln!("burrata_playback_phase {}", payload);
+        }
     }
 
     pub(crate) fn event_scoped(&self, phase: &'static str, details: Value) {
@@ -324,13 +333,18 @@ impl SourceTrace {
             "youtube" | "soundcloud" | "monochrome" => provider,
             _ => "other",
         };
+        let phase = if crate::playback_diagnostics::phase_is_allowed(phase) {
+            phase
+        } else {
+            "other"
+        };
         json!({"resolutionId":self.id.to_string(),
             "nativeOperationId":self.native_operation_id,
             "nativeSeekOperationId":self.native_seek_operation_id,
             "webviewGeneration":self.webview_generation,
             "sharedLookupId":self.shared_lookup_id.map(|id| id.to_string()),
             "atUnixMs":chrono::Utc::now().timestamp_millis(),"elapsedMs":self.started.elapsed().as_millis(),
-            "phase":phase,"provider":provider,"details":details})
+            "phase":phase,"provider":provider,"details":crate::playback_diagnostics::sanitize_details(details)})
     }
 }
 
@@ -376,6 +390,8 @@ impl ResolutionTraceGuard {
                 "ok": result.is_ok(),
                 "cancelled": result.as_ref().err().is_some_and(|error| error == "Cancelled"),
                 "deadline": is_resolver_deadline_error(result),
+                "category": result.as_ref().err().map(|error|crate::playback_failure::classify(error).category),
+                "httpStatus": result.as_ref().err().and_then(|error|crate::playback_failure::classify(error).http_status),
             }),
         );
     }
@@ -1915,7 +1931,7 @@ where
         return Ok(None);
     }
     let started = Instant::now();
-    trace.event("direct_youtube_start", "youtube", json!({"budgetMs":opportunity.remaining().as_millis(),"attemptsUsed":trace.extraction_attempts_used()}));
+    trace.event("direct_youtube_start", "youtube", json!({"budgetMs":opportunity.remaining().as_millis(),"attemptsUsed":trace.extraction_attempts_used(),"sourceFingerprint":source_diagnostic_fingerprint(candidate)}));
     let operation = async {
         let id = candidate
             .id
@@ -1931,7 +1947,7 @@ where
             trace.event(
                 "direct_youtube_failure",
                 "youtube",
-                json!({"code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status}),
+                json!({"code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status,"sourceFingerprint":source_diagnostic_fingerprint(candidate)}),
             );
             if failure.code == "CANCELLED" {
                 "Cancelled".to_owned()
@@ -1973,7 +1989,7 @@ where
         _ = tokio::time::sleep_until(opportunity.instant()) => Err("Direct source opportunity elapsed".to_owned()),
         result = &mut operation => result,
     };
-    trace.event("direct_youtube_end", "youtube", json!({"ok":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),"attemptsUsed":trace.extraction_attempts_used()}));
+    trace.event("direct_youtube_end", "youtube", json!({"ok":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),"attemptsUsed":trace.extraction_attempts_used(),"sourceFingerprint":source_diagnostic_fingerprint(candidate)}));
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
@@ -2144,7 +2160,8 @@ where
         "youtube",
         json!({
             "budgetMs":opportunity.remaining().as_millis(),
-            "attemptsUsed":trace.extraction_attempts_used()
+            "attemptsUsed":trace.extraction_attempts_used(),
+            "sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
         }),
     );
     let operation = async {
@@ -2159,7 +2176,8 @@ where
                 "mapped_direct_youtube_failure",
                 "youtube",
                 json!({
-                    "code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status
+                    "code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status,
+                    "sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
                 }),
             );
             if failure.code == "CANCELLED" {
@@ -2210,7 +2228,8 @@ where
         "youtube",
         json!({
             "ok":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),
-            "attemptsUsed":trace.extraction_attempts_used()
+            "attemptsUsed":trace.extraction_attempts_used(),
+            "sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
         }),
     );
     if *cancel.borrow() {
@@ -3162,7 +3181,7 @@ async fn resolve_serial(
             trace.event(
                 "extract_and_validate_start",
                 &provider,
-                json!({"attempt":attempt+1}),
+                json!({"attempt":attempt+1,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
             );
             let prepared_alternate = std::sync::Arc::new(std::sync::Mutex::new(None));
             let resolved = async {
@@ -3197,6 +3216,8 @@ async fn resolve_serial(
                     );
                     let identity_ok = proof.is_some();
                     trace.event("full_identity_check", &provider, json!({"ok":identity_ok,
+                        "sourceFingerprint":source_diagnostic_fingerprint(&candidate),
+                        "trackFingerprint":recording_identity_fingerprint(track),
                         "providerIdMatches":audio.resolved_provider_id.as_deref().is_some_and(|id|candidate.id.split_once(':').map(|(_,value)|value)==Some(id)),
                         "resolvedTitlePresent":audio.resolved_title.as_ref().is_some_and(|title|!title.is_empty()),
                         "catalogDuration":track.duration_seconds,"resolvedDuration":audio.duration_seconds,
@@ -3225,7 +3246,7 @@ async fn resolve_serial(
             trace.event(
                 "extract_and_validate_end",
                 &provider,
-                json!({"attempt":attempt+1,"ok":resolved.is_ok()}),
+                json!({"attempt":attempt+1,"ok":resolved.is_ok(),"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
             );
             match resolved {
                 Ok((audio, proof)) => {
@@ -3385,7 +3406,7 @@ async fn resolve_serial(
                     trace.event(
                         "extract_and_validate_end",
                         &provider,
-                        json!({"attempt":attempt+1,"ok":false}),
+                        json!({"attempt":attempt+1,"ok":false,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
                     );
                     failures.record(error);
                 }
@@ -5023,6 +5044,25 @@ fn recording_identity_fingerprint(track: &Track) -> Option<String> {
     Some(format!("{:x}", Sha256::digest(bytes)))
 }
 
+/// Correlate diagnostic events for one provider candidate without exporting its
+/// provider ID, title, URL, or other source metadata.
+fn source_diagnostic_fingerprint(candidate: &Candidate) -> Option<String> {
+    source_diagnostic_fingerprint_parts(&candidate.provider, &candidate.id)
+}
+
+fn source_diagnostic_fingerprint_parts(provider: &str, id: &str) -> Option<String> {
+    if provider.len() > 64 || id.is_empty() || id.len() > 2048 {
+        return None;
+    }
+    let canonical_prefix = format!("{provider}:");
+    let id = id.strip_prefix(&canonical_prefix).unwrap_or(id);
+    let mut digest = Sha256::new();
+    digest.update(provider.as_bytes());
+    digest.update([0]);
+    digest.update(id.as_bytes());
+    Some(format!("{:x}", digest.finalize()))
+}
+
 fn remembered_candidate(
     track: &Track,
     source: &crate::storage::VerifiedPlaybackSource,
@@ -5285,6 +5325,12 @@ fn overrides_import_url(track: &Track, settings: &Settings) -> bool {
 fn should_retry_same_candidate(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     if error == "cancelled" || error.contains("not found") {
+        return false;
+    }
+    // A media 3xx is a transport redirect, not an indication that the selected
+    // audio format is unusable. Let the identity-gated same-ID AAC recovery
+    // handle it instead of spending the generic alternate-format attempt.
+    if explicit_redirect_status(&error).is_some() {
         return false;
     }
     let failure = crate::playback_failure::classify(&error);
@@ -10171,6 +10217,11 @@ mod tests {
         ] {
             assert!(should_retry_same_candidate(error), "{error}");
         }
+        for status in [301, 302, 303, 307, 308] {
+            let error = format!("Audio source denied stream access (HTTP {status})");
+            assert_eq!(explicit_redirect_status(&error), Some(status));
+            assert!(!should_retry_same_candidate(&error), "{error}");
+        }
         for error in [
             "Cancelled",
             "Track not found: id",
@@ -10179,6 +10230,20 @@ mod tests {
         ] {
             assert!(!should_retry_same_candidate(error), "{error}");
         }
+    }
+
+    #[test]
+    fn redirect_failure_is_preserved_when_later_candidate_budget_is_exhausted() {
+        let redirect = "Audio source denied stream access (HTTP 302)";
+        assert!(!should_retry_same_candidate(redirect));
+
+        // The serial resolver can reach another candidate after this failure;
+        // if its shared extraction budget is spent, the first concrete source
+        // failure remains the reported cause rather than budget exhaustion.
+        let mut failures = SerialResolutionFailures::default();
+        failures.record(redirect.into());
+        failures.record(EXTRACTION_ATTEMPTS_EXHAUSTED.into());
+        assert_eq!(failures.finish(false), redirect);
     }
 }
 

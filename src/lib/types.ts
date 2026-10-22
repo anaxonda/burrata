@@ -220,6 +220,7 @@ export interface Collection {
 export interface Settings {
   musicDirectory: string;
   autoPreview: boolean;
+  playbackDiagnosticsEnabled?: boolean;
   matchingLevel?: "exact" | "balanced" | "flexible";
   pauseOnSourceOpen?: boolean;
   sourceOpenAtPosition?: boolean;

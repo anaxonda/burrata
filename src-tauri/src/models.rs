@@ -332,6 +332,8 @@ pub struct Collection {
 pub struct Settings {
     pub music_directory: String,
     pub auto_preview: bool,
+    #[serde(default)]
+    pub playback_diagnostics_enabled: bool,
     #[serde(default = "default_matching_level")]
     pub matching_level: crate::recording_match::MatchLevel,
     #[serde(default)]
@@ -422,6 +424,7 @@ impl Default for Settings {
         Self {
             music_directory: String::new(),
             auto_preview: false,
+            playback_diagnostics_enabled: false,
             matching_level: default_matching_level(),
             pause_on_source_open: false,
             source_open_at_position: false,

@@ -542,6 +542,16 @@ fn apply_device_lost(state: &mut State, generation: u64, position: f64, reason: 
     true
 }
 
+#[derive(Clone)]
+struct NativeDecoderDiagnosticContext {
+    resolution_id: String,
+    native_operation_id: Option<String>,
+    provider: String,
+    generation: u64,
+    request_started: Instant,
+    decoder_started: Instant,
+}
+
 struct State {
     revision: u64,
     generation: u64,
@@ -618,6 +628,7 @@ struct State {
     output_ready: bool,
     preload: Option<Preloaded>,
     preload_cancel: Option<watch::Sender<bool>>,
+    native_decoder_diagnostic: Option<NativeDecoderDiagnosticContext>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -697,6 +708,7 @@ impl Default for State {
             output_ready: false,
             preload: None,
             preload_cancel: None,
+            native_decoder_diagnostic: None,
         }
     }
 }
@@ -1552,6 +1564,7 @@ impl PlaybackService {
         {
             return false;
         }
+        let decoder_diagnostic = state.native_decoder_diagnostic.take();
         if let Some(cancel) = state.cancel.take() {
             let _ = cancel.send(true);
         }
@@ -1578,6 +1591,14 @@ impl PlaybackService {
         // Keep the stop under the generation lock so a newer request cannot be stopped.
         let _ = self.inner.output.send(OutputCommand::Stop);
         drop(state);
+        if let Some(context) = decoder_diagnostic.as_ref() {
+            record_native_decoder_diagnostic(
+                context,
+                "decoder_end",
+                Some("deadline"),
+                Some("timeout"),
+            );
+        }
         self.publish();
         true
     }
@@ -2277,6 +2298,9 @@ impl PlaybackService {
             s.startup_budget = startup_budget;
             s.pause_when_ready = pause_when_ready;
             s.cancel = Some(tx);
+            // A superseded decoder attempt must never report against the next
+            // generation's operation or first-audio boundary.
+            s.native_decoder_diagnostic = None;
             s.last_buffering = None;
             s.status = "resolving".into();
             s.natural_queue_end = false;
@@ -2461,6 +2485,21 @@ impl PlaybackService {
                         if s.generation != g {
                             return;
                         }
+                        let decoder_diagnostic =
+                            crate::playback_diagnostics::is_enabled().then(|| {
+                                NativeDecoderDiagnosticContext {
+                                    resolution_id: uuid::Uuid::new_v4().to_string(),
+                                    native_operation_id: s.operation_id.clone(),
+                                    provider: candidate
+                                        .as_ref()
+                                        .map(|candidate| candidate.provider.clone())
+                                        .unwrap_or_else(|| track.provider.clone()),
+                                    generation: g,
+                                    request_started: s.request_started,
+                                    decoder_started: Instant::now(),
+                                }
+                            });
+                        s.native_decoder_diagnostic = decoder_diagnostic.clone();
                         s.source_ready_ms = Some(s.request_started.elapsed().as_millis() as u64);
                         s.operation_source_ready_ms = s
                             .operation_received_at
@@ -2484,6 +2523,9 @@ impl PlaybackService {
                             .inner
                             .output
                             .send(OutputCommand::Volume(volume as f32));
+                        if let Some(context) = decoder_diagnostic.as_ref() {
+                            record_native_decoder_diagnostic(context, "decoder_start", None, None);
+                        }
                         if let Err(message) = service.inner.output.send(OutputCommand::Load {
                             generation: g,
                             startup_deadline,
@@ -2497,6 +2539,14 @@ impl PlaybackService {
                         }) {
                             s.status = "failed".into();
                             s.message = message;
+                            if let Some(context) = s.native_decoder_diagnostic.take() {
+                                record_native_decoder_diagnostic(
+                                    &context,
+                                    "decoder_end",
+                                    Some("failed"),
+                                    Some("decoder"),
+                                );
+                            }
                         }
                     }
                     service.publish();
@@ -2780,6 +2830,7 @@ impl PlaybackService {
                 }
                 let pause_on_ready = s.pause_when_ready;
                 let restore_volume = s.volume;
+                let decoder_diagnostic = s.native_decoder_diagnostic.take();
                 self.inner
                     .audible
                     .send_replace(!pause_on_ready && s.volume > 0.);
@@ -2833,6 +2884,14 @@ impl PlaybackService {
                 }
                 s.revision += 1;
                 drop(s);
+                if let Some(context) = decoder_diagnostic.as_ref() {
+                    record_native_decoder_diagnostic(
+                        context,
+                        "decoder_end",
+                        Some("success"),
+                        Some("decoder"),
+                    );
+                }
                 self.publish();
                 if !pause_on_ready {
                     self.record_started();
@@ -2994,6 +3053,20 @@ impl PlaybackService {
             } => {
                 if !self.current(generation) && !self.adopt_preload(generation) {
                     return;
+                }
+                let decoder_diagnostic = {
+                    let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+                    (state.generation == generation)
+                        .then(|| state.native_decoder_diagnostic.take())
+                        .flatten()
+                };
+                if let Some(context) = decoder_diagnostic.as_ref() {
+                    record_native_decoder_diagnostic(
+                        context,
+                        "decoder_end",
+                        Some("failed"),
+                        Some("decoder"),
+                    );
                 }
                 self.recover_failure(generation, &message, RecoveryTrigger::OutputFailed);
             }
@@ -4462,6 +4535,46 @@ fn note_audio_started(state: &mut State) {
 
 fn native_operation_id() -> String {
     format!("native-{}", uuid::Uuid::new_v4())
+}
+
+fn native_decoder_diagnostic_payload(
+    context: &NativeDecoderDiagnosticContext,
+    phase: &str,
+    outcome: Option<&str>,
+    category: Option<&str>,
+) -> Value {
+    let mut details = json!({"generation": context.generation});
+    if phase == "decoder_end" {
+        details["durationMs"] = json!(context.decoder_started.elapsed().as_millis());
+    }
+    if let Some(outcome) = outcome {
+        details["outcome"] = json!(outcome);
+    }
+    if let Some(category) = category {
+        details["category"] = json!(category);
+    }
+    json!({
+        "resolutionId":context.resolution_id,
+        "nativeOperationId":context.native_operation_id,
+        "atUnixMs":chrono::Utc::now().timestamp_millis(),
+        "elapsedMs":context.request_started.elapsed().as_millis(),
+        "phase":phase,
+        "provider":context.provider,
+        "details":details,
+    })
+}
+
+fn record_native_decoder_diagnostic(
+    context: &NativeDecoderDiagnosticContext,
+    phase: &str,
+    outcome: Option<&str>,
+    category: Option<&str>,
+) {
+    if crate::playback_diagnostics::is_enabled() {
+        crate::playback_diagnostics::record_safe_event(native_decoder_diagnostic_payload(
+            context, phase, outcome, category,
+        ));
+    }
 }
 
 fn ensure_command_operation_id(id: Option<String>, action: &str) -> Option<String> {
@@ -6238,6 +6351,43 @@ mod tests {
             assert_eq!(state.seek_click_to_ipc_ms, Some(12));
             assert_eq!(state.seek_command_bytes, Some(88));
         }
+    }
+
+    #[test]
+    fn native_decoder_diagnostic_events_share_generation_and_operation_without_media_metadata() {
+        assert!(crate::playback_diagnostics::phase_is_allowed(
+            "decoder_start"
+        ));
+        assert!(crate::playback_diagnostics::phase_is_allowed("decoder_end"));
+        let context = NativeDecoderDiagnosticContext {
+            resolution_id: uuid::Uuid::new_v4().to_string(),
+            native_operation_id: Some("native-operation-123".into()),
+            provider: "youtube".into(),
+            generation: 27,
+            request_started: Instant::now() - Duration::from_millis(40),
+            decoder_started: Instant::now() - Duration::from_millis(12),
+        };
+        let start = native_decoder_diagnostic_payload(&context, "decoder_start", None, None);
+        let end = native_decoder_diagnostic_payload(
+            &context,
+            "decoder_end",
+            Some("success"),
+            Some("decoder"),
+        );
+        assert_eq!(start["resolutionId"], context.resolution_id);
+        assert_eq!(end["resolutionId"], context.resolution_id);
+        assert_eq!(start["nativeOperationId"], "native-operation-123");
+        assert_eq!(end["nativeOperationId"], start["nativeOperationId"]);
+        assert_eq!(start["details"]["generation"], 27);
+        assert_eq!(end["details"]["generation"], 27);
+        assert_eq!(start["phase"], "decoder_start");
+        assert_eq!(end["phase"], "decoder_end");
+        assert_eq!(end["details"]["outcome"], "success");
+        assert_eq!(end["details"]["category"], "decoder");
+        let encoded = serde_json::to_string(&json!([start, end])).unwrap();
+        assert!(!encoded.contains("title"));
+        assert!(!encoded.contains("url"));
+        assert!(!encoded.contains("error"));
     }
 
     #[test]
