@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "platform": "win32",
+  "target": "x86_64-pc-windows-msvc",
+  "installer": "Burrata_0.1.6_x64-setup.exe",
+  "status": "passed",
+  "checks": {
+    "installer": "installed",
+    "packagedTools": {
+      "node": {
+        "path": "tools\\x86_64-pc-windows-msvc\\node.exe",
+        "version": "v24.21.0"
+      },
+      "yt-dlp": {
+        "path": "tools\\x86_64-pc-windows-msvc\\yt-dlp.exe",
+        "version": "2026.10.10.233141"
+      },
+      "ffmpeg": {
+        "path": "tools\\x86_64-pc-windows-msvc\\ffmpeg.exe",
+        "version": "ffmpeg version 8.1.3 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      "ffprobe": {
+        "path": "tools\\x86_64-pc-windows-msvc\\ffprobe.exe",
+        "version": "ffprobe version 8.1.3 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      "fpcalc": {
+        "path": "tools\\x86_64-pc-windows-msvc\\fpcalc.exe",
+        "version": "fpcalc version 1.5.1 (FFmpeg Lavc58.134.100 Lavf58.76.100 SwR3.9.100)"
+      },
+      "recognizer": {
+        "path": "tools\\x86_64-pc-windows-msvc\\burrata-recognize.exe",
+        "started": "true"
+      },
+      "browserHost": {
+        "path": "tools\\x86_64-pc-windows-msvc\\burrata-browser-host.exe",
+        "protocol": "present"
+      }
+    },
+    "mediaFixtures": {
+      "ffmpeg": {
+        "path": "tools\\x86_64-pc-windows-msvc\\ffmpeg.exe",
+        "mp3": "encoded",
+        "opus": "encoded",
+        "analysisDecode": {
+          "mp3": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.118909
+          },
+          "opus": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.126433
+          }
+        }
+      },
+      "ffprobe": {
+        "path": "tools\\x86_64-pc-windows-msvc\\ffprobe.exe",
+        "mp3Tags": "read",
+        "opusTags": "read",
+        "pngCover": "attached and decoded"
+      }
+    },
+    "webviewAudioFixture": {
+      "codec": "aac",
+      "mimeType": "audio/mp4",
+      "durationSeconds": 4.0,
+      "registered": "isolated local asset"
+    },
+    "guiStartup": "automation discovery published",
+    "nativeHost": {
+      "path": "tools\\x86_64-pc-windows-msvc\\burrata-browser-host.exe",
+      "heartbeat": "accepted"
+    },
+    "mcp": {
+      "initialized": true,
+      "toolCount": 115,
+      "statusRunning": true,
+      "frontendMounted": true
+    },
+    "webviewAudio": {
+      "engine": "webview",
+      "previewKind": "local",
+      "clockAdvanceSeconds": 0.908,
+      "diagnostics": {
+        "initialReady": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "a5e13081-448b-45e3-beb0-da6f87ccc782",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.003767,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "firstProgress": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "a5e13081-448b-45e3-beb0-da6f87ccc782",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.616894,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "first": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "a5e13081-448b-45e3-beb0-da6f87ccc782",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.616894,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "second": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "a5e13081-448b-45e3-beb0-da6f87ccc782",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 1.524952,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "latest": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "queueTrackId": "local:9e6026c9fa6dfb9efcec127b0d3e94a86715b6b9d086ce4f0f4dff1bcbbe1a82",
+          "entryId": "a5e13081-448b-45e3-beb0-da6f87ccc782",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 1.524952,
+            "duration": 4,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                4
+              ]
+            ]
+          }
+        },
+        "sampling": {
+          "initialReadyElapsedMs": 11.346099999999979,
+          "firstProgressElapsedMs": 644.1875,
+          "firstSampleElapsedMs": 644.1875,
+          "secondSampleElapsedMs": 1551.0075999999997,
+          "latestSampleElapsedMs": 1551.0075999999997,
+          "betweenSamplesWallMs": 906.8200999999997,
+          "totalElapsedMs": 1551.2405999999999
+        }
+      }
+    }
+  },
+  "osSecurityPrompts": "not tested",
+  "installedLocation": "installed"
+}

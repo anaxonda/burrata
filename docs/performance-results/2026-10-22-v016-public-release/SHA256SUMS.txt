@@ -1,0 +1,7 @@
+8ec6d2a2dcbc7920cf03bd88d8b51134c1d1f1c7b0a0069d38bffc37549d7d2e  Burrata-0.1.6-1.x86_64.rpm
+ce4b8ee846a8f0477d8b7eabab27f228675693e7e54aaf85009ee1137c9603af  Burrata_0.1.6_aarch64.dmg
+c290f8ec67e482fa1ac584cec54e18fa23c6b4f44fe3ef89c3259a1175c3ad40  Burrata_0.1.6_amd64.AppImage
+a9927f9c6feee064c5a91bdd8fa2e4e3433cf329a1d28bb3bdcbb8ca4aeab2c4  Burrata_0.1.6_amd64.deb
+29d49a65fa0545120580b42c6d341fa59700aa7a6d4e6dfaf3ccaf9e77c3431d  Burrata_0.1.6_x64-setup.exe
+659bf2342ee7b5593b1c37209ba242fa3894647bb6ab7accf18af160e5adf7db  chrome-extension-0.2.3.zip
+9a8ba4f435c8f4485cfe1c5e2ffb93a904192dbfad02b7ae2c44e4560ea1b88b  firefox-extension-0.2.3.xpi

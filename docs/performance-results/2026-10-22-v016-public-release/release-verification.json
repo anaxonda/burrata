@@ -1,0 +1,61 @@
+{
+  "tag": "v0.1.6",
+  "sourceCommit": "4a9852af501660f795f07adf870b4d660c949f92",
+  "url": "https://github.com/anaxonda/burrata/releases/tag/v0.1.6",
+  "publishedAt": "2026-10-22T13:25:01Z",
+  "regular": true,
+  "latestVerified": true,
+  "ciRun": 39778740051,
+  "taggedRun": 39780975300,
+  "allRunsPassed": true,
+  "publicAssets": [
+    {
+      "name": "Burrata-0.1.6-1.x86_64.rpm",
+      "bytes": 253055699,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/Burrata-0.1.6-1.x86_64.rpm"
+    },
+    {
+      "name": "Burrata_0.1.6_aarch64.dmg",
+      "bytes": 173063049,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/Burrata_0.1.6_aarch64.dmg"
+    },
+    {
+      "name": "Burrata_0.1.6_amd64.AppImage",
+      "bytes": 382495224,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/Burrata_0.1.6_amd64.AppImage"
+    },
+    {
+      "name": "Burrata_0.1.6_amd64.deb",
+      "bytes": 252737462,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/Burrata_0.1.6_amd64.deb"
+    },
+    {
+      "name": "Burrata_0.1.6_x64-setup.exe",
+      "bytes": 341329724,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/Burrata_0.1.6_x64-setup.exe"
+    },
+    {
+      "name": "chrome-extension-0.2.3.zip",
+      "bytes": 94491,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/chrome-extension-0.2.3.zip"
+    },
+    {
+      "name": "firefox-extension-0.2.3.xpi",
+      "bytes": 130447,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/firefox-extension-0.2.3.xpi"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "bytes": 651,
+      "url": "https://github.com/anaxonda/burrata/releases/download/v0.1.6/SHA256SUMS.txt"
+    }
+  ],
+  "allEightPublicAssetsDownloaded": true,
+  "sevenPayloadSha256ChecksPassed": true,
+  "previousV015Preserved": true,
+  "limits": [
+    "Linux installed smoke uses DEB; RPM/AppImage built and checksummed.",
+    "Hosted installed smoke does not qualify Gatekeeper/SmartScreen or physical audibility.",
+    "Extended Monochrome lossless remains paused and excluded."
+  ]
+}

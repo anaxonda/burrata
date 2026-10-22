@@ -1,0 +1,294 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "target": "aarch64-apple-darwin",
+  "installer": "Burrata_0.1.6_aarch64.dmg",
+  "status": "passed",
+  "checks": {
+    "installer": "installed",
+    "transportSecurity": {
+      "loopbackHttpException": "127.0.0.1",
+      "broadExemptions": "absent"
+    },
+    "packagedTools": {
+      "node": {
+        "path": "tools/aarch64-apple-darwin/node",
+        "version": "v24.21.0"
+      },
+      "yt-dlp": {
+        "path": "tools/aarch64-apple-darwin/yt-dlp",
+        "version": "2026.10.10.233141"
+      },
+      "ffmpeg": {
+        "path": "tools/aarch64-apple-darwin/ffmpeg",
+        "version": "ffmpeg version 8.1.3 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      "ffprobe": {
+        "path": "tools/aarch64-apple-darwin/ffprobe",
+        "version": "ffprobe version 8.1.3 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      "fpcalc": {
+        "path": "tools/aarch64-apple-darwin/fpcalc",
+        "version": "fpcalc version 1.5.1 (FFmpeg Lavc58.134.100 Lavf58.76.100 SwR3.9.100)"
+      },
+      "recognizer": {
+        "path": "tools/aarch64-apple-darwin/burrata-recognize",
+        "started": "true"
+      },
+      "browserHost": {
+        "path": "tools/aarch64-apple-darwin/burrata-browser-host",
+        "protocol": "present"
+      }
+    },
+    "mediaFixtures": {
+      "ffmpeg": {
+        "path": "tools/aarch64-apple-darwin/ffmpeg",
+        "mp3": "encoded",
+        "opus": "encoded",
+        "analysisDecode": {
+          "mp3": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.118908
+          },
+          "opus": {
+            "bpmS16Samples": 32000,
+            "keyF32Samples": 88200,
+            "keyPeak": 0.126474
+          }
+        }
+      },
+      "ffprobe": {
+        "path": "tools/aarch64-apple-darwin/ffprobe",
+        "mp3Tags": "read",
+        "opusTags": "read",
+        "pngCover": "attached and decoded"
+      }
+    },
+    "webviewAudioFixture": {
+      "codec": "aac",
+      "mimeType": "audio/mp4",
+      "durationSeconds": 4.0,
+      "registered": "isolated local asset"
+    },
+    "guiStartup": "automation discovery published",
+    "nativeHost": {
+      "path": "tools/aarch64-apple-darwin/burrata-browser-host",
+      "heartbeat": "accepted"
+    },
+    "mcp": {
+      "initialized": true,
+      "toolCount": 115,
+      "statusRunning": true,
+      "frontendMounted": true
+    },
+    "webviewAudio": {
+      "engine": "webview",
+      "previewKind": "local",
+      "clockAdvanceSeconds": 0.909,
+      "diagnostics": {
+        "initialReady": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "queueTrackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "entryId": "643a915f-0ee2-4a84-86e1-88aab0721643",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0,
+            "duration": 3.975328798185941,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                3.975328798185941
+              ]
+            ]
+          }
+        },
+        "firstProgress": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "queueTrackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "entryId": "643a915f-0ee2-4a84-86e1-88aab0721643",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.5401074906665845,
+            "duration": 3.975328798185941,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                3.975328798185941
+              ]
+            ]
+          }
+        },
+        "first": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "queueTrackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "entryId": "643a915f-0ee2-4a84-86e1-88aab0721643",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 0.5401074906665845,
+            "duration": 3.975328798185941,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                3.975328798185941
+              ]
+            ]
+          }
+        },
+        "second": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "queueTrackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "entryId": "643a915f-0ee2-4a84-86e1-88aab0721643",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 1.4491841146667588,
+            "duration": 3.975328798185941,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                3.975328798185941
+              ]
+            ]
+          }
+        },
+        "latest": {
+          "engine": "webview",
+          "previewKind": "local",
+          "playbackStatus": "playing",
+          "trackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "queueTrackId": "local:523660b6f28e03aaa6a79c5826062ab86c96c01254a30012c513e1cdbdc906c5",
+          "entryId": "643a915f-0ee2-4a84-86e1-88aab0721643",
+          "applicable": true,
+          "sourceGeneration": null,
+          "seekSerial": 0,
+          "currentIndex": 0,
+          "queueTotal": 1,
+          "media": {
+            "present": true,
+            "paused": false,
+            "ended": null,
+            "seeking": false,
+            "sourcePresent": true,
+            "sourceStable": true,
+            "currentTime": 1.4491841146667588,
+            "duration": 3.975328798185941,
+            "readyState": 4,
+            "networkState": 1,
+            "errorCode": null,
+            "buffered": [
+              [
+                0,
+                4
+              ]
+            ],
+            "seekable": [
+              [
+                0,
+                3.975328798185941
+              ]
+            ]
+          }
+        },
+        "sampling": {
+          "initialReadyElapsedMs": 23.46091699999988,
+          "firstProgressElapsedMs": 678.1791669999998,
+          "firstSampleElapsedMs": 678.1791669999998,
+          "secondSampleElapsedMs": 1585.7429580000003,
+          "latestSampleElapsedMs": 1585.7429580000003,
+          "betweenSamplesWallMs": 907.5637910000005,
+          "totalElapsedMs": 1585.8950829999999
+        }
+      }
+    }
+  },
+  "osSecurityPrompts": "not tested",
+  "installedLocation": "Burrata.app"
+}

@@ -1,6 +1,6 @@
 TRACK MATCHING: ACCURACY, ROBUSTNESS, AND SPEED PLAN
 Date: 2026-10-21
-Status: Implementation and bounded qualification passed; final release CI/publication pending.
+Status: Implementation and bounded qualification passed; published in regular v0.1.6 (4a9852a), with CI and installed platform smoke passed.
 
 Objective
 ---------
