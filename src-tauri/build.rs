@@ -90,6 +90,8 @@ const COMMANDS: &[&str] = &[
     "retry_autotag",
     "review_autotag_candidate",
     "apply_autotag_review",
+    "apply_recognition_review",
+    "repair_download_source_tags",
     "get_automation_status",
     "set_automation_permissions",
     "get_playback_snapshot",
