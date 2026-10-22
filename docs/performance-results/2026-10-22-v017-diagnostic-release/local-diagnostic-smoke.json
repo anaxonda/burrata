@@ -1,0 +1,74 @@
+{
+  "commit": "2700063f20186fd10e62aa400eecca45977e02b4",
+  "nativeTests": {
+    "passed": 1706,
+    "failed": 0,
+    "ignored": 37
+  },
+  "uiCheck": "0 errors and warnings",
+  "contracts": 8,
+  "captureCases": [
+    {
+      "case": "failure",
+      "eventCount": 65,
+      "droppedEvents": 0,
+      "phases": {
+        "resolution_start": 1,
+        "settings_read_start": 1,
+        "settings_read_end": 1,
+        "alias_cache_lookup_end": 3,
+        "provider_start": 3,
+        "search_start": 3,
+        "playback_candidate_search_cache_miss": 3,
+        "search_end": 3,
+        "candidate_gate_evidence": 3,
+        "candidate_gate_evidence_rows": 3,
+        "candidate_gate": 3,
+        "extract_and_validate_start": 3,
+        "preview_audio_lookup_start": 3,
+        "preview_audio_cache_miss": 3,
+        "dns_source_start": 3,
+        "dns_source_end": 3,
+        "provider_prepare_start": 2,
+        "provider_prepare_end": 2,
+        "extraction_start": 2,
+        "bandcamp_fallback_start": 1,
+        "bandcamp_fallback_end": 1,
+        "extraction_end": 2,
+        "preview_audio_lookup_end": 3,
+        "full_identity_check": 2,
+        "extract_and_validate_end": 6,
+        "alias_lookup_skipped": 1,
+        "resolution_end": 1
+      }
+    },
+    {
+      "case": "success",
+      "eventCount": 26,
+      "droppedEvents": 0,
+      "phases": {
+        "resolution_start": 1,
+        "settings_read_start": 1,
+        "settings_read_end": 1,
+        "alias_cache_lookup_end": 2,
+        "provider_start": 2,
+        "search_start": 1,
+        "mapping_resolve_start": 1,
+        "mapped_direct_youtube_start": 1,
+        "dns_stream_start": 1,
+        "dns_stream_end": 1,
+        "stream_probe_start": 2,
+        "stream_probe_end": 2,
+        "stream_probe_body_end": 2,
+        "mapped_direct_youtube_end": 1,
+        "mapping_resolve_end": 1,
+        "playback_candidate_search_cache_miss": 1,
+        "search_end": 1,
+        "candidate_gate_evidence": 1,
+        "candidate_gate": 1,
+        "alias_lookup_skipped": 1,
+        "resolution_end": 1
+      }
+    }
+  ]
+}
