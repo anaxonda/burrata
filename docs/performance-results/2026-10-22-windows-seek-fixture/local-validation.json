@@ -1,0 +1,73 @@
+{
+  "platform": "linux",
+  "sourceFile": "src-tauri/src/native_http.rs",
+  "sourceSha256": "9b7239aae4ded7cd668d2caf68acce016e6d5636c5bb044f3db4c6b065ae785b",
+  "testBinarySha256": "5b0831c542da0d6647cee785f9e1dea263e26c48357f0be5c0ad92d1e25c8d4b",
+  "nativeSuite": {
+    "passed": 1689,
+    "failed": 0,
+    "ignored": 37,
+    "scope": "library suite; provider runtime disabled"
+  },
+  "httpModuleRepetitions": {
+    "count": 10,
+    "testsPerRun": 12,
+    "failedRuns": 0,
+    "runs": [
+      {
+        "iteration": 1,
+        "exitCode": 0,
+        "elapsedMs": 314.2
+      },
+      {
+        "iteration": 2,
+        "exitCode": 0,
+        "elapsedMs": 314.2
+      },
+      {
+        "iteration": 3,
+        "exitCode": 0,
+        "elapsedMs": 314.1
+      },
+      {
+        "iteration": 4,
+        "exitCode": 0,
+        "elapsedMs": 314.1
+      },
+      {
+        "iteration": 5,
+        "exitCode": 0,
+        "elapsedMs": 314.0
+      },
+      {
+        "iteration": 6,
+        "exitCode": 0,
+        "elapsedMs": 414.1
+      },
+      {
+        "iteration": 7,
+        "exitCode": 0,
+        "elapsedMs": 364.0
+      },
+      {
+        "iteration": 8,
+        "exitCode": 0,
+        "elapsedMs": 364.0
+      },
+      {
+        "iteration": 9,
+        "exitCode": 0,
+        "elapsedMs": 313.9
+      },
+      {
+        "iteration": 10,
+        "exitCode": 0,
+        "elapsedMs": 314.4
+      }
+    ]
+  },
+  "limits": [
+    "Local repetition checks are not Windows execution evidence or an estimated flake probability.",
+    "The canceled Windows run remains unsuccessful; a fresh cross-platform run is required."
+  ]
+}

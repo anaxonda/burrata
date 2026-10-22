@@ -257,6 +257,7 @@ jobs:
       - name: Decode deterministic native playback fixture without audio hardware
         run: python3 scripts/release/test-native-playback-contract.py
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+        timeout-minutes: 45
         # Public-provider qualification is an explicit live run. Unit fixtures
         # must not fall through to YouTube when they exercise fake helpers.
         env:

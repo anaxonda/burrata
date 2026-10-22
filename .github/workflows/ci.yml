@@ -130,6 +130,7 @@ jobs:
       - name: Decode native playback fixture without audio hardware
         run: python3 scripts/release/test-native-playback-contract.py
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+        timeout-minutes: 45
         # Public-provider qualification is an explicit live run. Unit fixtures
         # must not fall through to YouTube when they exercise fake helpers.
         env:
@@ -137,8 +138,9 @@ jobs:
           BURRATA_DIRECT_YOUTUBE: '0'
           BURRATA_BANDCAMP_PLAYBACK: '0'
       - name: Check experimental direct resolver without provider requests
-        # Live/provider/device probes stay ignored. Exercise the opt-in adapter,
-        # its real deadline/epoch/attempt policy and fake-worker regressions.
+        # Keep the compatibility-feature build and full library suite bounded.
+        # Direct resolution is now part of the default build; live probes stay ignored.
+        timeout-minutes: 45
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features playback-direct-youtube-experiment --lib
         env:
           BURRATA_NATIVE_YOUTUBE_SEARCH: '0'

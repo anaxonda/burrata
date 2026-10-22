@@ -381,9 +381,9 @@ mod tests {
     use futures_util::StreamExt;
     use std::{
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     fn fixture(
@@ -702,8 +702,27 @@ mod tests {
         worker.join().unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn stream_download_cancellation_interrupts_seek_waiting_for_range_headers() {
+    #[derive(Debug, PartialEq, Eq)]
+    enum SeekCancellationOutcome {
+        HandshakeObservedAndCancelled,
+        MissingHandshakeCleanedUp,
+    }
+
+    async fn join_origin_bounded(
+        origin_result: &mut tokio::sync::oneshot::Receiver<bool>,
+        origin_thread: &mut Option<thread::JoinHandle<()>>,
+    ) -> bool {
+        let Ok(Ok(origin_ok)) = tokio::time::timeout(Duration::from_secs(3), origin_result).await
+        else {
+            return false;
+        };
+        if let Some(origin_thread) = origin_thread.take() {
+            origin_thread.join().unwrap();
+        }
+        origin_ok
+    }
+
+    async fn exercise_seek_cancellation(withhold_handshake: bool) -> SeekCancellationOutcome {
         use std::io::{Seek, SeekFrom};
         use stream_download::{
             http::HttpStream, storage::memory::MemoryStorageProvider, Settings, StreamDownload,
@@ -711,60 +730,6 @@ mod tests {
 
         // The initial reader is usable. Only its subsequent uncached seek is
         // held at response headers, where the download task must remain cancellable.
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/audio", listener.local_addr().unwrap())
-            .parse()
-            .unwrap();
-        let (range_seen, pending_range) = tokio::sync::oneshot::channel();
-        let (release, released) = std::sync::mpsc::channel();
-        let origin = thread::spawn(move || {
-            let read_request = |socket: &mut std::net::TcpStream| {
-                socket
-                    .set_read_timeout(Some(Duration::from_secs(3)))
-                    .unwrap();
-                let mut request = Vec::new();
-                while !request.ends_with(b"\r\n\r\n") {
-                    let mut byte = [0];
-                    socket.read_exact(&mut byte).unwrap();
-                    request.push(byte[0]);
-                    assert!(request.len() < 16384);
-                }
-                String::from_utf8(request).unwrap()
-            };
-            let (mut initial, _) = listener.accept().unwrap();
-            read_request(&mut initial);
-            initial.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 65536\r\nAccept-Ranges: bytes\r\nETag: \"recording-v1\"\r\nConnection: keep-alive\r\n\r\n0123456789abcdef").unwrap();
-            initial.flush().unwrap();
-            let (mut ranged, _) = listener.accept().unwrap();
-            let request = read_request(&mut ranged).to_ascii_lowercase();
-            assert!(
-                request.contains("range: bytes=32768-65535\r\n"),
-                "{request}"
-            );
-            assert!(request.contains("if-range: \"recording-v1\"\r\n"));
-            range_seen.send(()).unwrap();
-            // Deliberately send no range response headers. Release is cleanup,
-            // never the mechanism that should wake the cancelled blocking seek.
-            let _ = released.recv_timeout(Duration::from_secs(3));
-            ranged
-                .set_read_timeout(Some(Duration::from_secs(1)))
-                .unwrap();
-            let mut byte = [0];
-            match ranged.read(&mut byte) {
-                Ok(0) => true,
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
-                    ) =>
-                {
-                    true
-                }
-                _ => false,
-            }
-        });
-        // Match native playback: connection establishment is bounded, but there
-        // is no response/read timeout that could conceal a broken cancellation path.
         let client = NativeHttpClient::new(
             reqwest::Client::builder()
                 .no_proxy()
@@ -772,8 +737,112 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let stream = HttpStream::new(client, url).await.unwrap();
-        let reader = StreamDownload::from_stream(
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/audio", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let (request_received, pending_request) = tokio::sync::oneshot::channel();
+        let (range_seen, pending_range) = tokio::sync::oneshot::channel();
+        let (origin_finished, mut origin_result) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let origin = thread::spawn(move || {
+            let origin_ok = (|| {
+                let accept_until = |listener: &TcpListener,
+                                    released: &std::sync::mpsc::Receiver<()>|
+                 -> std::io::Result<Option<TcpStream>> {
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    loop {
+                        match released.try_recv() {
+                            Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                return Ok(None);
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                        }
+                        match listener.accept() {
+                            Ok((socket, _)) => {
+                                socket.set_nonblocking(false)?;
+                                return Ok(Some(socket));
+                            }
+                            Err(error)
+                                if error.kind() == std::io::ErrorKind::WouldBlock
+                                    && Instant::now() < deadline =>
+                            {
+                                thread::sleep(Duration::from_millis(5));
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
+                };
+                let read_request = |socket: &mut std::net::TcpStream| {
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    while !request.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        socket.read_exact(&mut byte).unwrap();
+                        request.push(byte[0]);
+                        assert!(request.len() < 16384);
+                    }
+                    String::from_utf8(request).unwrap()
+                };
+                let mut initial = accept_until(&listener, &released)
+                    .unwrap()
+                    .expect("origin released before initial request");
+                read_request(&mut initial);
+                initial.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 65536\r\nAccept-Ranges: bytes\r\nETag: \"recording-v1\"\r\nConnection: keep-alive\r\n\r\n0123456789abcdef").unwrap();
+                initial.flush().unwrap();
+                let Some(mut ranged) = accept_until(&listener, &released).unwrap() else {
+                    return false;
+                };
+                let request = read_request(&mut ranged).to_ascii_lowercase();
+                assert!(
+                    request.contains("range: bytes=32768-65535\r\n"),
+                    "{request}"
+                );
+                assert!(request.contains("if-range: \"recording-v1\"\r\n"));
+                request_received.send(()).unwrap();
+                if !withhold_handshake {
+                    range_seen.send(()).unwrap();
+                }
+                // Deliberately send no range response headers. Release is cleanup,
+                // never the mechanism that should wake the cancelled seek. The
+                // negative fixture mode also withholds the test handshake signal.
+                let _ = released.recv_timeout(Duration::from_secs(10));
+                ranged
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut byte = [0];
+                match ranged.read(&mut byte) {
+                    Ok(0) => true,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::ConnectionAborted
+                        ) =>
+                    {
+                        true
+                    }
+                    _ => false,
+                }
+            })();
+            let _ = origin_finished.send(origin_ok);
+        });
+        // Match native playback: connection establishment is bounded, but there
+        // is no response/read timeout that could conceal a broken cancellation path.
+        let stream = match HttpStream::new(client, url).await {
+            Ok(stream) => stream,
+            Err(error) => {
+                let _ = release.send(());
+                let mut origin_thread = Some(origin);
+                let cleanup_finished =
+                    join_origin_bounded(&mut origin_result, &mut origin_thread).await;
+                panic!("initial HTTP stream setup failed ({error}); fixture_cleanup={cleanup_finished}");
+            }
+        };
+        let reader = match StreamDownload::from_stream(
             stream,
             MemoryStorageProvider,
             Settings::default()
@@ -781,40 +850,126 @@ mod tests {
                 .retry_timeout(Duration::from_secs(30)),
         )
         .await
-        .unwrap();
-        let cancel = reader.cancellation_token();
-        let mut decoder = tokio::task::spawn_blocking(move || {
-            let mut reader = reader;
-            let mut prefix = [0; 8];
-            reader.read_exact(&mut prefix).unwrap();
-            assert_eq!(&prefix, b"01234567");
-            reader.seek(SeekFrom::Start(32768))
-        });
-        tokio::time::timeout(Duration::from_secs(2), pending_range)
-            .await
-            .expect("decoder did not reach the uncached range request")
-            .unwrap();
-        cancel.cancel();
-        let promptly_finished =
-            tokio::time::timeout(Duration::from_millis(500), &mut decoder).await;
-        // Always release the origin and collect the blocking task, including the
-        // pre-fix failure case, so this regression cannot leak a decoder thread.
-        release.send(()).unwrap();
-        let seek_result = match promptly_finished {
-            Ok(result) => result.unwrap(),
-            Err(_) => {
-                let _ = tokio::time::timeout(Duration::from_secs(2), &mut decoder).await;
-                origin.join().unwrap();
-                panic!("StreamDownload cancellation did not wake the seek while range headers were pending");
+        {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = release.send(());
+                let mut origin_thread = Some(origin);
+                let cleanup_finished =
+                    join_origin_bounded(&mut origin_result, &mut origin_thread).await;
+                panic!("stream reader setup failed ({error}); fixture_cleanup={cleanup_finished}");
             }
         };
+        let cancel = reader.cancellation_token();
+        let (seek_done, mut seek_result) = tokio::sync::oneshot::channel();
+        let seek_worker = thread::spawn(move || {
+            let mut reader = reader;
+            let mut prefix = [0; 8];
+            let result = reader.read_exact(&mut prefix).and_then(|()| {
+                if &prefix != b"01234567" {
+                    return Err(std::io::Error::other("initial response bytes mismatch"));
+                }
+                reader.seek(SeekFrom::Start(32768))
+            });
+            let _ = seek_done.send(result);
+        });
+        let request_observed = tokio::time::timeout(Duration::from_secs(10), pending_request)
+            .await
+            .is_ok_and(|result| result.is_ok());
+        if !request_observed {
+            cancel.cancel();
+            let _ = release.send(());
+            let _ = tokio::time::timeout(Duration::from_secs(2), &mut seek_result).await;
+            let mut origin_thread = Some(origin);
+            let _ = join_origin_bounded(&mut origin_result, &mut origin_thread).await;
+            panic!("decoder did not issue its uncached range request within 10 seconds");
+        }
+        let handshake_observed = tokio::time::timeout(
+            if withhold_handshake {
+                Duration::from_millis(100)
+            } else {
+                Duration::from_secs(10)
+            },
+            pending_range,
+        )
+        .await
+        .is_ok_and(|result| result.is_ok());
+        if !handshake_observed {
+            // This is the same cleanup path used for a real missing handshake:
+            // cancel the reader, release the origin, and bound both joins.
+            cancel.cancel();
+            let _ = release.send(());
+            let seek_finished =
+                tokio::time::timeout(Duration::from_millis(500), &mut seek_result).await;
+            let seek_result = seek_finished
+                .expect("cancelled seek did not finish within 500 ms after missing handshake")
+                .expect("seek worker terminated before reporting its result");
+            seek_worker.join().unwrap();
+            assert!(
+                seek_result.is_err(),
+                "cancelled seek must not claim the missing bytes are ready"
+            );
+            let mut origin_thread = Some(origin);
+            assert!(
+                join_origin_bounded(&mut origin_result, &mut origin_thread).await,
+                "cleanup must release the fixture and drop the pending range request"
+            );
+            assert!(
+                withhold_handshake,
+                "range request was observed but the required test handshake was missing"
+            );
+            return SeekCancellationOutcome::MissingHandshakeCleanedUp;
+        }
+        cancel.cancel();
+        let promptly_finished =
+            tokio::time::timeout(Duration::from_millis(500), &mut seek_result).await;
+        // Release the origin in both success and timeout paths so the fixture
+        // cannot hide a cancellation failure behind its own stalled worker.
+        release.send(()).unwrap();
+        let seek_result = match promptly_finished {
+            Ok(Ok(result)) => result,
+            Err(_) => {
+                let _ = tokio::time::timeout(Duration::from_secs(2), &mut seek_result).await;
+                let mut origin_thread = Some(origin);
+                let _ = join_origin_bounded(&mut origin_result, &mut origin_thread).await;
+                panic!(
+                    "StreamDownload cancellation did not wake the seek while range headers were pending"
+                );
+            }
+            Ok(Err(error)) => panic!("seek worker terminated before reporting its result: {error}"),
+        };
+        seek_worker.join().unwrap();
         assert!(
             seek_result.is_err(),
             "cancelled seek must not claim the missing bytes are ready"
         );
+        let mut origin_thread = Some(origin);
         assert!(
-            origin.join().unwrap(),
+            join_origin_bounded(&mut origin_result, &mut origin_thread).await,
             "cancellation must drop the pending HTTP range request"
+        );
+        assert!(
+            !withhold_handshake,
+            "fixture unexpectedly reported a handshake that it was instructed to withhold"
+        );
+        SeekCancellationOutcome::HandshakeObservedAndCancelled
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stream_download_cancellation_interrupts_seek_waiting_for_range_headers() {
+        assert_eq!(
+            exercise_seek_cancellation(false).await,
+            SeekCancellationOutcome::HandshakeObservedAndCancelled
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn missing_range_handshake_cleanup_cancels_seek_and_releases_fixture() {
+        // The origin confirms the real uncached range request but withholds the
+        // test handshake. This exercises the failed-gate cleanup path directly.
+        assert_eq!(
+            exercise_seek_cancellation(true).await,
+            SeekCancellationOutcome::MissingHandshakeCleanedUp
         );
     }
 }
