@@ -5,6 +5,280 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
+/// Pure, source-scoped mapping of exact ordered provider credits to one fully
+/// observed caption rendering. Discovery constructs this only after validating
+/// the source authority and every owner profile; the scorer stays independent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VerifiedArtistCreditSetVariant {
+    pub(crate) provider: String,
+    pub(crate) evidence_scope: String,
+    pub(crate) release_id: String,
+    pub(crate) artist_ids: Vec<String>,
+    pub(crate) requested_credits: Vec<String>,
+    pub(crate) candidate_credits: Vec<String>,
+}
+
+/// Return catalog-verified MB `(track number, disc number)` values when the
+/// caller has not manually overridden each field. Printed nonnumeric MB track
+/// numbers remain intact in provenance and never become numeric ordinals.
+pub(crate) fn trusted_musicbrainz_ordinals(track: &Track) -> (Option<u32>, Option<u32>) {
+    if track.provider != "catalog"
+        || track.provenance["sourceKind"] != "catalog"
+        || track.provenance["catalogProvider"] != "musicbrainz"
+    {
+        return (None, None);
+    }
+    let Some(release_id) = track.provenance["releaseId"].as_str() else {
+        return (None, None);
+    };
+    if !valid_musicbrainz_id(release_id)
+        || track.source_url != format!("https://musicbrainz.org/release/{release_id}")
+        || track.provenance["sourceUrl"].as_str() != Some(track.source_url.as_str())
+    {
+        return (None, None);
+    }
+    let track_number = if track.provenance["manualFields"]["trackNumber"] == true {
+        None
+    } else {
+        track.track_number.or_else(|| {
+            let position = if track.provenance.get("trackPositionOrdinal").is_some() {
+                track.provenance["trackPositionOrdinal"].as_u64()
+            } else {
+                track.provenance["trackPosition"]
+                    .as_str()
+                    .and_then(|position| position.parse::<u64>().ok())
+            }?;
+            u32::try_from(position).ok()
+        })
+    };
+    let disc_number = if track.provenance["manualFields"]["discNumber"] == true {
+        None
+    } else {
+        track.disc_number.or_else(|| {
+            let position = if track.provenance.get("sourceMediumPosition").is_some() {
+                track.provenance["sourceMediumPosition"].as_u64()
+            } else {
+                track.provenance["mediumPosition"].as_u64()
+            }?;
+            u32::try_from(position).ok()
+        })
+    };
+    (
+        track_number.filter(|number| *number > 0),
+        disc_number.filter(|number| *number > 0),
+    )
+}
+
+fn valid_musicbrainz_id(value: &str) -> bool {
+    let parts = value.split('-').collect::<Vec<_>>();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12].iter().zip(parts).all(|(length, part)| {
+            part.len() == *length && part.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+}
+
+/// Parsing behavior is versioned alongside evaluator/cache semantics.
+pub(crate) const PARSER_VERSION: &str = "2";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AnnotationKind {
+    Presentation,
+    EstablishedLabel,
+    SemanticVersion,
+    FeaturedCredit,
+    Soundtrack,
+    Unresolved,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TextSpan {
+    pub start: usize,
+    pub end: usize,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TextAnnotation {
+    /// Byte offsets into ParsedRecordingText.original, always UTF-8 boundaries.
+    pub span: TextSpan,
+    pub content_span: TextSpan,
+    pub kind: AnnotationKind,
+    pub value: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedRecordingText {
+    pub original: String,
+    pub base_title: String,
+    pub base_span: TextSpan,
+    pub normalized_title_key: Option<String>,
+    pub annotations: Vec<TextAnnotation>,
+    /// True when the bounded parser deliberately left input uninterpreted.
+    pub parsing_incomplete: bool,
+}
+impl ParsedRecordingText {
+    pub fn semantic_versions(&self) -> impl Iterator<Item = &str> {
+        self.annotations
+            .iter()
+            .filter(|a| a.kind == AnnotationKind::SemanticVersion)
+            .map(|a| a.value.as_str())
+    }
+}
+/// Parse every trailing annotation without discarding unknown text or its span.
+/// Peeling an unknown group exposes inner observations, but does not authorize
+/// removal for title comparison: callers must retain its unresolved evidence.
+pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
+    let mut result = ParsedRecordingText {
+        original: value.to_owned(),
+        base_title: value.trim().to_owned(),
+        base_span: TextSpan {
+            start: value.len() - value.trim_start().len(),
+            end: value.trim_end().len(),
+        },
+        normalized_title_key: None,
+        annotations: Vec::new(),
+        parsing_incomplete: value.len() > 2048,
+    };
+    if !result.parsing_incomplete {
+        let mut remaining = value.trim_end();
+        for _ in 0..16 {
+            let bracketed = crate::matching::split_balanced_trailing_parenthetical(remaining)
+                .or_else(|| {
+                    remaining
+                        .strip_suffix(']')
+                        .and_then(|s| s.rsplit_once(" ["))
+                });
+            let Some((base, label)) = bracketed else {
+                break;
+            };
+            let label_key = crate::matching::normalize(label);
+            let parsed = parse_title(remaining);
+            let kind = if matches!(
+                label_key.as_str(),
+                "official audio"
+                    | "official video"
+                    | "official music video"
+                    | "official lyric video"
+                    | "lyric video"
+                    | "lyrics"
+                    | "visualizer"
+            ) {
+                AnnotationKind::Presentation
+            } else if parsed.version.is_some()
+                || matches!(
+                    label_key.as_str(),
+                    "original vocal" | "original mix" | "album version" | "main version"
+                )
+            {
+                AnnotationKind::SemanticVersion
+            } else if parsed.featured_credit.is_some() {
+                AnnotationKind::FeaturedCredit
+            } else if parsed.soundtrack.is_some() {
+                AnnotationKind::Soundtrack
+            } else {
+                AnnotationKind::Unresolved
+            };
+            // Both helpers return borrowed slices of the original UTF-8 input.
+            let content_start = label.as_ptr() as usize - value.as_ptr() as usize;
+            let base_end = base.as_ptr() as usize - value.as_ptr() as usize + base.len();
+            result.annotations.push(TextAnnotation {
+                span: TextSpan {
+                    start: base_end,
+                    end: remaining.len(),
+                },
+                content_span: TextSpan {
+                    start: content_start,
+                    end: content_start + label.len(),
+                },
+                kind,
+                value: parsed
+                    .featured_credit
+                    .unwrap_or_else(|| label.trim().to_owned()),
+            });
+            remaining = base.trim_end();
+            result.base_title = remaining.trim().to_owned();
+            result.base_span.end = remaining.len();
+        }
+        if result.annotations.len() == 16 {
+            result.parsing_incomplete =
+                crate::matching::split_balanced_trailing_parenthetical(remaining).is_some()
+                    || remaining
+                        .strip_suffix(']')
+                        .is_some_and(|s| s.rsplit_once(" [").is_some());
+        }
+        result.annotations.reverse();
+    }
+    result.base_span.start = result.base_span.start.min(result.base_span.end);
+    if value.len() > 2048 {
+        return result;
+    }
+    let key = crate::matching::normalize_title_ignoring_intraword_apostrophes(&result.base_title)
+        .replace('\'', "");
+    result.normalized_title_key = (!key.is_empty()).then_some(key);
+    result
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum EvidenceAuthority {
+    RequestMetadata,
+    ProviderCatalog,
+    ProviderMetadata,
+    UploaderCaption,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceOrigin {
+    pub field: String,
+    /// Repeated representations of one source retain the same group, and are
+    /// never counted as independent corroboration merely because fields differ.
+    pub source_group: String,
+    pub authority: EvidenceAuthority,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TextObservation {
+    pub origin: EvidenceOrigin,
+    pub parsed: ParsedRecordingText,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationObservation {
+    pub origin: EvidenceOrigin,
+    pub annotation: TextAnnotation,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PerformerObservation {
+    pub origin: EvidenceOrigin,
+    pub name: String,
+    pub normalized_key: Option<String>,
+    pub role: String,
+    pub complete: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DurationObservation {
+    pub origin: EvidenceOrigin,
+    pub seconds: f64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentifierObservation {
+    pub origin: EvidenceOrigin,
+    pub kind: String,
+    pub value: String,
+    pub active: bool,
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedRecordingEvidence {
+    pub texts: Vec<TextObservation>,
+    pub performers: Vec<PerformerObservation>,
+    pub identifiers: Vec<IdentifierObservation>,
+    pub durations: Vec<DurationObservation>,
+}
+
 pub fn normalize_isrc(value: &str) -> Option<String> {
     let value = value.trim();
     // Accept the standard printed XX-XXX-YY-NNNNN form, not arbitrary punctuation.
@@ -170,6 +444,29 @@ impl RecordingIdentity {
         if declared.is_some_and(|n| n != credits.len() as u64) {
             complete = false;
         }
+        // A provider's artist list is not necessarily a closed-world performer
+        // credit set. MusicBrainz recording credits are closed-world; another
+        // provider must explicitly declare completeness on the verified exact
+        // recording row. In particular, artistCount and Spotify artist refs
+        // alone only describe the provider's indexed artist list.
+        let catalog = &p["catalog"];
+        let source_recording_id = catalog["recordingId"]
+            .as_str()
+            .or_else(|| p["recordingId"].as_str());
+        let requested_recording_id = track
+            .provider_id
+            .strip_prefix("musicbrainz:")
+            .unwrap_or(&track.provider_id);
+        let exact_verified_source = catalog["verified"] == true
+            && source_recording_id == Some(requested_recording_id)
+            && catalog["provider"].as_str().is_some_and(|provider| {
+                provider == track.provider
+                    || provider == "musicbrainz" && track.provider == "catalog"
+            });
+        let closed_world_source = catalog["provider"].as_str() == Some("musicbrainz")
+            && matches!(track.provider.as_str(), "musicbrainz" | "catalog");
+        complete &= exact_verified_source
+            && (closed_world_source || catalog["performerCreditsComplete"] == true);
         // Contributor roles inform search; they never stand in for performer credits.
         for relation in p["recordingRelations"]
             .as_array()
@@ -529,5 +826,103 @@ mod tests {
         let i = RecordingIdentity::from_track(&t);
         assert!(!i.credits_complete);
         assert_eq!(i.credits[0].role, "composer");
+    }
+
+    #[test]
+    fn indexed_artist_count_is_not_request_credit_completeness_without_authority() {
+        let mut track = Track {
+            provider: "spotify".into(),
+            provider_id: "track-1".into(),
+            provenance: json!({"catalog":{"provider":"spotify","verified":true,"recordingId":"track-1","artistCount":1,"artists":[{"name":"Lead"}]}}),
+            ..Default::default()
+        };
+        assert!(!RecordingIdentity::from_track(&track).credits_complete);
+
+        track.provenance["catalog"]["performerCreditsComplete"] = json!(true);
+        assert!(RecordingIdentity::from_track(&track).credits_complete);
+
+        // The completeness declaration is not transferable to another recording.
+        track.provider_id = "track-2".into();
+        assert!(!RecordingIdentity::from_track(&track).credits_complete);
+
+        let verified_musicbrainz = Track {
+            provider: "musicbrainz".into(),
+            provider_id: "recording-1".into(),
+            provenance: json!({"catalog":{"provider":"musicbrainz","verified":true,"recordingId":"recording-1","artistCount":1,"artists":[{"name":"Lead"}]}}),
+            ..Default::default()
+        };
+        assert!(RecordingIdentity::from_track(&verified_musicbrainz).credits_complete);
+    }
+}
+
+#[cfg(test)]
+mod parsed_evidence_tests {
+    use super::*;
+    #[test]
+    fn all_nested_annotation_spans_preserve_original_unicode_and_unknowns() {
+        let original = "İ - Song (feat. Å) (Live) [432Hz] (Official Audio)";
+        let parsed = parse_recording_text(original);
+        assert_eq!(parsed.original, original);
+        assert_eq!(parsed.base_title, "İ - Song");
+        assert_eq!(
+            parsed
+                .annotations
+                .iter()
+                .map(|a| a.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                AnnotationKind::FeaturedCredit,
+                AnnotationKind::SemanticVersion,
+                AnnotationKind::Unresolved,
+                AnnotationKind::Presentation
+            ]
+        );
+        assert_eq!(parsed.annotations[0].value, "Å");
+        for annotation in &parsed.annotations {
+            assert!(original
+                .get(annotation.span.start..annotation.span.end)
+                .is_some());
+            let content = original
+                .get(annotation.content_span.start..annotation.content_span.end)
+                .unwrap();
+            assert!(!content.is_empty());
+        }
+        assert_eq!(
+            &original[parsed.base_span.start..parsed.base_span.end],
+            "İ - Song"
+        );
+    }
+    #[test]
+    fn parsing_is_bounded_and_does_not_invent_nonempty_keys() {
+        for text in ["", "   ", "!!!", "???"] {
+            let parsed = parse_recording_text(text);
+            assert!(parsed.normalized_title_key.is_none());
+            assert!(text
+                .get(parsed.base_span.start..parsed.base_span.end)
+                .is_some());
+        }
+        let nested = format!("Song{}", " (Live)".repeat(20));
+        let parsed = parse_recording_text(&nested);
+        assert_eq!(parsed.annotations.len(), 16);
+        assert!(parsed.parsing_incomplete);
+        let huge = "İ".repeat(1100);
+        let parsed = parse_recording_text(&huge);
+        assert!(parsed.parsing_incomplete);
+        assert!(parsed.annotations.is_empty());
+        for text in [
+            "İ (",
+            "Å [",
+            "Σ (Live",
+            "🙂 ] )",
+            "Song ((Live)",
+            "Song [feat. Å)",
+        ] {
+            let parsed = parse_recording_text(text);
+            for annotation in parsed.annotations {
+                assert!(text
+                    .get(annotation.span.start..annotation.span.end)
+                    .is_some());
+            }
+        }
     }
 }

@@ -211,9 +211,6 @@ impl PlaybackHistory {
         station: &RadioStation,
         metadata: &RadioTrackMetadata,
     ) -> Result<bool, String> {
-        if !include_radio_songs_in_history(store)? {
-            return Ok(false);
-        }
         if listening_session_id.trim().is_empty()
             || occurrence_key.trim().is_empty()
             || station.id.trim().is_empty()
@@ -229,6 +226,13 @@ impl PlaybackHistory {
             .map_err(|_| "Radio listening time must be RFC3339")?
             .with_timezone(&Utc)
             .to_rfc3339();
+        // Capture is optional; an unavailable target must not discard listening history.
+        if crate::radio::auto_add_played_radio_track(store, station, metadata).is_err() {
+            eprintln!("Radio playlist capture unavailable; listening history continues");
+        }
+        if !include_radio_songs_in_history(store)? {
+            return Ok(false);
+        }
         // Never attach the live station stream as a past-song source.
         let track = radio_song_track(station, metadata);
         // A reusable stable track row lets existing play/queue/playlist tools act
@@ -920,6 +924,59 @@ mod tests {
                 .1,
             0
         );
+    }
+
+    #[test]
+    fn opted_in_playlist_capture_is_independent_of_history_and_target_failures() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("history.sqlite")).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let station = crate::radio::get_radio_stations_saved(&store)
+            .unwrap()
+            .remove(0);
+        let metadata: RadioTrackMetadata = serde_json::from_value(serde_json::json!({
+            "stationId":station.id,"artist":"Fixture performer","title":"Fixture song",
+            "sourceUrl":"","metadataConfidence":"station metadata"
+        }))
+        .unwrap();
+        let capture =
+            crate::radio::set_radio_playlist_option(&store, &station.id, true, None).unwrap();
+        set_include_radio_songs_in_history(&store, false).unwrap();
+        assert!(!history
+            .record_radio_occurrence(
+                &store,
+                "session",
+                "one",
+                "2026-10-21T06:00:00Z",
+                &station,
+                &metadata
+            )
+            .unwrap());
+        assert!(history.list(10, 0).unwrap().is_empty());
+        let target = capture.collection_id.unwrap();
+        assert_eq!(
+            store
+                .list_collections()
+                .unwrap()
+                .into_iter()
+                .find(|c| c.id == target)
+                .unwrap()
+                .track_count,
+            1
+        );
+        store.delete_collection(&target).unwrap();
+        set_include_radio_songs_in_history(&store, true).unwrap();
+        assert!(history
+            .record_radio_occurrence(
+                &store,
+                "session",
+                "two",
+                "2026-10-21T06:01:00Z",
+                &station,
+                &metadata
+            )
+            .unwrap());
+        assert_eq!(history.list(10, 0).unwrap().len(), 1);
     }
 
     #[test]

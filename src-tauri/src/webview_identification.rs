@@ -83,6 +83,27 @@ impl Default for Inner {
 pub struct WebViewIdentification(Arc<Mutex<Inner>>);
 
 impl WebViewIdentification {
+    /// Check that the currently registered WebView source belongs to this exact
+    /// playback generation and a direct YouTube media URL. The source URL stays
+    /// private; callers receive only a boolean ownership result.
+    pub fn matches_registered_youtube_source(&self, generation: u64, track_id: &str) -> bool {
+        let inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(source) = inner
+            .source
+            .as_ref()
+            .filter(|source| source.generation == generation && source.track_id == track_id)
+        else {
+            return false;
+        };
+        if source.live || source.bounds.is_some() {
+            return false;
+        }
+        crate::acquisition::validate_source_url(&source.source.input, "direct")
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .is_some_and(|host| host == "googlevideo.com" || host.ends_with(".googlevideo.com"))
+    }
+
     /// Call only after the resolver has validated this source and the request is current.
     pub fn register(
         &self,
@@ -448,6 +469,7 @@ mod tests {
             ffmpeg: PathBuf::from("ffmpeg"),
             headers: vec![],
             decoder_hint: None,
+            cenc: None,
         }
     }
 
@@ -613,6 +635,34 @@ mod tests {
             Some(3),
             Some("chapter-a")
         ));
+    }
+
+    #[test]
+    fn handoff_registry_guard_requires_current_full_direct_youtube_source() {
+        let registry = WebViewIdentification::default();
+        let source = AudioSource {
+            input: "https://rr1---sn.googlevideo.com/videoplayback?itag=140".into(),
+            ffmpeg: PathBuf::from("ffmpeg"),
+            headers: Vec::new(),
+            decoder_hint: None,
+
+            cenc: None,
+        };
+        registry.register(7, "youtube:video12345".into(), source, false, None);
+        assert!(registry.matches_registered_youtube_source(7, "youtube:video12345"));
+        assert!(!registry.matches_registered_youtube_source(8, "youtube:video12345"));
+        assert!(!registry.matches_registered_youtube_source(7, "youtube:other"));
+
+        let radio = AudioSource {
+            input: "https://rr1---sn.googlevideo.com/videoplayback?itag=140".into(),
+            ffmpeg: PathBuf::from("ffmpeg"),
+            headers: Vec::new(),
+            decoder_hint: None,
+
+            cenc: None,
+        };
+        registry.register(9, "youtube:video12345".into(), radio, true, None);
+        assert!(!registry.matches_registered_youtube_source(9, "youtube:video12345"));
     }
 
     #[test]

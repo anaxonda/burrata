@@ -1,0 +1,309 @@
+{
+  "schema": "burrata.matching-performance-cohort/v1",
+  "qualification": false,
+  "frozen": {
+    "binarySha256": "7a95ec034871cfbd205ed022fd634e7ae8c97d71e43f0a985fbf49eb25726f6a",
+    "manifestSha256": "4d869487424279f8adc710399d8a4953140d8d9901a60f2dbd425ceb9d3e5db1",
+    "sourceRevision": "9d5a4194111b023ba9252d85039aeb50e7b6fcfa",
+    "repetitions": 1,
+    "warmups": 0,
+    "levels": [
+      "balanced"
+    ],
+    "providerPolicy": "public settings fixture only; same fixture policy across modes",
+    "startedAtUtc": "2026-10-21T23:28:36.237293+00:00"
+  },
+  "cases": [
+    {
+      "caseId": "bacc-saved",
+      "trackSha256": "6703178b0ec43f2e6f6c021e4f1ee6868516302186f2c71fa98487e0d658afdd",
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "balanced": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10207.297373,
+              "wallMs": 10481.357494999998,
+              "firstPcmFromRequestMs": 10409.014481999999,
+              "helperCpuMs": 578.7049999999999,
+              "reapedChildCpuMs": 3857.848,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    780.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.226477999999999,
+                    4.727727
+                  ],
+                  "canonical_search_warmup_end": [
+                    1891.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    683.0
+                  ],
+                  "extraction_end": [
+                    5880.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 602.1729409999999,
+              "wallMs": 983.948756,
+              "firstPcmFromRequestMs": 868.4240129999998,
+              "helperCpuMs": 132.81899999999996,
+              "reapedChildCpuMs": 41.86400000000003,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.167961,
+                    4.331547
+                  ],
+                  "mapped_direct_youtube_end": [
+                    511.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 10207.297373,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 602.1729409999999,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "catalog_alias_preparation_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 2,
+                "bandcamp_fallback_start": 1,
+                "canonical_search_warmup_end": 1,
+                "bandcamp_fallback_end": 1,
+                "search_end": 2,
+                "candidate_gate_evidence": 2,
+                "candidate_gate_evidence_rows": 3,
+                "candidate_gate": 2,
+                "extract_and_validate_start": 1,
+                "preview_audio_lookup_start": 2,
+                "extraction_start": 1,
+                "extraction_end": 1,
+                "preview_audio_lookup_end": 2,
+                "full_identity_check": 1,
+                "extract_and_validate_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 1,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 4.226477999999999,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 683.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 1,
+                  "p50": 1891.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 1,
+                  "p50": 780.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 1,
+                  "p50": 5880.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 1,
+                "search_end": 1,
+                "candidate_gate_evidence": 1,
+                "candidate_gate_evidence_rows": 2,
+                "candidate_gate": 1,
+                "mapping_resolve_start": 1,
+                "mapped_direct_youtube_start": 1,
+                "mapped_direct_youtube_end": 1,
+                "mapping_resolve_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 3.167961,
+                  "p95": null
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 1,
+                  "p50": 511.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 1,
+                "p50": 1,
+                "p95": null,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 52,
+            "directNativeEvents": 52,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 0,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "Failures remain in attempt denominators; p95 is withheld unless >=20 measured timing samples. Trace fields count allowlisted logical events and observed resolver counter snapshots only; they do not represent HTTP request totals. Concurrent phase duration samples are not additive. Per-attempt RSS is omitted because available child RSS is a lifetime high-water mark."
+}

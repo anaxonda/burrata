@@ -1,0 +1,179 @@
+{
+  "observedAt": "2026-10-21",
+  "appBinary": {
+    "path": ".cache/qualification-download-alias-complete-20261021/bin/burrata",
+    "sha256": "ebecb91a22a32a879f9889c1962350e16b189ca4008e0934d87338b7d1e48536"
+  },
+  "operationId": "6917ed6c-de85-4d9e-a494-c849b430cf0e",
+  "request": {
+    "catalogArtist": {
+      "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+      "provider": "musicbrainz"
+    },
+    "catalogRelease": {
+      "id": "1f602996-f661-3611-b25a-93c3337fd76e",
+      "provider": "musicbrainz"
+    },
+    "releaseRevision": "13:c1031d7a"
+  },
+  "receipt": {
+    "completedCount": 13,
+    "failed": [],
+    "queuedJobs": [
+      {
+        "index": 10,
+        "jobId": "5ff8aac1-fa99-4294-ac44-d06a4ddc3e53",
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:11:1:0bc2caef-5650-497c-8e69-aa90d3a4694d"
+      }
+    ],
+    "requestedCount": 13,
+    "skipped": [
+      {
+        "index": 0,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:1:1:32f1893e-8c1b-4640-a001-54cf66971988"
+      },
+      {
+        "index": 1,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:2:1:212b4d8d-192e-4b45-82f5-50c7f52d773f"
+      },
+      {
+        "index": 2,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:3:1:df27ce01-abf3-4c10-afa2-fdfe2bfc5abf"
+      },
+      {
+        "index": 3,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:4:1:aa4fcc7d-886f-45d4-9c9d-47c5fcf3a00d"
+      },
+      {
+        "index": 4,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:5:1:cd0af23b-8cd5-4337-a4b0-cf29ad5ae7f0"
+      },
+      {
+        "index": 5,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:6:1:fcda8a1b-4859-4b24-b76d-8c8b9f7cc7ec"
+      },
+      {
+        "index": 6,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:7:1:e03f4c06-1ce6-46a7-a004-ed5641ef1f0e"
+      },
+      {
+        "index": 7,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:8:1:4437000a-b4ef-467d-bb2a-41194896fe6a"
+      },
+      {
+        "index": 8,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:9:1:dcc60f43-9517-49ad-b456-111f8a5293f6"
+      },
+      {
+        "index": 9,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:10:1:664c890c-506c-46e0-a084-24520280b996"
+      },
+      {
+        "index": 11,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:12:1:40eef23d-baa8-47a9-b176-f6e938175c52"
+      },
+      {
+        "index": 12,
+        "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:13:1:996abdad-b90f-4a18-b3e1-48361be727ba"
+      }
+    ],
+    "status": "completed"
+  },
+  "completedDownload": {
+    "id": "5ff8aac1-fa99-4294-ac44-d06a4ddc3e53",
+    "state": "completed",
+    "progress": 100,
+    "error": null,
+    "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:11:1:0bc2caef-5650-497c-8e69-aa90d3a4694d",
+    "title": "Mir Stanke Le",
+    "candidateId": "youtube:DXQ-eZqnVe0",
+    "outputProfile": "source"
+  },
+  "qualification": "Album route remains failing: twelve skipped, one completed download. Physical artist/title/album/date/label/ISRC tags match available saved metadata for the completed file. No independent acoustic identity proof.",
+  "physicalMetadata": [
+    {
+      "assetId": "3c0ee008-0e8b-44b1-b8e4-4d8f9dff9600",
+      "title": "Mir Stanke Le",
+      "path": "The Bulgarian State Radio and Television Female Vocal Choir - Mir Stanke Le.opus",
+      "file": {
+        "codec": "opus",
+        "sampleRate": "48000",
+        "channels": 2,
+        "bitsPerSample": 0,
+        "durationSeconds": "197.300500",
+        "sizeBytes": 3397419
+      },
+      "fields": {
+        "artist": {
+          "expected": "The Bulgarian State Radio and Television Female Vocal Choir",
+          "observed": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "match"
+        },
+        "title": {
+          "expected": "Mir Stanke Le",
+          "observed": [
+            "Mir Stanke Le"
+          ],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "match"
+        },
+        "album": {
+          "expected": "Le Myst\u00e8re des voix bulgares",
+          "observed": [
+            "Le Myst\u00e8re des voix bulgares"
+          ],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "match"
+        },
+        "album_artist": {
+          "expected": null,
+          "observed": [],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "no_library_value"
+        },
+        "date": {
+          "expected": "1986",
+          "observed": [
+            "1986"
+          ],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "match"
+        },
+        "genre": {
+          "expected": null,
+          "observed": [],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "no_library_value"
+        },
+        "label": {
+          "expected": "4AD",
+          "observed": [
+            "4AD"
+          ],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "match"
+        },
+        "isrc": {
+          "expected": "USNO18716511",
+          "observed": [
+            "USNO18716511"
+          ],
+          "sourceProvided": null,
+          "sourceStatus": "not_recorded",
+          "status": "match"
+        }
+      },
+      "sourceMetadataSnapshotRecorded": false
+    }
+  ]
+}

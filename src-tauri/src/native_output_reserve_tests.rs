@@ -15,6 +15,8 @@ fn reserve_fixture_source(
         ffmpeg: "unused".into(),
         headers: vec![],
         decoder_hint: None,
+
+        cenc: None,
     };
     (
         QueuedSamples {
@@ -63,6 +65,8 @@ fn experimental_reserve_admission_is_format_derived_bounded_and_explicit() {
             content_length: None,
             has_video: false,
         }),
+
+        cenc: None,
     };
     let policy = StartupReservePolicy::DecodedTwoSeconds;
     assert_eq!(
@@ -290,6 +294,8 @@ fn decoded_startup_reserve_independent_timeline_ab_bridges_bounded_body_gap() {
                     content_length: Some(wav.len() as u64),
                     has_video: false,
                 }),
+
+                cenc: None,
             },
             0.,
             None,
@@ -541,6 +547,8 @@ fn run_actual_reserve_worker_case(case: ReserveWorkerCase) {
                 content_length: Some(body_len as u64),
                 has_video: false,
             }),
+
+            cenc: None,
         },
         0.,
         None,

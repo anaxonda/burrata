@@ -752,7 +752,7 @@
     },
     {
       "id": "larry-wrong-remix",
-      "evidence": "Repository public regression: same title/performers and runtime with a Remix edition must be rejected against the Original Vocal request.",
+      "evidence": "Synthetic regression: an unrequested [Digital Generation] annotation has no independent label evidence and remains unresolved; the Remix distinction must not be silently stripped.",
       "request": {
         "provider": "fixture",
         "providerId": "larry-labirt-corey-holmes",
@@ -779,14 +779,14 @@
         }
       },
       "expected": {
-        "relationship": "hardNegativeFixture",
+        "relationship": "unresolvedAnnotationFixture",
         "Exact": "Unresolved",
         "Balanced": "Unresolved",
-        "Flexible": "Alternative",
+        "Flexible": "Unresolved",
         "actions": {
-          "Exact": "Reject",
-          "Balanced": "Reject",
-          "Flexible": "Accept"
+          "Exact": "Enrich",
+          "Balanced": "Enrich",
+          "Flexible": "Enrich"
         }
       }
     }

@@ -5,7 +5,7 @@
 use crate::{
     artists::ArtistService,
     media,
-    models::{LocalAsset, Settings, Track},
+    models::{Candidate, DownloadJob, LocalAsset, Settings, Track},
     Store,
 };
 use serde::{Deserialize, Serialize};
@@ -33,12 +33,46 @@ pub struct AutoTagJob {
     pub next_attempt_at: Option<String>,
     pub message: Option<String>,
     pub candidates: Vec<AutoTagCandidate>,
+    /// Audio-recognition evidence is separate from catalog candidates: it can
+    /// support human review, but never by itself authorizes catalog tagging.
+    #[serde(default)]
+    pub recognition: Option<AudioRecognition>,
     pub chosen: Option<AutoTagCandidate>,
     #[serde(default)]
     pub approved_fields: Vec<String>,
     #[serde(default)]
     pub excerpt_only: bool,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadSourceTagRepairResult {
+    pub asset_id: String,
+    pub changed: bool,
+    pub fields: Vec<String>,
+    pub identity_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioRecognition {
+    pub provider: String,
+    pub artist: String,
+    pub title: String,
+    pub isrc: Option<String>,
+    pub shazam_id: Option<String>,
+    pub excerpt_count: u8,
+}
+
+struct SongRecOutcome {
+    recognition: AudioRecognition,
+    candidate: Option<AutoTagCandidate>,
+}
+
+struct AutoTagLookup {
+    candidates: Vec<AutoTagCandidate>,
+    recognition: Option<AudioRecognition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -77,7 +111,6 @@ pub struct AutoTagger {
     fingerprint_cpu: Arc<Semaphore>,
     inflight: Arc<Mutex<HashSet<String>>>,
     pending: Arc<std::sync::Mutex<HashSet<String>>>,
-    songrec_gate: Arc<Mutex<()>>,
 }
 
 impl AutoTagger {
@@ -99,7 +132,6 @@ impl AutoTagger {
             fingerprint_cpu: Arc::new(Semaphore::new(1)),
             inflight: Arc::new(Mutex::new(HashSet::new())),
             pending: Arc::new(std::sync::Mutex::new(HashSet::new())),
-            songrec_gate: Arc::new(Mutex::new(())),
         });
         manager.start_workers(receiver);
         manager
@@ -262,27 +294,18 @@ impl AutoTagger {
     }
 
     pub fn retry(&self, asset_id: &str) -> Result<bool, String> {
-        let current_hash = self
-            .store
-            .get_asset_by_id(asset_id)
-            .map_err(|e| e.to_string())?
-            .map(|asset| asset.hash)
-            .ok_or("Autotag asset was removed")?;
-        let mut job = self
-            .records()?
-            .into_iter()
-            .find(|job| job.asset_id == asset_id && job.input_hash == current_hash)
-            .ok_or("Autotag job not found")?;
-        if !["retry", "no_match", "failed"].contains(&job.status.as_str()) {
-            return Err("Only failed or unmatched autotag jobs can be retried".into());
+        let (_, job) = current_asset_retry_job(&self.store, asset_id)?;
+        reserve_retry_slot(&self.pending, &self.inflight, asset_id)?;
+        if let Err(error) = self.persist(&job) {
+            release_retry_slot(&self.pending, asset_id);
+            return Err(error);
         }
-        job.status = "queued".into();
-        job.attempts = 0;
-        job.next_attempt_at = None;
-        job.message = None;
-        job.updated_at = chrono::Utc::now().to_rfc3339();
-        self.persist(&job)?;
-        Ok(self.schedule(asset_id))
+        if self.sender.send(asset_id.to_owned()).is_err() {
+            release_retry_slot(&self.pending, asset_id);
+            return Err("Autotag worker is not running".into());
+        }
+        let _ = self.app.emit("autotag-status", &job);
+        Ok(true)
     }
 
     async fn process_asset(&self, asset_id: &str) -> Result<(), String> {
@@ -357,6 +380,7 @@ impl AutoTagger {
             message: None,
             candidates: vec![],
             chosen: None,
+            recognition: None,
             approved_fields: vec![],
             excerpt_only: false,
             updated_at: chrono::Utc::now().to_rfc3339(),
@@ -406,7 +430,20 @@ impl AutoTagger {
             job.updated_at = chrono::Utc::now().to_rfc3339();
             return self.persist(job);
         }
-        let excerpt_only = is_excerpt(&asset.track);
+        let mut working_asset = asset.clone();
+        if let Some(repaired) = self
+            .repair_acquisition_catalog_metadata(job, &working_asset)
+            .await?
+        {
+            working_asset = repaired;
+        }
+        if let Some(repaired) = self
+            .repair_source_reported_metadata(job, &working_asset)
+            .await?
+        {
+            working_asset = repaired;
+        }
+        let excerpt_only = is_excerpt(&working_asset.track);
         job.excerpt_only = excerpt_only;
         let acoustid_enabled = self
             .connections
@@ -420,17 +457,19 @@ impl AutoTagger {
         };
         match self
             .lookup(
-                &asset.track,
-                &asset.path,
+                &working_asset.track,
+                &working_asset.path,
                 acoustid_key.as_deref(),
                 credentials,
             )
             .await
         {
-            Ok(candidates) => {
+            Ok(lookup) => {
+                let candidates = lookup.candidates;
+                job.recognition = lookup.recognition;
                 job.candidates = candidates.clone();
                 if candidates.len() == 1
-                    && can_auto_apply(&asset.track, &candidates[0], excerpt_only)
+                    && can_auto_apply(&working_asset.track, &candidates[0], excerpt_only)
                 {
                     job.chosen = Some(candidates[0].clone());
                     job.status = "ready".into();
@@ -438,10 +477,10 @@ impl AutoTagger {
                     let chosen = candidates[0].clone();
                     let latest = self
                         .store
-                        .get_asset_by_id(&asset.id)
+                        .get_asset_by_id(&working_asset.id)
                         .map_err(|e| e.to_string())?
                         .ok_or("Autotag asset was removed")?;
-                    if latest.hash != asset.hash {
+                    if latest.hash != working_asset.hash {
                         job.input_hash = latest.hash;
                         job.status = "stale".into();
                         job.message = Some("Audio content changed while matching; run a new download or retry from the current asset.".into());
@@ -462,7 +501,7 @@ impl AutoTagger {
                     self.store
                         .save_autotagged_asset(
                             &updated,
-                            &asset.hash,
+                            &working_asset.hash,
                             VERSION,
                             &serde_json::to_value(&*job).map_err(|e| e.to_string())?,
                         )
@@ -474,20 +513,13 @@ impl AutoTagger {
                         )?;
                     }
                 } else {
-                    job.status = if candidates.is_empty() {
-                        "no_match"
-                    } else {
-                        "review"
-                    }
-                    .into();
-                    job.message = Some(
-                        if candidates.is_empty() {
-                            "No sufficiently compatible catalog match was found."
-                        } else {
-                            "Catalog candidates are ambiguous; select one in review."
-                        }
-                        .into(),
+                    let (status, message) = classify_lookup_result(
+                        &working_asset.track,
+                        candidates.len(),
+                        job.recognition.is_some(),
                     );
+                    job.status = status.into();
+                    job.message = Some(message.into());
                 }
                 job.updated_at = chrono::Utc::now().to_rfc3339();
                 self.persist(job)
@@ -500,78 +532,450 @@ impl AutoTagger {
         }
     }
 
+    /// Backfill only missing optional tags from the exact catalog item used to
+    /// acquire this managed asset. Search metadata is not trusted until both
+    /// the stored locator and shared resolved recording policy agree.
+    async fn repair_acquisition_catalog_metadata(
+        &self,
+        job: &mut AutoTagJob,
+        asset: &LocalAsset,
+    ) -> Result<Option<LocalAsset>, String> {
+        if asset.processing == "external-readonly" || is_excerpt(&asset.track) {
+            return Ok(None);
+        }
+        let Some(locator) = monochrome_acquisition_locator(&asset.track) else {
+            return Ok(None);
+        };
+        let Some(requested) = requested_identity_for_catalog_backfill(&asset.track) else {
+            return Ok(None);
+        };
+        let query = format!("{} {}", requested.artist.trim(), requested.title.trim());
+        if requested.artist.trim().is_empty() || requested.title.trim().is_empty() {
+            return Ok(None);
+        }
+        let client = match crate::monochrome::Client::new() {
+            Ok(client) => client,
+            Err(_) => return Ok(None),
+        };
+        let rows = match tokio::time::timeout(
+            Duration::from_secs(12),
+            client.search_with_limit(&query, 12),
+        )
+        .await
+        {
+            Ok(Ok((rows, _))) => rows,
+            // A narrow metadata backfill must never make the normal autotag job
+            // fail; retain its existing lookup/recognition fallback when offline.
+            _ => return Ok(None),
+        };
+        let candidates = rows
+            .into_iter()
+            .map(|(_, candidate)| candidate)
+            .filter(|candidate| exact_monochrome_locator_match(&locator, candidate))
+            .collect::<Vec<_>>();
+        if candidates.len() != 1 {
+            return Ok(None);
+        }
+        let candidate = &candidates[0];
+        let settings = self.store.settings().map_err(|e| e.to_string())?;
+        let assessment = crate::recording_match_context::assess(
+            &self.store,
+            &requested,
+            candidate,
+            settings.matching_level,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        let Some(metadata_track) =
+            accepted_acquisition_catalog_metadata(&asset.track, &locator, candidate, &assessment)
+        else {
+            return Ok(None);
+        };
+        let fields = metadata_track.provenance["fields"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        let Some(current) = self
+            .store
+            .get_asset_by_id(&asset.id)
+            .map_err(|error| error.to_string())?
+        else {
+            return Ok(None);
+        };
+        if current.hash != asset.hash
+            || current.path != asset.path
+            || current.recording_id != asset.recording_id
+        {
+            return Ok(None);
+        }
+        let updated = media::autotag_asset(asset, &metadata_track, &settings).await?;
+        job.input_hash = updated.hash.clone();
+        job.status = "matching".into();
+        job.message = Some(format!(
+            "Filled missing {} from the exact Monochrome acquisition source; requested recording identity was verified by the shared match policy.",
+            fields.join(", ")
+        ));
+        job.updated_at = chrono::Utc::now().to_rfc3339();
+        self.store
+            .save_autotagged_asset(
+                &updated,
+                &asset.hash,
+                VERSION,
+                &serde_json::to_value(&*job).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        self.persist(job)?;
+        if let Some(id) = updated.track.provenance["retagJournalId"].as_str() {
+            media::acknowledge_retag_journal(&settings, id)?;
+        }
+        Ok(Some(updated))
+    }
+
+    async fn repair_source_reported_metadata(
+        &self,
+        job: &mut AutoTagJob,
+        asset: &LocalAsset,
+    ) -> Result<Option<LocalAsset>, String> {
+        if asset.processing == "external-readonly" {
+            return Ok(None);
+        }
+        let Some(candidate) = asset
+            .track
+            .provenance
+            .get("audioCandidate")
+            .cloned()
+            .and_then(|value| serde_json::from_value::<Candidate>(value).ok())
+        else {
+            return Ok(None);
+        };
+        let (reported, fields) =
+            crate::acquisition::source_reported_track_for_lookup_from_candidate(
+                &asset.track,
+                &candidate,
+            );
+        self.apply_source_reported_metadata(
+            job,
+            asset,
+            reported,
+            fields,
+            "matching",
+            "Filled missing fields from the exact source's reported metadata; recording identity remains unverified.",
+            false,
+        )
+        .await
+    }
+
+    async fn apply_source_reported_metadata(
+        &self,
+        job: &mut AutoTagJob,
+        asset: &LocalAsset,
+        reported: Track,
+        fields: Vec<String>,
+        status: &str,
+        message: &str,
+        refresh_directory_fingerprint: bool,
+    ) -> Result<Option<LocalAsset>, String> {
+        let fields = fields
+            .into_iter()
+            .filter(|field| source_field_needs_repair(&asset.track, &reported, field))
+            .collect::<Vec<_>>();
+        if fields.is_empty() {
+            return Ok(None);
+        }
+
+        let mut metadata = reported.clone();
+        if !fields.iter().any(|field| field == "artist") {
+            metadata.artist.clear();
+        }
+        if !fields.iter().any(|field| field == "title") {
+            metadata.title.clear();
+        }
+        if !fields.iter().any(|field| field == "album") {
+            metadata.album = None;
+        }
+        if !fields.iter().any(|field| field == "albumArtist") {
+            metadata.album_artist = None;
+        }
+        if !fields.iter().any(|field| field == "genre") {
+            metadata.genre = None;
+        }
+        if !fields.iter().any(|field| field == "isrc") {
+            metadata.isrc = None;
+        }
+        metadata.provenance = json!({
+            "source":"exact_source_reported_metadata",
+            "identityStatus":"source_reported_unverified",
+            "sourceReportedMetadata":reported.provenance["sourceReportedMetadata"],
+            "sourceReportedFields":fields,
+            "version":VERSION
+        });
+        let settings = self.store.settings().map_err(|e| e.to_string())?;
+        let mut updated = media::autotag_asset(asset, &metadata, &settings).await?;
+        if refresh_directory_fingerprint {
+            // Retagging can change the file's modification time while leaving
+            // its audio bytes/hash untouched. Refresh the cheap directory-
+            // browser stat stamp before persisting the asset so folder
+            // browsing does not treat this just-retagged row as stale.
+            let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
+                &self.store,
+                &mut updated,
+            );
+        }
+        job.input_hash = updated.hash.clone();
+        job.status = status.into();
+        job.message = Some(message.into());
+        job.updated_at = chrono::Utc::now().to_rfc3339();
+        self.store
+            .save_autotagged_asset(
+                &updated,
+                &asset.hash,
+                VERSION,
+                &serde_json::to_value(&*job).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        self.persist(job)?;
+        if let Some(id) = updated.track.provenance["retagJournalId"].as_str() {
+            media::acknowledge_retag_journal(&settings, id)?;
+        }
+        Ok(Some(updated))
+    }
+
+    /// Fill missing tags from a completed managed download's exact source
+    /// metadata. This local-only path never performs catalog lookup or audio
+    /// recognition, and leaves the recording identity unverified.
+    pub async fn repair_download_source_tags(
+        &self,
+        asset_id: &str,
+    ) -> Result<DownloadSourceTagRepairResult, String> {
+        let asset_id = asset_id.trim();
+        if asset_id.is_empty() || asset_id.len() > 300 {
+            return Err("Asset ID must be between 1 and 300 characters".into());
+        }
+        reserve_retry_slot(&self.pending, &self.inflight, asset_id)?;
+        let inserted = self.inflight.lock().await.insert(asset_id.to_owned());
+        if !inserted {
+            release_retry_slot(&self.pending, asset_id);
+            return Err("Autotag job is currently running for this asset".into());
+        }
+        let result = self.repair_download_source_tags_inner(asset_id).await;
+        self.inflight.lock().await.remove(asset_id);
+        release_retry_slot(&self.pending, asset_id);
+        result
+    }
+
+    async fn repair_download_source_tags_inner(
+        &self,
+        asset_id: &str,
+    ) -> Result<DownloadSourceTagRepairResult, String> {
+        let asset = self
+            .store
+            .get_asset_by_id(asset_id)
+            .map_err(|error| error.to_string())?
+            .ok_or("Autotag asset was removed")?;
+        if asset.processing == "external-readonly" {
+            return Ok(source_tag_repair_noop(&asset, "not_applicable"));
+        }
+        let Some(publication_job_id) = asset.track.provenance["publicationJobId"].as_str() else {
+            return Ok(source_tag_repair_noop(
+                &asset,
+                "source_metadata_unavailable",
+            ));
+        };
+        let Some(download_job) = self
+            .store
+            .get_job_if_exists(publication_job_id)
+            .map_err(|error| error.to_string())?
+        else {
+            return Ok(source_tag_repair_noop(
+                &asset,
+                "source_metadata_unavailable",
+            ));
+        };
+        let Some(candidate) = completed_source_candidate(&asset, &download_job) else {
+            return Ok(source_tag_repair_noop(&asset, "source_binding_unverified"));
+        };
+        let (reported, fields) =
+            crate::acquisition::source_reported_track_for_lookup_from_candidate(
+                &asset.track,
+                candidate,
+            );
+        let fields = fields
+            .into_iter()
+            .filter(|field| source_field_needs_repair(&asset.track, &reported, field))
+            .collect::<Vec<_>>();
+        if fields.is_empty() {
+            let status = if has_bound_yt_dlp_metadata(&asset.track, candidate) {
+                "source_reported_unverified"
+            } else {
+                "source_metadata_unavailable"
+            };
+            return Ok(source_tag_repair_noop(&asset, status));
+        }
+
+        let mut job = self
+            .store
+            .get_autotag_record(&asset.id, &asset.hash, VERSION)
+            .map_err(|error| error.to_string())?
+            .and_then(|value| serde_json::from_value::<AutoTagJob>(value).ok())
+            .unwrap_or_else(|| new_source_tag_repair_job(&asset));
+        job.input_hash = asset.hash.clone();
+        job.status = "review".into();
+        job.updated_at = chrono::Utc::now().to_rfc3339();
+        let updated = self
+            .apply_source_reported_metadata(
+                &mut job,
+                &asset,
+                reported,
+                fields.clone(),
+                "review",
+                "Filled missing tags from the exact completed download source. Catalog identity remains unverified; no recognition or catalog lookup was run.",
+                true,
+            )
+            .await?;
+        if updated.is_some() {
+            Ok(DownloadSourceTagRepairResult {
+                asset_id: asset.id,
+                changed: true,
+                fields,
+                identity_status: "source_reported_unverified".into(),
+            })
+        } else {
+            Ok(source_tag_repair_noop(&asset, "source_reported_unverified"))
+        }
+    }
+
     async fn lookup(
         &self,
         source: &Track,
         path: &str,
         acoustid_key: Option<&str>,
         credentials: &crate::artists::ArtistCredentials,
-    ) -> Result<Vec<AutoTagCandidate>, String> {
+    ) -> Result<AutoTagLookup, String> {
+        // Use exact-source metadata to form a catalog query when downloaded
+        // track fields are incomplete. Auto-apply is still checked against the
+        // original track, so this lookup alone cannot verify its identity.
+        let (search_source, source_reported_fields) =
+            crate::acquisition::source_reported_track_for_lookup(source);
+        let source_reported_identity = source_reported_fields
+            .iter()
+            .any(|field| matches!(field.as_str(), "artist" | "title"));
         let excerpt_only = is_excerpt(source);
+        // The exact acquired catalog locator is already the source identity;
+        // do not re-recognize the same asset with AcoustID/SongRec.
+        let allow_fingerprinting = !accepted_acquisition_isrc_backfill(source);
+        let mut recognition = None;
         if excerpt_only {
             let mut candidates = Vec::new();
-            if let Some(key) = acoustid_key.filter(|key| !key.trim().is_empty()) {
-                if let Some(candidate) = self.acoustid_match(source, path, key).await? {
-                    candidates.push(candidate);
+            if allow_fingerprinting {
+                if let Some(key) = acoustid_key.filter(|key| !key.trim().is_empty()) {
+                    if let Some(candidate) = self.acoustid_match(source, path, key).await? {
+                        candidates.push(candidate);
+                    }
                 }
-            }
-            if candidates.is_empty() && self.settings()?.shazam_fallback {
-                if let Some(candidate) = self.songrec_match(source, path).await? {
-                    candidates.push(candidate);
+                if candidates.is_empty() && self.settings()?.shazam_fallback {
+                    if let Some(outcome) = self.songrec_match(source, path).await? {
+                        recognition = Some(outcome.recognition);
+                        if let Some(candidate) = outcome.candidate {
+                            candidates.push(candidate);
+                        }
+                    }
                 }
             }
             for candidate in &mut candidates {
                 restrict_excerpt_fields(candidate);
+                add_source_reported_lookup_evidence(candidate, &source_reported_fields);
             }
-            return Ok(candidates);
+            return Ok(AutoTagLookup {
+                candidates,
+                recognition,
+            });
         }
-        let results = self.artists.recording_search(source).await?;
+        let results = self.artists.recording_search(&search_source).await?;
         let rows = results["recordings"]
             .as_array()
             .cloned()
             .unwrap_or_default();
         let mut matches = rows
             .iter()
-            .filter_map(|row| candidate_from_mb(row, source))
+            .filter_map(|row| candidate_from_mb(row, &search_source))
             .collect::<Vec<_>>();
         matches.sort_by(|a, b| b.score.total_cmp(&a.score));
         matches.truncate(10);
-        if source
+        if search_source
             .album
             .as_deref()
             .is_some_and(|album| !album.trim().is_empty())
         {
             for candidate in matches.iter_mut().take(3) {
-                self.enrich_release_context(candidate, source).await?;
+                self.enrich_release_context(candidate, &search_source)
+                    .await?;
             }
         }
         if matches.is_empty() {
-            matches.extend(self.discogs_match(source, credentials).await?);
+            matches.extend(self.discogs_match(&search_source, credentials).await?);
         }
-        if matches.is_empty() {
+        if matches.is_empty() && !source_reported_identity && allow_fingerprinting {
             if let Some(key) = acoustid_key.filter(|key| !key.trim().is_empty()) {
                 if let Some(candidate) = self.acoustid_match(source, path, key).await? {
                     matches.push(candidate);
                 }
             }
             if matches.is_empty() && self.settings()?.shazam_fallback {
-                if let Some(candidate) = self.songrec_match(source, path).await? {
-                    matches.push(candidate);
+                if let Some(outcome) = self.songrec_match(source, path).await? {
+                    recognition = Some(outcome.recognition);
+                    if let Some(candidate) = outcome.candidate {
+                        matches.push(candidate);
+                    }
                 }
             }
         }
-        if source
+        // Source-reported names can seed catalog search, but a catalog hit
+        // based on those same names is not independent identity evidence.
+        // Also try the configured audio recognizers so a high-confidence
+        // fingerprint/recognition result can repair incomplete downloaded tags.
+        if source_reported_identity && allow_fingerprinting {
+            let mut recognized = Vec::new();
+            if let Some(key) = acoustid_key.filter(|key| !key.trim().is_empty()) {
+                if let Some(candidate) = self.acoustid_match(source, path, key).await? {
+                    recognized.push(candidate);
+                }
+            }
+            if recognized.is_empty() && self.settings()?.shazam_fallback {
+                if let Some(outcome) = self.songrec_match(source, path).await? {
+                    recognition = Some(outcome.recognition);
+                    if let Some(candidate) = outcome.candidate {
+                        recognized.push(candidate);
+                    }
+                }
+            }
+            if !recognized.is_empty() {
+                // The recognizer has already required a unique high-confidence
+                // catalog identity. Keep that independent result as the lead
+                // candidate instead of letting hint-only search rows make the
+                // job ambiguous or block automatic repair.
+                matches = recognized;
+            }
+        }
+        if search_source
             .album
             .as_deref()
             .is_some_and(|album| !album.trim().is_empty())
         {
             for candidate in matches.iter_mut().take(3) {
                 if candidate.fields.provenance["releaseContextAttempted"] != true {
-                    self.enrich_release_context(candidate, source).await?;
+                    self.enrich_release_context(candidate, &search_source)
+                        .await?;
                 }
             }
         }
-        Ok(matches)
+        for candidate in &mut matches {
+            add_source_reported_lookup_evidence(candidate, &source_reported_fields);
+        }
+        Ok(AutoTagLookup {
+            candidates: matches,
+            recognition,
+        })
     }
 
     async fn enrich_release_context(
@@ -949,7 +1353,7 @@ impl AutoTagger {
         &self,
         source: &Track,
         path: &str,
-    ) -> Result<Option<AutoTagCandidate>, String> {
+    ) -> Result<Option<SongRecOutcome>, String> {
         if !executable_available("songrec") && !executable_available("SongRec") {
             return Ok(None);
         }
@@ -958,44 +1362,108 @@ impl AutoTagger {
             return Ok(None);
         }
         let settings = self.store.settings().map_err(|e| e.to_string())?;
-        let _songrec_permit = self.songrec_gate.lock().await;
         let first = songrec_excerpt(path, 5.0, &settings.ffmpeg_path).await?;
         tokio::time::sleep(Duration::from_secs(10)).await;
         let second = songrec_excerpt(path, duration - 25.0, &settings.ffmpeg_path).await?;
-        let (Some((artist_a, title_a)), Some((artist_b, title_b))) = (first, second) else {
+        let (Some(artist_a), Some(artist_b)) = (first, second) else {
             return Ok(None);
         };
-        if normalize(&artist_a) != normalize(&artist_b)
-            || normalize(&title_a) != normalize(&title_b)
+        if normalize(&artist_a.artist) != normalize(&artist_b.artist)
+            || normalize(&artist_a.title) != normalize(&artist_b.title)
         {
             return Ok(None);
         }
-        let identified = Track {
-            artist: artist_a,
-            title: title_a,
-            duration_seconds: source.duration_seconds,
-            ..Track::default()
-        };
-        let rows = self.artists.recording_search(&identified).await?;
-        let mut candidates = rows["recordings"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| candidate_from_mb(row, &identified))
-            .collect::<Vec<_>>();
-        candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
-        if candidates.len() != 1 || candidates[0].score < 0.96 {
+        let identifiers_a = artist_a.identifiers.clone().unwrap_or_default();
+        let identifiers_b = artist_b.identifiers.clone().unwrap_or_default();
+        if identifiers_a
+            .isrc
+            .as_deref()
+            .zip(identifiers_b.isrc.as_deref())
+            .is_some_and(|(a, b)| !crate::recording_identity::same_isrc(a, b))
+        {
             return Ok(None);
         }
+        if identifiers_a
+            .shazam_id
+            .as_deref()
+            .zip(identifiers_b.shazam_id.as_deref())
+            .is_some_and(|(a, b)| a != b)
+        {
+            return Ok(None);
+        }
+        if identifiers_a
+            .apple_music_url
+            .as_deref()
+            .zip(identifiers_b.apple_music_url.as_deref())
+            .is_some_and(|(a, b)| a != b)
+        {
+            return Ok(None);
+        }
+        let recognized_isrc = identifiers_a
+            .isrc
+            .or(identifiers_b.isrc)
+            .and_then(|isrc| crate::recording_identity::normalize_isrc(&isrc));
+        let recognition = AudioRecognition {
+            provider: "songrec".into(),
+            artist: artist_a.artist.clone(),
+            title: artist_a.title.clone(),
+            isrc: recognized_isrc.clone(),
+            shazam_id: identifiers_a.shazam_id.or(identifiers_b.shazam_id),
+            excerpt_count: 2,
+        };
+        let identified = Track {
+            artist: artist_a.artist.clone(),
+            title: artist_a.title.clone(),
+            duration_seconds: source.duration_seconds,
+            isrc: recognized_isrc.clone(),
+            ..Track::default()
+        };
+        let rows = if let Some(isrc) = recognized_isrc.as_deref() {
+            let query =
+                format!("recording?query=isrc%3A{isrc}&limit=100&inc=artist-credits+isrcs+genres");
+            self.artists
+                .json_for_metadata("musicbrainz", &query, "autotag.songrec.isrc", isrc, None)
+                .await?
+        } else {
+            self.artists.recording_search(&identified).await?
+        };
+        let candidate_rows = if let Some(isrc) = recognized_isrc.as_deref() {
+            unique_musicbrainz_rows_for_isrc(&rows, isrc)
+        } else {
+            rows["recordings"].as_array().cloned().unwrap_or_default()
+        };
+        let mut candidates = candidate_rows
+            .iter()
+            .filter_map(|row| candidate_from_mb(row, &identified))
+            .collect::<Vec<_>>();
+        if let Some(isrc) = recognized_isrc.as_ref() {
+            for candidate in &mut candidates {
+                candidate.fields.isrc = Some(isrc.clone());
+            }
+        }
+        candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
+        if candidates.len() != 1 || candidates[0].score < 0.96 {
+            return Ok(Some(SongRecOutcome {
+                recognition,
+                candidate: None,
+            }));
+        }
         let mut candidate = candidates.remove(0);
-        candidate.evidence.push("SongRec recognized two non-overlapping excerpts consistently; MusicBrainz artist, title, and duration also matched.".into());
+        candidate.evidence.push(if recognized_isrc.is_some() {
+            "SongRec recognized two non-overlapping excerpts consistently; exact ISRC resolved one matching MusicBrainz recording.".into()
+        } else {
+            "SongRec recognized two non-overlapping excerpts consistently; MusicBrainz artist, title, and duration also matched.".into()
+        });
         if source_conflicts(source, &candidate) {
             candidate.evidence.push(
                 "Recognized artist or title conflicts with the downloaded source; review required."
                     .into(),
             );
         }
-        Ok(Some(candidate))
+        Ok(Some(SongRecOutcome {
+            recognition,
+            candidate: Some(candidate),
+        }))
     }
 
     pub async fn apply(
@@ -1168,6 +1636,86 @@ impl AutoTagger {
         Ok(updated)
     }
 
+    /// Apply only the user-selected fields from a two-excerpt recognition
+    /// result. Recognition never changes the library recording identity.
+    pub async fn apply_recognition_review(
+        &self,
+        asset_id: &str,
+        field_keys: &[String],
+    ) -> Result<LocalAsset, String> {
+        let _permit = self.workers.acquire().await.map_err(|e| e.to_string())?;
+        let mut job = self
+            .records()?
+            .into_iter()
+            .find(|job| job.asset_id == asset_id)
+            .ok_or("Autotag review job not found")?;
+        if job.status != "review" {
+            return Err("Recognition can only be applied from an active review".into());
+        }
+        let recognition = job
+            .recognition
+            .as_ref()
+            .ok_or("This review has no audio recognition result")?;
+        if recognition.excerpt_count < 2 {
+            return Err("Recognition must agree across two excerpts before applying tags".into());
+        }
+        let mut approved = field_keys.to_vec();
+        approved.sort();
+        approved.dedup();
+        let metadata = recognition_metadata(recognition, &approved)?;
+        let asset = self
+            .store
+            .get_asset_by_id(asset_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Autotag asset was removed")?;
+        if job.input_hash != asset.hash {
+            return Err("Autotag job is stale; retry recognition before applying tags".into());
+        }
+        if asset.processing == "external-readonly" {
+            return Err("External audio is indexed read-only; recognition tagging requires a managed download".into());
+        }
+        if approved
+            .iter()
+            .any(|field| asset.track.provenance["manualFields"][field] == true)
+        {
+            return Err("A manually tagged field cannot be replaced by recognition metadata".into());
+        }
+
+        let settings = self.store.settings().map_err(|e| e.to_string())?;
+        let updated = media::autotag_asset(&asset, &metadata, &settings).await?;
+        if updated.id != asset.id
+            || updated.recording_id != asset.recording_id
+            || updated.track.id != asset.track.id
+            || updated.track.provider != asset.track.provider
+            || updated.track.provider_id != asset.track.provider_id
+            || updated.track.source_url != asset.track.source_url
+        {
+            return Err("Recognition tagging unexpectedly changed the library recording identity".into());
+        }
+
+        job.input_hash = updated.hash.clone();
+        job.approved_fields = approved;
+        job.status = "recognition_applied".into();
+        job.message = Some(
+            "Selected audio-recognized tags were applied; catalog recording identity remains unverified.".into(),
+        );
+        job.updated_at = chrono::Utc::now().to_rfc3339();
+        self.store
+            .save_autotagged_asset(
+                &updated,
+                &asset.hash,
+                VERSION,
+                &serde_json::to_value(&job).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+        if let Some(id) = updated.track.provenance["retagJournalId"].as_str() {
+            media::acknowledge_retag_journal(&settings, id)?;
+        }
+        self.persist(&job)?;
+        let _ = self.app.emit("autotag-status", &job);
+        Ok(updated)
+    }
+
     pub async fn retry_due(&self, job: &AutoTagJob) -> bool {
         let Some(next) = &job.next_attempt_at else {
             return true;
@@ -1176,6 +1724,245 @@ impl AutoTagger {
             .map(|at| at <= chrono::Utc::now())
             .unwrap_or(true)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MonochromeAcquisitionLocator {
+    provider_id: String,
+    url: String,
+}
+
+fn monochrome_acquisition_locator(track: &Track) -> Option<MonochromeAcquisitionLocator> {
+    let acquisition = &track.provenance["acquisition"];
+    if acquisition["provider"].as_str() != Some("monochrome") {
+        return None;
+    }
+    let id = acquisition["id"].as_str()?.strip_prefix("monochrome:")?;
+    if !(17..=20).contains(&id.len()) || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let raw_url = acquisition["url"].as_str()?;
+    let parsed = crate::acquisition::validate_source_url(raw_url, "monochrome").ok()?;
+    if parsed.host_str() != Some("tracks.monochrome.st")
+        || parsed.path() != format!("/track/{id}")
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return None;
+    }
+    Some(MonochromeAcquisitionLocator {
+        provider_id: id.to_owned(),
+        url: parsed.to_string(),
+    })
+}
+
+fn accepted_acquisition_catalog_match(
+    candidate: &crate::models::Candidate,
+    assessment: &crate::recording_match::MatchAssessment,
+) -> bool {
+    assessment.action == crate::recording_match::MatchAction::Accept
+        && matches!(
+            assessment.relationship,
+            crate::recording_match::MatchRelationship::Exact
+                | crate::recording_match::MatchRelationship::Probable
+        )
+        && candidate.permission != "restricted"
+}
+
+fn accepted_acquisition_catalog_metadata(
+    source: &Track,
+    locator: &MonochromeAcquisitionLocator,
+    candidate: &crate::models::Candidate,
+    assessment: &crate::recording_match::MatchAssessment,
+) -> Option<Track> {
+    if !exact_monochrome_locator_match(locator, candidate)
+        || !accepted_acquisition_catalog_match(candidate, assessment)
+    {
+        return None;
+    }
+    let metadata = candidate.source_metadata.as_ref()?;
+    if metadata["provider"].as_str() != Some("monochrome")
+        || metadata["trackId"].as_str() != Some(locator.provider_id.as_str())
+    {
+        return None;
+    }
+    let missing = |value: Option<&str>| value.is_none_or(|value| value.trim().is_empty());
+    let manual = &source.provenance["manualFields"];
+    let mut promoted = Track::default();
+    let mut fields = Vec::new();
+
+    if missing(source.album.as_deref()) && manual["album"] != true {
+        promoted.album = bounded_catalog_text(&metadata["album"], 512);
+        if promoted.album.is_some() {
+            fields.push("album");
+        }
+    }
+    if missing(source.album_artist.as_deref()) && manual["albumArtist"] != true {
+        promoted.album_artist = bounded_catalog_text(&metadata["albumArtist"], 512);
+        if promoted.album_artist.is_some() {
+            fields.push("albumArtist");
+        }
+    }
+    if missing(source.release_date.as_deref()) && manual["releaseDate"] != true {
+        promoted.release_date = bounded_catalog_text(&metadata["releaseDate"], 64);
+        if promoted.release_date.is_some() {
+            fields.push("releaseDate");
+        }
+    }
+    if missing(source.genre.as_deref()) && manual["genre"] != true {
+        promoted.genre = bounded_catalog_text(&metadata["genre"], 256);
+        if promoted.genre.is_some() {
+            fields.push("genre");
+        }
+    }
+    if missing(source.label.as_deref()) && manual["label"] != true {
+        promoted.label = bounded_catalog_text(&metadata["label"], 256);
+        if promoted.label.is_some() {
+            fields.push("label");
+        }
+    }
+    if source.isrc.is_none() && manual["isrc"] != true {
+        promoted.isrc = metadata["isrc"]
+            .as_str()
+            .and_then(crate::recording_identity::normalize_isrc);
+        if promoted.isrc.is_some() {
+            fields.push("isrc");
+        }
+    }
+    if fields.is_empty() {
+        return None;
+    }
+    promoted.provenance = json!({
+        "source":"accepted_acquisition_catalog_metadata",
+        "identityStatus":"accepted_recording_match",
+        "provider":"monochrome",
+        "providerId":locator.provider_id,
+        "sourceUrl":locator.url,
+        "relationship":assessment.relationship,
+        "fields":fields,
+    });
+    Some(promoted)
+}
+
+fn bounded_catalog_text(value: &Value, max_len: usize) -> Option<String> {
+    let value = value.as_str()?.trim();
+    (!value.is_empty() && value.len() <= max_len).then(|| value.to_owned())
+}
+
+fn exact_monochrome_locator_match(
+    locator: &MonochromeAcquisitionLocator,
+    candidate: &crate::models::Candidate,
+) -> bool {
+    candidate.provider == "monochrome"
+        && candidate.id == format!("monochrome:{}", locator.provider_id)
+        && url::Url::parse(&candidate.url)
+            .ok()
+            .is_some_and(|url| url.to_string() == locator.url)
+}
+
+fn accepted_acquisition_isrc_backfill(source: &Track) -> bool {
+    let marker = &source.provenance["autotag"];
+    verified_acquisition_catalog_marker(source, marker)
+        && marker["fields"]
+            .as_array()
+            .is_some_and(|fields| fields.iter().any(|field| field.as_str() == Some("isrc")))
+        && source
+            .isrc
+            .as_deref()
+            .and_then(crate::recording_identity::normalize_isrc)
+            .is_some()
+}
+
+fn accepted_acquisition_catalog_metadata_backfill(source: &Track) -> bool {
+    let marker = &source.provenance["autotag"];
+    verified_acquisition_catalog_marker(source, marker)
+        && marker["fields"].as_array().is_some_and(|fields| {
+            fields.iter().any(|field| match field.as_str() {
+                Some("album") => source
+                    .album
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                Some("albumArtist") => source
+                    .album_artist
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                Some("releaseDate") => source
+                    .release_date
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                Some("genre") => source
+                    .genre
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                Some("label") => source
+                    .label
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                Some("isrc") => source
+                    .isrc
+                    .as_deref()
+                    .and_then(crate::recording_identity::normalize_isrc)
+                    .is_some(),
+                _ => false,
+            })
+        })
+}
+
+fn verified_acquisition_catalog_marker(source: &Track, marker: &Value) -> bool {
+    let Some(locator) = monochrome_acquisition_locator(source) else {
+        return false;
+    };
+    matches!(
+        marker["source"].as_str(),
+        Some("accepted_acquisition_catalog_metadata" | "accepted_acquisition_catalog_isrc")
+    ) && marker["identityStatus"].as_str() == Some("accepted_recording_match")
+        && marker["provider"].as_str() == Some("monochrome")
+        && marker["providerId"].as_str() == Some(locator.provider_id.as_str())
+        && marker["sourceUrl"].as_str() == Some(locator.url.as_str())
+        && matches!(marker["relationship"].as_str(), Some("exact" | "probable"))
+}
+
+fn requested_identity_for_catalog_backfill(source: &Track) -> Option<Track> {
+    let requested = source.provenance.get("requestedTrackIdentity");
+    if let Some(requested) = requested {
+        let id = requested["originalId"]
+            .as_str()
+            .or_else(|| requested["id"].as_str())?;
+        let provider = requested["provider"].as_str()?;
+        let provider_id = requested["providerId"].as_str()?;
+        let title = requested["title"].as_str()?.trim();
+        let artist = requested["artist"].as_str()?.trim();
+        if id != format!("{provider}:{provider_id}")
+            || requested["id"]
+                .as_str()
+                .is_some_and(|stored_id| stored_id != id)
+            || provider.is_empty()
+            || provider_id.is_empty()
+            || title.is_empty()
+            || artist.is_empty()
+        {
+            return None;
+        }
+        return Some(Track {
+            id: id.to_owned(),
+            provider: provider.to_owned(),
+            provider_id: provider_id.to_owned(),
+            title: title.to_owned(),
+            artist: artist.to_owned(),
+            version: requested["version"].as_str().map(str::to_owned),
+            duration_seconds: source.duration_seconds,
+            provenance: source.provenance.clone(),
+            ..Track::default()
+        });
+    }
+    (!source.id.trim().is_empty()
+        && !source.provider.trim().is_empty()
+        && !source.provider_id.trim().is_empty()
+        && !source.title.trim().is_empty()
+        && !source.artist.trim().is_empty())
+    .then(|| source.clone())
 }
 
 pub fn job_key(asset_id: &str, content_hash: &str) -> String {
@@ -1360,7 +2147,9 @@ fn duration_compatible(a: f64, b: f64) -> bool {
 }
 
 fn can_auto_apply(source: &Track, candidate: &AutoTagCandidate, excerpt_only: bool) -> bool {
-    if source_conflicts(source, candidate) {
+    if source_conflicts(source, candidate)
+        || source_reported_identity_requires_review(source, candidate)
+    {
         return false;
     }
     if excerpt_only {
@@ -1373,14 +2162,187 @@ fn can_auto_apply(source: &Track, candidate: &AutoTagCandidate, excerpt_only: bo
             e.starts_with("SongRec recognized two non-overlapping excerpts consistently")
         });
     }
+    let uses_unverified_source_identity = ["artist", "title"]
+        .iter()
+        .any(|field| source_field_is_unverified_report(source, field))
+        || candidate_used_source_reported_lookup(candidate);
     (candidate.provider == "musicbrainz" || candidate.provider == "discogs")
-        && candidate.score >= 0.96
-        && strong_catalog_match(source, candidate)
+        && if uses_unverified_source_identity {
+            audio_recognition_verified(candidate)
+        } else {
+            candidate.score >= 0.96 && strong_catalog_match(source, candidate)
+        }
+}
+
+fn autotag_job_retryable(job: &AutoTagJob) -> bool {
+    ["retry", "no_match", "failed"].contains(&job.status.as_str())
+        || (job.status == "review" && job.chosen.is_none() && job.approved_fields.is_empty())
+}
+
+fn classify_lookup_result(
+    source: &Track,
+    candidate_count: usize,
+    recognized: bool,
+) -> (&'static str, &'static str) {
+    if candidate_count == 0 && accepted_acquisition_catalog_metadata_backfill(source) {
+        (
+            "applied",
+            "Verified metadata is tagged from the acquisition source; no additional catalog metadata was found.",
+        )
+    } else if candidate_count == 0 && recognized {
+        (
+            "review",
+            "Audio recognition matched two separate excerpts, but no unique catalog recording was resolved. Review the recognized artist and title; catalog identity is unverified.",
+        )
+    } else if candidate_count == 0 {
+        (
+            "no_match",
+            "No sufficiently compatible catalog match was found.",
+        )
+    } else {
+        (
+            "review",
+            "Catalog candidates are ambiguous; select one in review.",
+        )
+    }
+}
+
+fn current_asset_retry_job(
+    store: &Store,
+    asset_id: &str,
+) -> Result<(LocalAsset, AutoTagJob), String> {
+    let asset = store
+        .get_asset_by_id(asset_id)
+        .map_err(|error| error.to_string())?
+        .ok_or("Autotag asset was removed")?;
+    let rows = store
+        .list_autotag_records()
+        .map_err(|error| error.to_string())?;
+    let jobs = decode_job_records(rows);
+    let previous = jobs
+        .iter()
+        .find(|job| job.asset_id == asset.id && job.input_hash == asset.hash)
+        .or_else(|| jobs.iter().find(|job| job.asset_id == asset.id))
+        .ok_or("Autotag job not found")?;
+    if !autotag_job_retryable(previous) {
+        return Err("Only failed, unmatched, or unapproved review jobs can be retried".into());
+    }
+    // Always build fresh evidence for current bytes. Rows for previous hashes
+    // remain as history; none of their candidates or approvals cross hashes.
+    Ok((
+        asset.clone(),
+        AutoTagJob {
+            asset_id: asset.id,
+            input_hash: asset.hash,
+            version: VERSION.into(),
+            status: "queued".into(),
+            attempts: 0,
+            next_attempt_at: None,
+            message: None,
+            candidates: vec![],
+            chosen: None,
+            recognition: None,
+            approved_fields: vec![],
+            excerpt_only: false,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        },
+    ))
+}
+
+fn reserve_retry_slot(
+    pending: &std::sync::Mutex<HashSet<String>>,
+    inflight: &Mutex<HashSet<String>>,
+    asset_id: &str,
+) -> Result<(), String> {
+    let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
+    if pending.contains(asset_id) {
+        return Err("Autotag job is already queued for this asset".into());
+    }
+    let inflight = inflight
+        .try_lock()
+        .map_err(|_| "Autotag job is currently running for this asset")?;
+    if inflight.contains(asset_id) {
+        return Err("Autotag job is currently running for this asset".into());
+    }
+    pending.insert(asset_id.to_owned());
+    Ok(())
+}
+
+fn release_retry_slot(pending: &std::sync::Mutex<HashSet<String>>, asset_id: &str) {
+    pending
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(asset_id);
+}
+
+fn source_reported_identity_requires_review(source: &Track, candidate: &AutoTagCandidate) -> bool {
+    let has_unverified_identity = ["artist", "title"]
+        .iter()
+        .any(|field| source_field_is_unverified_report(source, field))
+        || candidate_used_source_reported_lookup(candidate);
+    has_unverified_identity && !audio_recognition_verified(candidate)
+}
+
+fn candidate_used_source_reported_lookup(candidate: &AutoTagCandidate) -> bool {
+    candidate.evidence.iter().any(|evidence| {
+        evidence
+            .strip_prefix("Catalog lookup used exact-source reported field(s):")
+            .and_then(|details| details.split_once(';'))
+            .is_some_and(|(fields, _)| {
+                fields
+                    .split(',')
+                    .map(str::trim)
+                    .any(|field| matches!(field, "artist" | "title"))
+            })
+    })
+}
+
+fn source_field_is_unverified_report(source: &Track, field: &str) -> bool {
+    if source.provenance["sourceReportedMetadata"]["identityStatus"] != "source_reported_unverified"
+        || source.provenance["sourceReportedMetadata"]["provider"].as_str()
+            != Some(source.provider.as_str())
+        || source.provenance["sourceReportedMetadata"]["providerId"].as_str()
+            != Some(source.provider_id.as_str())
+        || source.provenance["sourceReportedMetadata"]["sourceUrl"].as_str()
+            != Some(source.source_url.as_str())
+    {
+        return false;
+    }
+    source.provenance["manualFields"][field] != true
+        && source.provenance["sourceReportedMetadata"]["fields"]
+            .as_array()
+            .is_some_and(|fields| fields.iter().any(|value| value.as_str() == Some(field)))
+}
+
+fn audio_recognition_verified(candidate: &AutoTagCandidate) -> bool {
+    candidate.evidence.iter().any(|evidence| {
+        evidence.starts_with("SongRec recognized two non-overlapping excerpts consistently")
+            || (evidence.starts_with("AcoustID audio fingerprint score ")
+                && evidence
+                    .rsplit_once(' ')
+                    .and_then(|(_, score)| score.parse::<f64>().ok())
+                    .is_some_and(|score| score >= 0.95))
+    })
+}
+
+fn add_source_reported_lookup_evidence(
+    candidate: &mut AutoTagCandidate,
+    source_reported_fields: &[String],
+) {
+    if !source_reported_fields.is_empty() {
+        candidate.evidence.push(format!(
+            "Catalog lookup used exact-source reported field(s): {}; source metadata alone does not verify recording identity.",
+            source_reported_fields.join(", ")
+        ));
+    }
 }
 
 fn source_conflicts(source: &Track, candidate: &AutoTagCandidate) -> bool {
-    (!source.artist.trim().is_empty() && normalize(&source.artist) != normalize(&candidate.artist))
+    (!source.artist.trim().is_empty()
+        && !source_field_is_unverified_report(source, "artist")
+        && normalize(&source.artist) != normalize(&candidate.artist))
         || (!source.title.trim().is_empty()
+            && !source_field_is_unverified_report(source, "title")
             && normalize(&source.title) != normalize(&candidate.title))
 }
 
@@ -1401,6 +2363,65 @@ fn candidate_provides_field(candidate: &AutoTagCandidate, key: &str) -> bool {
         "discTotal" => candidate.fields.disc_total.is_some(),
         _ => false,
     }
+}
+
+fn recognition_metadata(
+    recognition: &AudioRecognition,
+    approved_fields: &[String],
+) -> Result<Track, String> {
+    const FIELDS: &[&str] = &["artist", "title", "isrc"];
+    let mut approved = approved_fields.to_vec();
+    approved.sort();
+    approved.dedup();
+    if approved.is_empty() || approved.iter().any(|field| !FIELDS.contains(&field.as_str())) {
+        return Err("Recognition review supports artist, title, and ISRC only".into());
+    }
+    if recognition.provider != "songrec" || recognition.excerpt_count < 2 {
+        return Err("Recognition must be a consistent two-excerpt SongRec result".into());
+    }
+    if approved.iter().any(|field| match field.as_str() {
+        "artist" => recognition.artist.trim().is_empty(),
+        "title" => recognition.title.trim().is_empty(),
+        "isrc" => recognition
+            .isrc
+            .as_deref()
+            .and_then(crate::recording_identity::normalize_isrc)
+            .is_none(),
+        _ => true,
+    }) {
+        return Err("Recognition has no value for one or more selected fields".into());
+    }
+    Ok(Track {
+        artist: approved
+            .iter()
+            .any(|field| field == "artist")
+            .then(|| recognition.artist.trim().to_owned())
+            .unwrap_or_default(),
+        title: approved
+            .iter()
+            .any(|field| field == "title")
+            .then(|| recognition.title.trim().to_owned())
+            .unwrap_or_default(),
+        isrc: approved
+            .iter()
+            .any(|field| field == "isrc")
+            .then(|| {
+                recognition
+                    .isrc
+                    .as_deref()
+                    .and_then(crate::recording_identity::normalize_isrc)
+            })
+            .flatten(),
+        provenance: json!({
+            "source":"audio_recognition_user_approved",
+            "identityStatus":"source_reported_unverified",
+            "recognitionProvider":recognition.provider,
+            "shazamId":recognition.shazam_id,
+            "excerptCount":recognition.excerpt_count,
+            "userApprovedFields":approved,
+        }),
+        ..Track::default()
+    })
 }
 
 fn mark_retry(job: &mut AutoTagJob, error: &str) {
@@ -1456,6 +2477,29 @@ fn candidate_from_fingerprint_mb(row: &Value) -> Option<AutoTagCandidate> {
             "MusicBrainz recording identity returned by strong audio fingerprint".into(),
         ],
     })
+}
+
+fn unique_musicbrainz_rows_for_isrc(results: &Value, isrc: &str) -> Vec<Value> {
+    let mut seen = HashSet::new();
+    results["recordings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| {
+            row["isrcs"].as_array().is_some_and(|codes| {
+                codes
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|code| crate::recording_identity::same_isrc(code, isrc))
+            })
+        })
+        .filter(|row| {
+            row["id"]
+                .as_str()
+                .is_some_and(|id| !id.trim().is_empty() && seen.insert(id.to_owned()))
+        })
+        .cloned()
+        .collect()
 }
 
 fn restrict_excerpt_fields(candidate: &mut AutoTagCandidate) {
@@ -1534,11 +2578,118 @@ fn executable_available(name: &str) -> bool {
     crate::tools::executable(name, name).is_file()
 }
 
+fn completed_source_candidate<'a>(
+    asset: &LocalAsset,
+    job: &'a DownloadJob,
+) -> Option<&'a Candidate> {
+    let publication_job_id = asset.track.provenance["publicationJobId"].as_str()?;
+    let candidate = &job.candidate;
+    let acquisition = &asset.track.provenance["acquisition"];
+    (!publication_job_id.is_empty()
+        && job.id == publication_job_id
+        && job.state == "completed"
+        && job.error.is_none()
+        && job.output_path.as_deref() == Some(asset.path.as_str())
+        && !candidate.provider.is_empty()
+        && !candidate.id.is_empty()
+        && !candidate.url.is_empty()
+        && acquisition["provider"].as_str() == Some(candidate.provider.as_str())
+        && acquisition["id"].as_str() == Some(candidate.id.as_str())
+        && acquisition["url"].as_str() == Some(candidate.url.as_str()))
+    .then_some(candidate)
+}
+
+fn has_bound_yt_dlp_metadata(track: &Track, candidate: &Candidate) -> bool {
+    let metadata = candidate.source_metadata.as_ref().unwrap_or(&Value::Null);
+    candidate.provider == track.provider
+        && candidate.id == track.id
+        && candidate.url == track.source_url
+        && candidate
+            .id
+            .strip_prefix(&format!("{}:", candidate.provider))
+            == Some(track.provider_id.as_str())
+        && metadata["resolvedProviderId"].as_str() == Some(track.provider_id.as_str())
+        && metadata["sourceMetadataOrigin"]
+            .as_str()
+            .is_some_and(|origin| origin.starts_with("ytDlp"))
+}
+
+fn source_tag_repair_noop(
+    asset: &LocalAsset,
+    identity_status: &str,
+) -> DownloadSourceTagRepairResult {
+    DownloadSourceTagRepairResult {
+        asset_id: asset.id.clone(),
+        changed: false,
+        fields: Vec::new(),
+        identity_status: identity_status.into(),
+    }
+}
+
+fn new_source_tag_repair_job(asset: &LocalAsset) -> AutoTagJob {
+    AutoTagJob {
+        asset_id: asset.id.clone(),
+        input_hash: asset.hash.clone(),
+        version: VERSION.into(),
+        status: "review".into(),
+        attempts: 0,
+        next_attempt_at: None,
+        message: None,
+        candidates: Vec::new(),
+        recognition: None,
+        chosen: None,
+        approved_fields: Vec::new(),
+        excerpt_only: false,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
+fn source_field_needs_repair(source: &Track, reported: &Track, field: &str) -> bool {
+    if source.provenance["manualFields"][field] == true {
+        return false;
+    }
+    match field {
+        "artist" => {
+            !reported.artist.trim().is_empty()
+                && (source.artist.trim().is_empty()
+                    || source.provenance["weakFields"][field] == true)
+        }
+        "title" => {
+            !reported.title.trim().is_empty()
+                && (source.title.trim().is_empty()
+                    || source.provenance["weakFields"][field] == true)
+        }
+        "album" => {
+            source
+                .album
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+                && reported.album.is_some()
+        }
+        "albumArtist" => {
+            source
+                .album_artist
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+                && reported.album_artist.is_some()
+        }
+        "genre" => {
+            source
+                .genre
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty())
+                && reported.genre.is_some()
+        }
+        "isrc" => source.isrc.is_none() && reported.isrc.is_some(),
+        _ => false,
+    }
+}
+
 async fn songrec_excerpt(
     path: &str,
     start: f64,
     ffmpeg_path: &str,
-) -> Result<Option<(String, String)>, String> {
+) -> Result<Option<crate::radio::RadioTrackMetadata>, String> {
     let wav = env::temp_dir().join(format!("burrata-autotag-{}.wav", uuid::Uuid::new_v4()));
     let mut ffmpeg = tokio::process::Command::new(crate::tools::executable(ffmpeg_path, "ffmpeg"));
     crate::tools::configure_no_console_tokio(&mut ffmpeg);
@@ -1558,53 +2709,31 @@ async fn songrec_excerpt(
         let _ = fs::remove_file(&wav);
         return Ok(None);
     }
-    let binary = if executable_available("songrec") {
-        "songrec"
-    } else {
-        "SongRec"
+    let station = crate::radio::RadioStation {
+        id: "autotag-recognition".into(),
+        name: "Local autotag recognition".into(),
+        stream_url: String::new(),
+        source_url: String::new(),
+        provider: None,
+        country: None,
+        tags: None,
+        homepage_url: None,
+        favicon_url: None,
+        bitrate_kbps: None,
+        codec: None,
+        language: None,
+        is_custom: true,
     };
-    let mut command = tokio::process::Command::new(crate::tools::executable(binary, binary));
-    crate::tools::configure_no_console_tokio(&mut command);
-    command
-        .arg("audio-file-to-recognized-song")
-        .arg(&wav)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(45), command.output()).await;
+    let output = tokio::time::timeout(
+        Duration::from_secs(50),
+        crate::radio::recognize_captured_sample_uncached(&station, &wav),
+    )
+    .await;
     let _ = fs::remove_file(&wav);
-    let Ok(Ok(output)) = output else {
-        return Ok(None);
-    };
-    if !output.status.success() {
-        return Ok(None);
+    match output {
+        Ok(Ok(result)) => Ok(result),
+        _ => Ok(None),
     }
-    let value: Value = match serde_json::from_slice(&output.stdout) {
-        Ok(value) => value,
-        Err(_) => return Ok(None),
-    };
-    let track = value.get("track").unwrap_or(&value);
-    let title = track["title"]
-        .as_str()
-        .or_else(|| track["heading"].as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let artist = track["subtitle"]
-        .as_str()
-        .or_else(|| track["artist"].as_str())
-        .or_else(|| {
-            track["artists"]
-                .as_array()
-                .and_then(|a| a.first())
-                .and_then(|a| a["name"].as_str())
-        })
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    Ok(match (artist, title) {
-        (Some(artist), Some(title)) => Some((artist.to_owned(), title.to_owned())),
-        _ => None,
-    })
 }
 
 fn is_live_performance(track: &Track) -> bool {
@@ -1656,10 +2785,554 @@ mod tests {
             message: None,
             candidates: vec![],
             chosen: None,
+            recognition: None,
             approved_fields: vec![],
             excerpt_only: false,
             updated_at: "2026-01-01T00:00:00Z".into(),
         }
+    }
+
+    #[test]
+    fn two_excerpt_recognition_without_unique_catalog_record_enters_review() {
+        let source = track("YouTube Guy Bertrand", "Por ella", Some(213.5));
+        let (status, message) = classify_lookup_result(&source, 0, true);
+        assert_eq!(status, "review");
+        assert!(message.contains("catalog identity is unverified"));
+
+        let (status, _) = classify_lookup_result(&source, 0, false);
+        assert_eq!(status, "no_match");
+        let (status, message) = classify_lookup_result(&source, 2, true);
+        assert_eq!(status, "review");
+        assert!(message.contains("candidates are ambiguous"));
+    }
+
+    #[test]
+    fn recognition_is_persisted_separately_and_old_jobs_still_decode() {
+        let mut job = persisted_job("hash", "review");
+        job.recognition = Some(AudioRecognition {
+            provider: "songrec".into(),
+            artist: "Tékaméli".into(),
+            title: "Por Ella".into(),
+            isrc: Some("FRZ089900030".into()),
+            shazam_id: Some("10222041".into()),
+            excerpt_count: 2,
+        });
+        let encoded = serde_json::to_value(&job).unwrap();
+        let decoded: AutoTagJob = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded.recognition, job.recognition);
+        assert!(decoded.candidates.is_empty());
+        assert!(decoded.chosen.is_none());
+
+        let mut legacy = encoded;
+        legacy.as_object_mut().unwrap().remove("recognition");
+        let decoded_legacy: AutoTagJob = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded_legacy.recognition, None);
+    }
+
+    #[test]
+    fn recognition_review_metadata_contains_only_checked_tags_and_unverified_provenance() {
+        let recognition = AudioRecognition {
+            provider: "songrec".into(),
+            artist: "Tékaméli".into(),
+            title: "Por Ella".into(),
+            isrc: Some("FR-Z08-99-00030".into()),
+            shazam_id: Some("10222041".into()),
+            excerpt_count: 2,
+        };
+        let metadata = recognition_metadata(
+            &recognition,
+            &["title".into(), "isrc".into(), "title".into()],
+        )
+        .unwrap();
+        assert!(metadata.artist.is_empty());
+        assert_eq!(metadata.title, "Por Ella");
+        assert_eq!(metadata.isrc.as_deref(), Some("FRZ089900030"));
+        assert_eq!(
+            metadata.provenance["userApprovedFields"],
+            json!(["isrc", "title"])
+        );
+        assert_eq!(
+            metadata.provenance["identityStatus"],
+            "source_reported_unverified"
+        );
+        assert_eq!(metadata.provider, "");
+        assert!(recognition_metadata(&recognition, &["album".into()]).is_err());
+        assert!(recognition_metadata(&recognition, &["artist".into(), "album".into()]).is_err());
+    }
+
+    #[test]
+    fn recognition_review_requires_values_and_two_excerpt_songrec_evidence() {
+        let mut recognition = AudioRecognition {
+            provider: "songrec".into(),
+            artist: "Recognized Artist".into(),
+            title: "Recognized Title".into(),
+            isrc: None,
+            shazam_id: None,
+            excerpt_count: 2,
+        };
+        assert!(recognition_metadata(&recognition, &[]).is_err());
+        assert!(recognition_metadata(&recognition, &["isrc".into()]).is_err());
+        recognition.excerpt_count = 1;
+        assert!(recognition_metadata(&recognition, &["artist".into()]).is_err());
+        recognition.excerpt_count = 2;
+        recognition.provider = "unknown".into();
+        assert!(recognition_metadata(&recognition, &["artist".into()]).is_err());
+    }
+
+    fn retry_store_asset(id: &str, hash: &str, track: Track) -> LocalAsset {
+        LocalAsset {
+            id: id.into(),
+            recording_id: track.id.clone(),
+            path: format!("/tmp/{id}.flac"),
+            hash: hash.into(),
+            source_codec: "flac".into(),
+            final_codec: "flac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: Some(44_100),
+            channels: Some(2),
+            bit_depth: Some(16),
+            duration_seconds: Some(180.0),
+            size_bytes: Some(1),
+            bitrate_origin: None,
+            processing: "managed".into(),
+            track,
+        }
+    }
+
+    fn retry_test_store() -> (tempfile::TempDir, Store) {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("retry.sqlite")).unwrap();
+        (directory, store)
+    }
+
+    fn retry_test_track() -> Track {
+        Track {
+            id: "fixture:retry-track".into(),
+            provider: "fixture".into(),
+            provider_id: "retry-track".into(),
+            source_url: "https://example.test/retry-track".into(),
+            artist: "Artist".into(),
+            title: "Title".into(),
+            provenance: json!({"manualFields":{"album":true},"requestedTrackIdentity":{"id":"fixture:retry-track"}}),
+            ..Track::default()
+        }
+    }
+
+    #[test]
+    fn retry_uses_current_store_hash_and_resets_old_evidence() {
+        let (_directory, store) = retry_test_store();
+        let track = retry_test_track();
+        let old_asset = retry_store_asset("retry-asset", "old-hash", track.clone());
+        store.save_asset(&old_asset).unwrap();
+        let mut old_job = persisted_job("old-hash", "no_match");
+        old_job.asset_id = old_asset.id.clone();
+        old_job
+            .candidates
+            .push(candidate("Old Artist", "Old Title", Some(180.0)));
+        old_job.chosen = old_job.candidates.first().cloned();
+        old_job.approved_fields = vec!["title".into()];
+        store
+            .save_autotag_record(
+                &old_job.asset_id,
+                &old_job.input_hash,
+                VERSION,
+                &old_job.status,
+                &serde_json::to_value(&old_job).unwrap(),
+            )
+            .unwrap();
+
+        let current_asset = retry_store_asset("retry-asset", "current-hash", track.clone());
+        store.save_asset(&current_asset).unwrap();
+        let (loaded, fresh_job) = current_asset_retry_job(&store, &old_asset.id).unwrap();
+        assert_eq!(loaded.hash, "current-hash");
+        assert_eq!(fresh_job.input_hash, "current-hash");
+        assert_eq!(fresh_job.status, "queued");
+        assert_eq!(fresh_job.attempts, 0);
+        assert!(fresh_job.candidates.is_empty());
+        assert!(fresh_job.chosen.is_none());
+        assert!(fresh_job.approved_fields.is_empty());
+        assert_eq!(loaded.track.provenance, track.provenance);
+
+        store
+            .save_autotag_record(
+                &fresh_job.asset_id,
+                &fresh_job.input_hash,
+                VERSION,
+                &fresh_job.status,
+                &serde_json::to_value(&fresh_job).unwrap(),
+            )
+            .unwrap();
+        let records = decode_job_records(store.list_autotag_records().unwrap());
+        assert!(records.iter().any(|job| job.input_hash == "old-hash"));
+        assert!(records.iter().any(|job| {
+            job.input_hash == "current-hash" && job.status == "queued" && job.candidates.is_empty()
+        }));
+    }
+
+    #[test]
+    fn retry_requires_existing_asset_and_retryable_previous_job() {
+        let (_directory, store) = retry_test_store();
+        assert_eq!(
+            current_asset_retry_job(&store, "removed-asset").unwrap_err(),
+            "Autotag asset was removed"
+        );
+
+        let asset = retry_store_asset("applied-asset", "current-hash", retry_test_track());
+        store.save_asset(&asset).unwrap();
+        let mut applied = persisted_job("current-hash", "applied");
+        applied.asset_id = asset.id.clone();
+        store
+            .save_autotag_record(
+                &asset.id,
+                &applied.input_hash,
+                VERSION,
+                &applied.status,
+                &serde_json::to_value(&applied).unwrap(),
+            )
+            .unwrap();
+        assert!(current_asset_retry_job(&store, &asset.id)
+            .unwrap_err()
+            .contains("Only failed"));
+    }
+
+    #[test]
+    fn retry_slot_rejects_pending_and_inflight_asset_overlap() {
+        let pending = std::sync::Mutex::new(HashSet::from(["asset-1".to_owned()]));
+        let inflight = Mutex::new(HashSet::new());
+        assert!(reserve_retry_slot(&pending, &inflight, "asset-1")
+            .unwrap_err()
+            .contains("already queued"));
+        assert!(pending.lock().unwrap().contains("asset-1"));
+
+        let pending = std::sync::Mutex::new(HashSet::new());
+        let inflight = Mutex::new(HashSet::from(["asset-1".to_owned()]));
+        assert!(reserve_retry_slot(&pending, &inflight, "asset-1")
+            .unwrap_err()
+            .contains("currently running"));
+        assert!(pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn monochrome_backfill_candidate_must_pass_shared_resolved_policy() {
+        let request = Track {
+            id: "spotify:requested".into(),
+            provider: "spotify".into(),
+            provider_id: "requested".into(),
+            artist: "Artist".into(),
+            title: "Title".into(),
+            duration_seconds: Some(180.0),
+            ..Track::default()
+        };
+        let exact = crate::models::Candidate {
+            id: "monochrome:12345678901234567".into(),
+            provider: "monochrome".into(),
+            url: "https://tracks.monochrome.st/track/12345678901234567".into(),
+            title: "Artist - Title".into(),
+            uploader: Some("Artist".into()),
+            duration_seconds: Some(180.0),
+            permission: "unknown".into(),
+            source_metadata: Some(json!({
+                "provider":"monochrome", "trackId":"12345678901234567",
+                "catalogTitle":"Title", "artistNames":["Artist"], "isrc":"USABC2600001"
+            })),
+            ..crate::models::Candidate::default()
+        };
+        let assessment = crate::recording_match::assess(
+            &request,
+            &exact,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert!(accepted_acquisition_catalog_match(&exact, &assessment));
+
+        let mut wrong_recording = exact.clone();
+        wrong_recording.source_metadata.as_mut().unwrap()["catalogTitle"] = json!("Other Title");
+        // Candidate.title is also derived from the canonical Monochrome result;
+        // keep the fixture internally consistent so it cannot leak the requested title.
+        wrong_recording.title = "Artist - Other Title".into();
+        let rejected = crate::recording_match::assess(
+            &request,
+            &wrong_recording,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert!(!accepted_acquisition_catalog_match(
+            &wrong_recording,
+            &rejected
+        ));
+    }
+
+    #[test]
+    fn accepted_acquisition_metadata_backfills_only_missing_nonmanual_fields() {
+        let mut source = track("Artist", "Title", Some(180.0));
+        source.provenance = json!({"manualFields":{"albumArtist":true,"label":true}});
+        source.album_artist = Some("Manual Album Artist".into());
+        source.genre = Some("Existing Genre".into());
+        let locator = MonochromeAcquisitionLocator {
+            provider_id: "12345678901234567".into(),
+            url: "https://tracks.monochrome.st/track/12345678901234567".into(),
+        };
+        let candidate = crate::models::Candidate {
+            id: "monochrome:12345678901234567".into(),
+            provider: "monochrome".into(),
+            url: locator.url.clone(),
+            title: "Artist - Title".into(),
+            uploader: Some("Artist".into()),
+            duration_seconds: Some(180.0),
+            permission: "unknown".into(),
+            source_metadata: Some(json!({
+                "provider":"monochrome", "trackId":"12345678901234567",
+                "catalogTitle":"Title", "artistNames":["Artist"],
+                "isrc":"USABC2600001", "album":"Release", "albumArtist":"Wrong Album Artist",
+                "releaseDate":"2024-03-01", "genre":"Wrong Genre", "label":"Wrong Label"
+            })),
+            ..crate::models::Candidate::default()
+        };
+        let assessment = crate::recording_match::assess(
+            &source,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        let metadata =
+            accepted_acquisition_catalog_metadata(&source, &locator, &candidate, &assessment)
+                .unwrap();
+
+        assert_eq!(metadata.album.as_deref(), Some("Release"));
+        assert_eq!(metadata.album_artist, None);
+        assert_eq!(metadata.release_date.as_deref(), Some("2024-03-01"));
+        assert_eq!(metadata.genre, None);
+        assert_eq!(metadata.label, None);
+        assert_eq!(metadata.isrc.as_deref(), Some("USABC2600001"));
+        assert!(metadata.artist.is_empty() && metadata.title.is_empty());
+        assert_eq!(source.artist, "Artist");
+        assert_eq!(source.title, "Title");
+        assert_eq!(
+            metadata.provenance["fields"],
+            json!(["album", "releaseDate", "isrc"])
+        );
+    }
+
+    #[test]
+    fn accepted_acquisition_metadata_rejects_wrong_recording_or_locator() {
+        let source = track("Artist", "Title", Some(180.0));
+        let locator = MonochromeAcquisitionLocator {
+            provider_id: "12345678901234567".into(),
+            url: "https://tracks.monochrome.st/track/12345678901234567".into(),
+        };
+        let mut candidate = crate::models::Candidate {
+            id: "monochrome:12345678901234567".into(),
+            provider: "monochrome".into(),
+            url: locator.url.clone(),
+            title: "Artist - Other Title".into(),
+            uploader: Some("Artist".into()),
+            duration_seconds: Some(180.0),
+            permission: "unknown".into(),
+            source_metadata: Some(json!({
+                "provider":"monochrome", "trackId":"12345678901234567",
+                "catalogTitle":"Other Title", "artistNames":["Artist"],
+                "album":"Wrong Release", "isrc":"USABC2600001"
+            })),
+            ..crate::models::Candidate::default()
+        };
+        let rejected = crate::recording_match::assess(
+            &source,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert!(
+            accepted_acquisition_catalog_metadata(&source, &locator, &candidate, &rejected)
+                .is_none()
+        );
+
+        candidate.title = "Artist - Title".into();
+        candidate.source_metadata.as_mut().unwrap()["catalogTitle"] = json!("Title");
+        let accepted = crate::recording_match::assess(
+            &source,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        let mut wrong_locator = locator;
+        wrong_locator.provider_id = "12345678901234568".into();
+        assert!(accepted_acquisition_catalog_metadata(
+            &source,
+            &wrong_locator,
+            &candidate,
+            &accepted
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn monochrome_backfill_requires_exact_stored_acquisition_locator() {
+        let mut source = track("Artist", "Title", Some(180.0));
+        source.provenance = json!({"acquisition":{
+            "provider":"monochrome",
+            "id":"monochrome:12345678901234567",
+            "url":"https://tracks.monochrome.st/track/12345678901234567"
+        }});
+        let locator = monochrome_acquisition_locator(&source).unwrap();
+        let matching = crate::models::Candidate {
+            id: "monochrome:12345678901234567".into(),
+            provider: "monochrome".into(),
+            url: "https://tracks.monochrome.st/track/12345678901234567".into(),
+            ..crate::models::Candidate::default()
+        };
+        assert!(exact_monochrome_locator_match(&locator, &matching));
+        let mut wrong_id = matching.clone();
+        wrong_id.id = "monochrome:12345678901234568".into();
+        assert!(!exact_monochrome_locator_match(&locator, &wrong_id));
+        let mut wrong_url = matching;
+        wrong_url.url = "https://tracks.monochrome.st/track/12345678901234568".into();
+        assert!(!exact_monochrome_locator_match(&locator, &wrong_url));
+    }
+
+    #[test]
+    fn recognition_suppression_requires_successful_accepted_locator_isrc_backfill() {
+        let mut source = track("Artist", "Title", Some(180.0));
+        source.provenance = json!({"acquisition":{
+            "provider":"monochrome",
+            "id":"monochrome:12345678901234567",
+            "url":"https://tracks.monochrome.st/track/12345678901234567"
+        }});
+        assert!(!accepted_acquisition_isrc_backfill(&source));
+
+        source.isrc = Some("US-ABC-26-00001".into());
+        source.provenance["autotag"] = json!({
+            "source":"accepted_acquisition_catalog_metadata",
+            "identityStatus":"accepted_recording_match",
+            "provider":"monochrome",
+            "providerId":"12345678901234567",
+            "sourceUrl":"https://tracks.monochrome.st/track/12345678901234567",
+            "relationship":"exact",
+            "fields":["isrc"]
+        });
+        assert!(accepted_acquisition_isrc_backfill(&source));
+        source.provenance["autotag"]["sourceUrl"] =
+            json!("https://tracks.monochrome.st/track/12345678901234568");
+        assert!(!accepted_acquisition_isrc_backfill(&source));
+    }
+
+    #[test]
+    fn recognition_suppression_keeps_historical_verified_isrc_marker_compatible() {
+        let mut source = track("Artist", "Title", Some(180.0));
+        source.isrc = Some("US-ABC-26-00001".into());
+        source.provenance = json!({
+            "acquisition":{
+                "provider":"monochrome",
+                "id":"monochrome:12345678901234567",
+                "url":"https://tracks.monochrome.st/track/12345678901234567"
+            },
+            "autotag":{
+                "source":"accepted_acquisition_catalog_isrc",
+                "identityStatus":"accepted_recording_match",
+                "provider":"monochrome",
+                "providerId":"12345678901234567",
+                "sourceUrl":"https://tracks.monochrome.st/track/12345678901234567",
+                "relationship":"exact",
+                "fields":["isrc"]
+            }
+        });
+        assert!(accepted_acquisition_isrc_backfill(&source));
+
+        source.provenance["autotag"]["fields"] = json!([]);
+        assert!(!accepted_acquisition_isrc_backfill(&source));
+        source.provenance["autotag"]["fields"] = json!(["isrc"]);
+        source.provenance["autotag"]["sourceUrl"] =
+            json!("https://tracks.monochrome.st/track/12345678901234568");
+        assert!(!accepted_acquisition_isrc_backfill(&source));
+    }
+
+    #[test]
+    fn album_only_acquisition_backfill_counts_as_applied_without_suppressing_fingerprinting() {
+        let mut source = track("Artist", "Title", Some(180.0));
+        source.album = Some("Verified Release".into());
+        source.provenance = json!({
+            "acquisition":{
+                "provider":"monochrome",
+                "id":"monochrome:12345678901234567",
+                "url":"https://tracks.monochrome.st/track/12345678901234567"
+            },
+            "autotag":{
+                "source":"accepted_acquisition_catalog_metadata",
+                "identityStatus":"accepted_recording_match",
+                "provider":"monochrome",
+                "providerId":"12345678901234567",
+                "sourceUrl":"https://tracks.monochrome.st/track/12345678901234567",
+                "relationship":"exact",
+                "fields":["album"]
+            }
+        });
+
+        assert!(accepted_acquisition_catalog_metadata_backfill(&source));
+        assert!(!accepted_acquisition_isrc_backfill(&source));
+
+        source.album = None;
+        assert!(!accepted_acquisition_catalog_metadata_backfill(&source));
+    }
+
+    #[test]
+    fn monochrome_backfill_uses_requested_identity_for_alternative_source_assets() {
+        let mut source = track("Monochrome Credit", "Catalog Title", Some(180.0));
+        source.id = "monochrome:12345678901234567".into();
+        source.provider = "monochrome".into();
+        source.provider_id = "12345678901234567".into();
+        source.provenance = json!({"requestedTrackIdentity":{
+            "id":"spotify:requested-id", "originalId":"spotify:requested-id",
+            "provider":"spotify", "providerId":"requested-id",
+            "artist":"Requested Artist", "title":"Requested Title"
+        }});
+        let requested = requested_identity_for_catalog_backfill(&source).unwrap();
+        assert_eq!(requested.id, "spotify:requested-id");
+        assert_eq!(requested.artist, "Requested Artist");
+        assert_eq!(requested.title, "Requested Title");
+    }
+
+    #[test]
+    fn malformed_requested_identity_never_falls_back_to_alternative_source_identity() {
+        let mut source = track("Alternative Artist", "Alternative Title", Some(180.0));
+        source.provenance = json!({"requestedTrackIdentity":{"id":"spotify:missing-fields"}});
+        assert!(requested_identity_for_catalog_backfill(&source).is_none());
+    }
+
+    #[test]
+    fn accepted_backfill_requires_shared_accept_and_exact_or_probable_relationship() {
+        let candidate = crate::models::Candidate {
+            permission: "unknown".into(),
+            ..crate::models::Candidate::default()
+        };
+        let mut assessment = crate::recording_match::MatchAssessment {
+            action: crate::recording_match::MatchAction::Accept,
+            relationship: crate::recording_match::MatchRelationship::Exact,
+            proof_strength: crate::recording_match::ProofStrength::MetadataOnly,
+            evidence: None,
+            reasons: vec![],
+            dimensions: crate::recording_match::MatchDimensions {
+                title: crate::recording_match::Comparison::Agree,
+                artists: crate::recording_match::Comparison::Agree,
+                guests: crate::recording_match::Comparison::Unknown,
+                version: crate::recording_match::Comparison::Unknown,
+                runtime: crate::recording_match::Comparison::Agree,
+                isrc: crate::recording_match::Comparison::Unknown,
+                work: crate::recording_match::Comparison::Unknown,
+            },
+        };
+        assert!(accepted_acquisition_catalog_match(&candidate, &assessment));
+        assessment.relationship = crate::recording_match::MatchRelationship::Alternative;
+        assert!(!accepted_acquisition_catalog_match(&candidate, &assessment));
+        assessment.relationship = crate::recording_match::MatchRelationship::Probable;
+        assessment.action = crate::recording_match::MatchAction::Inspect;
+        assert!(!accepted_acquisition_catalog_match(&candidate, &assessment));
+        assessment.action = crate::recording_match::MatchAction::Accept;
+        let mut restricted = candidate;
+        restricted.permission = "restricted".into();
+        assert!(!accepted_acquisition_catalog_match(
+            &restricted,
+            &assessment
+        ));
     }
 
     #[test]
@@ -1701,6 +3374,249 @@ mod tests {
         let near = candidate("Artist", "Hello Worlds", Some(180.0));
         assert!(near.score >= 0.94);
         assert!(!can_auto_apply(&source, &near, false));
+    }
+
+    #[test]
+    fn unapproved_reviews_can_retry_without_resetting_approved_or_active_jobs() {
+        let mut job = AutoTagJob {
+            asset_id: "asset".into(),
+            input_hash: "hash".into(),
+            version: VERSION.into(),
+            status: "review".into(),
+            attempts: 0,
+            next_attempt_at: None,
+            message: None,
+            candidates: vec![],
+            chosen: None,
+            recognition: None,
+            approved_fields: vec![],
+            excerpt_only: false,
+            updated_at: String::new(),
+        };
+        assert!(autotag_job_retryable(&job));
+        job.approved_fields.push("artist".into());
+        assert!(!autotag_job_retryable(&job));
+        job.approved_fields.clear();
+        for status in ["approved", "matching", "queued", "applied"] {
+            job.status = status.into();
+            assert!(!autotag_job_retryable(&job));
+        }
+        for status in ["failed", "no_match", "retry"] {
+            job.status = status.into();
+            assert!(autotag_job_retryable(&job));
+        }
+    }
+
+    #[test]
+    fn source_reported_identity_can_find_catalog_candidates_but_requires_review() {
+        let mut source = track("", "La Cubanita", Some(190.0));
+        source.id = "youtube:video-123".into();
+        source.provider = "youtube".into();
+        source.provider_id = "video-123".into();
+        source.source_url = "https://youtube.com/watch?v=video-123".into();
+        let audio_candidate = crate::models::Candidate {
+            id: source.id.clone(),
+            provider: source.provider.clone(),
+            url: source.source_url.clone(),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "resolvedProviderId":"video-123",
+                "artists":["Los Niños de Sara"],
+                "catalogTitle":"La Cubanita"
+            })),
+            ..crate::models::Candidate::default()
+        };
+        source.provenance = json!({"audioCandidate":audio_candidate});
+        let (search_source, fields) = crate::acquisition::source_reported_track_for_lookup(&source);
+        assert_eq!(search_source.artist, "Los Niños de Sara");
+        assert_eq!(search_source.title, "La Cubanita");
+        assert_eq!(fields, vec!["artist".to_owned()]);
+
+        let mut catalog_match = candidate("Los Niños de Sara", "La Cubanita", Some(190.0));
+        catalog_match.fields.provenance = search_source.provenance.clone();
+        assert!(!can_auto_apply(&search_source, &catalog_match, false));
+        catalog_match
+            .evidence
+            .push("SongRec recognized two non-overlapping excerpts consistently; MusicBrainz artist, title, and duration also matched.".into());
+        assert!(can_auto_apply(&search_source, &catalog_match, false));
+        let historical_source = track("", "La Cubanita", Some(190.0));
+        let mut historical_match = catalog_match.clone();
+        historical_match.evidence.push(
+            "Catalog lookup used exact-source reported field(s): artist; source metadata alone does not verify recording identity.".into(),
+        );
+        assert!(can_auto_apply(&historical_source, &historical_match, false));
+
+        let mut manually_identified = search_source.clone();
+        manually_identified.artist = "Manually Chosen Artist".into();
+        manually_identified.provenance["manualFields"]["artist"] = json!(true);
+        assert!(!can_auto_apply(&manually_identified, &catalog_match, false));
+
+        catalog_match.evidence[0] = "AcoustID audio fingerprint score 0.940".into();
+        catalog_match.evidence.truncate(1);
+        assert!(!can_auto_apply(&search_source, &catalog_match, false));
+        assert!(can_auto_apply(
+            &track("Los Niños de Sara", "La Cubanita", Some(190.0)),
+            &catalog_match,
+            false
+        ));
+    }
+
+    #[test]
+    fn source_reported_repair_only_fills_missing_or_weak_nonmanual_fields() {
+        let source = track("", "La Cubanita", Some(190.0));
+        let reported = Track {
+            artist: "Los Niños de Sara".into(),
+            title: "La Cubanita".into(),
+            album: Some("Gipsyolé".into()),
+            ..Track::default()
+        };
+        assert!(source_field_needs_repair(&source, &reported, "artist"));
+        assert!(!source_field_needs_repair(&source, &reported, "title"));
+        assert!(source_field_needs_repair(&source, &reported, "album"));
+
+        let mut protected = source.clone();
+        protected.provenance = json!({"manualFields":{"artist":true}});
+        assert!(!source_field_needs_repair(&protected, &reported, "artist"));
+        protected.album = Some("Existing Album".into());
+        assert!(!source_field_needs_repair(&protected, &reported, "album"));
+    }
+
+    fn completed_source_fixture() -> (LocalAsset, DownloadJob) {
+        let candidate = Candidate {
+            id: "youtube:video-123".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=video-123".into(),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "resolvedProviderId":"video-123",
+                "artist":"Los Niños de Sara",
+                "album":"Gipsyolé",
+                "catalogTitle":"La Cubanita"
+            })),
+            ..Candidate::default()
+        };
+        let mut track = Track {
+            id: "youtube:video-123".into(),
+            provider: "youtube".into(),
+            provider_id: "video-123".into(),
+            source_url: candidate.url.clone(),
+            title: "La Cubanita".into(),
+            ..Track::default()
+        };
+        track.provenance = json!({
+            "publicationJobId":"job-1",
+            "acquisition":{
+                "provider":candidate.provider.clone(),
+                "id":candidate.id.clone(),
+                "url":candidate.url.clone()
+            },
+            "audioCandidate":{"provider":"youtube","id":"youtube:video-123"}
+        });
+        let asset = LocalAsset {
+            id: "asset-1".into(),
+            recording_id: "recording-1".into(),
+            path: "/music/La Cubanita.mp3".into(),
+            hash: "hash-1".into(),
+            source_codec: "opus".into(),
+            final_codec: "mp3".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: Some(190.0),
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "managed".into(),
+            track,
+        };
+        let job = DownloadJob {
+            id: "job-1".into(),
+            track: asset.track.clone(),
+            candidate,
+            state: "completed".into(),
+            progress: 100.0,
+            error: None,
+            output_path: Some(asset.path.clone()),
+            created_at: "2026-10-21T00:00:00Z".into(),
+            output_profile: "source".into(),
+            disposition: Default::default(),
+            format_id: None,
+            chapter_ids: None,
+            soulseek: None,
+        };
+        (asset, job)
+    }
+
+    #[test]
+    fn completed_source_metadata_requires_job_path_and_exact_acquisition_binding() {
+        let (asset, job) = completed_source_fixture();
+        assert!(completed_source_candidate(&asset, &job).is_some());
+
+        let mut wrong_job = job.clone();
+        wrong_job.id = "other-job".into();
+        assert!(completed_source_candidate(&asset, &wrong_job).is_none());
+
+        let mut wrong_path = job.clone();
+        wrong_path.output_path = Some("/music/other.mp3".into());
+        assert!(completed_source_candidate(&asset, &wrong_path).is_none());
+
+        let mut incomplete = job.clone();
+        incomplete.state = "failed".into();
+        assert!(completed_source_candidate(&asset, &incomplete).is_none());
+
+        let mut wrong_provider = job.clone();
+        wrong_provider.candidate.provider = "soundcloud".into();
+        assert!(completed_source_candidate(&asset, &wrong_provider).is_none());
+
+        let mut wrong_id = job.clone();
+        wrong_id.candidate.id = "youtube:other".into();
+        assert!(completed_source_candidate(&asset, &wrong_id).is_none());
+
+        let mut wrong_url = job;
+        wrong_url.candidate.url = "https://www.youtube.com/watch?v=other".into();
+        assert!(completed_source_candidate(&asset, &wrong_url).is_none());
+    }
+
+    #[test]
+    fn completed_source_promotion_keeps_manual_fields_and_reports_only_unverified_missing_tags() {
+        let (mut asset, job) = completed_source_fixture();
+        asset.track.provenance["manualFields"]["artist"] = json!(true);
+        asset.track.artist = "User chosen artist".into();
+        let candidate = completed_source_candidate(&asset, &job).unwrap();
+        assert!(has_bound_yt_dlp_metadata(&asset.track, candidate));
+        let (reported, fields) =
+            crate::acquisition::source_reported_track_for_lookup_from_candidate(
+                &asset.track,
+                candidate,
+            );
+        assert_eq!(reported.artist, "User chosen artist");
+        assert_eq!(reported.album.as_deref(), Some("Gipsyolé"));
+        assert_eq!(fields, vec!["album".to_owned()]);
+        let fields = fields
+            .into_iter()
+            .filter(|field| source_field_needs_repair(&asset.track, &reported, field))
+            .collect::<Vec<_>>();
+        assert_eq!(fields, vec!["album".to_owned()]);
+        assert_eq!(
+            reported.provenance["sourceReportedMetadata"]["identityStatus"],
+            "source_reported_unverified"
+        );
+    }
+
+    #[test]
+    fn songrec_isrc_query_filters_exact_codes_without_choosing_ambiguous_rows() {
+        let results = json!({"recordings":[
+            {"id":"mb-a","isrcs":["USABC2600001"]},
+            {"id":"mb-b","isrcs":["USABC2600002"]},
+            {"id":"mb-c","isrcs":["USABC2600001"]},
+            {"id":"mb-a","isrcs":["USABC2600001"]}
+        ]});
+        let exact = unique_musicbrainz_rows_for_isrc(&results, "US-ABC-26-00001");
+        assert_eq!(exact.len(), 2);
+        assert_eq!(exact[0]["id"], "mb-a");
+        assert_eq!(exact[1]["id"], "mb-c");
+        assert!(unique_musicbrainz_rows_for_isrc(&results, "USABC2600003").is_empty());
     }
 
     #[test]
@@ -1767,6 +3683,7 @@ mod tests {
             message: None,
             candidates: vec![],
             chosen: None,
+            recognition: None,
             approved_fields: vec![],
             excerpt_only: false,
             updated_at: String::new(),

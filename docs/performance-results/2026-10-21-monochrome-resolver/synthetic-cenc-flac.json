@@ -1,0 +1,29 @@
+{
+  "purpose": "Synthetic local compatibility probe, not Alvafro or live provider qualification",
+  "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "reference_pcm_bytes": 264600,
+  "cases": [
+    {
+      "container": "mp4",
+      "mux_exit": 0,
+      "decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "diagnostic": "",
+      "seek_exit": 0,
+      "seek_pcm_matches_reference": true
+    },
+    {
+      "container": "fragmented_mp4",
+      "mux_exit": 0,
+      "decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "diagnostic": "",
+      "seek_exit": 0,
+      "seek_pcm_matches_reference": true
+    }
+  ],
+  "testInput": "Generated 3-second 440 Hz sine, 44100 Hz mono; FLAC encoded in MP4; synthetic CENC key and KID; no user media or secrets.",
+  "method": "Remux FLAC using cenc-aes-ctr into ordinary MP4 and fragmented MP4 (frag_keyframe+empty_moov); decode with decryption_key to s16le PCM; compare full PCM and one-second seek output with clear reference."
+}

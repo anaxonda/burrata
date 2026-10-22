@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-handoff-webview-playback"
+description = "Enables the handoff_webview_playback command without any pre-configured scope."
+commands.allow = ["handoff_webview_playback"]
+
+[[permission]]
+identifier = "deny-handoff-webview-playback"
+description = "Denies the handoff_webview_playback command without any pre-configured scope."
+commands.deny = ["handoff_webview_playback"]

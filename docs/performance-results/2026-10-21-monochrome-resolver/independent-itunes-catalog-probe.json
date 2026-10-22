@@ -1,0 +1,128 @@
+{
+  "endpoint": "itunes.apple.com/lookup",
+  "album_id": "6796842304",
+  "status": 200,
+  "result_count": 15,
+  "tracks": [
+    {
+      "trackId": null,
+      "trackName": null,
+      "artistName": "Fred again.. & LATIN MAFIA",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": null,
+      "kind": null
+    },
+    {
+      "trackId": 6796842305,
+      "trackName": "Hey Hey",
+      "artistName": "Fred again.. & LATIN MAFIA",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 125084,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842308,
+      "trackName": "Alvafro",
+      "artistName": "LATIN MAFIA & Fred again..",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 238053,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842311,
+      "trackName": "Bonita",
+      "artistName": "Fred again.. & LATIN MAFIA",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 186304,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842312,
+      "trackName": "benjy chord",
+      "artistName": "Fred again.. & LATIN MAFIA",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 165306,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842524,
+      "trackName": "Cmon (LATIN MAFIA & Fred edit)",
+      "artistName": "Fred again.. & Brian Eno",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 255434,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842525,
+      "trackName": "Quiereme",
+      "artistName": "LATIN MAFIA, Fred again.. & bby",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 175116,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842526,
+      "trackName": "casino143 (Rue De La Fortuna Remix)",
+      "artistName": "IVOXYGEN, LATIN MAFIA & Fred again..",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 178673,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842528,
+      "trackName": "Film Scene Soundtrack",
+      "artistName": "Fred again.., KatzPascale & LATIN MAFIA",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 165500,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842529,
+      "trackName": "Open Eye Signal (under the fabric)",
+      "artistName": "Jon Hopkins",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 241217,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842541,
+      "trackName": "Piensas En Mi",
+      "artistName": "Fred again.. & LATIN MAFIA",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 198052,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842542,
+      "trackName": "Halo",
+      "artistName": "Fred again.., LATIN MAFIA & Lil Yachty",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 183226,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842545,
+      "trackName": "Te Estoy Correteando",
+      "artistName": "LATIN MAFIA & Fred again..",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 193638,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842546,
+      "trackName": "Mabe",
+      "artistName": "Fred again.., LATIN MAFIA & Mabe Fratti",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 294350,
+      "kind": "song"
+    },
+    {
+      "trackId": 6796842548,
+      "trackName": "I wish it wasnt",
+      "artistName": "Fred again.. & LATIN MAFIA",
+      "collectionName": "9 months & 50 hours",
+      "trackTimeMillis": 225972,
+      "kind": "song"
+    }
+  ]
+}

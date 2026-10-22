@@ -10,6 +10,7 @@ import { SOURCE_OPENER } from "./lib/source-opening";
 import { proxy } from "../node_modules/svelte/src/internal/client/proxy.js";
 import trackListSource from "./TrackList.svelte?raw";
 import type { Track } from "./lib/types";
+import { playlistDropIndex } from "./lib/playlist-reorder";
 
 const tracks: Track[] = [
   { id: "track-1", provider: "library", providerId: "track-1", sourceUrl: "https://example.test/song", artist: "Artist Name", title: "Song Title", album: "Album", favorite: false, provenance: {} },
@@ -32,6 +33,43 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("calculates final persisted indexes for before/after drops without identifying rows by track ID", () => {
+    expect(playlistDropIndex(2, 4, true)).toBe(3);
+    expect(playlistDropIndex(4, 2, false)).toBe(1);
+    expect(playlistDropIndex(2, 4, false)).toBe(2);
+    expect(playlistDropIndex(4, 2, true)).toBe(2);
+    expect(playlistDropIndex(2, 2, true)).toBeNull();
+    expect(playlistDropIndex(0, 2, false)).toBeNull();
+  });
+
+  it("reorders playlist occurrences by persisted position, including duplicate track IDs", async () => {
+    const repeated = { ...tracks[0], provenance: { playlistPosition: 2 } };
+    const rows: Track[] = [
+      { ...tracks[0], provenance: { playlistPosition: 1 } },
+      repeated,
+      { ...tracks[1], provenance: { playlistPosition: 3 } },
+    ];
+    const onReorder = vi.fn();
+    const target = render({ tracks: rows, reorderable: true, onReorder });
+    const handle = target.querySelector<HTMLButtonElement>('[aria-label="Reorder Song Title at position 2"]')!;
+    const data = { setData: vi.fn(), effectAllowed: "", dropEffect: "" } as unknown as DataTransfer;
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(dragStart, "dataTransfer", { value: data });
+    handle.dispatchEvent(dragStart);
+    const dropRow = target.querySelector<HTMLElement>('li[data-track-index="2"]')!;
+    vi.spyOn(dropRow, "getBoundingClientRect").mockReturnValue({ top: 0, height: 100, bottom: 100, left: 0, right: 100, width: 100, x: 0, y: 0, toJSON() {} });
+    const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperty(dragOver, "dataTransfer", { value: data });
+    dropRow.dispatchEvent(dragOver);
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: data });
+    Object.defineProperty(drop, "clientY", { value: 90 });
+    dropRow.dispatchEvent(drop);
+    await tick();
+    expect(onReorder).toHaveBeenCalledWith(1, 2);
+    handle.dispatchEvent(new Event("dragend", { bubbles: true }));
+  });
+
   it("opens the same context callback directly from ellipsis and right-click without an intermediate menu", async () => {
     const onContext = vi.fn();
     const target = render({onContext, onQueue: vi.fn(), onPlaylist: vi.fn()});
@@ -208,6 +246,32 @@ describe("TrackList", () => {
     await tick();
     target.querySelector<HTMLButtonElement>(".add-selected")!.click();
     expect(onAddSelectedToPlaylist).toHaveBeenLastCalledWith([first, second]);
+  });
+
+  it("inverts local playlist selection across listed repeated occurrences", async () => {
+    const first = { ...tracks[0]!, provenance: { remoteEntryId: "first" } };
+    const second = { ...tracks[0]!, provenance: { remoteEntryId: "second" } };
+    const target = render({ tracks: [first, second], onAddSelectedToPlaylist: vi.fn() });
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    target.querySelectorAll<HTMLInputElement>('[aria-label="Select Song Title for playlist"]')[0]!.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>(".invert-selection")!.click(); await tick();
+    expect([...target.querySelectorAll<HTMLInputElement>('[aria-label="Select Song Title for playlist"]')].map(input => input.checked)).toEqual([false, true]);
+  });
+
+  it("passes the full listed occurrence scope to controlled selection inversion", async () => {
+    const onInvertSelection = vi.fn();
+    const target = render({
+      tracks: [tracks[0], tracks[0]],
+      selectionMode: true,
+      selectionKeys: ["occurrence:first", "occurrence:second"],
+      onSelect: vi.fn(), onInvertSelection,
+    });
+    await tick();
+    expect(target.querySelectorAll<HTMLInputElement>(".select-track")).toHaveLength(2);
+    expect(target.querySelector(".playlist-selection-actions")).not.toBeNull();
+    target.querySelector<HTMLButtonElement>(".invert-selection")!.click();
+    expect(onInvertSelection).toHaveBeenCalledWith(["occurrence:first", "occurrence:second"], [tracks[0], tracks[0]]);
   });
 
   it("renders ordered status rows between tracks while retaining source indices and selection order", async () => {

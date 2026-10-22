@@ -150,6 +150,8 @@ async fn live_three_public_ids_paired_opus_routes() {
                             content_length: checked.expected_content_length,
                             has_video: false,
                         }),
+
+                        cenc: None,
                     };
                     let pcm = crate::native_output::direct_pcm_experiment::collect_until_with_opus_control(
                         source,0.,5.,deadline.into_std(),cancel.clone(),legacy,false).await;

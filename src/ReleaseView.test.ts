@@ -33,6 +33,16 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("ReleaseView", () => {
+  it("opens the album playlist picker with source order and title, independent of filtering", async () => {
+    const onAddAlbumToPlaylist = vi.fn();
+    const target = render({onAddAlbumToPlaylist});
+    const filter = target.querySelector<HTMLInputElement>("[aria-label='Filter tracks']")!;
+    filter.value="Zulu";filter.dispatchEvent(new Event("input",{bubbles:true}));await settle();
+    target.querySelector<HTMLButtonElement>(".add-album-playlist")!.click();
+    expect(onAddAlbumToPlaylist).toHaveBeenCalledWith([tracks[1],tracks[0]],release.title);
+    expect(target.querySelector(".save-album")).toBeNull();
+  });
+
   it("plays and queues the album, with track playback using the displayed list and index", async () => {
     const onPlay = vi.fn(); const onQueue = vi.fn();
     const target = render({ onPlay, onQueue });
@@ -42,6 +52,15 @@ describe("ReleaseView", () => {
     expect(onQueue).toHaveBeenCalledWith([tracks[1], tracks[0]], "append");
     target.querySelector<HTMLButtonElement>('[aria-label="Play Zulu"]')!.click();
     expect(onPlay).toHaveBeenLastCalledWith(tracks[0], [tracks[1], tracks[0]], 1);
+  });
+
+  it("runs the visible Download album button through its app callback in album order", async () => {
+    const onDownloadAlbum=vi.fn(async()=>({status:"completed"}));
+    const target=render({onDownloadAlbum});
+    [...target.querySelectorAll<HTMLButtonElement>(".hero-actions button")].find(button=>button.textContent?.includes("Download album"))?.click();
+    await settle();
+    expect(onDownloadAlbum).toHaveBeenCalledOnce();
+    expect(onDownloadAlbum).toHaveBeenCalledWith([tracks[1],tracks[0]]);
   });
 
   it("saves the full loaded album in track-number order, independent of filtering", async () => {

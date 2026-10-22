@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const BASE: &str = "https://tracks.monochrome.st";
-const CANDIDATE_SEARCH_LIMIT: usize = 12;
+const SEARCH_PATH: &str = "/search/tracks";
+const SEARCH_CACHE_SCHEMA: &str = "monochrome-track-search-v2";
+pub(crate) const CANDIDATE_SEARCH_LIMIT: usize = 12;
 pub(crate) const INTERACTIVE_SEARCH_LIMIT: usize = 30;
 static DEFAULT_HTTP_CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
     std::sync::OnceLock::new();
@@ -101,6 +103,62 @@ impl Client {
             .map(|(rows, _)| rows)
     }
 
+    /// A stable cache profile for raw search rows. The endpoint and adapter
+    /// schema are included so a future API or parser change cannot reuse stale
+    /// rows. Plain HTTP is accepted only for loopback test clients.
+    pub(crate) fn search_cache_profile(&self) -> Result<String, String> {
+        let base = url::Url::parse(&self.base).map_err(|_| "Invalid Monochrome server")?;
+        let loopback_test = cfg!(test)
+            && base.scheme() == "http"
+            && base
+                .host_str()
+                .is_some_and(|host| matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]"));
+        let production_endpoint = base.scheme() == "https"
+            && base.host_str() == Some("tracks.monochrome.st")
+            && base.port().is_none();
+        if (!production_endpoint && !loopback_test)
+            || !base.username().is_empty()
+            || base.password().is_some()
+            || base.query().is_some()
+            || base.fragment().is_some()
+            || !matches!(base.path(), "" | "/")
+        {
+            return Err("Monochrome cache profile requires a safe server origin".into());
+        }
+        Ok(serde_json::json!([
+            SEARCH_CACHE_SCHEMA,
+            base.origin().ascii_serialization(),
+            SEARCH_PATH,
+            CANDIDATE_SEARCH_LIMIT
+        ])
+        .to_string())
+    }
+
+    /// Search one exact provider query and retain provider rows before applying
+    /// request-specific score/confidence calculations. These rows can be reused
+    /// across matching levels and canonical/alias request variants.
+    pub(crate) async fn search_candidates_raw_with_limit(
+        &self,
+        query: &str,
+        requested_limit: usize,
+    ) -> Result<(Vec<Candidate>, usize), String> {
+        let (rows, raw_count) = self.search_with_limit(query, requested_limit).await?;
+        Ok((
+            rows.into_iter().map(|(_, candidate)| candidate).collect(),
+            raw_count,
+        ))
+    }
+
+    /// Fetch the bounded playback search page represented by
+    /// [`Client::search_cache_profile`].
+    pub(crate) async fn search_candidates_raw(
+        &self,
+        query: &str,
+    ) -> Result<(Vec<Candidate>, usize), String> {
+        self.search_candidates_raw_with_limit(query, CANDIDATE_SEARCH_LIMIT)
+            .await
+    }
+
     /// Fetch one public Tracks API result batch, with the endpoint's documented
     /// `limit` parameter. The endpoint has no offset/cursor or total-count field.
     pub(crate) async fn search_with_limit(
@@ -116,7 +174,7 @@ impl Client {
         let limit_parameter = limit.to_string();
         let response = self
             .http
-            .get(format!("{}/search/tracks", self.base))
+            .get(format!("{}{SEARCH_PATH}", self.base))
             .query(&[("q", query), ("limit", limit_parameter.as_str())])
             .send()
             .await
@@ -142,8 +200,7 @@ impl Client {
         let raw_tracks = data
             .get("tracks")
             .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
+            .ok_or("Invalid Monochrome catalog tracks response")?;
         let raw_count = raw_tracks.len();
         let rows = raw_tracks
             .iter()
@@ -153,16 +210,11 @@ impl Client {
         Ok((rows, raw_count))
     }
     pub async fn candidates(&self, track: &Track) -> Result<Vec<Candidate>, String> {
-        let query = format!("{} {}", track.artist, recording_title(&track.title));
-        let rows = self.search(&query).await?;
-        let mut candidates = rows
-            .into_iter()
-            .map(|(_, mut candidate)| {
-                score(track, &mut candidate);
-                candidate
-            })
-            .filter(|candidate| candidate.confidence != "low" && candidate.score >= 0.55)
-            .collect::<Vec<_>>();
+        let query = search_query_for_track(track);
+        let (mut candidates, _) = self.search_candidates_raw(&query).await?;
+        for candidate in &mut candidates {
+            score_candidate_for_track(track, candidate);
+        }
         candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
         Ok(candidates)
     }
@@ -310,6 +362,25 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
     let mut source_metadata =
         json!({"provider":"monochrome","trackId":id,"isrc":isrc,"catalogTitle":title});
     source_metadata["artistNames"] = json!(structured_artist_names);
+    // Keep only bounded, explicitly recognized descriptive fields from the
+    // provider row. These are source metadata, not recording identity proof;
+    // consumers still need the shared match policy before applying them.
+    for (target, aliases, max_len) in [
+        ("album", &["album"][..], 512usize),
+        ("albumArtist", &["albumArtist", "album_artist"][..], 512),
+        ("releaseDate", &["releaseDate", "release_date"][..], 64),
+        ("genre", &["genre"][..], 256),
+        ("label", &["label"][..], 256),
+    ] {
+        if let Some(value) = aliases
+            .iter()
+            .find_map(|key| raw.get(*key).and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && value.len() <= max_len)
+        {
+            source_metadata[target] = json!(value);
+        }
+    }
     let candidate = Candidate {
         id: format!("monochrome:{id}"),
         provider: "monochrome".into(),
@@ -356,7 +427,11 @@ fn recording_title(raw: &str) -> String {
     }
     title
 }
-fn score(track: &Track, candidate: &mut Candidate) {
+pub(crate) fn search_query_for_track(track: &Track) -> String {
+    format!("{} {}", track.artist, recording_title(&track.title))
+}
+
+pub(crate) fn score_candidate_for_track(track: &Track, candidate: &mut Candidate) {
     let mut matching_track = track.clone();
     matching_track.title = recording_title(&track.title);
     if matching_track.duration_seconds.is_none() {
@@ -432,6 +507,7 @@ fn score(track: &Track, candidate: &mut Candidate) {
         ));
     }
 }
+
 fn audio_format(prefix: &[u8]) -> Result<AudioFormat, String> {
     let (codec, extension, lossless) = if prefix.starts_with(b"fLaC") {
         ("flac", "flac", true)
@@ -513,6 +589,37 @@ mod tests {
     }
 
     #[test]
+    fn catalog_entry_retains_only_bounded_optional_metadata_fields() {
+        let raw = json!({
+            "trackId":"155142501534011392", "title":"Song", "artistNames":["Artist"],
+            "album":"Release", "album_artist":"Album Artist", "release_date":"2024-03-01",
+            "genre":"Folk", "label":"Example Label", "catalogNumber":"CAT-1",
+            "notes":{"large":"ignored"}
+        });
+        let (_, candidate) = catalog_entry(&raw, BASE).unwrap();
+        let metadata = candidate.source_metadata.unwrap();
+        assert_eq!(metadata["album"], "Release");
+        assert_eq!(metadata["albumArtist"], "Album Artist");
+        assert_eq!(metadata["releaseDate"], "2024-03-01");
+        assert_eq!(metadata["genre"], "Folk");
+        assert_eq!(metadata["label"], "Example Label");
+        assert!(metadata.get("catalogNumber").is_none());
+
+        let oversized = json!({
+            "trackId":"155142501534011392", "title":"Song", "artistNames":["Artist"],
+            "album":"x".repeat(513), "albumArtist":17, "releaseDate":"x".repeat(65),
+            "genre":"  ", "label":"Label"
+        });
+        let (_, candidate) = catalog_entry(&oversized, BASE).unwrap();
+        let metadata = candidate.source_metadata.unwrap();
+        assert!(metadata.get("album").is_none());
+        assert!(metadata.get("albumArtist").is_none());
+        assert!(metadata.get("releaseDate").is_none());
+        assert!(metadata.get("genre").is_none());
+        assert_eq!(metadata["label"], "Label");
+    }
+
+    #[test]
     fn join_phrase_credit_remains_a_review_candidate_for_strict_playback_gate() {
         let raw = json!({
             "trackId": "155142501534011392",
@@ -527,7 +634,7 @@ mod tests {
             duration_seconds: Some(200.0),
             ..Track::default()
         };
-        score(&track, &mut candidate);
+        score_candidate_for_track(&track, &mut candidate);
         assert_eq!(candidate.confidence, "review");
         assert!(candidate.score >= 0.55);
     }
@@ -544,11 +651,11 @@ mod tests {
             ..Track::default()
         };
         let mut exact = candidate.clone();
-        score(&track, &mut exact);
+        score_candidate_for_track(&track, &mut exact);
         assert_eq!(exact.confidence, "high");
         let mut radio = candidate.clone();
         radio.duration_seconds = Some(247.0);
-        score(&track, &mut radio);
+        score_candidate_for_track(&track, &mut radio);
         assert_ne!(radio.confidence, "high");
         let mut remix = candidate.clone();
         remix.title.push_str(" (Radio Edit)");
@@ -556,7 +663,7 @@ mod tests {
             version: Some("Original Mix".into()),
             ..track
         };
-        score(&versioned, &mut remix);
+        score_candidate_for_track(&versioned, &mut remix);
         assert_eq!(remix.confidence, "low");
     }
 
@@ -584,7 +691,7 @@ mod tests {
         assert!(crate::source_fallback::playback_recording_matches(
             &track, &candidate
         ));
-        score(&track, &mut candidate);
+        score_candidate_for_track(&track, &mut candidate);
         assert_eq!(candidate.confidence, "high");
         assert!(candidate
             .reasons
@@ -639,11 +746,11 @@ mod tests {
             ..Track::default()
         };
         let mut result = candidate.clone();
-        score(&track, &mut result);
+        score_candidate_for_track(&track, &mut result);
         assert_eq!(result.confidence, "high");
         for title in ["Quizás, Porque (Live)", "Quizás, Porque Cover"] {
             let mut result = candidate.clone();
-            score(
+            score_candidate_for_track(
                 &Track {
                     title: title.into(),
                     ..track.clone()
@@ -653,7 +760,7 @@ mod tests {
             assert_ne!(result.confidence, "high");
         }
         let mut result = candidate.clone();
-        score(
+        score_candidate_for_track(
             &Track {
                 artist: "Another artist".into(),
                 ..track.clone()
@@ -662,7 +769,7 @@ mod tests {
         );
         assert_ne!(result.confidence, "high");
         let mut result = candidate.clone();
-        score(
+        score_candidate_for_track(
             &Track {
                 provenance: json!({}),
                 ..track
@@ -739,6 +846,118 @@ mod tests {
         let inspected = client.inspect(&rows[0].1).await.unwrap();
         assert_eq!(inspected.formats[0].extension, "m4a");
         assert!(!inspected.formats[0].lossless);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn candidate_search_retains_flexible_alternative_below_legacy_score_cutoff() {
+        use axum::{routing::get, Json, Router};
+
+        let app = Router::new().route(
+            "/search/tracks",
+            get(|| async {
+                Json(json!({"tracks": [
+                    {"trackId":"155142501534011392","title":"Track (Original Mix)","artistNames":["Artist"],"duration":200000},
+                    {"trackId":"155142501534011393","title":"Track (Alice Remix)","artistNames":["Artist"],"duration":200000}
+                ]}))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let requested = Track {
+            title: "Track".into(),
+            artist: "Artist".into(),
+            version: Some("Original Mix".into()),
+            duration_seconds: Some(200.0),
+            ..Track::default()
+        };
+
+        let cache_profile = client.search_cache_profile().unwrap();
+        assert!(cache_profile.contains(SEARCH_CACHE_SCHEMA));
+        assert!(cache_profile.contains("/search/tracks"));
+        let (raw_candidates, raw_count) = client
+            .search_candidates_raw_with_limit(
+                &search_query_for_track(&requested),
+                CANDIDATE_SEARCH_LIMIT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(raw_count, 2);
+        assert_eq!(raw_candidates.len(), 2);
+        // Raw provider rows carry only the parser's neutral review score; the
+        // request-specific heuristic is applied by `candidates` below.
+        assert_eq!(raw_candidates[0].score, 0.8);
+        assert_eq!(raw_candidates[1].score, 0.8);
+
+        let candidates = client.candidates(&requested).await.unwrap();
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].id, "monochrome:155142501534011392");
+        let same_recording = crate::recording_match::assess(
+            &requested,
+            &candidates[0],
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Search,
+        );
+        assert_ne!(
+            same_recording.relationship,
+            crate::recording_match::MatchRelationship::Alternative
+        );
+        let alternative = candidates
+            .iter()
+            .find(|candidate| candidate.id.ends_with("155142501534011393"))
+            .unwrap();
+        assert_eq!(alternative.score, 0.49);
+        assert_eq!(alternative.confidence, "low");
+
+        let assessment = crate::recording_match::assess(
+            &requested,
+            alternative,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Search,
+        );
+        assert_eq!(
+            assessment.relationship,
+            crate::recording_match::MatchRelationship::Alternative
+        );
+        assert_eq!(
+            assessment.action,
+            crate::recording_match::MatchAction::Inspect
+        );
+        server.abort();
+    }
+
+    #[test]
+    fn cache_profile_rejects_non_https_non_loopback_endpoint() {
+        let client = Client::at("http://example.invalid").unwrap();
+        assert!(client.search_cache_profile().is_err());
+    }
+
+    #[tokio::test]
+    async fn malformed_tracks_shape_is_an_error_but_empty_tracks_is_valid() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::collections::HashMap;
+
+        let app = Router::new().route(
+            "/search/tracks",
+            get(|Query(query): Query<HashMap<String, String>>| async move {
+                if query.get("q").is_some_and(|value| value == "empty") {
+                    Json(json!({"tracks": []}))
+                } else {
+                    Json(json!({"wrongField": []}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        assert!(client
+            .search("malformed")
+            .await
+            .unwrap_err()
+            .contains("tracks response"));
+        assert!(client.search("empty").await.unwrap().is_empty());
         server.abort();
     }
 

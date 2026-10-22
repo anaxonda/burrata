@@ -1599,6 +1599,8 @@ mod tests {
                         content_length: audio.expected_content_length,
                         has_video: false,
                     }),
+
+                    cenc: None,
                 };
                 let before_decode_ms = started.elapsed().as_secs_f64() * 1000.0;
                 let pcm = crate::native_output::direct_pcm_experiment::collect_until(

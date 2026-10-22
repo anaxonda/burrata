@@ -1,0 +1,4604 @@
+{
+  "schema": "burrata.matching-performance-cohort/v1",
+  "qualification": false,
+  "frozen": {
+    "binarySha256": "7a95ec034871cfbd205ed022fd634e7ae8c97d71e43f0a985fbf49eb25726f6a",
+    "manifestSha256": "7202ffdf4fc69a9e927dc1b7c1cad611b7b8a0cd68608671849d4531ee58176a",
+    "sourceRevision": "9d5a4194111b023ba9252d85039aeb50e7b6fcfa",
+    "repetitions": 20,
+    "warmups": 3,
+    "levels": [
+      "balanced"
+    ],
+    "providerPolicy": "public settings fixture only; same fixture policy across modes",
+    "startedAtUtc": "2026-10-21T23:21:04.878396+00:00"
+  },
+  "cases": [
+    {
+      "caseId": "bacc-saved",
+      "trackSha256": "6703178b0ec43f2e6f6c021e4f1ee6868516302186f2c71fa98487e0d658afdd",
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "balanced": {
+          "runPassed": false,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3769.567038,
+              "wallMs": 3769.589633,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.324000000000012,
+              "reapedChildCpuMs": 3684.6299999999974,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.324355,
+                    0.438292,
+                    0.429504
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4018.075255,
+              "wallMs": 4018.088841,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 26.00400000000002,
+              "reapedChildCpuMs": 3926.4789999999994,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.318106,
+                    0.30271600000000004,
+                    0.49839700000000003
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3906.1447879999996,
+              "wallMs": 3906.159293,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.81099999999998,
+              "reapedChildCpuMs": 3809.925000000003,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.6440159999999999,
+                    0.240365,
+                    0.347798
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3866.2945139999997,
+              "wallMs": 3866.3371829999996,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 26.25200000000001,
+              "reapedChildCpuMs": 3786.1359999999986,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.430122,
+                    0.48456699999999997,
+                    0.342474
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3872.649846,
+              "wallMs": 3872.662977,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.673000000000002,
+              "reapedChildCpuMs": 3780.423999999999,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.366402,
+                    0.524877,
+                    0.30316000000000004
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3715.7991580000003,
+              "wallMs": 3715.811681,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.25,
+              "reapedChildCpuMs": 3630.3080000000045,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.329132,
+                    0.31945999999999997,
+                    0.314434
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4226.022006,
+              "wallMs": 4226.041020000001,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.51699999999994,
+              "reapedChildCpuMs": 4118.212999999996,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.29224999999999995,
+                    0.370946,
+                    0.37588299999999997
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3598.5028589999997,
+              "wallMs": 3598.5171729999997,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 22.62600000000009,
+              "reapedChildCpuMs": 3538.512999999999,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.426178,
+                    0.245908,
+                    0.341497
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3521.5375870000003,
+              "wallMs": 3521.551046,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.82299999999998,
+              "reapedChildCpuMs": 3442.300000000003,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.41619,
+                    0.260208,
+                    0.34283
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3373.7437579999996,
+              "wallMs": 3373.757946,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 20.63499999999999,
+              "reapedChildCpuMs": 3299.1500000000015,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.257851,
+                    0.255375,
+                    0.34028200000000003
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3410.544636,
+              "wallMs": 3410.568145,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.040000000000077,
+              "reapedChildCpuMs": 3343.735999999997,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.27068200000000003,
+                    0.269836,
+                    0.3377
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3322.757674,
+              "wallMs": 3322.771044,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 20.980999999999995,
+              "reapedChildCpuMs": 3247.9869999999937,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.256935,
+                    0.352372,
+                    0.33855799999999997
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3495.858686,
+              "wallMs": 3495.873274,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.423000000000002,
+              "reapedChildCpuMs": 3429.072,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.310776,
+                    0.23602599999999999,
+                    0.543347
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3340.8607429999997,
+              "wallMs": 3340.87521,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.434000000000083,
+              "reapedChildCpuMs": 3274.9010000000126,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.349817,
+                    0.296114,
+                    0.451007
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3406.782884,
+              "wallMs": 3406.796074,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.748000000000047,
+              "reapedChildCpuMs": 3346.7699999999895,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.325973,
+                    0.248424,
+                    0.363072
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3350.077052,
+              "wallMs": 3350.096618,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.062000000000012,
+              "reapedChildCpuMs": 3264.518000000011,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.328936,
+                    0.499841,
+                    0.624217
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3760.565251,
+              "wallMs": 3760.578694,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 25.315000000000055,
+              "reapedChildCpuMs": 3673.672999999995,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.457897,
+                    0.37550300000000003,
+                    0.302277
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3378.7613109999998,
+              "wallMs": 3378.786463,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 25.63900000000001,
+              "reapedChildCpuMs": 3255.2409999999945,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.481854,
+                    0.477181,
+                    0.32004
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3344.958121,
+              "wallMs": 3344.9795780000004,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.274999999999977,
+              "reapedChildCpuMs": 3288.7620000000024,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.267467,
+                    0.256424,
+                    0.37523
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3509.681572,
+              "wallMs": 3509.703617,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.075000000000045,
+              "reapedChildCpuMs": 3447.8129999999946,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.406271,
+                    0.37888299999999997,
+                    0.324146
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3435.92561,
+              "wallMs": 3435.946998,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.951000000000022,
+              "reapedChildCpuMs": 3308.6010000000097,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.335194,
+                    0.23564300000000002,
+                    0.490084
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3420.8688110000003,
+              "wallMs": 3420.909794,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 22.326999999999998,
+              "reapedChildCpuMs": 3341.554999999993,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.45013,
+                    0.24759,
+                    0.34656
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3556.175607,
+              "wallMs": 3556.1955310000003,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.676999999999907,
+              "reapedChildCpuMs": 3488.8940000000002,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.39731500000000003,
+                    0.209234,
+                    0.501691
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3488.664885,
+              "wallMs": 3488.683597,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 20.829999999999927,
+              "reapedChildCpuMs": 3424.2850000000035,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.315068,
+                    0.35346,
+                    0.339279
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3514.266658,
+              "wallMs": 3514.286621,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.413999999999987,
+              "reapedChildCpuMs": 3451.4550000000017,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.406272,
+                    0.380047,
+                    0.327725
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3443.759285,
+              "wallMs": 3443.78362,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.089999999999918,
+              "reapedChildCpuMs": 3382.1989999999932,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.26375699999999996,
+                    0.23835,
+                    0.458858
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3330.1063270000004,
+              "wallMs": 3330.11951,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.326000000000022,
+              "reapedChildCpuMs": 3280.25,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.282984,
+                    0.20111099999999998,
+                    0.545913
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3425.640597,
+              "wallMs": 3425.654443,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 22.519999999999982,
+              "reapedChildCpuMs": 3358.5109999999986,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.463127,
+                    0.45577999999999996,
+                    0.326817
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3351.89465,
+              "wallMs": 3351.911992,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.238000000000056,
+              "reapedChildCpuMs": 3289.041000000012,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.46042099999999997,
+                    0.378449,
+                    0.336107
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3479.818051,
+              "wallMs": 3479.8373420000003,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.00500000000011,
+              "reapedChildCpuMs": 3401.1670000000013,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.285817,
+                    0.24876299999999998,
+                    0.49865200000000004
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3495.8954329999997,
+              "wallMs": 3495.90923,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 20.97699999999986,
+              "reapedChildCpuMs": 3428.7869999999966,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.22237,
+                    0.468871,
+                    0.39441600000000004
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3477.2039839999998,
+              "wallMs": 3477.219787,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.45399999999995,
+              "reapedChildCpuMs": 3420.774999999994,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.347134,
+                    0.271546,
+                    0.367639
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3438.7646360000003,
+              "wallMs": 3438.777972,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 20.97700000000009,
+              "reapedChildCpuMs": 3385.7050000000163,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.296885,
+                    0.232135,
+                    0.31895799999999996
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3554.5875260000003,
+              "wallMs": 3554.60783,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 22.93399999999997,
+              "reapedChildCpuMs": 3486.655999999988,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.31009499999999995,
+                    0.297722,
+                    0.395673
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3612.93586,
+              "wallMs": 3612.948562,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.00799999999981,
+              "reapedChildCpuMs": 3531.261999999988,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.44276899999999997,
+                    0.378047,
+                    0.33251899999999995
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3522.310974,
+              "wallMs": 3522.3243,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.315000000000055,
+              "reapedChildCpuMs": 3461.7540000000154,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.35890299999999997,
+                    0.379453,
+                    0.507383
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3342.092964,
+              "wallMs": 3342.106574,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.692999999999984,
+              "reapedChildCpuMs": 3281.767999999982,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.301833,
+                    0.27976500000000004,
+                    0.444466
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3529.116746,
+              "wallMs": 3529.1306879999997,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.977999999999838,
+              "reapedChildCpuMs": 3485.0380000000005,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.41939400000000004,
+                    0.258938,
+                    0.40650400000000003
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3407.756163,
+              "wallMs": 3407.773127,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 18.659999999999854,
+              "reapedChildCpuMs": 3352.439000000013,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    1.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.228196,
+                    0.20880900000000002,
+                    0.333515
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4033.810969,
+              "wallMs": 4033.8305109999997,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.66500000000019,
+              "reapedChildCpuMs": 3968.4929999999877,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.356029,
+                    0.373653,
+                    0.336598
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 20,
+              "successes": 0,
+              "failures": 20,
+              "resolveMsP50": 3495.858686,
+              "resolveMsP95": 3906.1447879999996,
+              "p95SampleCount": 20
+            },
+            "warm": {
+              "attempts": 20,
+              "successes": 0,
+              "failures": 20,
+              "resolveMsP50": 3479.818051,
+              "resolveMsP95": 4018.075255,
+              "p95SampleCount": 20
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "canonical_search_warmup_end": 20,
+                "catalog_alias_preparation_end": 20,
+                "alias_cache_lookup_end": 60,
+                "provider_start": 60,
+                "search_start": 60,
+                "search_end": 60,
+                "bandcamp_fallback_start": 20,
+                "bandcamp_fallback_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 60,
+                  "p50": 0.335194,
+                  "p95": 0.524877
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 20,
+                  "p50": 1.0,
+                  "p95": 1.0
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 1.0
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 20,
+                  "p50": 2.0,
+                  "p95": 3.0
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 0,
+                "p50": 0,
+                "p95": 0,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "canonical_search_warmup_end": 20,
+                "catalog_alias_preparation_end": 20,
+                "alias_cache_lookup_end": 60,
+                "provider_start": 60,
+                "search_start": 60,
+                "search_end": 60,
+                "bandcamp_fallback_start": 20,
+                "bandcamp_fallback_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 60,
+                  "p50": 0.342474,
+                  "p95": 0.49865200000000004
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 20,
+                  "p50": 1.0,
+                  "p95": 1.0
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 1.0
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 20,
+                  "p50": 2.0,
+                  "p95": 3.0
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 0,
+                "p50": 0,
+                "p95": 0,
+                "max": 0
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 966,
+            "directNativeEvents": 966,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 1,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "caseId": "vibe-saved",
+      "trackSha256": "99604787c9f87835f25a543fe4bf71d2e0402770c771bd27b4b42aece7c3a1e4",
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "balanced": {
+          "runPassed": false,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3927.1594099999998,
+              "wallMs": 3927.178104,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.99200000000002,
+              "reapedChildCpuMs": 3810.064000000002,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.274464,
+                    0.510517,
+                    0.333518
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3951.507426,
+              "wallMs": 3951.529844,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 27.156000000000006,
+              "reapedChildCpuMs": 3813.7530000000006,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.328627,
+                    0.53823,
+                    0.45025099999999996
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3858.093965,
+              "wallMs": 3858.126922,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.628999999999962,
+              "reapedChildCpuMs": 3756.3600000000006,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.420921,
+                    0.407283,
+                    0.54521
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3979.994716,
+              "wallMs": 3980.008077,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 26.670999999999992,
+              "reapedChildCpuMs": 3921.565999999999,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.310818,
+                    0.49399199999999993,
+                    0.47776300000000005
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3723.460626,
+              "wallMs": 3723.4740620000002,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.012,
+              "reapedChildCpuMs": 3651.139000000003,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.281951,
+                    0.285626,
+                    0.33711599999999997
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4533.176749,
+              "wallMs": 4533.198149000001,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.13100000000003,
+              "reapedChildCpuMs": 4356.978999999999,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.271683,
+                    0.220003,
+                    0.451341
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4094.370996,
+              "wallMs": 4094.385291,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 25.781000000000063,
+              "reapedChildCpuMs": 3998.2160000000003,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.40294,
+                    0.347841,
+                    0.49608499999999994
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3874.28154,
+              "wallMs": 3874.295973,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 25.790000000000077,
+              "reapedChildCpuMs": 3787.7189999999973,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.503188,
+                    0.42550200000000005,
+                    0.332468
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3990.709093,
+              "wallMs": 3990.724235,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.322000000000003,
+              "reapedChildCpuMs": 3900.7880000000005,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.34010799999999997,
+                    0.327098,
+                    0.503244
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3810.498323,
+              "wallMs": 3810.516046,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 26.45500000000004,
+              "reapedChildCpuMs": 3732.0369999999966,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.447193,
+                    0.449819,
+                    0.31758200000000003
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3912.186632,
+              "wallMs": 3912.207201,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 28.246999999999957,
+              "reapedChildCpuMs": 3823.4030000000057,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.548724,
+                    0.472386,
+                    0.321279
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3813.93,
+              "wallMs": 3813.960861,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 25.985000000000014,
+              "reapedChildCpuMs": 3735.239999999998,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.474306,
+                    0.507104,
+                    0.34031300000000003
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3763.7599339999997,
+              "wallMs": 3763.783523,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 28.942000000000007,
+              "reapedChildCpuMs": 3689.467000000004,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    4.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.687953,
+                    0.444044,
+                    0.42052700000000004
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3771.604847,
+              "wallMs": 3771.618524,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.659999999999968,
+              "reapedChildCpuMs": 3705.220000000001,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.32048200000000004,
+                    0.363016,
+                    0.443687
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3999.058376,
+              "wallMs": 3999.085991,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.912000000000035,
+              "reapedChildCpuMs": 3924.7119999999995,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.272572,
+                    0.22234800000000002,
+                    0.306415
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4112.975109,
+              "wallMs": 4112.988093,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.645000000000095,
+              "reapedChildCpuMs": 3981.5380000000005,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.27792700000000004,
+                    0.395134,
+                    0.42334499999999997
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3942.653862,
+              "wallMs": 3942.674189,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.700999999999908,
+              "reapedChildCpuMs": 3855.553999999989,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.285652,
+                    0.361834,
+                    0.317013
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3807.0532249999997,
+              "wallMs": 3807.0679489999998,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 22.93100000000004,
+              "reapedChildCpuMs": 3731.201000000001,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.257332,
+                    0.25619400000000003,
+                    0.339538
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3911.095514,
+              "wallMs": 3911.116017,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 22.460000000000036,
+              "reapedChildCpuMs": 3818.6370000000024,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.279965,
+                    0.307663,
+                    0.570402
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3915.8979719999998,
+              "wallMs": 3915.9100599999997,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 27.679000000000087,
+              "reapedChildCpuMs": 3838.8910000000033,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    2.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    4.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.487882,
+                    0.47855899999999996,
+                    0.34929600000000005
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3752.084579,
+              "wallMs": 3752.097745,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.08699999999999,
+              "reapedChildCpuMs": 3688.0120000000024,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.249551,
+                    0.21742899999999998,
+                    0.424893
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4094.250961,
+              "wallMs": 4094.2652989999997,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.118999999999915,
+              "reapedChildCpuMs": 4010.8389999999927,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.468384,
+                    0.377525,
+                    0.532972
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4245.30016,
+              "wallMs": 4245.321256,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 30.259000000000015,
+              "reapedChildCpuMs": 4151.224000000002,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.441987,
+                    0.548144,
+                    0.547404
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4053.0815589999997,
+              "wallMs": 4053.096257,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 25.297000000000025,
+              "reapedChildCpuMs": 3918.426999999996,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.37338699999999997,
+                    0.39116900000000004,
+                    0.463029
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3768.230239,
+              "wallMs": 3768.245299,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.65599999999995,
+              "reapedChildCpuMs": 3688.7830000000104,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.441926,
+                    0.323839,
+                    0.30051999999999995
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3959.348732,
+              "wallMs": 3959.362949,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.851000000000113,
+              "reapedChildCpuMs": 3876.9809999999998,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.43229100000000004,
+                    0.25868599999999997,
+                    0.292563
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3789.387159,
+              "wallMs": 3789.433436,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.24000000000001,
+              "reapedChildCpuMs": 3722.430999999997,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.42054199999999997,
+                    0.436601,
+                    0.32928599999999997
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3928.89069,
+              "wallMs": 3928.9085090000003,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 27.124000000000024,
+              "reapedChildCpuMs": 3842.3179999999993,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.466666,
+                    0.447312,
+                    0.570422
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3940.932162,
+              "wallMs": 3940.964546,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.70900000000006,
+              "reapedChildCpuMs": 3825.783999999985,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.453594,
+                    0.376653,
+                    0.334241
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3910.917838,
+              "wallMs": 3910.934414,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 20.051999999999907,
+              "reapedChildCpuMs": 3830.3970000000263,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.329675,
+                    0.204689,
+                    0.396855
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4145.581907000001,
+              "wallMs": 4145.6044790000005,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.89300000000003,
+              "reapedChildCpuMs": 4043.423999999999,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.252741,
+                    0.389005,
+                    0.49115400000000003
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3940.839207,
+              "wallMs": 3940.858797,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 29.395999999999958,
+              "reapedChildCpuMs": 3829.2489999999816,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    6.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.472601,
+                    0.45448299999999997,
+                    0.46130299999999996
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3868.504283,
+              "wallMs": 3868.5240099999996,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.673999999999978,
+              "reapedChildCpuMs": 3790.7760000000126,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.444723,
+                    0.43743200000000004,
+                    0.343024
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3998.956616,
+              "wallMs": 3998.971683,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.514999999999873,
+              "reapedChildCpuMs": 3908.0989999999874,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.34078400000000003,
+                    0.317743,
+                    0.371628
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 4057.9369659999998,
+              "wallMs": 4057.958976,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.916999999999916,
+              "reapedChildCpuMs": 3979.7430000000168,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.286785,
+                    0.25568599999999997,
+                    0.41458
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3472.167244,
+              "wallMs": 3472.1827279999998,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 24.13299999999981,
+              "reapedChildCpuMs": 3401.978999999992,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.446425,
+                    0.420322,
+                    0.44080600000000003
+                  ],
+                  "bandcamp_fallback_end": [
+                    0.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3471.59983,
+              "wallMs": 3471.6145589999996,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.498000000000047,
+              "reapedChildCpuMs": 3405.695000000007,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.6649689999999999,
+                    0.23738700000000001,
+                    0.477371
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3647.390727,
+              "wallMs": 3647.410312,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 23.107999999999947,
+              "reapedChildCpuMs": 3575.767999999982,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.280348,
+                    0.251283,
+                    0.496202
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3804.73592,
+              "wallMs": 3804.748396,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.738000000000056,
+              "reapedChildCpuMs": 3729.5470000000205,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.34169499999999997,
+                    0.448397,
+                    0.355419
+                  ],
+                  "bandcamp_fallback_end": [
+                    1.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 3491.5130959999997,
+              "wallMs": 3491.527659,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 21.644999999999982,
+              "reapedChildCpuMs": 3435.841999999975,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 21,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.258331,
+                    0.232966,
+                    0.354304
+                  ],
+                  "bandcamp_fallback_end": [
+                    2.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 21,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 20,
+              "successes": 0,
+              "failures": 20,
+              "resolveMsP50": 3911.095514,
+              "resolveMsP95": 4145.581907000001,
+              "p95SampleCount": 20
+            },
+            "warm": {
+              "attempts": 20,
+              "successes": 0,
+              "failures": 20,
+              "resolveMsP50": 3915.8979719999998,
+              "resolveMsP95": 4112.975109,
+              "p95SampleCount": 20
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "canonical_search_warmup_end": 20,
+                "catalog_alias_preparation_end": 20,
+                "alias_cache_lookup_end": 60,
+                "provider_start": 60,
+                "search_start": 60,
+                "search_end": 60,
+                "bandcamp_fallback_start": 20,
+                "bandcamp_fallback_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 60,
+                  "p50": 0.361834,
+                  "p95": 0.548724
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 20,
+                  "p50": 1.0,
+                  "p95": 1.0
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 1.0
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 20,
+                  "p50": 2.0,
+                  "p95": 3.0
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 0,
+                "p50": 0,
+                "p95": 0,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "canonical_search_warmup_end": 20,
+                "catalog_alias_preparation_end": 20,
+                "alias_cache_lookup_end": 60,
+                "provider_start": 60,
+                "search_start": 60,
+                "search_end": 60,
+                "bandcamp_fallback_start": 20,
+                "bandcamp_fallback_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 60,
+                  "p50": 0.395134,
+                  "p95": 0.507104
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 20,
+                  "p50": 1.0,
+                  "p95": 1.0
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 1.0
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 20,
+                  "p50": 2.0,
+                  "p95": 4.0
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 0,
+                "p50": 0,
+                "p95": 0,
+                "max": 0
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 966,
+            "directNativeEvents": 966,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 1,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "Failures remain in attempt denominators; p95 is withheld unless >=20 measured timing samples. Trace fields count allowlisted logical events and observed resolver counter snapshots only; they do not represent HTTP request totals. Concurrent phase duration samples are not additive. Per-attempt RSS is omitted because available child RSS is a lifetime high-water mark. Execution-context audit: the coordinator ran under default sandbox networking; all measured attempts failed SOURCE_UNAVAILABLE. A later host-network smoke with the same Bacc fixture and binary succeeded. The failed timings are invalid for performance conclusions.",
+  "executionContextAssessment": {
+    "classification": "invalid-for-performance",
+    "initialCommandSandboxed": true,
+    "requireEscalated": false,
+    "allMeasuredFailures": "SOURCE_UNAVAILABLE",
+    "safeTraceLogsShowExactNetworkFailure": false,
+    "sameFixtureHostNetworkSmokePassed": true,
+    "interpretation": "Treat original timing values as quarantined audit data; do not infer provider outage or cold/warm performance."
+  }
+}

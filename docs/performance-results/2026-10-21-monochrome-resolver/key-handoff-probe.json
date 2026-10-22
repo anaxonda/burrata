@@ -1,0 +1,57 @@
+{
+  "purpose": "Synthetic-only probe of FFmpeg CENC decryption key handoff without putting key material in process arguments or logs",
+  "ffmpeg": "n9.0.2",
+  "input": "Locally generated one-second sine encoded as FLAC in MP4, then encrypted with synthetic CENC AES-CTR key and KID; no user media, provider URL, or real key",
+  "tests": [
+    {
+      "method": "CLI -decryption_key with hex value",
+      "result": "success",
+      "pcm_bytes": 88200,
+      "note": "Control only; the key is present in argv, so this is unsuitable for the requested handoff."
+    },
+    {
+      "method": "CLI -decryption_key with key file path as value",
+      "result": "failed",
+      "exit_code": 234,
+      "diagnostic": "FFmpeg rejected the path as an invalid binary option value."
+    },
+    {
+      "method": "CLI -decryption_key with /proc/self/fd/N as value",
+      "result": "failed",
+      "exit_code": 234,
+      "diagnostic": "FFmpeg parses the descriptor path as the option value; it does not read key bytes from that descriptor."
+    },
+    {
+      "method": "CLI -/decryption_key file-argument syntax",
+      "result": "failed",
+      "exit_code": 8,
+      "diagnostic": "This build reports the input-private option as unrecognized in the file-argument form."
+    },
+    {
+      "method": "Native libavformat API; inherited pipe FD 3 supplies 16 raw key bytes; helper converts them in memory to hex and sets the input option through AVDictionary before avformat_open_input",
+      "result": "success",
+      "exit_code": 0,
+      "packets_read": 44,
+      "argv_contains_key": false,
+      "logs_contain_key": false
+    }
+  ],
+  "implementation_path": "Have the trusted native playback process receive the 16-byte key over an inherited pipe or equivalent private IPC, then call libavformat with an in-memory decryption_key option before opening the MP4. Do not invoke the ffmpeg CLI with the key; this FFmpeg build's private demuxer option did not accept file or procfd indirection. The probe validates demux/decryption and packet reads, not full decode, seek, device playback, or production lifecycle behavior.",
+  "official_references": [
+    {
+      "title": "FFmpeg documentation: command-line option argument file syntax",
+      "url": "https://www.ffmpeg.org/ffmpeg.html#Options",
+      "note": "Documents the -/option file syntax; this build's MOV private decryption_key option did not accept that syntax."
+    },
+    {
+      "title": "FFmpeg documentation: AVOption setting functions",
+      "url": "https://www.ffmpeg.org/doxygen/8.1/group__opt__set__funcs.html",
+      "note": "Documents av_opt_set and av_opt_set_bin for programmatic option assignment."
+    },
+    {
+      "title": "FFmpeg MOV demuxer implementation reference",
+      "url": "https://ffmpeg.org/doxygen/trunk/mov_8c.html",
+      "note": "Documents MOV CENC decryption implementation and use of the decryption key."
+    }
+  ]
+}

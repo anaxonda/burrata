@@ -1,0 +1,100 @@
+{
+  "evidenceType": "live-download-and-physical-file-qualification",
+  "capturedAt": "2026-10-22T03:03:55Z",
+  "application": {
+    "binaryLabel": "fd55",
+    "profile": "normal desktop profile",
+    "profileMutation": false
+  },
+  "operation": {
+    "operationId": "38235830-f0c7-4328-9cd3-856e18d46324",
+    "releaseProvider": "musicbrainz",
+    "releaseTrackCount": 13,
+    "status": "completed",
+    "completionScope": "selectionAndEnqueue",
+    "processedCount": 13,
+    "queuedJobsCompleted": 12,
+    "skipped": [
+      {
+        "index": 7,
+        "title": "Erghen Diado",
+        "receiptReason": null,
+        "note": "A same-recording local asset already exists from an earlier completed Soulseek MP3 job. The release-download status receipt omits the skip reason, so the exact reason this operation skipped it is unknown."
+      }
+    ],
+    "failed": 0
+  },
+  "queuedSourceSummary": {
+    "provider": "monochrome",
+    "format": "FLAC",
+    "count": 12,
+    "sourceReuseMethod": "verified-copy-preserving-catalog-identity"
+  },
+  "physicalVerification": {
+    "managedCopiesInspected": 12,
+    "ffprobeErrors": 0,
+    "codecCounts": {
+      "flac": 12
+    },
+    "sampleRate": "44100",
+    "channels": 2,
+    "bitsPerSample": 16,
+    "decodedPcmEqualToSourceAsset": {
+      "equal": 12,
+      "different": 0,
+      "errors": 0
+    },
+    "requestedTrackTagMatches": {
+      "artist": 12,
+      "title": 12,
+      "album": 12,
+      "releaseDate": 12,
+      "label": 12,
+      "isrc": 12,
+      "albumArtistHasNoRequestedValue": 12,
+      "genre": {
+        "match": 1,
+        "noRequestedValue": 11
+      }
+    },
+    "sourceCandidateMetadataSnapshot": {
+      "candidateArtist": 12,
+      "candidateTitle": 12,
+      "candidateIsrc": 12,
+      "album": 0,
+      "albumArtist": 0,
+      "date": 0,
+      "genre": 0,
+      "label": 0
+    },
+    "note": "Provider source snapshots expose artist/title/ISRC here; the other matching tags are checked against the requested catalog Track and physical file. Album artist is null on all 12 requested Tracks, and genre is absent on 11, so those absent tags are not catalog mismatches."
+  },
+  "existingSkippedTrack": {
+    "title": "Erghen Diado",
+    "existingAssetCodec": "mp3",
+    "existingAssetSource": "slskd",
+    "existingAssetBoundToRequestedRecording": true,
+    "physicalTagsMatch": {
+      "artist": true,
+      "title": true,
+      "album": true,
+      "releaseDate": true,
+      "genre": true,
+      "label": true,
+      "isrc": "no requested Track ISRC and no physical tag"
+    },
+    "previousCandidateAssessmentEvidence": {
+      "titleAgreement": true,
+      "artistAgreement": true,
+      "durationDifferenceSeconds": 0,
+      "completedDownload": true
+    }
+  },
+  "qualificationLimit": "This operation used Monochrome for 12 tracks and relied on an already-local Soulseek MP3 for Erghen Diado. It does not qualify an all-Soulseek album query or prove that every track was newly downloaded in this operation.",
+  "rawEvidence": {
+    "operationStatus": "/tmp/burrata-v7-album-status-latest.json",
+    "downloadJobs": "/tmp/burrata-v7-album-jobs-latest.json",
+    "metadataAndPcmReport": "/tmp/burrata-v7-album-physical-report.json",
+    "existingSoulseekTrackReport": "/tmp/burrata-v7-erghen-physical-report.json"
+  }
+}

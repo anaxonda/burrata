@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-assess-download-candidate"
+description = "Enables the assess_download_candidate command without any pre-configured scope."
+commands.allow = ["assess_download_candidate"]
+
+[[permission]]
+identifier = "deny-assess-download-candidate"
+description = "Denies the assess_download_candidate command without any pre-configured scope."
+commands.deny = ["assess_download_candidate"]

@@ -1,0 +1,72 @@
+{
+  "observedAt": "2026-10-21T19:46:37Z",
+  "authorization": "User-supplied media URLs; no API tokens, cookies or decryption keys used",
+  "results": [
+    {
+      "track": "alvafro",
+      "probe": "initial",
+      "range": "bytes=0-65535",
+      "status": 206,
+      "content_range": "bytes 0-65535/27957447",
+      "content_type": "application/octet-stream",
+      "bytes_read": 65536,
+      "sha256": "6e00c4e3480b6ed76fbc73ba93780a6dd06bc606b03f317a95f53ee581d67f66",
+      "elapsed_ms": 259
+    },
+    {
+      "track": "alvafro",
+      "probe": "repeat",
+      "range": "bytes=0-65535",
+      "status": 206,
+      "content_range": "bytes 0-65535/27957447",
+      "content_type": "application/octet-stream",
+      "bytes_read": 65536,
+      "sha256": "6e00c4e3480b6ed76fbc73ba93780a6dd06bc606b03f317a95f53ee581d67f66",
+      "elapsed_ms": 143
+    },
+    {
+      "track": "alvafro",
+      "probe": "later_range",
+      "range": "bytes=1000000-1065535",
+      "status": 206,
+      "content_range": "bytes 1000000-1065535/27957447",
+      "content_type": "application/octet-stream",
+      "bytes_read": 65536,
+      "sha256": "6e58b3e4be3052e4387fc946089a545817e15e10ab2df67a9c3cc5a5a4ab6732",
+      "elapsed_ms": 173
+    },
+    {
+      "track": "bacc",
+      "probe": "initial",
+      "range": "bytes=0-65535",
+      "status": 206,
+      "content_range": "bytes 0-65535/43472491",
+      "content_type": "application/octet-stream",
+      "bytes_read": 65536,
+      "sha256": "39d8bbdbbee96040c503ee94bbf98fdcd52d08491c5851a67cff1b37255d0f78",
+      "elapsed_ms": 137
+    },
+    {
+      "track": "bacc",
+      "probe": "repeat",
+      "range": "bytes=0-65535",
+      "status": 206,
+      "content_range": "bytes 0-65535/43472491",
+      "content_type": "application/octet-stream",
+      "bytes_read": 65536,
+      "sha256": "39d8bbdbbee96040c503ee94bbf98fdcd52d08491c5851a67cff1b37255d0f78",
+      "elapsed_ms": 141
+    },
+    {
+      "track": "bacc",
+      "probe": "later_range",
+      "range": "bytes=1000000-1065535",
+      "status": 206,
+      "content_range": "bytes 1000000-1065535/43472491",
+      "content_type": "application/octet-stream",
+      "bytes_read": 65536,
+      "sha256": "9651a412fae76e1fe8bbc776466ef385c5cb05bf888ccd2ef6b42d7deaadec46",
+      "elapsed_ms": 182
+    }
+  ]
+}

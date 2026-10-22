@@ -1,0 +1,1967 @@
+{
+  "appSha256": "b06980839bfe462848a2f7fefc29da19a8a9962aff56e3914e68aed4dba95310",
+  "operationId": "863e7355-aea9-48eb-ac03-91d67326aaba",
+  "scope": "candidate visibility and selector diagnostics, not completed file qualification",
+  "trace": [
+    {
+      "details": {
+        "aliasPrepMs": 142,
+        "deadlineMs": 22000,
+        "queryCount": 1,
+        "queryHashes": [
+          "8a571bbc61a05873e5787640e5bf2df590263e1599d3d7c47a9fdc804fa0d2a6"
+        ],
+        "trackCount": 13,
+        "trackInputs": [
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 146666,
+            "expectedOrdinals": [
+              1,
+              1
+            ],
+            "index": 0,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "ed783c12a38af06e",
+            "trackIdHash": "b6de8b7cd7ac7b19",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 91000,
+            "expectedOrdinals": [
+              2,
+              1
+            ],
+            "index": 1,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "27c08eb37647e12e",
+            "trackIdHash": "c9d21c08bc63fe05",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 310000,
+            "expectedOrdinals": [
+              3,
+              1
+            ],
+            "index": 2,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "99289ddcd03bdff2",
+            "trackIdHash": "77eba72b4d4c70d1",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 160000,
+            "expectedOrdinals": [
+              4,
+              1
+            ],
+            "index": 3,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "0d500facd225dd72",
+            "trackIdHash": "268a73854108b14f",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 124000,
+            "expectedOrdinals": [
+              5,
+              1
+            ],
+            "index": 4,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 11,
+            "sourceKind": "catalog",
+            "titleHash": "8987738a7f434013",
+            "trackIdHash": "cd53bc0ac78a6a69",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 154000,
+            "expectedOrdinals": [
+              6,
+              1
+            ],
+            "index": 5,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "91cf6a8f225d274d",
+            "trackIdHash": "b478d54b510d6bca",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 94973,
+            "expectedOrdinals": [
+              7,
+              1
+            ],
+            "index": 6,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 9,
+            "sourceKind": "catalog",
+            "titleHash": "f3341b6738edf394",
+            "trackIdHash": "2056564d67eabbb4",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 23,
+            "artistHash": "98b9bd533e6212d7",
+            "durationMillis": 174000,
+            "expectedOrdinals": [
+              8,
+              1
+            ],
+            "index": 7,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "e83370b9a23d7789",
+            "trackIdHash": "5f58c62e5390c9fe",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 275000,
+            "expectedOrdinals": [
+              9,
+              1
+            ],
+            "index": 8,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 11,
+            "sourceKind": "catalog",
+            "titleHash": "75d54f4317d47734",
+            "trackIdHash": "400f2f5c276862eb",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 23,
+            "artistHash": "8a571bbc61a05873",
+            "durationMillis": 168040,
+            "expectedOrdinals": [
+              10,
+              1
+            ],
+            "index": 9,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "5e1fcc2e07c25629",
+            "trackIdHash": "d664bb7d6c04382b",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 197000,
+            "expectedOrdinals": [
+              11,
+              1
+            ],
+            "index": 10,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "bee803151b6abb5b",
+            "trackIdHash": "c42ec03b84c1cf24",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 88520,
+            "expectedOrdinals": [
+              12,
+              1
+            ],
+            "index": 11,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "fba797872ba79f20",
+            "trackIdHash": "9665b01f0cc5e8ae",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 217134,
+            "expectedOrdinals": [
+              13,
+              1
+            ],
+            "index": 12,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "42299f1ec184e152",
+            "trackIdHash": "f0fa6d65d38e1a1e",
+            "versionPresent": false
+          }
+        ]
+      },
+      "event": "begin"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 31,
+        "advertisedResponseCount": 1,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 31,
+        "advertisedResponseCount": 1,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 737,
+        "advertisedResponseCount": 36,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 2342,
+        "advertisedResponseCount": 100,
+        "embeddedResponseCount": 100,
+        "normalizedCandidateCount": 500,
+        "rawFileCount": 2342,
+        "separateResponseCount": 100,
+        "settleMs": 0,
+        "state": "Completed, ResponseLimitReached"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "groups": [
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "dd4181f4b16d4fb4",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 1
+          },
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 16,
+            "folderArtistFileCount": 16,
+            "groupHash": "21413ec8a228d7fe",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 2
+          },
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 14,
+            "folderArtistFileCount": 14,
+            "groupHash": "3db63572e62fb21c",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 3
+          },
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 16,
+            "folderArtistFileCount": 16,
+            "groupHash": "32aa00cc44aca3d4",
+            "ordinalPairCount": 100,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 9658,
+            "potentialLosslessCount": 0,
+            "rank": 4
+          },
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "9d2b573d350c31ed",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 4160,
+            "potentialLosslessCount": 0,
+            "rank": 5
+          },
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 17,
+            "folderArtistFileCount": 17,
+            "groupHash": "7056b7850d471151",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 4160,
+            "potentialLosslessCount": 0,
+            "rank": 6
+          },
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "6518f6138a30b653",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 2496,
+            "potentialLosslessCount": 0,
+            "rank": 7
+          },
+          {
+            "coverageUpperBound": 13,
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 1,
+            "folderArtistFileCount": 1,
+            "groupHash": "7bef29b736ee41bd",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 320,
+            "potentialLosslessCount": 0,
+            "rank": 8
+          },
+          {
+            "coverageUpperBound": 10,
+            "exactTitlePairCount": 10,
+            "exactTitleTrackCount": 10,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "cd66c3e6074e2f08",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 4160,
+            "potentialLosslessCount": 0,
+            "rank": 9
+          },
+          {
+            "coverageUpperBound": 10,
+            "exactTitlePairCount": 10,
+            "exactTitleTrackCount": 10,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "e477f1927cfaf460",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 0,
+            "rank": 10
+          },
+          {
+            "coverageUpperBound": 9,
+            "exactTitlePairCount": 9,
+            "exactTitleTrackCount": 9,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "b83364768aecf5fb",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 11
+          },
+          {
+            "coverageUpperBound": 9,
+            "exactTitlePairCount": 9,
+            "exactTitleTrackCount": 9,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "4fa3517afa392941",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 10370,
+            "potentialLosslessCount": 0,
+            "rank": 12
+          },
+          {
+            "coverageUpperBound": 8,
+            "exactTitlePairCount": 8,
+            "exactTitleTrackCount": 8,
+            "fileCount": 13,
+            "folderArtistFileCount": 0,
+            "groupHash": "0adc64bbd5013b0c",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 2864,
+            "potentialLosslessCount": 0,
+            "rank": 13
+          },
+          {
+            "coverageUpperBound": 7,
+            "exactTitlePairCount": 7,
+            "exactTitleTrackCount": 7,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "b5235e9b065a5eee",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 4160,
+            "potentialLosslessCount": 0,
+            "rank": 14
+          },
+          {
+            "coverageUpperBound": 1,
+            "exactTitlePairCount": 1,
+            "exactTitleTrackCount": 1,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "bb4a05d4bbcbfbc2",
+            "ordinalPairCount": 169,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 3328,
+            "potentialLosslessCount": 0,
+            "rank": 15
+          }
+        ]
+      },
+      "event": "group_plan"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 13,
+          "artists_not_agree": 12,
+          "relationship_not_exact_or_probable": 13,
+          "requested_runtime_not_agree": 2,
+          "runtime_conflict": 2,
+          "title_not_agree": 13
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "dd4181f4b16d4fb4",
+        "losslessAssigned": 0,
+        "rank": 1,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 13,
+          "artists_not_agree": 12,
+          "relationship_not_exact_or_probable": 13,
+          "requested_runtime_not_agree": 12,
+          "runtime_conflict": 12,
+          "title_not_agree": 13
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 16,
+        "groupHash": "21413ec8a228d7fe",
+        "losslessAssigned": 0,
+        "rank": 2,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 16
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 13,
+          "artists_not_agree": 12,
+          "relationship_not_exact_or_probable": 13,
+          "requested_runtime_not_agree": 13,
+          "runtime_conflict": 13,
+          "title_not_agree": 13
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 14,
+        "groupHash": "3db63572e62fb21c",
+        "losslessAssigned": 0,
+        "rank": 3,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 14
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 100,
+          "artists_not_agree": 100,
+          "relationship_not_exact_or_probable": 100,
+          "requested_runtime_not_agree": 97,
+          "runtime_conflict": 97,
+          "title_not_agree": 100
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 16,
+        "groupHash": "32aa00cc44aca3d4",
+        "losslessAssigned": 0,
+        "rank": 4,
+        "sharedAssessments": 100,
+        "unmatchedFiles": 16
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 8,
+          "artists_not_agree": 7,
+          "relationship_not_exact_or_probable": 8,
+          "title_not_agree": 8
+        },
+        "assignedTracks": 5,
+        "bitrateAssigned": 1600,
+        "fileCount": 13,
+        "groupHash": "9d2b573d350c31ed",
+        "losslessAssigned": 0,
+        "rank": 5,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 8
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 13,
+          "artists_not_agree": 12,
+          "relationship_not_exact_or_probable": 13,
+          "requested_runtime_not_agree": 12,
+          "runtime_conflict": 12,
+          "title_not_agree": 13
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 17,
+        "groupHash": "7056b7850d471151",
+        "losslessAssigned": 0,
+        "rank": 6,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 17
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 61,
+          "artists_not_agree": 61,
+          "relationship_not_exact_or_probable": 61,
+          "requested_runtime_not_agree": 49,
+          "runtime_conflict": 49,
+          "title_not_agree": 61
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "6518f6138a30b653",
+        "losslessAssigned": 0,
+        "rank": 7,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 13,
+          "artists_not_agree": 12,
+          "relationship_not_exact_or_probable": 13,
+          "requested_runtime_not_agree": 13,
+          "runtime_conflict": 13,
+          "title_not_agree": 13
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 1,
+        "groupHash": "7bef29b736ee41bd",
+        "losslessAssigned": 0,
+        "rank": 8,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 1
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 3,
+          "artists_not_agree": 3,
+          "relationship_not_exact_or_probable": 3,
+          "title_not_agree": 3
+        },
+        "assignedTracks": 10,
+        "bitrateAssigned": 3200,
+        "fileCount": 13,
+        "groupHash": "cd66c3e6074e2f08",
+        "losslessAssigned": 0,
+        "rank": 9,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 3
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 13,
+          "artists_not_agree": 13,
+          "relationship_not_exact_or_probable": 13,
+          "title_not_agree": 3
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "e477f1927cfaf460",
+        "losslessAssigned": 0,
+        "rank": 10,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 61,
+          "artists_not_agree": 61,
+          "relationship_not_exact_or_probable": 61,
+          "requested_runtime_not_agree": 47,
+          "runtime_conflict": 47,
+          "title_not_agree": 52
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "b83364768aecf5fb",
+        "losslessAssigned": 0,
+        "rank": 11,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 61,
+          "artists_not_agree": 61,
+          "relationship_not_exact_or_probable": 61,
+          "requested_runtime_not_agree": 49,
+          "runtime_conflict": 49,
+          "title_not_agree": 52
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "4fa3517afa392941",
+        "losslessAssigned": 0,
+        "rank": 12,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 61,
+          "artists_not_agree": 61,
+          "relationship_not_exact_or_probable": 61,
+          "requested_runtime_not_agree": 47,
+          "runtime_conflict": 47,
+          "title_not_agree": 53
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "0adc64bbd5013b0c",
+        "losslessAssigned": 0,
+        "rank": 13,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 54,
+          "artists_not_agree": 50,
+          "relationship_not_exact_or_probable": 54,
+          "requested_runtime_not_agree": 48,
+          "runtime_conflict": 48,
+          "title_not_agree": 54
+        },
+        "assignedTracks": 7,
+        "bitrateAssigned": 2240,
+        "fileCount": 13,
+        "groupHash": "b5235e9b065a5eee",
+        "losslessAssigned": 0,
+        "rank": 14,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 6
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "aliasPrepMs": 142,
+        "assessmentRejections": {
+          "action_not_accept": 633,
+          "artists_not_agree": 623,
+          "relationship_not_exact_or_probable": 633,
+          "requested_runtime_not_agree": 524,
+          "runtime_conflict": 524,
+          "title_not_agree": 596
+        },
+        "assignmentCount": 10,
+        "bestCoverageAtStop": 10,
+        "cancelled": false,
+        "candidateCount": 500,
+        "candidatePairsAfterOrdinal": 678,
+        "candidatePairsAfterTitle": 666,
+        "candidatePairsTotal": 6500,
+        "deadlineRemainingMs": 0,
+        "groupsExamined": 15,
+        "groupsTotal": 15,
+        "networkMs": 2534,
+        "queryHash": "8a571bbc61a05873e5787640e5bf2df590263e1599d3d7c47a9fdc804fa0d2a6",
+        "queryIndex": 0,
+        "queryLength": 28,
+        "searchComplete": true,
+        "searchFinalState": "other",
+        "searchPollCount": 6,
+        "searchResponseRows": 500,
+        "searchUniqueCandidates": 500,
+        "searchWarningCount": 0,
+        "selectedFullCoverage": false,
+        "selectionMs": 17344,
+        "selectionStoppedOnDeadline": true,
+        "sharedAssessments": 655
+      },
+      "event": "query_complete"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "Completed, TimedOut"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "Completed, TimedOut"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 17,
+        "advertisedResponseCount": 15,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 42,
+        "advertisedResponseCount": 40,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 56,
+        "advertisedResponseCount": 55,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 63,
+        "advertisedResponseCount": 62,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 64,
+        "advertisedResponseCount": 63,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 64,
+        "advertisedResponseCount": 63,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 65,
+        "advertisedResponseCount": 64,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 65,
+        "advertisedResponseCount": 64,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 66,
+        "advertisedResponseCount": 65,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    }
+  ]
+}

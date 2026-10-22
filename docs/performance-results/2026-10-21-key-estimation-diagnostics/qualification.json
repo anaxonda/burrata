@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "purpose": "Explain current key-analysis abstentions on the separately selected duration-qualified FSL10K held-out subset; this is diagnostic evidence, not a general key-accuracy estimate.",
+  "production_behavior_changed": false,
+  "diagnostic_method": {
+    "decoder": "Bundled FFmpeg 8.1.3, same mono 22050 Hz f32le output arguments as media.rs::detect_key",
+    "classifier": "Existing burrata_keyfinder_analyze C ABI, directly linked from existing static build outputs; same FFI call for whole track and each five production windows",
+    "gate_replay": "Current constants and order from media.rs::estimate_key: minimum 8s; whole profile fit >= 0.20; whole best-runner-up profile margin >= 0.01; each 5 windows independently fit >= 0.20 and margin >= 0.01; at least 3 qualified windows; selected window key must equal whole-track key.",
+    "note": "Harness records all five windows even if an earlier whole-track gate fails, solely to diagnose likely subsequent outcomes. first_production_failure preserves the actual early-return order. It writes no tags or app data."
+  },
+  "items": [
+    {
+      "id": "78694",
+      "title": "DISTOPIA LOOPZ 023 60 BPM.flac",
+      "duration_seconds": 80.0,
+      "audio_sha256": "91067696cb38fcf7c7ae979f6349567a34e99892954e05e1a235ef3e78db5735",
+      "annotated_key": "F major",
+      "whole": {"key": "Am", "profile_fit": 0.704698324, "profile_margin": 0.003714969, "fit_pass": true, "margin_pass": false},
+      "windows": [
+        {"index": 1, "start_seconds": 0.0, "key": "Ebm", "profile_fit": 0.778504092, "profile_margin": 0.001624625, "qualified": false},
+        {"index": 2, "start_seconds": 16.0, "key": "A", "profile_fit": 0.537810533, "profile_margin": 0.009869220, "qualified": false},
+        {"index": 3, "start_seconds": 32.0, "key": "A", "profile_fit": 0.427869069, "profile_margin": 0.013696041, "qualified": true},
+        {"index": 4, "start_seconds": 48.0, "key": "A", "profile_fit": 0.409469670, "profile_margin": 0.011977130, "qualified": true},
+        {"index": 5, "start_seconds": 64.0, "key": "A", "profile_fit": 0.409493487, "profile_margin": 0.011043812, "qualified": true}
+      ],
+      "qualified_consensus": {"key": "A", "votes": 3, "whole_agrees": false},
+      "first_production_failure": "whole_profile_margin"
+    },
+    {
+      "id": "315848",
+      "title": "Nitrous PD_004.wav",
+      "duration_seconds": 48.0,
+      "audio_sha256": "e2c19342745a561eee8e72a54a1315e5ee7e6dae3ba6a688bfb14e78152041c6",
+      "annotated_key": "D minor",
+      "whole": {"key": "Dm", "profile_fit": 0.888272421, "profile_margin": 0.007881155, "fit_pass": true, "margin_pass": false},
+      "windows": [
+        {"index": 1, "start_seconds": 0.0, "key": "Dm", "profile_fit": 0.877006211, "profile_margin": 0.008891790, "qualified": false},
+        {"index": 2, "start_seconds": 9.6, "key": "Dm", "profile_fit": 0.883815824, "profile_margin": 0.003536071, "qualified": false},
+        {"index": 3, "start_seconds": 19.2, "key": "Dm", "profile_fit": 0.904030783, "profile_margin": 0.009393528, "qualified": false},
+        {"index": 4, "start_seconds": 28.8, "key": "Dm", "profile_fit": 0.856928911, "profile_margin": 0.001667245, "qualified": false},
+        {"index": 5, "start_seconds": 38.4, "key": "Dm", "profile_fit": 0.898987965, "profile_margin": 0.011433517, "qualified": true}
+      ],
+      "qualified_consensus": {"key": "Dm", "votes": 1, "whole_agrees": true},
+      "first_production_failure": "whole_profile_margin"
+    },
+    {
+      "id": "418630",
+      "title": "bassline c fsharpc120bpm-01.wav",
+      "duration_seconds": 56.250022676,
+      "audio_sha256": "8aa8154a32cb6bbfe0f0b7f5913f006ba2bc28c5a3fced94f43809bfb4a74c62",
+      "annotated_key": "F# major (enharmonic Gb major)",
+      "whole": {"key": "Gb", "profile_fit": 0.732286080, "profile_margin": 0.001313289, "fit_pass": true, "margin_pass": false},
+      "windows": [
+        {"index": 1, "start_seconds": 0.0, "key": "Gb", "profile_fit": 0.715745697, "profile_margin": 0.007400242, "qualified": false},
+        {"index": 2, "start_seconds": 11.249977324, "key": "Gb", "profile_fit": 0.740651852, "profile_margin": 0.004454238, "qualified": false},
+        {"index": 3, "start_seconds": 22.5, "key": "Gb", "profile_fit": 0.725650844, "profile_margin": 0.000755822, "qualified": false},
+        {"index": 4, "start_seconds": 33.750022676, "key": "Gbm", "profile_fit": 0.723600294, "profile_margin": 0.020719438, "qualified": true},
+        {"index": 5, "start_seconds": 45.0, "key": "Gbm", "profile_fit": 0.694435622, "profile_margin": 0.013650193, "qualified": true}
+      ],
+      "qualified_consensus": {"key": "Gbm", "votes": 2, "whole_agrees": false},
+      "first_production_failure": "whole_profile_margin"
+    }
+  ],
+  "source_provenance": {
+    "repository_commit_at_measurement": "9d5a4194111b023ba9252d85039aeb50e7b6fcfa",
+    "media_rs_sha256_at_measurement": "942b364fa9fea3579c8fa7baa0983e6c96fb45ce473e9b28d7085158b4988c64",
+    "keyfinder_ffi_cpp_sha256": "0f838fcd6a33230371ad0ba175324d6d82ca1477d23b556318ca989c670effa8",
+    "analysis_version": "burrata-media-analysis-v1-keyfinder-2.2.8-bpm-v3",
+    "ffmpeg_version": "8.1.3",
+    "ffmpeg_sha256": "e17253d50522cf5f9b52aabd9faba42cac164c1682a61016b59c957c6f2b1f33",
+    "libburrata_keyfinder_ffi_sha256": "265ac66a69cb5e568ac6ed6a33692dbbc82e9063bc85c143752a8f2ea9c95e7f",
+    "libkeyfinder_sha256": "18d80d6741a5d17114d3cb901b9af63a97d5ac4fd7e1016b59e655d8960d53da",
+    "libfftw3_sha256": "e1b4e64abb48d94d9b97b8c9fb32c438e0c452c52bd26d28b505533e39434cda",
+    "diagnostic_source": "scripts/qualification/keyfinder_diagnostic.cpp",
+    "diagnostic_source_sha256": "b5c20a991a1e720d47ae75d93ad916f206fdef268933af534b0b2e1776eb03f6"
+  },
+  "scope_limit": "Three preselected, annotation-agreed clips only. These measurements explain abstention behavior and do not establish general key accuracy."
+}

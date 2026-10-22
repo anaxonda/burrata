@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "publicLongSetSeek": {
+    "provider": "youtube",
+    "sourceId": "mDtud5fLgFQ",
+    "url": "https://www.youtube.com/watch?v=mDtud5fLgFQ",
+    "title": "Fred again.. & LATIN MAFIA - Full Mixtape Playback, Palacio De Los Deportes (CDMX, 30th July 2026)",
+    "channel": "Fred again..",
+    "published": "2026-09-15",
+    "reportedFailure": "seek at 4:38 does not complete before the 20 second watchdog",
+    "identityConfidence": "high: exact reported title and performers; original photo's displayed title is truncated",
+    "expectedRecordingId": "youtube:mDtud5fLgFQ"
+  },
+  "savedTracks": [
+    {
+      "title": "Bacc Of The Bach",
+      "artist": "Nipsey Hussle,Bino Rideaux",
+      "catalogRecordingId": "catalog:discogs:46a5e4250d2cac2a720d5133d6b0d8386e48de8aeaea4224e2b94e03e9e60a47",
+      "catalogRelease": "https://www.discogs.com/release/38549214",
+      "fixtureFile": ".cache/playback-v015-mac-20261021/bacc-saved-fixture.json",
+      "expectedAudioRecordingId": null,
+      "note": "Previously resolved rpCswezRrLs in a cold production run; current frozen-build qualification remains pending. No independent acoustic identity claim."
+    },
+    {
+      "title": "Vibe With Me",
+      "artist": "Nipsey Hussle,Bino Rideaux,Leon Thomas",
+      "catalogRecordingId": "catalog:discogs:66f290f6c9605f6b62061304f6916b0ce6b59b475d758b94ce3831cf51255bda",
+      "catalogRelease": "https://www.discogs.com/release/38549214",
+      "fixtureFile": ".cache/playback-v015-mac-20261021/vibe-saved-fixture.json",
+      "expectedAudioRecordingId": null,
+      "note": "Previously resolved official source ExdT24gJngk in a cold production run; current frozen-build qualification remains pending."
+    },
+    {
+      "title": "Sacrifices",
+      "artist": "Nipsey Hussle,Bino Rideaux,James Fauntleroy II",
+      "catalogRecordingId": "catalog:discogs:f291210ddf1699fb8c8acf29402edc7a0d95130a74f62cf5bf4cca01172fd2e7",
+      "catalogRelease": "https://www.discogs.com/release/38549214",
+      "fixtureFile": ".cache/playback-v015-mac-20261021/sacrifices-saved-fixture.json",
+      "expectedAudioRecordingId": null,
+      "note": "Previously resolved FrKgnaj_Ums (official video) and sampled vqDoiUMuqQA (official audio); current frozen-build qualification remains pending."
+    }
+  ]
+}

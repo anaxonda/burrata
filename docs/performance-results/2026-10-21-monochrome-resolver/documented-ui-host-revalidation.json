@@ -1,0 +1,18 @@
+{
+  "checked_at": "2026-10-21T20:43:06.623053+00:00",
+  "scope": "Public documented UI hosts; not resolver mirror or authorized playback proof",
+  "results": [
+    {
+      "host": "monochrome.tf",
+      "status": 503
+    },
+    {
+      "host": "lossless.wtf",
+      "error_type": "URLError"
+    },
+    {
+      "host": "if-it-runs-ship-it.lol",
+      "error_type": "URLError"
+    }
+  ]
+}

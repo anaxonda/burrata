@@ -1,0 +1,60 @@
+{
+  "observedAt": "2026-10-21T20:30:59.133262+00:00",
+  "proxyEnvPresent": {
+    "HTTP_PROXY": false,
+    "HTTPS_PROXY": false,
+    "ALL_PROXY": false
+  },
+  "requests": [
+    {
+      "endpoint": "https://music-api.geeked.wtf/api/v2/track/",
+      "credentials": "none",
+      "proxyMode": "disabled to match Burrata reqwest Client::no_proxy",
+      "status": 403,
+      "topLevelKeys": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "error_code",
+        "error_name",
+        "error_category",
+        "ray_id",
+        "timestamp",
+        "zone",
+        "cloudflare_error",
+        "retryable",
+        "owner_action_required",
+        "what_you_should_do",
+        "footer"
+      ],
+      "detail": "The site owner has blocked access based on your browser's signature."
+    },
+    {
+      "endpoint": "https://tracks.monochrome.st/search/tracks",
+      "credentials": "none",
+      "proxyMode": "disabled to match Burrata reqwest Client::no_proxy",
+      "status": 403,
+      "topLevelKeys": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "error_code",
+        "error_name",
+        "error_category",
+        "ray_id",
+        "timestamp",
+        "zone",
+        "cloudflare_error",
+        "retryable",
+        "owner_action_required",
+        "what_you_should_do",
+        "footer"
+      ],
+      "detail": "The site owner has blocked access based on your browser's signature."
+    }
+  ]
+}

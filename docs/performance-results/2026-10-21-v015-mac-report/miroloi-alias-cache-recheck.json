@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "appBuildPrefix": "ed056432",
+  "case": {
+    "title": "To Miroloi Tis Manas",
+    "artist": "Lakis Chalkias",
+    "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+    "durationSeconds": 127.626,
+    "matchingMode": "Balanced",
+    "attempts": 1,
+    "status": "five_second_progress_observed",
+    "wallMs": 22655,
+    "progressSeconds": 5.243439,
+    "source": {
+      "provider": "monochrome",
+      "id": "264536741330165760"
+    },
+    "savedIdentity": {
+      "title": "To Miroloi Tis Manas",
+      "artist": "Lakis Chalkias",
+      "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+      "version": null,
+      "durationSeconds": 127.626,
+      "isrc": null
+    },
+    "unchangedComparedFields": ["title", "artist", "album", "version", "durationSeconds", "isrc"],
+    "savedIdentityUnchanged": true
+  },
+  "limitations": [
+    "This run followed earlier attempts and is not a cold-start latency measurement.",
+    "Playback-position progress is not acoustic identity verification.",
+    "The saved-identity comparison covers title, artist, album, and duration; it does not establish source-audio equivalence.",
+    "Earlier idle runs are retained as historical failures and are not overwritten by this follow-up."
+  ],
+  "privateRawEvidence": ".cache/qualification-alias-cache-bpm-v3-20261021/miroloi-runtime.json"
+}

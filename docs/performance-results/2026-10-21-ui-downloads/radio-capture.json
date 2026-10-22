@@ -1,0 +1,13 @@
+{
+  "defaultEnabled": false,
+  "initialTrackCount": 0,
+  "captured": [
+    {
+      "title": "I'm Tired / Where Am I",
+      "artist": "Savoy Brown"
+    }
+  ],
+  "playbackStatus": "playing",
+  "disabledAfterTest": true,
+  "profile": "disposable; normal profile unchanged"
+}

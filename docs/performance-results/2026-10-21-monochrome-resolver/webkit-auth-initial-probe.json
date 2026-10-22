@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "probe": "normal_turnstile_authorization",
+  "started_at": "2026-10-21T20:38:47Z",
+  "site_origin": "https://monochrome.st",
+  "api_host": "music-api.geeked.wtf",
+  "widget_state": "error",
+  "turnstile_token_present": false,
+  "auth_status": null,
+  "auth_token_present": false,
+  "auth_expiration": null,
+  "auth_error_category": null,
+  "auth_response": null,
+  "resolve_status": null,
+  "resolve_error_category": null,
+  "resolve_response_is_json": null,
+  "resolve_response": null,
+  "complete": false
+}

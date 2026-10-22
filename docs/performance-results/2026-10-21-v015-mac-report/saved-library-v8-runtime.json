@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "appSha256": "cfee022e3abdba9d1bf483064c20626fec82bd2556f18854816af2bf8f59c2e6",
+  "results": [
+    {
+      "caseId": "bacc",
+      "status": "five_second_progress_observed",
+      "attempts": 1,
+      "wallMs": 13639,
+      "progressSeconds": 4.993901,
+      "intendedMatchingMode": "Balanced",
+      "before": {
+        "status": "idle",
+        "engine": "other",
+        "identity": {
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "title": "To Miroloi Tis Manas",
+          "artist": "Lakis Chalkias",
+          "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+          "version": null,
+          "durationSeconds": 127.626,
+          "isrc": null
+        },
+        "positionSeconds": 127.626666666,
+        "durationSeconds": 127.626,
+        "generation": null,
+        "entryId": "43c8eee7-2d85-4cbe-af40-a7746f446fde",
+        "source": {
+          "provider": null,
+          "id": null
+        },
+        "mediaErrorPresent": false
+      },
+      "after": {
+        "status": "playing",
+        "engine": "other",
+        "identity": {
+          "trackId": "catalog:discogs:46a5e4250d2cac2a720d5133d6b0d8386e48de8aeaea4224e2b94e03e9e60a47",
+          "title": "Bacc Of The Bach",
+          "artist": "Nipsey Hussle,Bino Rideaux",
+          "album": "Prolific",
+          "version": null,
+          "durationSeconds": 198,
+          "isrc": null
+        },
+        "positionSeconds": 5.722866,
+        "durationSeconds": 198,
+        "generation": null,
+        "entryId": "35091627-2267-43cf-b290-2c9063b88b43",
+        "source": {
+          "provider": "youtube",
+          "id": "youtube:rpCswezRrLs"
+        },
+        "mediaErrorPresent": false
+      }
+    },
+    {
+      "caseId": "vibe_with_me",
+      "status": "five_second_progress_observed",
+      "attempts": 1,
+      "wallMs": 11021,
+      "progressSeconds": 4.983829999999999,
+      "intendedMatchingMode": "Balanced",
+      "before": {
+        "status": "playing",
+        "engine": "other",
+        "identity": {
+          "trackId": "catalog:discogs:46a5e4250d2cac2a720d5133d6b0d8386e48de8aeaea4224e2b94e03e9e60a47",
+          "title": "Bacc Of The Bach",
+          "artist": "Nipsey Hussle,Bino Rideaux",
+          "album": "Prolific",
+          "version": null,
+          "durationSeconds": 198,
+          "isrc": null
+        },
+        "positionSeconds": 5.722866,
+        "durationSeconds": 198,
+        "generation": null,
+        "entryId": "35091627-2267-43cf-b290-2c9063b88b43",
+        "source": {
+          "provider": "youtube",
+          "id": "youtube:rpCswezRrLs"
+        },
+        "mediaErrorPresent": false
+      },
+      "after": {
+        "status": "playing",
+        "engine": "other",
+        "identity": {
+          "trackId": "catalog:discogs:66f290f6c9605f6b62061304f6916b0ce6b59b475d758b94ce3831cf51255bda",
+          "title": "Vibe With Me",
+          "artist": "Nipsey Hussle,Bino Rideaux,Leon Thomas",
+          "album": "Prolific",
+          "version": null,
+          "durationSeconds": 231,
+          "isrc": null
+        },
+        "positionSeconds": 5.470399,
+        "durationSeconds": 231,
+        "generation": null,
+        "entryId": "210ac23c-8f54-41e2-ad17-be547dd39f1a",
+        "source": {
+          "provider": "youtube",
+          "id": "youtube:ExdT24gJngk"
+        },
+        "mediaErrorPresent": false
+      }
+    },
+    {
+      "caseId": "sacrifices",
+      "status": "five_second_progress_observed",
+      "attempts": 1,
+      "wallMs": 11086,
+      "progressSeconds": 4.97734,
+      "intendedMatchingMode": "Balanced",
+      "before": {
+        "status": "playing",
+        "engine": "other",
+        "identity": {
+          "trackId": "catalog:discogs:66f290f6c9605f6b62061304f6916b0ce6b59b475d758b94ce3831cf51255bda",
+          "title": "Vibe With Me",
+          "artist": "Nipsey Hussle,Bino Rideaux,Leon Thomas",
+          "album": "Prolific",
+          "version": null,
+          "durationSeconds": 231,
+          "isrc": null
+        },
+        "positionSeconds": 5.470399,
+        "durationSeconds": 231,
+        "generation": null,
+        "entryId": "210ac23c-8f54-41e2-ad17-be547dd39f1a",
+        "source": {
+          "provider": "youtube",
+          "id": "youtube:ExdT24gJngk"
+        },
+        "mediaErrorPresent": false
+      },
+      "after": {
+        "status": "playing",
+        "engine": "other",
+        "identity": {
+          "trackId": "catalog:discogs:f291210ddf1699fb8c8acf29402edc7a0d95130a74f62cf5bf4cca01172fd2e7",
+          "title": "Sacrifices",
+          "artist": "Nipsey Hussle,Bino Rideaux,James Fauntleroy II",
+          "album": "Prolific",
+          "version": null,
+          "durationSeconds": 279,
+          "isrc": null
+        },
+        "positionSeconds": 4.97734,
+        "durationSeconds": 279,
+        "generation": null,
+        "entryId": "73c9f14b-c113-4bb8-bc38-c01f26ce879f",
+        "source": {
+          "provider": "youtube",
+          "id": "youtube:FrKgnaj_Ums"
+        },
+        "mediaErrorPresent": false
+      }
+    },
+    {
+      "caseId": "to_miroloi_tis_manas",
+      "status": "five_second_progress_observed",
+      "attempts": 1,
+      "wallMs": 8077,
+      "progressSeconds": 4.977112,
+      "intendedMatchingMode": "Balanced",
+      "before": {
+        "status": "playing",
+        "engine": "other",
+        "identity": {
+          "trackId": "catalog:discogs:f291210ddf1699fb8c8acf29402edc7a0d95130a74f62cf5bf4cca01172fd2e7",
+          "title": "Sacrifices",
+          "artist": "Nipsey Hussle,Bino Rideaux,James Fauntleroy II",
+          "album": "Prolific",
+          "version": null,
+          "durationSeconds": 279,
+          "isrc": null
+        },
+        "positionSeconds": 4.97734,
+        "durationSeconds": 279,
+        "generation": null,
+        "entryId": "73c9f14b-c113-4bb8-bc38-c01f26ce879f",
+        "source": {
+          "provider": "youtube",
+          "id": "youtube:FrKgnaj_Ums"
+        },
+        "mediaErrorPresent": false
+      },
+      "after": {
+        "status": "playing",
+        "engine": "other",
+        "identity": {
+          "trackId": "spotify:2Q9DpDilWFbnGzEbX5AIBS",
+          "title": "To Miroloi Tis Manas",
+          "artist": "Lakis Chalkias",
+          "album": "36 Tragoudia Tis Ipirou Me Ton Laki Chalkia",
+          "version": null,
+          "durationSeconds": 127.626,
+          "isrc": null
+        },
+        "positionSeconds": 4.977112,
+        "durationSeconds": 127.626,
+        "generation": null,
+        "entryId": "b715dc3e-5756-4d55-b316-3f0012ba45fb",
+        "source": {
+          "provider": "monochrome",
+          "id": "monochrome:264536741330165760"
+        },
+        "mediaErrorPresent": false
+      }
+    }
+  ],
+  "sacrificesSeparateRecoveryAndSeek": {
+    "selectedSource": "youtube:vqDoiUMuqQA",
+    "durationSeconds": 268,
+    "requestedSeekSeconds": 139,
+    "observedPositionSeconds": 183.921334,
+    "status": "playing",
+    "activeMediaError": null,
+    "playerMessage": "Playing youtube audio",
+    "historicalRecoveredFailure": {
+      "provider": "youtube",
+      "id": "FrKgnaj_Ums",
+      "message": "The source did not provide a supported audio format."
+    },
+    "sameEntryAfterSeek": true
+  },
+  "limits": [
+    "Linux runtime; not macOS physical testing",
+    "Position progress alone is not acoustic identity or audibility proof",
+    "Concurrent download qualification; wall times are not a latency benchmark",
+    "Separate Sacrifices attempt recovered automatically from music-video source to official-audio source; historical failure is retained in diagnostics."
+  ]
+}

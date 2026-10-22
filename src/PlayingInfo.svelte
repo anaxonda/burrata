@@ -5,9 +5,25 @@
   import SourceLink from "./SourceLink.svelte";
   import { call } from "./lib/api";
   import PlaybackQuality from "./PlaybackQuality.svelte";
+  import ArtistInformation from "./ArtistInformation.svelte";
+  import RecordingInformation from "./RecordingInformation.svelte";
+  import type {RecordingInformationResult, RecordingReleaseInfo} from "./lib/recording-information";
+  import type {ArtistProfile, ArtistRef} from "./lib/artist-types";
   import TrackFiles from "./TrackFiles.svelte";
   import StationInfo from "./StationInfo.svelte";
   import type { Track, Candidate, LocalAsset } from "./lib/types";
+
+  function estimateNote(track: Track, field: "bpm" | "key"): string {
+    const provenance = (track.provenance ?? {}) as Record<string, unknown>;
+    if ((provenance.manualFields as Record<string, unknown> | undefined)?.[field] === true) return "";
+    const analysis = provenance[field === "bpm" ? "bpmAnalysis" : "keyAnalysis"] as Record<string, unknown> | undefined;
+    if (!analysis || typeof analysis !== "object") return "";
+    const value = field === "bpm" ? analysis.bpm ?? analysis.estimatedBpm : analysis.key ?? analysis.estimatedKey ?? analysis.wholeTrackKey;
+    const matches = field === "bpm" ? typeof value === "number" && track.bpm != null && Math.abs(value - track.bpm) <= 0.1
+      : typeof value === "string" && track.key != null && value.trim().toLowerCase() === track.key.trim().toLowerCase();
+    if (!matches || /failed|error|unavailable|no[_ -](?:confident[_ -])?estimate/i.test(String(analysis.status ?? ""))) return "";
+    return ` · estimated${field === "bpm" && typeof analysis.relatedTempoAlternativeBpm === "number" ? ` · alternative ${analysis.relatedTempoAlternativeBpm} BPM` : ""}`;
+  }
 
   let {
     track,
@@ -16,6 +32,11 @@
     onArtworkError,
     onClose,
     onArtist,
+    onArtistRef,
+    loadArtist,
+    loadRecording,
+    onRecordingRelease,
+    onAlbum,
     onDownload,
     onUpgrade = onDownload,
     asset = null,
@@ -43,6 +64,11 @@
     onArtworkError?: (track: Track, failedUrl: string) => void;
     onClose: () => void;
     onArtist: () => void;
+    onArtistRef?: (artist: ArtistRef) => void;
+    loadArtist?: (track: Track) => Promise<ArtistProfile | null>;
+    loadRecording?: (track: Track) => Promise<RecordingInformationResult>;
+    onRecordingRelease?: (release:RecordingReleaseInfo, artist:ArtistRef|null) => void;
+    onAlbum?: () => void;
     onDownload: () => void;
     onUpgrade?: () => void;
     asset?: LocalAsset | null;
@@ -157,7 +183,7 @@
       {#if candidate?.provider || track.provider}<p class="eyebrow">{candidate?.provider ?? track.provider} audio</p>{/if}
         <h2>{activeChapter || track.title}{!activeChapter && track.version ? " (" + track.version + ")" : ""}</h2>
       {#if track.artist}<button class="artist-link" onclick={onArtist}>{track.artist}</button>{:else}<p class="unknown-artist">Artist unknown</p>{/if}
-        {#if track.album}<p class="album">{track.album}</p>{/if}
+        {#if track.album}{#if onAlbum}<button class="album album-link" onclick={onAlbum}>{track.album}</button>{:else}<p class="album">{track.album}</p>{/if}{/if}
       {#if activeChapter}<p class="chapter"><span>From</span><strong>{track.playbackRange?.parentTitle || track.title}</strong></p>{/if}
       </div>
     </div>
@@ -179,8 +205,8 @@
       {#if track.provider}<div><dt>Catalog</dt><dd>{track.provider}</dd></div>{/if}
       {#if candidate?.title}<div><dt>Audio source</dt><dd>{candidate.title}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd>{candidate.uploader}</dd></div>{/if}
-      {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{track.provenance && (track.provenance as Record<string, unknown>).bpmAnalysis ? " · estimated" : ""}</dd></div>{/if}
-      {#if track.key}<div><dt>Key</dt><dd>{track.key}{track.provenance && (track.provenance as Record<string, unknown>).keyAnalysis ? " · estimated" : ""}</dd></div>{/if}
+      {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{estimateNote(track, "bpm")}</dd></div>{/if}
+      {#if track.key}<div><dt>Key</dt><dd>{track.key}{estimateNote(track, "key")}</dd></div>{/if}
       {#if track.label}<div><dt>Label</dt><dd>{track.label}</dd></div>{/if}
       {#if track.releaseDate}<div><dt>Released</dt><dd>{track.releaseDate}</dd></div>{/if}
       {#if track.durationSeconds}<div><dt>Duration</dt><dd>{Math.floor(track.durationSeconds / 60)}:{String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}</dd></div>{/if}
@@ -189,6 +215,8 @@
       {/if}
     </dl>
 
+    {#if loadArtist && track.artist && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} compact />{/if}
+    {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} onRelease={onRecordingRelease} onArtist={onArtistRef} compact />{/if}
     <div class="actions">
       {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}>{favorite ? "♥ Favorited" : "♡ Add to favorites"}</button>{/if}
       {#if onPlay}<button class="primary" onclick={onPlay}>Play</button>{/if}
@@ -229,6 +257,7 @@
   .artist-link { display: block; width: 100%; min-width: 0; max-width: 100%; padding: 2px 0; overflow: visible; overflow-wrap: anywhere; white-space: normal; text-overflow: clip; background: transparent; color: var(--accent); text-align: left; font-size: 15px; }
   .unknown-artist { margin:2px 0; color:var(--muted); font-size:13px; }
   .chapter { display:grid; gap:3px; margin:9px 0 0; font-size:11px; }.chapter span { color:var(--muted); }.chapter strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:550; }
+  .album-link{background:transparent;border:0;padding:0;text-align:left;text-decoration:underline;cursor:pointer}
   .album { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
   .downloaded-badge { display:flex;align-items:center;gap:6px;align-self:flex-start;margin:14px 0 0;padding:5px 9px;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:999px;color:var(--accent);font-size:11px;font-weight:650; }
   .downloaded-badge span { display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:color-mix(in srgb,var(--accent) 20%,transparent);font-size:11px; }

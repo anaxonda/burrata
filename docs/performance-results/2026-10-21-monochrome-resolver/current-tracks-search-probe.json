@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-21T20:30:32.617566+00:00",
+  "requests": [
+    {
+      "query": "Alvafro",
+      "endpoint": "https://tracks.monochrome.st/search/tracks",
+      "status": 403
+    },
+    {
+      "query": "LATIN MAFIA Alvafro",
+      "endpoint": "https://tracks.monochrome.st/search/tracks",
+      "status": 403
+    },
+    {
+      "query": "Bacc of the Bach",
+      "endpoint": "https://tracks.monochrome.st/search/tracks",
+      "status": 403
+    },
+    {
+      "query": "Count On You Nipsey Hussle",
+      "endpoint": "https://tracks.monochrome.st/search/tracks",
+      "status": 403
+    }
+  ]
+}

@@ -13,6 +13,9 @@ use std::{
     time::Instant,
 };
 
+/// A dedicated retained cache for stable source locators, never stream URLs.
+pub(crate) const PLAYBACK_LOCATOR_CACHE_NAMESPACE: &str = "playback.matching-locators.v2";
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TrackPrefixEntry {
     #[serde(rename = "listingId")]
@@ -1205,6 +1208,28 @@ impl Store {
         if !namespace.starts_with("artists.") || key.trim().is_empty() {
             return Err("Retained artist evidence requires an artist namespace and key".into());
         }
+        self.write_retained_provider_cache(namespace, key, payload)
+    }
+
+    /// Only this explicit API can retain a playback locator. The general
+    /// retained-provider API remains restricted to artist evidence.
+    pub(crate) fn set_retained_playback_locator(
+        &self,
+        key: &str,
+        payload: &serde_json::Value,
+    ) -> Result<()> {
+        if key.trim().is_empty() || key.len() > 512 {
+            return Err("A bounded playback locator key is required".into());
+        }
+        self.write_retained_provider_cache(PLAYBACK_LOCATOR_CACHE_NAMESPACE, key, payload)
+    }
+
+    fn write_retained_provider_cache(
+        &self,
+        namespace: &str,
+        key: &str,
+        payload: &serde_json::Value,
+    ) -> Result<()> {
         let encoded = encode(payload)?;
         if encoded.len() > 1024 * 1024 {
             return Err("Cached provider data is limited to 1 MB".into());
@@ -3790,6 +3815,20 @@ impl Store {
             .map_err(err)?;
         decode(raw)
     }
+    pub fn get_job_if_exists(&self, id: &str) -> Result<Option<DownloadJob>> {
+        let raw = self
+            .connection
+            .lock()
+            .map_err(err)?
+            .query_row(
+                "SELECT payload FROM download_jobs WHERE id=?1",
+                [id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(err)?;
+        raw.map(decode).transpose()
+    }
     pub fn list_jobs(&self) -> Result<Vec<DownloadJob>> {
         let conn = self.lock_connection()?;
         let mut stmt = conn
@@ -3912,6 +3951,25 @@ impl Store {
             })
             .map_err(err)?;
         rows.map(|row| { let (id,hash,version,status,payload)=row.map_err(err)?; Ok(serde_json::json!({"assetId":id,"inputHash":hash,"version":version,"status":status,"payload":decode::<serde_json::Value>(payload)?})) }).collect()
+    }
+    pub fn get_autotag_record(
+        &self,
+        asset_id: &str,
+        file_hash: &str,
+        version: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        let raw = self
+            .connection
+            .lock()
+            .map_err(err)?
+            .query_row(
+                "SELECT payload FROM asset_autotags WHERE asset_id=?1 AND file_hash=?2 AND version=?3",
+                params![asset_id, file_hash, version],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(err)?;
+        raw.map(decode).transpose()
     }
     pub fn save_autotagged_asset(
         &self,
@@ -12817,6 +12875,55 @@ mod tests {
         assert!(reopened
             .set_retained_provider_cache("unrelated", "key", &serde_json::json!({}))
             .is_err());
+    }
+
+    #[test]
+    fn retained_playback_locator_has_a_dedicated_namespace_and_survives_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("retained-locator.sqlite");
+        let store = Store::open(&path).unwrap();
+        let payload =
+            serde_json::json!({"schemaVersion":2,"provider":"youtube","providerId":"abcdefghijk"});
+        assert!(store
+            .set_retained_provider_cache(PLAYBACK_LOCATOR_CACHE_NAMESPACE, "key", &payload)
+            .is_err());
+        assert!(store
+            .set_retained_provider_cache("unrelated", "key", &payload)
+            .is_err());
+        assert!(store.set_retained_playback_locator("", &payload).is_err());
+        store
+            .set_retained_playback_locator("key", &payload)
+            .unwrap();
+        let expires: String = store
+            .lock_connection()
+            .unwrap()
+            .query_row(
+                "SELECT expires_at FROM provider_cache WHERE namespace=?1 AND key='key'",
+                [PLAYBACK_LOCATOR_CACHE_NAMESPACE],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(expires, "9999-12-31T23:59:59Z");
+        drop(store);
+        let reopened = Store::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .get_provider_cache(PLAYBACK_LOCATOR_CACHE_NAMESPACE, "key")
+                .unwrap(),
+            Some(payload)
+        );
+        reopened
+            .set_provider_cache(
+                PLAYBACK_LOCATOR_CACHE_NAMESPACE,
+                "key",
+                &serde_json::Value::Null,
+                0,
+            )
+            .unwrap();
+        assert!(reopened
+            .get_provider_cache(PLAYBACK_LOCATOR_CACHE_NAMESPACE, "key")
+            .unwrap()
+            .is_none());
     }
 
     fn sample_matching_evidence(

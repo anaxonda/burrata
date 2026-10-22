@@ -22,6 +22,77 @@ use uuid::Uuid;
 
 // Peer queues must not consume the workers used for direct downloads or file processing.
 const SOULSEEK_PENDING_LIMIT: usize = 32;
+const SLSKD_COMPLETED_SEARCH_TTL: Duration = Duration::from_secs(300);
+const SLSKD_COMPLETED_SEARCH_LIMIT: usize = 4;
+
+fn trace_soulseek_album(event: &str, details: serde_json::Value) {
+    if std::env::var("BURRATA_PLAYBACK_TRACE").is_ok_and(|value| value == "1") {
+        eprintln!(
+            "burrata_soulseek_album {}",
+            serde_json::json!({"event": event, "details": details})
+        );
+    }
+}
+
+fn soulseek_album_query_fingerprint(query: &str) -> String {
+    use sha2::Digest;
+    format!("{:x}", sha2::Sha256::digest(query.as_bytes()))
+}
+
+fn soulseek_album_group_fingerprint(peer: &str, directory: &str) -> String {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(format!("{peer}\0{directory}").as_bytes());
+    format!("{:x}", digest)[..16].to_owned()
+}
+
+fn soulseek_album_track_input_diagnostics(
+    tracks: &[Track],
+    aliases: &[crate::artist_credit_aliases::VerifiedPlaybackArtistAliases],
+) -> Vec<Value> {
+    tracks
+        .iter()
+        .enumerate()
+        .map(|(index, track)| {
+            serde_json::json!({
+                "index": index,
+                "trackIdHash": soulseek_album_query_fingerprint(&track.id)[..16].to_owned(),
+                "titleHash": soulseek_album_query_fingerprint(&track.title)[..16].to_owned(),
+                "artistHash": soulseek_album_query_fingerprint(&track.artist)[..16].to_owned(),
+                "albumHash": track.album.as_deref().map(|value| soulseek_album_query_fingerprint(value)[..16].to_owned()),
+                "durationMillis": track.duration_seconds.map(|value| (value * 1000.0).round() as i64),
+                "isrcPresent": track.isrc.as_deref().is_some_and(|value| !value.trim().is_empty()),
+                "versionPresent": track.version.as_deref().is_some_and(|value| !value.trim().is_empty()),
+                "localAssetPresent": track.asset_id.is_some() || track.local_path.is_some(),
+                "sourceKind": track.provenance["sourceKind"].as_str(),
+                "expectedOrdinals": soulseek_expected_album_ordinals(track),
+                "aliasTrackCount": aliases.get(index).map(|context| context.tracks().len()).unwrap_or(0),
+                "releaseRuntimeVariantCount": aliases.get(index).map(|context| context.release_runtime_variants().len()).unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SoulseekAlbumQueryDecision {
+    Cancel,
+    Return,
+    Continue,
+}
+
+fn soulseek_album_query_decision(
+    cancelled: bool,
+    deadline_reached: bool,
+    has_assignments: bool,
+    is_last_query: bool,
+) -> SoulseekAlbumQueryDecision {
+    if cancelled {
+        SoulseekAlbumQueryDecision::Cancel
+    } else if has_assignments || is_last_query || deadline_reached {
+        SoulseekAlbumQueryDecision::Return
+    } else {
+        SoulseekAlbumQueryDecision::Continue
+    }
+}
 
 fn download_matching_level(track: &Track) -> crate::recording_match::MatchLevel {
     track.provenance["downloadMatchingLevel"]
@@ -86,6 +157,8 @@ fn artifact_track_for_match(
         provenance.remove("downloadAutomaticFallback");
     }
     if !separate_source_identity {
+        artifact = promote_literal_source_metadata(&artifact, candidate).0;
+        artifact = promote_matched_catalog_metadata(&artifact, candidate, relationship);
         return Ok(artifact);
     }
     let metadata = candidate.source_metadata.as_ref().unwrap_or(&Value::Null);
@@ -220,6 +293,13 @@ fn artifact_track_for_match(
     if !artifact.provenance.is_object() {
         artifact.provenance = serde_json::json!({});
     }
+    // When an explicitly selected source is already the Track's own exact
+    // identity, retain its structured extractor tags just as we do on the
+    // matched-source path. The helper binds them to provider, ID, URL, and
+    // resolved yt-dlp ID, and records them as unverified source reports.
+    if already_actual_source {
+        artifact = promote_literal_source_metadata(&artifact, candidate).0;
+    }
     artifact.provenance["requestedTrackIdentity"] = serde_json::json!({
         "id": track.id,
         "originalId": track.id,
@@ -239,6 +319,256 @@ fn artifact_track_for_match(
         "sourceUrl": candidate.url,
     });
     Ok(artifact)
+}
+
+/// Promote only missing descriptive tags from a current, accepted Monochrome
+/// catalog result. Recording identity fields (title, artist, provider, ID) are
+/// never rewritten here; the assessment gate and stable catalog ID bind these
+/// optional values to the selected recording.
+fn promote_matched_catalog_metadata(
+    track: &Track,
+    candidate: &Candidate,
+    relationship: crate::recording_match::MatchRelationship,
+) -> Track {
+    use crate::recording_match::MatchRelationship::{Exact, Probable};
+    if !matches!(relationship, Exact | Probable) || candidate.provider != "monochrome" {
+        return track.clone();
+    }
+    let Some(metadata) = candidate.source_metadata.as_ref() else {
+        return track.clone();
+    };
+    let Some(catalog_id) = candidate.id.strip_prefix("monochrome:") else {
+        return track.clone();
+    };
+    if metadata["provider"].as_str() != Some("monochrome")
+        || metadata["trackId"].as_str() != Some(catalog_id)
+    {
+        return track.clone();
+    }
+
+    let mut promoted = track.clone();
+    let manual = &track.provenance["manualFields"];
+    let mut fields = Vec::new();
+    let missing = |value: Option<&str>| value.is_none_or(|value| value.trim().is_empty());
+
+    if missing(track.album.as_deref()) && manual["album"] != true {
+        if let Some(value) = bounded_source_text(&metadata["album"], 512) {
+            promoted.album = Some(value);
+            fields.push("album".to_owned());
+        }
+    }
+    if missing(track.album_artist.as_deref()) && manual["albumArtist"] != true {
+        if let Some(value) = bounded_source_text(&metadata["albumArtist"], 512) {
+            promoted.album_artist = Some(value);
+            fields.push("albumArtist".to_owned());
+        }
+    }
+    if track.isrc.is_none() && manual["isrc"] != true {
+        if let Some(value) = metadata["isrc"]
+            .as_str()
+            .and_then(crate::recording_identity::normalize_isrc)
+        {
+            promoted.isrc = Some(value);
+            fields.push("isrc".to_owned());
+        }
+    }
+    if missing(track.genre.as_deref()) && manual["genre"] != true {
+        if let Some(value) = bounded_source_text(&metadata["genre"], 256) {
+            promoted.genre = Some(value);
+            fields.push("genre".to_owned());
+        }
+    }
+    if missing(track.label.as_deref()) && manual["label"] != true {
+        if let Some(value) = bounded_source_text(&metadata["label"], 256) {
+            promoted.label = Some(value);
+            fields.push("label".to_owned());
+        }
+    }
+    if !fields.is_empty() {
+        if !promoted.provenance.is_object() {
+            promoted.provenance = serde_json::json!({});
+        }
+        promoted.provenance["acceptedSourceMetadata"] = serde_json::json!({
+            "identityStatus":"accepted_recording_match",
+            "provider":candidate.provider,
+            "providerId":catalog_id,
+            "relationship":relationship,
+            "fields":fields,
+        });
+    }
+    promoted
+}
+
+fn bounded_source_text(value: &Value, max_len: usize) -> Option<String> {
+    let text = value.as_str()?.trim();
+    (!text.is_empty() && text.len() <= max_len).then(|| text.to_owned())
+}
+
+fn same_source_metadata<'a>(track: &Track, candidate: &'a Candidate) -> Option<&'a Value> {
+    let metadata = candidate.source_metadata.as_ref()?;
+    let expected_id = format!("{}:{}", track.provider, track.provider_id);
+    let metadata_origin = metadata["sourceMetadataOrigin"].as_str()?;
+    (track.id == expected_id
+        && candidate.provider == track.provider
+        && candidate.id == expected_id
+        && candidate.url == track.source_url
+        && metadata["resolvedProviderId"].as_str() == Some(track.provider_id.as_str())
+        && metadata_origin.starts_with("ytDlp"))
+    .then_some(metadata)
+}
+
+/// Fill missing track fields only from the exact source URL/ID's own yt-dlp
+/// metadata. These values remain source-reported and are never catalog proof.
+fn promote_literal_source_metadata(track: &Track, candidate: &Candidate) -> (Track, Vec<String>) {
+    let Some(metadata) = same_source_metadata(track, candidate) else {
+        return (track.clone(), Vec::new());
+    };
+    let artist = bounded_source_text(&metadata["artist"], 256)
+        .or_else(|| bounded_source_text(&metadata["catalogArtist"], 256))
+        .or_else(|| {
+            let artists = metadata["artists"].as_array()?;
+            if artists.is_empty() || artists.len() > 32 {
+                return None;
+            }
+            let names = artists
+                .iter()
+                .map(|artist| bounded_source_text(artist, 256))
+                .collect::<Option<Vec<_>>>()?;
+            Some(names.join(", "))
+        });
+    let title = bounded_source_text(&metadata["catalogTitle"], 512)
+        .or_else(|| bounded_source_text(&metadata["track"], 512))
+        .or_else(|| bounded_source_text(&metadata["title"], 512));
+    let album = bounded_source_text(&metadata["album"], 512);
+    let album_artist = bounded_source_text(&metadata["albumArtist"], 512);
+    let version = bounded_source_text(&metadata["version"], 512)
+        .or_else(|| bounded_source_text(&metadata["mix"], 512));
+    let genre = bounded_source_text(&metadata["genre"], 256);
+    let isrc = metadata["isrc"]
+        .as_str()
+        .and_then(crate::recording_identity::normalize_isrc);
+
+    let mut promoted = track.clone();
+    let mut fields = Vec::new();
+    let manual = &track.provenance["manualFields"];
+    if let Some(value) = artist.filter(|_| {
+        manual["artist"] != true
+            && (track.artist.trim().is_empty() || track.provenance["weakFields"]["artist"] == true)
+    }) {
+        promoted.artist = value;
+        fields.push("artist".to_owned());
+    }
+    if let Some(value) = title.filter(|_| {
+        manual["title"] != true
+            && (track.title.trim().is_empty() || track.provenance["weakFields"]["title"] == true)
+    }) {
+        promoted.title = value;
+        fields.push("title".to_owned());
+    }
+    if promoted
+        .album
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+        && manual["album"] != true
+    {
+        if let Some(value) = album {
+            promoted.album = Some(value);
+            fields.push("album".to_owned());
+        }
+    }
+    if promoted
+        .album_artist
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+        && manual["albumArtist"] != true
+    {
+        if let Some(value) = album_artist {
+            promoted.album_artist = Some(value);
+            fields.push("albumArtist".to_owned());
+        }
+    }
+    if promoted
+        .version
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+        && manual["version"] != true
+    {
+        if let Some(value) = version {
+            promoted.version = Some(value);
+            fields.push("version".to_owned());
+        }
+    }
+    if promoted
+        .genre
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+        && manual["genre"] != true
+    {
+        if let Some(value) = genre {
+            promoted.genre = Some(value);
+            fields.push("genre".to_owned());
+        }
+    }
+    if promoted.isrc.is_none() && manual["isrc"] != true {
+        if let Some(value) = isrc {
+            promoted.isrc = Some(value);
+            fields.push("isrc".to_owned());
+        }
+    }
+    if !fields.is_empty() {
+        if !promoted.provenance.is_object() {
+            promoted.provenance = serde_json::json!({});
+        }
+        promoted.provenance["sourceReportedMetadata"] = serde_json::json!({
+            "identityStatus":"source_reported_unverified",
+            "provider":track.provider,
+            "providerId":track.provider_id,
+            "sourceUrl":track.source_url,
+            "origin":metadata["sourceMetadataOrigin"],
+            "fields":fields.clone(),
+        });
+    }
+    (promoted, fields)
+}
+
+/// Build an ephemeral catalog-search identity from exact-source metadata. The
+/// caller must keep candidates in review when these fields supplied identity.
+pub(crate) fn source_reported_track_for_lookup(track: &Track) -> (Track, Vec<String>) {
+    let Some(candidate) = track
+        .provenance
+        .get("audioCandidate")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<Candidate>(value).ok())
+    else {
+        return (track.clone(), Vec::new());
+    };
+    source_reported_track_for_lookup_from_candidate(track, &candidate)
+}
+
+pub(crate) fn source_reported_track_for_lookup_from_candidate(
+    track: &Track,
+    candidate: &Candidate,
+) -> (Track, Vec<String>) {
+    let (mut enriched, mut fields) = promote_literal_source_metadata(track, candidate);
+    if let Some(metadata) = track.provenance.get("sourceReportedMetadata") {
+        if metadata["identityStatus"] == "source_reported_unverified"
+            && metadata["provider"].as_str() == Some(track.provider.as_str())
+            && metadata["providerId"].as_str() == Some(track.provider_id.as_str())
+            && metadata["sourceUrl"].as_str() == Some(track.source_url.as_str())
+        {
+            if let Some(stored_fields) = metadata["fields"].as_array() {
+                for field in stored_fields.iter().filter_map(Value::as_str) {
+                    if !fields.iter().any(|existing| existing == field) {
+                        fields.push(field.to_owned());
+                    }
+                }
+            }
+            if enriched == *track {
+                enriched = track.clone();
+            }
+        }
+    }
+    (enriched, fields)
 }
 
 struct DownloadAdmission<'a> {
@@ -676,6 +1006,110 @@ fn is_preserved_source(asset: &LocalAsset, candidate: &Candidate) -> bool {
         && asset.track.provenance["acquisition"]["provider"].as_str()
             == Some(candidate.provider.as_str())
         && same_source
+}
+
+/// A previously acquired source can seed a distinct managed copy only when
+/// its stored locator is still exactly the selected locator and current shared
+/// recording evidence binds that source to the requested catalog track.
+fn preserved_source_reuse_assessment(
+    store: &Store,
+    requested: &Track,
+    existing: &LocalAsset,
+    candidate: &Candidate,
+    matching_level: crate::recording_match::MatchLevel,
+) -> Option<crate::recording_match::MatchAssessment> {
+    if !is_preserved_source(existing, candidate)
+        || existing.track.provenance["acquisition"]["id"].as_str() != Some(candidate.id.as_str())
+    {
+        return None;
+    }
+    if candidate.provider == "slskd" {
+        let Some(CandidateSource::Soulseek {
+            username: candidate_user,
+            filename: candidate_filename,
+            ..
+        }) = candidate.source.as_ref()
+        else {
+            return None;
+        };
+        let acquisition_source = existing.track.provenance["acquisition"].get("source")?;
+        if acquisition_source["username"].as_str() != Some(candidate_user.as_str())
+            || acquisition_source["filename"].as_str() != Some(candidate_filename.as_str())
+        {
+            return None;
+        }
+    } else if canonical_source_url(
+        existing.track.provenance["acquisition"]["url"]
+            .as_str()
+            .unwrap_or_default(),
+    ) != canonical_source_url(&candidate.url)
+    {
+        return None;
+    }
+
+    let assessment = crate::recording_match_context::assess(
+        store,
+        requested,
+        candidate,
+        matching_level,
+        crate::recording_match::MatchStage::Resolved,
+    );
+    use crate::recording_match::{Comparison, MatchAction, MatchRelationship, ProofStrength};
+    let evidence = assessment.evidence.as_ref()?;
+    if assessment.action != MatchAction::Accept
+        || !matches!(
+            assessment.relationship,
+            MatchRelationship::Exact | MatchRelationship::Probable
+        )
+        || assessment.proof_strength != ProofStrength::RecordingIdentifier
+        || assessment.dimensions.isrc != Comparison::Agree
+        || assessment.dimensions.artists != Comparison::Agree
+        || assessment.dimensions.runtime != Comparison::Agree
+        || assessment.dimensions.title == Comparison::Conflict
+        || assessment.dimensions.version == Comparison::Conflict
+        || evidence.identifier_conflict
+        || evidence.conflicting_version_observations
+        || evidence.parsing_incomplete
+    {
+        return None;
+    }
+
+    let manual = &requested.provenance["manualFields"];
+    if (manual["title"] == true && assessment.dimensions.title == Comparison::Conflict)
+        || (manual["artist"] == true && assessment.dimensions.artists == Comparison::Conflict)
+        || (manual["version"] == true && assessment.dimensions.version == Comparison::Conflict)
+        || (manual["isrc"] == true && assessment.dimensions.isrc == Comparison::Conflict)
+    {
+        return None;
+    }
+    Some(assessment)
+}
+
+fn preserved_source_reuse_track(
+    requested: &Track,
+    existing: &LocalAsset,
+    candidate: &Candidate,
+    assessment: &crate::recording_match::MatchAssessment,
+    format_id: Option<&str>,
+) -> Result<Track, String> {
+    let mut track = artifact_track_for_match(requested, candidate, assessment.relationship, false)?;
+    track.provenance["acquisition"] = serde_json::json!({
+        "provider": candidate.provider,
+        "url": candidate.url,
+        "id": candidate.id,
+        "permission": candidate.permission,
+        "formatId": format_id,
+        "source": candidate.source,
+    });
+    track.provenance["sourceReuse"] = serde_json::json!({
+        "assetId": existing.id,
+        "assetHash": existing.hash,
+        "proofStrength": assessment.proof_strength,
+        "relationship": assessment.relationship,
+        "isrcAgreement": true,
+        "method": "verified-copy-preserving-catalog-identity",
+    });
+    Ok(track)
 }
 
 fn host_matches(host: &str, domain: &str) -> bool {
@@ -1289,6 +1723,9 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
             source_metadata.insert(key.into(), Value::String(value));
         }
     }
+    if let Some(value) = metadata_text(&info["genre"]).filter(|value| value.len() <= 256) {
+        source_metadata.insert("genre".into(), Value::String(value));
+    }
     if let Some(value) = metadata_text(&info["album_artist"])
         .or_else(|| metadata_text(&info["albumArtist"]))
         .filter(|value| value.len() <= 512)
@@ -1435,6 +1872,32 @@ async fn find_candidates_with_cancel_until_alias(
     shared_deadline: Option<crate::playback_sources::PlaybackDeadline>,
     alternate_artist: Option<String>,
 ) -> Result<Vec<Candidate>, String> {
+    find_candidates_with_cancel_until_alias_detailed(
+        track,
+        provider_ids,
+        settings,
+        cancel,
+        result_limit,
+        per_provider_timeout,
+        shared_deadline,
+        alternate_artist,
+        None,
+    )
+    .await
+    .map(|(candidates, _complete)| candidates)
+}
+
+async fn find_candidates_with_cancel_until_alias_detailed(
+    track: &Track,
+    provider_ids: &[String],
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    result_limit: usize,
+    per_provider_timeout: Duration,
+    shared_deadline: Option<crate::playback_sources::PlaybackDeadline>,
+    alternate_artist: Option<String>,
+    provider_query_cache: Option<&CandidateSearchCache>,
+) -> Result<(Vec<Candidate>, bool), String> {
     if let Some(candidate) = track
         .provenance
         .get("audioCandidate")
@@ -1450,7 +1913,7 @@ async fn find_candidates_with_cancel_until_alias(
             && (candidate.provider != "youtube"
                 || playback_youtube_search_url(&candidate).is_some())
         {
-            return Ok(vec![candidate]);
+            return Ok((vec![candidate], true));
         }
     }
     use futures_util::StreamExt;
@@ -1468,6 +1931,8 @@ async fn find_candidates_with_cancel_until_alias(
                     per_provider_timeout,
                     shared_deadline,
                     alternate_artist,
+                    provider_query_cache,
+                    false,
                 )
                 .await
             }
@@ -1495,7 +1960,7 @@ async fn find_candidates_with_cancel_until_alias(
                     .push(format!("Some providers failed: {}", errors.join("; ")));
             }
         }
-        Ok(candidates)
+        Ok((candidates, errors.is_empty()))
     }
 }
 
@@ -1544,6 +2009,48 @@ fn native_youtube_playback_search_enabled(
         && matches!(runtime_override, None | Some("1"))
 }
 
+fn playback_provider_query_cache_key(
+    provider: &str,
+    prefix: &str,
+    query: &str,
+    result_limit: usize,
+    settings: &Settings,
+    native_youtube: bool,
+) -> String {
+    serde_json::json!([
+        "playback-provider-query-v1",
+        provider,
+        prefix,
+        query,
+        result_limit,
+        if native_youtube {
+            "youtube-web-anonymous-v1"
+        } else {
+            "ytdlp-ignored-config-v1"
+        },
+        crate::youtube_support::active_executable().to_string_lossy(),
+        settings.yt_dlp_path,
+        settings.js_runtime_path,
+        // The current playback discovery adapters deliberately use anonymous
+        // public queries; include the context explicitly so a future
+        // authenticated profile cannot share these rows by accident.
+        "anonymous-session",
+    ])
+    .to_string()
+}
+
+fn monochrome_playback_query_cache_key(profile: &str, query: &str) -> String {
+    serde_json::json!([
+        "playback-provider-query-v1",
+        "monochrome",
+        profile,
+        query,
+        crate::monochrome::CANDIDATE_SEARCH_LIMIT,
+        "anonymous-session",
+    ])
+    .to_string()
+}
+
 async fn search_provider_candidates(
     provider: &str,
     track: &Track,
@@ -1553,6 +2060,8 @@ async fn search_provider_candidates(
     per_provider_timeout: Duration,
     shared_deadline: Option<crate::playback_sources::PlaybackDeadline>,
     alternate_artist: Option<String>,
+    provider_query_cache: Option<&CandidateSearchCache>,
+    canonical_only: bool,
 ) -> (Vec<Candidate>, Vec<String>) {
     if provider == "monochrome" {
         let client = match crate::monochrome::Client::new() {
@@ -1564,9 +2073,82 @@ async fn search_provider_candidates(
         let deadline = shared_deadline
             .map(crate::playback_sources::PlaybackDeadline::instant)
             .map_or(provider_deadline, |shared| shared.min(provider_deadline));
-        return client
-            .candidates_for_tracks_until(&query_tracks, cancel, deadline)
-            .await;
+        let profile = match client.search_cache_profile() {
+            Ok(profile) => profile,
+            Err(error) => return (Vec::new(), vec![error]),
+        };
+        let mut candidates = Vec::new();
+        let mut errors = Vec::new();
+        for query_track in query_tracks {
+            if *cancel.borrow() {
+                return (Vec::new(), vec!["Cancelled".into()]);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                errors.push("Monochrome search timed out".into());
+                break;
+            }
+            let query = crate::monochrome::search_query_for_track(&query_track);
+            let cache_key = monochrome_playback_query_cache_key(&profile, &query);
+            let load = || async {
+                let result =
+                    tokio::time::timeout_at(deadline, client.search_candidates_raw(&query))
+                        .await
+                        .map_err(|_| "Monochrome search timed out".to_owned())??;
+                let (candidates, row_count) = result;
+                // The adapter rejects malformed/missing `tracks` values and
+                // returns an empty vector only for a valid `tracks: []` page.
+                // Empty successful pages are cacheable negative results.
+                let completeness = ProviderQueryCompleteness::ReturnedPage {
+                    row_count,
+                    reached_limit: row_count >= crate::monochrome::CANDIDATE_SEARCH_LIMIT,
+                };
+                Ok(ProviderQueryResponse {
+                    candidates,
+                    completeness,
+                })
+            };
+            let response = if let Some(cache) = provider_query_cache {
+                cache
+                    .get_or_search_provider_query(cache_key, cancel.clone(), load)
+                    .await
+            } else {
+                tokio::select! {
+                    biased;
+                    _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                    result = load() => result,
+                }
+            };
+            match response {
+                Ok(response) => {
+                    let mut rows = response.candidates;
+                    for candidate in &mut rows {
+                        crate::monochrome::score_candidate_for_track(&query_track, candidate);
+                        candidate
+                            .reasons
+                            .push("Download permission has not been established".into());
+                    }
+                    candidates.extend(rows);
+                }
+                Err(error) if error == "Cancelled" || *cancel.borrow() => {
+                    return (candidates, vec!["Cancelled".into()]);
+                }
+                Err(error) => errors.push(error),
+            }
+        }
+        let mut by_id = HashMap::<String, usize>::new();
+        let mut unique: Vec<Candidate> = Vec::new();
+        for candidate in candidates {
+            if let Some(index) = by_id.get(&candidate.id).copied() {
+                if candidate.score > unique[index].score {
+                    unique[index] = candidate;
+                }
+            } else {
+                by_id.insert(candidate.id.clone(), unique.len());
+                unique.push(candidate);
+            }
+        }
+        unique.sort_by(|a, b| b.score.total_cmp(&a.score));
+        return (unique, errors);
     }
     let prefix = match provider {
         "youtube" => format!("ytsearch{result_limit}"),
@@ -1577,94 +2159,133 @@ async fn search_provider_candidates(
     let deadline = Instant::now() + per_provider_timeout;
     let mut candidates = Vec::new();
     let mut errors = Vec::new();
-    for query in queries.iter().take(2) {
+    for query in queries.iter().take(if canonical_only { 1 } else { 2 }) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             errors.push(format!("{provider}: search timed out"));
             break;
         }
-        let mut args = base_args(settings);
-        // Defer managed token initialization until a candidate needs extraction.
-        args.extend([
-            "--flat-playlist".into(),
-            "--dump-single-json".into(),
-            "--skip-download".into(),
-            "--".into(),
-            format!("{prefix}:{query}"),
-        ]);
-        let legacy_cancel = cancel.clone();
-        let legacy = || async move {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(format!("{provider}: search timed out"));
-            }
-            let result = if let Some(shared) = shared_deadline {
-                run_tool_until(
-                    settings,
-                    args,
-                    legacy_cancel.clone(),
-                    shared.cap(remaining),
-                    |_| {},
-                )
-                .await
-            } else {
-                run_tool(settings, args, legacy_cancel.clone(), remaining, |_| {}).await
-            };
-            result
-        };
-        let result = if native_youtube_playback_search_enabled(
+        let native_enabled = native_youtube_playback_search_enabled(
             provider,
             &settings.yt_dlp_path,
             shared_deadline.is_some(),
             std::env::var("BURRATA_NATIVE_YOUTUBE_SEARCH")
                 .ok()
                 .as_deref(),
-        ) {
-            let native = crate::youtube_web_search::search_candidates(
-                query,
-                cancel.clone(),
-                crate::playback_sources::PlaybackDeadline::at(
-                    shared_deadline.unwrap().cap(remaining),
-                ),
-            );
-            crate::youtube_web_search::search_or_fallback(
-                native,
-                legacy,
-                cancel.clone(),
-                result_limit,
-            )
-            .await
-        } else {
-            legacy().await
-        };
-        match result {
-            Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-                Ok(info) => {
-                    if let Some(entries) = info["entries"].as_array() {
-                        for entry in entries.iter().take(result_limit) {
-                            let mut candidate = candidate_from_json(entry, provider);
-                            if provider == "youtube" {
-                                let Some(url) = playback_youtube_search_url(&candidate) else {
-                                    continue;
-                                };
-                                candidate.url = url;
-                            }
-                            if candidate.id.ends_with(':')
-                                || validate_source_url(&candidate.url, provider).is_err()
-                            {
-                                continue;
-                            }
-                            matching::score_candidate(track, &mut candidate);
-                            candidate
-                                .reasons
-                                .push("Download permission has not been established".into());
-                            candidates.push(candidate);
-                        }
-                    }
+        );
+        let query_key = playback_provider_query_cache_key(
+            provider,
+            &prefix,
+            query,
+            result_limit,
+            settings,
+            native_enabled,
+        );
+        let load_rows = || async {
+            let mut args = base_args(settings);
+            // Defer managed token initialization until a candidate needs extraction.
+            args.extend([
+                "--flat-playlist".into(),
+                "--dump-single-json".into(),
+                "--skip-download".into(),
+                "--".into(),
+                format!("{prefix}:{query}"),
+            ]);
+            let legacy_cancel = cancel.clone();
+            let legacy = || async move {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(format!("{provider}: search timed out"));
                 }
-                Err(error) => errors.push(format!("{provider}: invalid metadata: {error}")),
-            },
-            Err(error) => errors.push(format!("{provider}: {error}")),
+                if let Some(shared) = shared_deadline {
+                    run_tool_until(
+                        settings,
+                        args,
+                        legacy_cancel.clone(),
+                        shared.cap(remaining),
+                        |_| {},
+                    )
+                    .await
+                } else {
+                    run_tool(settings, args, legacy_cancel.clone(), remaining, |_| {}).await
+                }
+            };
+            let raw = if native_enabled {
+                let native = crate::youtube_web_search::search_candidates(
+                    query,
+                    cancel.clone(),
+                    crate::playback_sources::PlaybackDeadline::at(
+                        shared_deadline.unwrap().cap(remaining),
+                    ),
+                );
+                crate::youtube_web_search::search_or_fallback(
+                    native,
+                    legacy,
+                    cancel.clone(),
+                    result_limit,
+                )
+                .await?
+            } else {
+                legacy().await?
+            };
+            let info = serde_json::from_str::<Value>(&raw)
+                .map_err(|error| format!("{provider}: invalid metadata: {error}"))?;
+            let Some(entries) = info["entries"].as_array() else {
+                return Ok(ProviderQueryResponse {
+                    candidates: Vec::new(),
+                    completeness: ProviderQueryCompleteness::Partial { row_count: 0 },
+                });
+            };
+            let row_count = entries.len();
+            let completeness = ProviderQueryCompleteness::ReturnedPage {
+                row_count,
+                reached_limit: row_count >= result_limit,
+            };
+            let candidates = entries
+                .iter()
+                .take(result_limit)
+                .filter_map(|entry| {
+                    let mut candidate = candidate_from_json(entry, provider);
+                    if provider == "youtube" {
+                        candidate.url = playback_youtube_search_url(&candidate)?;
+                    }
+                    (!candidate.id.ends_with(':')
+                        && validate_source_url(&candidate.url, provider).is_ok())
+                    .then_some(candidate)
+                })
+                .collect::<Vec<_>>();
+            Ok(ProviderQueryResponse {
+                candidates,
+                completeness,
+            })
+        };
+        let loaded = if let Some(cache) = provider_query_cache {
+            cache
+                .get_or_search_provider_query(query_key, cancel.clone(), load_rows)
+                .await
+        } else {
+            load_rows().await
+        };
+        match loaded {
+            Ok(response) => {
+                if matches!(
+                    &response.completeness,
+                    ProviderQueryCompleteness::Partial { .. }
+                ) {
+                    errors.push(format!("{provider}: incomplete search response"));
+                }
+                for mut candidate in response.candidates {
+                    matching::score_candidate(track, &mut candidate);
+                    candidate
+                        .reasons
+                        .push("Download permission has not been established".into());
+                    candidates.push(candidate);
+                }
+            }
+            Err(error) if error == "Cancelled" || *cancel.borrow() => {
+                return (candidates, vec!["Cancelled".into()]);
+            }
+            Err(error) => errors.push(error),
         }
         // Stop query expansion only when the shared evaluator considers a
         // result inspectable or acceptable at Search stage.
@@ -2044,6 +2665,39 @@ struct CachedCandidates {
 }
 
 #[derive(Clone)]
+struct CachedProviderQueryRows {
+    cached_at: Instant,
+    response: ProviderQueryResponse,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ProviderQueryCompleteness {
+    /// A valid response page. Whether it filled the requested window is
+    /// recorded separately; neither case proves the provider had no more rows.
+    ReturnedPage {
+        row_count: usize,
+        reached_limit: bool,
+    },
+    /// Use only when the adapter has authoritative evidence that no further
+    /// rows exist. Current search endpoints do not expose that evidence.
+    Exhaustive { row_count: usize },
+    /// The response could not be parsed into a trustworthy complete window.
+    Partial { row_count: usize },
+}
+
+impl ProviderQueryCompleteness {
+    fn cacheable(&self) -> bool {
+        !matches!(self, Self::Partial { .. })
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ProviderQueryResponse {
+    candidates: Vec<Candidate>,
+    completeness: ProviderQueryCompleteness,
+}
+
+#[derive(Clone)]
 struct CachedPreviewAudio {
     cached_at: Instant,
     ttl: Duration,
@@ -2345,6 +2999,7 @@ impl PreviewSearchState {
 #[derive(Default)]
 struct CandidateSearchCache {
     entries: Mutex<HashMap<String, CachedCandidates>>,
+    provider_query_entries: Mutex<HashMap<String, CachedProviderQueryRows>>,
     in_flight: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -2884,6 +3539,102 @@ fn remove_flight_if_unused(
 }
 
 impl CandidateSearchCache {
+    /// Cache one exact provider request independently from matching level and
+    /// recording policy. The namespace shares the existing search owner's
+    /// cancellation and singleflight gate, but raw rows cannot alias completed
+    /// or flat playback candidate results.
+    async fn get_or_search_provider_query<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        load: F,
+    ) -> Result<ProviderQueryResponse, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<ProviderQueryResponse, String>>,
+    {
+        const MAX_PROVIDER_QUERY_ENTRIES: usize = 256;
+        const PROVIDER_QUERY_TTL: Duration = Duration::from_secs(5 * 60);
+        let key = format!("provider-query:{key}");
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        let gate = self
+            .in_flight
+            .lock()
+            .map_err(|_| "Search cache lock poisoned")?
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        let guard = tokio::select! {
+            guard = gate.lock() => guard,
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
+                self.remove_flight_if_unused(&key, &gate);
+                return Err("Cancelled".into());
+            }
+        };
+        if *cancel.borrow() {
+            drop(guard);
+            self.remove_flight_if_unused(&key, &gate);
+            return Err("Cancelled".into());
+        }
+        if let Some(response) = self
+            .provider_query_entries
+            .lock()
+            .ok()
+            .and_then(|mut entries| {
+                entries.retain(|_, row| row.cached_at.elapsed() < PROVIDER_QUERY_TTL);
+                entries.get(&key).map(|row| row.response.clone())
+            })
+        {
+            drop(guard);
+            self.remove_flight_if_unused(&key, &gate);
+            return Ok(response);
+        }
+        let loaded = tokio::select! {
+            biased;
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+            response = load() => response,
+        };
+        let response = match loaded {
+            Ok(response) => response,
+            Err(error) => {
+                drop(guard);
+                self.remove_flight_if_unused(&key, &gate);
+                return Err(error);
+            }
+        };
+        if *cancel.borrow() {
+            drop(guard);
+            self.remove_flight_if_unused(&key, &gate);
+            return Err("Cancelled".into());
+        }
+        if response.completeness.cacheable() {
+            if let Ok(mut entries) = self.provider_query_entries.lock() {
+                entries.retain(|_, row| row.cached_at.elapsed() < PROVIDER_QUERY_TTL);
+                if entries.len() >= MAX_PROVIDER_QUERY_ENTRIES {
+                    if let Some(oldest) = entries
+                        .iter()
+                        .min_by_key(|(_, row)| row.cached_at)
+                        .map(|(key, _)| key.clone())
+                    {
+                        entries.remove(&oldest);
+                    }
+                }
+                entries.insert(
+                    key.clone(),
+                    CachedProviderQueryRows {
+                        cached_at: Instant::now(),
+                        response: response.clone(),
+                    },
+                );
+            }
+        }
+        drop(guard);
+        self.remove_flight_if_unused(&key, &gate);
+        Ok(response)
+    }
+
     async fn get_or_search<F, Fut>(&self, key: String, load: F) -> Result<Vec<Candidate>, String>
     where
         F: FnOnce() -> Fut,
@@ -2942,10 +3693,26 @@ impl CandidateSearchCache {
     async fn get_or_search_cancelled_observed_decided<F, Fut>(
         &self,
         key: String,
-        mut cancel: watch::Receiver<bool>,
+        cancel: watch::Receiver<bool>,
         trace: Option<crate::playback_sources::SourceTrace>,
         load: F,
     ) -> Result<Vec<Candidate>, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
+    {
+        self.get_or_search_cancelled_observed_decided_with_completeness(key, cancel, trace, load)
+            .await
+            .map(|(candidates, _complete)| candidates)
+    }
+
+    async fn get_or_search_cancelled_observed_decided_with_completeness<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        trace: Option<crate::playback_sources::SourceTrace>,
+        load: F,
+    ) -> Result<(Vec<Candidate>, bool), String>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
@@ -3008,7 +3775,9 @@ impl CandidateSearchCache {
                     );
                 }
             }
-            return Ok(cached);
+            // Only complete responses enter this cache. A loaded incomplete
+            // response is returned to its caller and retried on the next call.
+            return Ok((cached, true));
         }
         let cache_miss_observed_elapsed_ms = trace_enabled
             .then(|| trace.as_ref().map(|trace| trace.elapsed_ms()))
@@ -3066,7 +3835,7 @@ impl CandidateSearchCache {
                 );
             }
         }
-        Ok(candidates)
+        Ok((candidates, cacheable))
     }
 
     fn remove_flight_if_unused(&self, key: &str, gate: &Arc<tokio::sync::Mutex<()>>) {
@@ -3239,8 +4008,9 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search:recording-match-v1:{:?}:{}",
+        "{}:playback-source-search:recording-match-{}:{:?}:{}",
         search_cache_key(track, provider_ids, settings, 3),
+        crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
         serde_json::to_string(alternate_artists).unwrap_or_default(),
     )
@@ -3541,6 +4311,14 @@ async fn extract_preview_audio_with_prepared_alternate(
         trace.event("dns_source_end", &candidate.provider, serde_json::json!({"durationMs":dns_started.elapsed().as_millis(), "ok":addresses_result.is_ok(), "addressCount":addresses_result.as_ref().map_or(0, Vec::len)}));
     }
     let _addresses = addresses_result?;
+    // No new helper/broker work when both shared extraction slots are gone.
+    // The atomic reservation immediately before process launch remains decisive.
+    if trace
+        .as_ref()
+        .is_some_and(|trace| trace.extraction_attempts_used() >= 2)
+    {
+        return Err(crate::playback_sources::EXTRACTION_ATTEMPTS_EXHAUSTED.into());
+    }
     let mut args = base_args(settings);
     let helper_started = Instant::now();
     if let Some(trace) = &trace {
@@ -3596,7 +4374,7 @@ async fn extract_preview_audio_with_prepared_alternate(
         .as_ref()
         .is_some_and(|trace| !trace.try_spend_extraction())
     {
-        return Err("Playback extraction attempt budget exhausted".into());
+        return Err(crate::playback_sources::EXTRACTION_ATTEMPTS_EXHAUSTED.into());
     }
     let extraction_started = Instant::now();
     if let Some(trace) = &trace {
@@ -5004,6 +5782,7 @@ struct Inner {
     app: Option<tauri::AppHandle>,
     store: Arc<Store>,
     connections: Arc<ConnectionManager>,
+    monochrome_playback: Mutex<Option<Arc<crate::monochrome_playback::MonochromePlaybackService>>>,
     remote_playlists: Mutex<Option<Arc<crate::remote_playlists::RemotePlaylistService>>>,
     analysis: Mutex<Option<Arc<crate::analysis::AnalysisManager>>>,
     autotag: Mutex<Option<Arc<crate::autotag::AutoTagger>>>,
@@ -5023,6 +5802,113 @@ struct Inner {
 }
 struct SlskdSearchSession {
     started: Instant,
+    retain_completed_results: bool,
+    poll_gate: Arc<tokio::sync::Mutex<()>>,
+}
+
+fn cached_slskd_search(
+    completed: &Mutex<HashMap<String, (Instant, SlskdSearchPoll)>>,
+    search_id: &str,
+) -> Result<Option<SlskdSearchPoll>, String> {
+    let mut completed = completed
+        .lock()
+        .map_err(|_| "Soulseek result cache lock poisoned")?;
+    completed.retain(|_, (at, _)| at.elapsed() < SLSKD_COMPLETED_SEARCH_TTL);
+    Ok(completed.get(search_id).map(|(_, result)| result.clone()))
+}
+
+fn remember_completed_slskd_search(
+    completed: &Mutex<HashMap<String, (Instant, SlskdSearchPoll)>>,
+    search_id: &str,
+    result: &SlskdSearchPoll,
+) -> Result<(), String> {
+    let mut completed = completed
+        .lock()
+        .map_err(|_| "Soulseek result cache lock poisoned")?;
+    completed.retain(|_, (at, _)| at.elapsed() < SLSKD_COMPLETED_SEARCH_TTL);
+    while completed.len() >= SLSKD_COMPLETED_SEARCH_LIMIT {
+        if let Some(oldest) = completed
+            .iter()
+            .min_by_key(|(_, (at, _))| *at)
+            .map(|(id, _)| id.clone())
+        {
+            completed.remove(&oldest);
+        } else {
+            break;
+        }
+    }
+    completed.insert(search_id.to_owned(), (Instant::now(), result.clone()));
+    Ok(())
+}
+
+fn slskd_search_poll_gate(
+    searches: &Mutex<HashMap<String, SlskdSearchSession>>,
+    search_id: &str,
+) -> Result<Arc<tokio::sync::Mutex<()>>, String> {
+    searches
+        .lock()
+        .map_err(|_| "slskd search state lock poisoned")?
+        .get(search_id)
+        .map(|session| session.poll_gate.clone())
+        .ok_or_else(|| "Unknown or expired slskd search".into())
+}
+
+fn active_slskd_search_session(
+    searches: &Mutex<HashMap<String, SlskdSearchSession>>,
+    search_id: &str,
+) -> Result<(Instant, bool), String> {
+    searches
+        .lock()
+        .map_err(|_| "slskd search state lock poisoned")?
+        .get(search_id)
+        .map(|session| (session.started, session.retain_completed_results))
+        .ok_or_else(|| "Unknown or expired slskd search".into())
+}
+
+fn slskd_response_file_count(responses: &[crate::slskd::SearchResponse]) -> usize {
+    responses.iter().map(|response| response.files.len()).sum()
+}
+
+/// Merge the status endpoint's embedded snapshot with the dedicated response
+/// endpoint. The latter is usually fresher, while slskd can briefly expose
+/// rows in only one endpoint as a search completes.
+fn merge_slskd_search_responses(
+    embedded: &[crate::slskd::SearchResponse],
+    separate: &[crate::slskd::SearchResponse],
+) -> Vec<crate::slskd::SearchResponse> {
+    let mut merged = Vec::<crate::slskd::SearchResponse>::new();
+    for (responses, fresh) in [(embedded, false), (separate, true)] {
+        for response in responses {
+            let Some(existing) = merged
+                .iter_mut()
+                .find(|existing| existing.username.eq_ignore_ascii_case(&response.username))
+            else {
+                merged.push(response.clone());
+                continue;
+            };
+            let mut files = std::mem::take(&mut existing.files);
+            for file in &response.files {
+                if let Some(index) = files.iter().position(|candidate| {
+                    candidate.filename == file.filename && candidate.size == file.size
+                }) {
+                    if fresh {
+                        files[index] = file.clone();
+                    }
+                } else {
+                    files.push(file.clone());
+                }
+            }
+            existing.files = files;
+            if fresh {
+                existing.has_free_upload_slot = response
+                    .has_free_upload_slot
+                    .or(existing.has_free_upload_slot);
+                existing.queue_length = response.queue_length.or(existing.queue_length);
+                existing.upload_speed = response.upload_speed.or(existing.upload_speed);
+            }
+        }
+    }
+    merged
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5034,6 +5920,17 @@ pub struct SlskdSearchPoll {
     pub candidates: Vec<Candidate>,
     pub complete: bool,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoulseekAlbumAssignment {
+    pub track_id: String,
+    pub candidate: Candidate,
+    pub group_peer: String,
+    pub group_directory: String,
+    pub group_coverage: usize,
+    pub expected_tracks: usize,
 }
 
 impl AcquisitionManager {
@@ -5069,6 +5966,7 @@ impl AcquisitionManager {
                 app,
                 store,
                 connections,
+                monochrome_playback: Mutex::new(None),
                 remote_playlists: Mutex::new(None),
                 analysis: Mutex::new(None),
                 autotag: Mutex::new(None),
@@ -5107,6 +6005,28 @@ impl AcquisitionManager {
     pub(crate) fn notify_bandcamp_source_ready(&self, track: &Track) {
         self.notify_source_ready(track, "bandcamp");
     }
+
+    /// Install the resolver path only when the host has an explicitly
+    /// authorized auth source and registered native relay.
+    pub(crate) fn set_monochrome_playback_service(
+        &self,
+        service: Option<Arc<crate::monochrome_playback::MonochromePlaybackService>>,
+    ) {
+        if let Ok(mut slot) = self.inner.monochrome_playback.lock() {
+            *slot = service;
+        }
+    }
+
+    pub(crate) fn monochrome_playback_service(
+        &self,
+    ) -> Option<Arc<crate::monochrome_playback::MonochromePlaybackService>> {
+        self.inner
+            .monochrome_playback
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
     pub(crate) fn notify_source_ready(&self, track: &Track, provider: &str) {
         if let Some(app) = &self.inner.app {
             let _ = app.emit(
@@ -5119,6 +6039,49 @@ impl AcquisitionManager {
     pub(crate) fn alias_store(&self) -> Arc<Store> {
         self.inner.store.clone()
     }
+
+    /// Search one download provider using only an exact alias variant already
+    /// validated and retained by the shared recording identity context.
+    /// Preparation is a separate per-track operation so album batches do not
+    /// repeat metadata discovery for each provider.
+    pub(crate) async fn find_download_candidates_with_cached_aliases(
+        &self,
+        track: &Track,
+        provider: &str,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<Vec<Candidate>, String> {
+        if !matches!(provider, "youtube" | "soundcloud" | "monochrome") {
+            return Err("Download alias search requires a supported web provider".into());
+        }
+        let alternate_artist = cached_download_search_alternate(&self.inner.store, track);
+        let providers = vec![provider.to_owned()];
+        let key = serde_json::json!([
+            "download-candidate-search-v1",
+            search_cache_key(track, &providers, settings, 10),
+            alternate_artist,
+        ])
+        .to_string();
+        let alternate_for_search = alternate_artist.clone();
+        cached_download_candidate_search(&self.inner.search_cache, key, cancel.clone(), || async {
+            let (candidates, complete) = find_candidates_with_cancel_until_alias_detailed(
+                track,
+                &providers,
+                settings,
+                cancel,
+                10,
+                PREVIEW_SEARCH_TIMEOUT,
+                Some(deadline),
+                alternate_for_search,
+                Some(&self.inner.search_cache),
+            )
+            .await?;
+            Ok((candidates, complete))
+        })
+        .await
+    }
+
     pub fn set_remote_playlist_service(
         &self,
         service: Arc<crate::remote_playlists::RemotePlaylistService>,
@@ -5266,6 +6229,18 @@ impl AcquisitionManager {
     }
 
     pub async fn start_slskd_search(&self, query: &str) -> Result<String, String> {
+        self.start_slskd_search_with_retention(query, true).await
+    }
+
+    async fn start_slskd_search_ephemeral(&self, query: &str) -> Result<String, String> {
+        self.start_slskd_search_with_retention(query, false).await
+    }
+
+    async fn start_slskd_search_with_retention(
+        &self,
+        query: &str,
+        retain_completed_results: bool,
+    ) -> Result<String, String> {
         let query = query.trim();
         if query.is_empty() || query.chars().count() > 500 {
             return Err("Search query must contain 1 to 500 characters".into());
@@ -5285,43 +6260,97 @@ impl AcquisitionManager {
                 id.clone(),
                 SlskdSearchSession {
                     started: Instant::now(),
+                    retain_completed_results,
+                    poll_gate: Arc::new(tokio::sync::Mutex::new(())),
                 },
             );
         Ok(id)
     }
 
     pub async fn poll_slskd_search(&self, search_id: &str) -> Result<SlskdSearchPoll, String> {
-        {
-            let mut completed = self
-                .inner
-                .slskd_completed
-                .lock()
-                .map_err(|_| "Soulseek result cache lock poisoned")?;
-            completed.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(300));
-            if let Some((_, result)) = completed.get(search_id) {
-                return Ok(result.clone());
-            }
+        if let Some(result) = cached_slskd_search(&self.inner.slskd_completed, search_id)? {
+            return Ok(result);
         }
-        let session = self
-            .inner
-            .slskd_searches
-            .lock()
-            .map_err(|_| "slskd search state lock poisoned")?
-            .get(search_id)
-            .map(|session| session.started)
-            .ok_or("Unknown or expired slskd search")?;
+
+        let poll_gate = match slskd_search_poll_gate(&self.inner.slskd_searches, search_id) {
+            Ok(gate) => gate,
+            Err(error) => {
+                // Completion can land between the first cache check and the
+                // session lookup. The completed result is authoritative then.
+                if let Some(result) = cached_slskd_search(&self.inner.slskd_completed, search_id)? {
+                    return Ok(result);
+                }
+                return Err(error);
+            }
+        };
+        // Serialize polls for a single native search. A waiter rechecks the
+        // result cache after taking ownership, so it observes the first poll's
+        // completed result instead of asking slskd for an already deleted ID.
+        let _poll_guard = poll_gate.lock().await;
+        if let Some(result) = cached_slskd_search(&self.inner.slskd_completed, search_id)? {
+            return Ok(result);
+        }
+        let (session, retain_completed_results) =
+            active_slskd_search_session(&self.inner.slskd_searches, search_id)?;
         let connection = self
             .inner
             .connections
             .slskd()?
             .ok_or("slskd is disabled in Connections")?;
         let client = crate::slskd::SlskdClient::new(&connection.base_url, &connection.api_key)?;
-        let status = client.search_status(search_id).await?;
-        let responses = match client.search_responses(search_id).await {
-            Ok(responses) => responses,
-            Err(_) => status.responses.clone(),
+        let mut status = client.search_status(search_id).await?;
+        let mut separate_responses = client.search_responses(search_id).await.unwrap_or_default();
+        let mut responses = merge_slskd_search_responses(&status.responses, &separate_responses);
+        let complete_from_status = |status: &crate::slskd::SearchStatus, elapsed: Duration| {
+            let state = status
+                .state
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            status.is_complete.unwrap_or(false)
+                || state.contains("complete")
+                || state.contains("timedout")
+                || state.contains("cancelled")
+                || elapsed >= Duration::from_secs(125)
         };
+        // slskd can mark a search complete before the response endpoint has
+        // published the rows. When its own counters prove rows are pending,
+        // give that propagation one short bounded interval and merge again.
+        let visible_peer_count = responses.len();
+        let visible_file_count = slskd_response_file_count(&responses);
+        let advertised_rows_pending = status
+            .response_count
+            .is_some_and(|count| count > visible_peer_count)
+            || status
+                .file_count
+                .is_some_and(|count| count > visible_file_count);
+        let mut settle_ms = 0;
+        if complete_from_status(&status, session.elapsed()) && advertised_rows_pending {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            settle_ms = 200;
+            if let Ok(refreshed_status) = client.search_status(search_id).await {
+                status = refreshed_status;
+            }
+            separate_responses = client.search_responses(search_id).await.unwrap_or_default();
+            responses = merge_slskd_search_responses(&status.responses, &separate_responses);
+        }
+        let embedded_response_count = status.responses.len();
+        let separate_response_count = separate_responses.len();
+        let raw_file_count = slskd_response_file_count(&responses);
         let mut candidates = crate::slskd::candidates_from_responses(&responses, search_id);
+        trace_soulseek_album(
+            "poll_response_visibility",
+            serde_json::json!({
+                "embeddedResponseCount": embedded_response_count,
+                "separateResponseCount": separate_response_count,
+                "rawFileCount": raw_file_count,
+                "normalizedCandidateCount": candidates.len(),
+                "advertisedResponseCount": status.response_count,
+                "advertisedFileCount": status.file_count,
+                "state": status.state.as_deref().unwrap_or("unknown"),
+                "settleMs": settle_ms,
+            }),
+        );
         // Keep recording identity/confidence unchanged; availability orders peer copies only.
         let history = self.inner.store.list_jobs()?;
         candidates.sort_by_key(|candidate| {
@@ -5334,7 +6363,7 @@ impl AcquisitionManager {
             .iter()
             .map(slskd_candidate_track)
             .collect::<Vec<_>>();
-        let state = status.state.unwrap_or_else(|| {
+        let state = status.state.clone().unwrap_or_else(|| {
             if status.is_complete.unwrap_or(false) {
                 "complete"
             } else {
@@ -5342,26 +6371,13 @@ impl AcquisitionManager {
             }
             .into()
         });
-        let state_lower = state.to_ascii_lowercase();
-        let complete = status.is_complete.unwrap_or(false)
-            || state_lower.contains("complete")
-            || state_lower.contains("timedout")
-            || state_lower.contains("cancelled")
-            || session.elapsed() >= Duration::from_secs(125);
+        let complete = complete_from_status(&status, session.elapsed());
         let mut warnings = Vec::new();
         if session.elapsed() >= Duration::from_secs(120) && !complete {
             warnings.push("The slskd search timed out while waiting for results".into());
         }
         if candidates.is_empty() && complete {
             warnings.push("No audio files were returned by this search".into());
-        }
-        if complete {
-            let _ = client.delete_search(search_id).await;
-            self.inner
-                .slskd_searches
-                .lock()
-                .map_err(|_| "slskd search state lock poisoned")?
-                .remove(search_id);
         }
         let result = SlskdSearchPoll {
             id: search_id.into(),
@@ -5371,24 +6387,16 @@ impl AcquisitionManager {
             complete,
             warnings,
         };
+        if complete && retain_completed_results {
+            remember_completed_slskd_search(&self.inner.slskd_completed, search_id, &result)?;
+        }
         if complete {
-            let mut completed = self
-                .inner
-                .slskd_completed
+            let _ = client.delete_search(search_id).await;
+            self.inner
+                .slskd_searches
                 .lock()
-                .map_err(|_| "Soulseek result cache lock poisoned")?;
-            while completed.len() >= 4 {
-                if let Some(oldest) = completed
-                    .iter()
-                    .min_by_key(|(_, (at, _))| *at)
-                    .map(|(id, _)| id.clone())
-                {
-                    completed.remove(&oldest);
-                } else {
-                    break;
-                }
-            }
-            completed.insert(search_id.to_owned(), (Instant::now(), result.clone()));
+                .map_err(|_| "slskd search state lock poisoned")?
+                .remove(search_id);
         }
         Ok(result)
     }
@@ -5407,7 +6415,7 @@ impl AcquisitionManager {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-        let id = self.start_slskd_search(&query).await?;
+        let id = self.start_slskd_search_ephemeral(&query).await?;
         let deadline = Instant::now() + Duration::from_secs(18);
         let mut seen = HashMap::<String, Candidate>::new();
         loop {
@@ -5458,6 +6466,270 @@ impl AcquisitionManager {
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
+    }
+
+    /// Search Soulseek once for an album, then retain only files that form a
+    /// coherent same-peer, same-directory set and independently pass the
+    /// shared recording matcher against one unique requested track.
+    pub async fn find_soulseek_album_candidates(
+        &self,
+        tracks: &[Track],
+        mut cancel: watch::Receiver<bool>,
+    ) -> Result<Vec<SoulseekAlbumAssignment>, String> {
+        if tracks.is_empty() || tracks.len() > 100 {
+            return Err("Album Soulseek search requires 1 to 100 tracks".into());
+        }
+        let album = tracks[0]
+            .album
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or("Album Soulseek search requires album metadata")?;
+        let album_key = matching::normalize(album);
+        let mut seen_track_ids = std::collections::HashSet::new();
+        if tracks.iter().any(|track| {
+            track.id.trim().is_empty()
+                || track.title.trim().is_empty()
+                || matching::normalize(track.album.as_deref().unwrap_or_default()) != album_key
+                || !seen_track_ids.insert(track.id.as_str())
+        }) {
+            return Err(
+                "Album Soulseek search requires distinct tracks from one named album".into(),
+            );
+        }
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        let operation_started = Instant::now();
+        let deadline = operation_started + Duration::from_secs(22);
+        let alias_started = Instant::now();
+        let alias_contexts = tracks
+            .iter()
+            .map(|track| {
+                crate::artist_credit_aliases::cached_verified_playback_artist_aliases(
+                    &self.inner.store,
+                    track,
+                )
+            })
+            .collect::<Vec<_>>();
+        let aliases = alias_contexts[0].search_artist_candidates();
+        let query = soulseek_album_search_query(&tracks[0], album, &aliases)?;
+        let queries = if query == album.trim() {
+            vec![query]
+        } else {
+            vec![query, album.trim().to_owned()]
+        };
+        let alias_prep_ms = alias_started.elapsed().as_millis();
+        let selection_deadline = deadline - Duration::from_secs(2);
+        trace_soulseek_album(
+            "begin",
+            serde_json::json!({
+                "trackCount": tracks.len(),
+                "trackInputs": soulseek_album_track_input_diagnostics(tracks, &alias_contexts),
+                "queryCount": queries.len(),
+                "queryHashes": queries.iter().map(|query| soulseek_album_query_fingerprint(query)).collect::<Vec<_>>(),
+                "aliasPrepMs": alias_prep_ms,
+                "deadlineMs": 22_000,
+            }),
+        );
+        let matching_level = self.inner.store.settings()?.matching_level;
+        for (index, query) in queries.iter().enumerate() {
+            if *cancel.borrow() || Instant::now() >= selection_deadline {
+                break;
+            }
+            let query_started = Instant::now();
+            let query_deadline = if index + 1 < queries.len() {
+                (operation_started + Duration::from_secs(10)).min(selection_deadline)
+            } else {
+                selection_deadline
+            };
+            let query_selection_deadline = if index + 1 < queries.len() {
+                (operation_started + Duration::from_secs(12)).min(selection_deadline)
+            } else {
+                selection_deadline
+            };
+            let (candidates, search_diagnostics) = self
+                .collect_soulseek_album_search(query, &mut cancel, query_deadline)
+                .await?;
+            let network_ms = query_started.elapsed().as_millis();
+            let candidate_count = candidates.len();
+            let selection_started = Instant::now();
+            let selection = select_soulseek_album_group(
+                &self.inner.store,
+                tracks,
+                &alias_contexts,
+                candidates,
+                matching_level,
+                query_selection_deadline,
+                &cancel,
+            );
+            let selection_ms = selection_started.elapsed().as_millis();
+            let assignments = selection.assignments;
+            trace_soulseek_album(
+                "query_complete",
+                serde_json::json!({
+                    "queryIndex": index,
+                    "queryHash": soulseek_album_query_fingerprint(query),
+                    "queryLength": query.chars().count(),
+                    "aliasPrepMs": alias_prep_ms,
+                    "networkMs": network_ms,
+                    "selectionMs": selection_ms,
+                    "candidateCount": candidate_count,
+                    "searchComplete": search_diagnostics.complete,
+                    "searchPollCount": search_diagnostics.poll_count,
+                    "searchResponseRows": search_diagnostics.response_rows,
+                    "searchUniqueCandidates": search_diagnostics.unique_candidates,
+                    "searchFinalState": search_diagnostics.final_state,
+                    "searchWarningCount": search_diagnostics.warning_count,
+                    "assignmentCount": assignments.len(),
+                    "groupsTotal": selection.groups_total,
+                    "groupsExamined": selection.groups_examined,
+                    "candidatePairsTotal": selection.candidate_pairs_total,
+                    "candidatePairsAfterOrdinal": selection.candidate_pairs_after_ordinal,
+                    "candidatePairsAfterTitle": selection.candidate_pairs_after_title,
+                    "sharedAssessments": selection.shared_assessments,
+                    "assessmentRejections": selection.assessment_rejections,
+                    "bestCoverageAtStop": selection.best_coverage_at_stop,
+                    "selectionStoppedOnDeadline": selection.stopped_on_deadline,
+                    "selectedFullCoverage": assignments.len() == tracks.len(),
+                    "deadlineRemainingMs": query_selection_deadline.saturating_duration_since(Instant::now()).as_millis(),
+                    "cancelled": *cancel.borrow(),
+                }),
+            );
+            let deadline_reached = Instant::now() >= selection_deadline;
+            match soulseek_album_query_decision(
+                *cancel.borrow(),
+                deadline_reached,
+                !assignments.is_empty(),
+                index + 1 == queries.len(),
+            ) {
+                SoulseekAlbumQueryDecision::Cancel => {
+                    trace_soulseek_album(
+                        "end",
+                        serde_json::json!({
+                            "elapsedMs": operation_started.elapsed().as_millis(),
+                            "deadlineReached": deadline_reached,
+                            "cancelled": true,
+                            "assignmentCount": assignments.len(),
+                        }),
+                    );
+                    return Err("Cancelled".into());
+                }
+                SoulseekAlbumQueryDecision::Return => {
+                    trace_soulseek_album(
+                        "end",
+                        serde_json::json!({
+                            "elapsedMs": operation_started.elapsed().as_millis(),
+                            "deadlineReached": deadline_reached,
+                            "cancelled": false,
+                            "assignmentCount": assignments.len(),
+                        }),
+                    );
+                    return Ok(assignments);
+                }
+                SoulseekAlbumQueryDecision::Continue => {}
+            }
+        }
+        trace_soulseek_album(
+            "end",
+            serde_json::json!({
+                "elapsedMs": operation_started.elapsed().as_millis(),
+                "deadlineReached": Instant::now() >= selection_deadline,
+                "cancelled": *cancel.borrow(),
+            }),
+        );
+        Ok(Vec::new())
+    }
+
+    async fn collect_soulseek_album_search(
+        &self,
+        query: &str,
+        cancel: &mut watch::Receiver<bool>,
+        deadline: Instant,
+    ) -> Result<(Vec<Candidate>, SoulseekAlbumSearchDiagnostics), String> {
+        let search_id = tokio::select! {
+            result = self.start_slskd_search_ephemeral(query) => result?,
+            _ = cancel.changed() => return Err("Cancelled".into()),
+            _ = tokio::time::sleep_until(deadline.into()) => return Ok((Vec::new(), SoulseekAlbumSearchDiagnostics {
+                final_state: "start_timeout".into(),
+                ..SoulseekAlbumSearchDiagnostics::default()
+            })),
+        };
+        let mut candidates = HashMap::<String, Candidate>::new();
+        let mut diagnostics = SoulseekAlbumSearchDiagnostics::default();
+        let complete = loop {
+            if *cancel.borrow() {
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    self.cancel_slskd_search(&search_id),
+                )
+                .await;
+                return Err("Cancelled".into());
+            }
+            let page = tokio::select! {
+                result = self.poll_slskd_search(&search_id) => match result {
+                    Ok(page) => page,
+                    Err(error) => {
+                        let _ = tokio::time::timeout(Duration::from_secs(2), self.cancel_slskd_search(&search_id)).await;
+                        return Err(error);
+                    }
+                },
+                _ = cancel.changed() => {
+                    let _ = tokio::time::timeout(Duration::from_secs(2), self.cancel_slskd_search(&search_id)).await;
+                    return Err("Cancelled".into());
+                }
+                _ = tokio::time::sleep_until(deadline.into()) => {
+                    let _ = tokio::time::timeout(Duration::from_secs(2), self.cancel_slskd_search(&search_id)).await;
+                    break false;
+                }
+            };
+            diagnostics.poll_count = diagnostics.poll_count.saturating_add(1);
+            diagnostics.response_rows = diagnostics
+                .response_rows
+                .saturating_add(page.candidates.len());
+            diagnostics.warning_count = page.warnings.len();
+            diagnostics.final_state = match page.state.as_str() {
+                "completed" | "complete" | "done" => "complete".into(),
+                "inprogress" | "in_progress" | "running" => "in_progress".into(),
+                "queued" | "pending" => "queued".into(),
+                "cancelled" | "canceled" => "cancelled".into(),
+                "failed" | "error" => "failed".into(),
+                _ => "other".into(),
+            };
+            for mut candidate in page.candidates {
+                if let Some(CandidateSource::Soulseek { search_id, .. }) = candidate.source.as_mut()
+                {
+                    *search_id = None;
+                }
+                candidates.insert(candidate.id.clone(), candidate);
+            }
+            if page.complete {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    self.cancel_slskd_search(&search_id),
+                )
+                .await;
+                break false;
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(350)) => {},
+                _ = cancel.changed() => {
+                    let _ = tokio::time::timeout(Duration::from_secs(2), self.cancel_slskd_search(&search_id)).await;
+                    return Err("Cancelled".into());
+                }
+                _ = tokio::time::sleep_until(deadline.into()) => {
+                    let _ = tokio::time::timeout(Duration::from_secs(2), self.cancel_slskd_search(&search_id)).await;
+                    break false;
+                }
+            }
+        };
+        let candidates = candidates.into_values().collect::<Vec<_>>();
+        diagnostics.complete = complete;
+        diagnostics.unique_candidates = candidates.len();
+        Ok((candidates, diagnostics))
     }
 
     pub async fn cancel_slskd_search(&self, search_id: &str) -> Result<(), String> {
@@ -5542,7 +6814,7 @@ impl AcquisitionManager {
             alternate_artists,
             provider_ids,
             settings,
-            cancel,
+            cancel.clone(),
             deadline,
             None,
             None,
@@ -5576,6 +6848,41 @@ impl AcquisitionManager {
     /// Warm only the flat provider discovery rows. These entries are never
     /// returned as a completed playback search: foreground still performs its
     /// request-scoped optional catalog work before populating the full cache.
+    ///
+    /// This variant warms only the canonical first query, so alias preparation
+    /// can overlap retrieval without spending the ordinary second-query slot.
+    pub(crate) async fn warm_canonical_playback_query_cancelled(
+        &self,
+        track: &Track,
+        provider: &str,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+    ) -> Result<usize, String> {
+        let search_track = track_for_playback_source_search(track);
+        let (candidates, errors) = search_provider_candidates(
+            provider,
+            &search_track,
+            settings,
+            cancel.clone(),
+            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+            PREVIEW_SEARCH_TIMEOUT,
+            Some(deadline),
+            None,
+            Some(&self.inner.search_cache),
+            true,
+        )
+        .await;
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        if candidates.is_empty() && !errors.is_empty() {
+            Err(errors.join("; "))
+        } else {
+            Ok(candidates.len())
+        }
+    }
+
     pub(crate) async fn warm_playback_candidates_cancelled(
         &self,
         track: &Track,
@@ -5604,21 +6911,27 @@ impl AcquisitionManager {
             let found = self
                 .inner
                 .search_cache
-                .get_or_search_cancelled(key, cancel.clone(), || async {
-                    find_candidates_with_cancel_until_alias(
-                        &search_track,
-                        std::slice::from_ref(provider),
-                        settings,
-                        cancel.clone(),
-                        PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
-                        PREVIEW_SEARCH_TIMEOUT,
-                        Some(deadline),
-                        alternate_artist.clone(),
-                    )
-                    .await
-                })
+                .get_or_search_cancelled_observed_decided_with_completeness(
+                    key,
+                    cancel.clone(),
+                    None,
+                    || async {
+                        find_candidates_with_cancel_until_alias_detailed(
+                            &search_track,
+                            std::slice::from_ref(provider),
+                            settings,
+                            cancel.clone(),
+                            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                            PREVIEW_SEARCH_TIMEOUT,
+                            Some(deadline),
+                            alternate_artist.clone(),
+                            Some(&self.inner.search_cache),
+                        )
+                        .await
+                    },
+                )
                 .await?;
-            warmed_count += found.len();
+            warmed_count += found.0.len();
         }
         Ok(warmed_count)
     }
@@ -5679,7 +6992,7 @@ impl AcquisitionManager {
             .search_cache
             .get_or_search_cancelled_observed_decided(key, cancel.clone(), trace, || async {
                 let search_flat = || async {
-                    find_candidates_with_cancel_until_alias(
+                    find_candidates_with_cancel_until_alias_detailed(
                         &search_track,
                         provider_ids,
                         settings,
@@ -5688,39 +7001,47 @@ impl AcquisitionManager {
                         PREVIEW_SEARCH_TIMEOUT,
                         Some(deadline),
                         alternate_artist.clone(),
+                        Some(&self.inner.search_cache),
                     )
                     .await
                 };
-                let found = if let Some(flat_key) = flat_key {
+                let (found, flat_complete) = if let Some(flat_key) = flat_key {
                     self.inner
                         .search_cache
-                        .get_or_search_cancelled(flat_key, cancel.clone(), search_flat)
+                        .get_or_search_cancelled_observed_decided_with_completeness(
+                            flat_key,
+                            cancel.clone(),
+                            None,
+                            search_flat,
+                        )
                         .await?
                 } else {
                     search_flat().await?
                 };
-                complete_playback_candidate_search_observed_with_level(
-                    &search_track,
-                    provider_ids,
-                    alternate_artist.as_deref(),
-                    found,
-                    cancel.clone(),
-                    deadline,
-                    || async {
-                        let query = format!("{} {}", search_track.artist, search_track.title);
-                        let items = crate::youtube_music::search_playback_candidates(
-                            &query,
-                            10,
-                            cancel.clone(),
-                            deadline,
-                        )
-                        .await?;
-                        Ok(playback_music_catalog_candidates(&search_track, items))
-                    },
-                    observe_flat_batch,
-                    settings.matching_level,
-                )
-                .await
+                let (completed, catalog_complete) =
+                    complete_playback_candidate_search_observed_with_level(
+                        &search_track,
+                        provider_ids,
+                        alternate_artist.as_deref(),
+                        found,
+                        cancel.clone(),
+                        deadline,
+                        || async {
+                            let query = format!("{} {}", search_track.artist, search_track.title);
+                            let items = crate::youtube_music::search_playback_candidates(
+                                &query,
+                                10,
+                                cancel.clone(),
+                                deadline,
+                            )
+                            .await?;
+                            Ok(playback_music_catalog_candidates(&search_track, items))
+                        },
+                        observe_flat_batch,
+                        settings.matching_level,
+                    )
+                    .await?;
+                Ok((completed, flat_complete && catalog_complete))
             })
             .await
     }
@@ -6486,7 +7807,11 @@ impl AcquisitionManager {
                     .commit_download_asset(&asset, &job.disposition)
             });
         match result {
-            Ok(asset) => {
+            Ok(mut asset) => {
+                let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
+                    &self.inner.store,
+                    &mut asset,
+                );
                 job.output_path = Some(asset.path.clone());
                 match self.inner.store.save_asset(&asset) {
                     Ok(()) => {
@@ -6561,6 +7886,7 @@ impl AcquisitionManager {
             &settings.download_fallback_sources,
             true,
         );
+        let mut assessment_context = crate::recording_match_context::AssessmentContext::default();
         let mut failures = vec![
             serde_json::json!({"provider":original_provider,"candidateId":job.candidate.id,"error":first_error}),
         ];
@@ -6581,34 +7907,42 @@ impl AcquisitionManager {
                 }
             };
             candidates.sort_by_key(|candidate| {
-                crate::recording_match_context::priority(&crate::recording_match_context::assess(
-                    &self.inner.store,
-                    &expected,
-                    candidate,
-                    matching_level,
-                    crate::recording_match::MatchStage::Search,
-                ))
+                crate::recording_match_context::priority(
+                    &crate::recording_match_context::assess_with_context(
+                        &self.inner.store,
+                        &expected,
+                        candidate,
+                        matching_level,
+                        crate::recording_match::MatchStage::Search,
+                        &mut assessment_context,
+                    ),
+                )
             });
             let mut attempted = false;
-            for candidate in candidates
+            let candidates = candidates
                 .into_iter()
-                .filter(|candidate| {
-                    candidate.provider == provider
-                        && matches!(
-                            crate::recording_match_context::assess(
-                                &self.inner.store,
-                                &expected,
-                                candidate,
-                                matching_level,
-                                crate::recording_match::MatchStage::Search,
-                            )
-                            .action,
-                            crate::recording_match::MatchAction::Inspect
-                                | crate::recording_match::MatchAction::Accept
-                        )
+                .filter_map(|candidate| {
+                    if candidate.provider != provider {
+                        return None;
+                    }
+                    let assessment = crate::recording_match_context::assess_with_context(
+                        &self.inner.store,
+                        &expected,
+                        &candidate,
+                        matching_level,
+                        crate::recording_match::MatchStage::Search,
+                        &mut assessment_context,
+                    );
+                    matches!(
+                        assessment.action,
+                        crate::recording_match::MatchAction::Inspect
+                            | crate::recording_match::MatchAction::Accept
+                    )
+                    .then_some(candidate)
                 })
                 .take(2)
-            {
+                .collect::<Vec<_>>();
+            for candidate in candidates {
                 let mut candidate = if provider == "slskd" {
                     candidate
                 } else {
@@ -6623,12 +7957,13 @@ impl AcquisitionManager {
                         }
                     }
                 };
-                let assessment = crate::recording_match_context::assess(
+                let assessment = crate::recording_match_context::assess_with_context(
                     &self.inner.store,
                     &expected,
                     &candidate,
                     matching_level,
                     crate::recording_match::MatchStage::Resolved,
+                    &mut assessment_context,
                 );
                 if assessment.action != crate::recording_match::MatchAction::Accept {
                     failures.push(serde_json::json!({
@@ -6743,10 +8078,113 @@ impl AcquisitionManager {
                 .await?;
             media::verify_asset(&existing).await?;
             if existing.recording_id != self.inner.store.recording_id(&job.track.id)? {
-                return Err(format!(
-                    "This source already exists at {} for another catalog entry; review its recording identity before acquiring it again",
-                    existing.path
-                ));
+                if !matches!(job.disposition, crate::models::ReplacementDisposition::Keep) {
+                    return Err(
+                        "This source is already saved for another catalog entry; choose Keep to create a separate verified copy".into(),
+                    );
+                }
+                let original_id = job.candidate.id.clone();
+                let mut candidate = if job.candidate.provider == "slskd" {
+                    job.candidate.clone()
+                } else {
+                    let mut inspected =
+                        inspect_metadata_with_cancel(&job.candidate, settings, rx.clone()).await?;
+                    matching::score_candidate(&job.track, &mut inspected);
+                    inspected
+                };
+                if *rx.borrow() {
+                    return Err("Cancelled".into());
+                }
+                if candidate.id != original_id
+                    || candidate.permission == "restricted"
+                    || !is_preserved_source(&existing, &candidate)
+                {
+                    return Err(
+                        "The existing file no longer matches the exact selected source locator"
+                            .into(),
+                    );
+                }
+                let assessment = preserved_source_reuse_assessment(
+                    &self.inner.store,
+                    &job.track,
+                    &existing,
+                    &candidate,
+                    download_matching_level(&job.track),
+                )
+                .ok_or_else(|| {
+                    "This source is saved for another catalog entry and did not pass the identifier-based reuse policy".to_owned()
+                })?;
+                if job.track.provenance["downloadFallbackRequiresLossless"] == true {
+                    media::verify_lossless_fallback(Path::new(&existing.path), settings).await?;
+                }
+                if *rx.borrow() {
+                    return Err("Cancelled".into());
+                }
+                let artifact_track = preserved_source_reuse_track(
+                    &job.track,
+                    &existing,
+                    &candidate,
+                    &assessment,
+                    job.format_id.as_deref(),
+                )?;
+                job.candidate = candidate.clone();
+                {
+                    let mut active = self
+                        .inner
+                        .active
+                        .lock()
+                        .map_err(|_| "Queue lock poisoned")?;
+                    if *rx.borrow() {
+                        return Err("Cancelled".into());
+                    }
+                    active.remove(&job.id);
+                    job.state = "validating".into();
+                    job.progress = 92.0;
+                    self.update(job)?;
+                }
+                let mut source = media::finalize_download(
+                    Path::new(&existing.path),
+                    &artifact_track,
+                    &candidate,
+                    settings,
+                    "source",
+                    &job.id,
+                )
+                .await?;
+                let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
+                    &self.inner.store,
+                    &mut source,
+                );
+                self.inner.store.save_asset(&source).map_err(|error| {
+                    format!(
+                        "Verified copy was published at {} but library record failed: {error}",
+                        source.path
+                    )
+                })?;
+                self.inner
+                    .store
+                    .add_asset_to_downloads(&source)
+                    .map_err(|error| {
+                        format!(
+                            "Verified copy was saved at {}, but Downloads membership failed: {error}",
+                            source.path
+                        )
+                    })?;
+                job.output_path = Some(source.path.clone());
+                job.track = source.track.clone();
+                media::acknowledge_publication(settings, &job.id)?;
+                if job.output_profile == "mp3" {
+                    job.state = "publishing".into();
+                    job.progress = 96.0;
+                    self.update(job)?;
+                    return media::export_mp3(&source, settings).await.map_err(|error| {
+                        format!(
+                            "Verified source copy retained at {}; MP3 export failed: {error}",
+                            source.path
+                        )
+                    });
+                }
+                return Ok(source);
             }
             if job.track.provenance["downloadFallbackRequiresLossless"] == true {
                 media::verify_lossless_fallback(Path::new(&existing.path), settings).await?;
@@ -6928,83 +8366,134 @@ impl AcquisitionManager {
         } else if matches!(job.candidate.provider.as_str(), "direct" | "monochrome") {
             download_direct(&job.candidate.url, &staging, rx.clone()).await?
         } else {
-            let format = if let Some(id) = &job.format_id {
-                if !job.candidate.formats.iter().any(|f| &f.id == id) {
-                    return Err(
-                        "Selected audio format is no longer available; inspect and choose again"
-                            .into(),
-                    );
-                }
-                id.clone()
-            } else {
-                "bestaudio".into()
-            };
-            let mut args = base_args(settings);
-            let (_, mut provider_invocation) =
-                add_youtube_support_args(&mut args, &job.candidate.provider, settings, None)
-                    .await?;
-            args.extend([
-                "--no-playlist".into(),
-                "--no-simulate".into(),
-                "--newline".into(),
-                "--progress".into(),
-                "--progress-delta".into(),
-                "0.5".into(),
-                "--progress-template".into(),
-                "download:BURRATA_PROGRESS %(progress)j".into(),
-                "--print".into(),
-                "after_move:BURRATA_FILE %(filepath)j".into(),
-                "--retries".into(),
-                "3".into(),
-                "--fragment-retries".into(),
-                "3".into(),
-                "--socket-timeout".into(),
-                "20".into(),
-                "-f".into(),
-                format,
-                "-x".into(),
-                "--audio-format".into(),
-                "best".into(),
-                "-o".into(),
-                staging
-                    .join("source.%(ext)s")
-                    .to_string_lossy()
-                    .into_owned(),
-                "--".into(),
-                job.candidate.url.clone(),
-            ]);
-            let ffmpeg = crate::tools::executable(&settings.ffmpeg_path, "ffmpeg");
-            if let Some(location) = ffmpeg_location(&ffmpeg.to_string_lossy()) {
-                // Insert before the URL separator so configuration is never treated as input URLs.
-                let position = args.len() - 2;
-                args.splice(position..position, ["--ffmpeg-location".into(), location]);
+            if job
+                .format_id
+                .as_ref()
+                .is_some_and(|id| !job.candidate.formats.iter().any(|format| &format.id == id))
+            {
+                return Err(
+                    "Selected audio format is no longer available; inspect and choose again"
+                        .into(),
+                );
             }
-            let raw = run_tool(
-                settings,
-                args,
-                rx.clone(),
-                Duration::from_secs(3600),
-                |line| {
-                    if let Some(raw) = line.strip_prefix("BURRATA_PROGRESS ") {
-                        if let Ok(progress) = serde_json::from_str::<Value>(raw) {
-                            let total = progress["total_bytes"]
-                                .as_f64()
-                                .or_else(|| progress["total_bytes_estimate"].as_f64());
-                            if let (Some(n), Some(d)) =
-                                (progress["downloaded_bytes"].as_f64(), total)
-                            {
-                                if d > 0.0 {
-                                    job.progress = (n / d * 90.0).clamp(0.0, 90.0);
-                                    let _ = self.update(job);
+            let same_candidate = job.candidate.clone();
+            let selected_format_id = job.format_id.clone();
+            let (raw, resolved_format_id) =
+                crate::youtube_download_recovery::download_with_403_recovery(
+                    &same_candidate,
+                    selected_format_id.as_deref(),
+                    job,
+                    rx.clone(),
+                    |cancel| {
+                        let candidate = same_candidate.clone();
+                        Box::pin(async move {
+                            inspect_metadata_with_cancel(&candidate, settings, cancel).await
+                        })
+                    },
+                    || {
+                        let staging = staging.clone();
+                        Box::pin(async move {
+                            match tokio::fs::remove_dir_all(&staging).await {
+                                Ok(()) => {}
+                                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                                Err(error) => {
+                                    return Err(format!(
+                                        "Cannot clear failed-format staging: {error}"
+                                    ))
                                 }
                             }
-                        }
-                    }
-                },
-            )
-            .await?;
-            if let Some(invocation) = provider_invocation.as_mut() {
-                invocation.complete();
+                            tokio::fs::create_dir_all(&staging).await.map_err(|error| {
+                                format!("Cannot recreate failed-format staging: {error}")
+                            })
+                        })
+                    },
+                    |attempt_job, format_id, cancel| {
+                        let staging = staging.clone();
+                        let manager = self.clone();
+                        let settings = settings.clone();
+                        Box::pin(async move {
+                            let format = format_id.unwrap_or_else(|| "bestaudio".into());
+                            let provider = attempt_job.candidate.provider.clone();
+                            let candidate_url = attempt_job.candidate.url.clone();
+                            let mut args = base_args(&settings);
+                            let (_, mut provider_invocation) =
+                                add_youtube_support_args(&mut args, &provider, &settings, None)
+                                    .await?;
+                            args.extend([
+                                "--no-playlist".into(),
+                                "--no-simulate".into(),
+                                "--newline".into(),
+                                "--progress".into(),
+                                "--progress-delta".into(),
+                                "0.5".into(),
+                                "--progress-template".into(),
+                                "download:BURRATA_PROGRESS %(progress)j".into(),
+                                "--print".into(),
+                                "after_move:BURRATA_FILE %(filepath)j".into(),
+                                "--retries".into(),
+                                "3".into(),
+                                "--fragment-retries".into(),
+                                "3".into(),
+                                "--socket-timeout".into(),
+                                "20".into(),
+                                "-f".into(),
+                                format,
+                                "-x".into(),
+                                "--audio-format".into(),
+                                "best".into(),
+                                "-o".into(),
+                                staging
+                                    .join("source.%(ext)s")
+                                    .to_string_lossy()
+                                    .into_owned(),
+                                "--".into(),
+                                candidate_url,
+                            ]);
+                            let ffmpeg = crate::tools::executable(&settings.ffmpeg_path, "ffmpeg");
+                            if let Some(location) = ffmpeg_location(&ffmpeg.to_string_lossy()) {
+                                let position = args.len() - 2;
+                                args.splice(
+                                    position..position,
+                                    ["--ffmpeg-location".into(), location],
+                                );
+                            }
+                            let raw = run_tool(
+                                &settings,
+                                args,
+                                cancel,
+                                Duration::from_secs(3600),
+                                |line| {
+                                    if let Some(raw) = line.strip_prefix("BURRATA_PROGRESS ") {
+                                        if let Ok(progress) = serde_json::from_str::<Value>(raw) {
+                                            let total =
+                                                progress["total_bytes"].as_f64().or_else(|| {
+                                                    progress["total_bytes_estimate"].as_f64()
+                                                });
+                                            if let (Some(n), Some(d)) =
+                                                (progress["downloaded_bytes"].as_f64(), total)
+                                            {
+                                                if d > 0.0 {
+                                                    attempt_job.progress =
+                                                        (n / d * 90.0).clamp(0.0, 90.0);
+                                                    let _ = manager.update(attempt_job);
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                            )
+                            .await;
+                            if let Some(invocation) = provider_invocation.as_mut() {
+                                invocation.complete();
+                            }
+                            raw
+                        })
+                    },
+                )
+                .await?;
+            if let Some(format_id) = resolved_format_id {
+                job.track.provenance["acquisition"]["resolvedFormatId"] =
+                    serde_json::json!(format_id);
             }
             let filename = raw
                 .lines()
@@ -7178,7 +8667,7 @@ impl AcquisitionManager {
                 let mut chapter_candidate = job.candidate.clone();
                 chapter_candidate.duration_seconds = chapter_track.duration_seconds;
                 let publication_id = format!("{}-chapter-{}", job.id, position);
-                let asset = media::finalize_download(
+                let mut asset = media::finalize_download(
                     &segment,
                     &chapter_track,
                     &chapter_candidate,
@@ -7187,6 +8676,10 @@ impl AcquisitionManager {
                     &publication_id,
                 )
                 .await?;
+                let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
+                    &self.inner.store,
+                    &mut asset,
+                );
                 self.inner.store.save_asset(&asset).map_err(|e| {
                     format!(
                         "Chapter published at {} but library record failed: {e}",
@@ -7204,7 +8697,11 @@ impl AcquisitionManager {
                     })?;
                 media::acknowledge_publication(settings, &publication_id)?;
                 let result_asset = if job.output_profile == "mp3" {
-                    let exported = media::export_mp3(&asset, settings).await?;
+                    let mut exported = media::export_mp3(&asset, settings).await?;
+                    let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
+                        &self.inner.store,
+                        &mut exported,
+                    );
                     self.inner.store.save_asset(&exported).map_err(|e| {
                         format!(
                             "MP3 published at {} but library record failed: {e}",
@@ -7254,7 +8751,7 @@ impl AcquisitionManager {
             selected_assessment.relationship,
             separate_source_identity,
         )?;
-        let source = media::finalize_download(
+        let mut source = media::finalize_download(
             &path,
             &artifact_track,
             &job.candidate,
@@ -7264,6 +8761,10 @@ impl AcquisitionManager {
         )
         .await?;
         if matches!(job.disposition, crate::models::ReplacementDisposition::Keep) {
+            let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
+                &self.inner.store,
+                &mut source,
+            );
             self.inner.store.save_asset(&source).map_err(|e| {
                 format!(
                     "File published at {} but source library record failed: {e}",
@@ -7294,6 +8795,88 @@ impl AcquisitionManager {
             Ok(source)
         }
     }
+}
+
+fn cached_download_search_alternate(store: &Store, track: &Track) -> Option<String> {
+    crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
+        .search_artist_candidates()
+        .into_iter()
+        .next()
+}
+
+fn soulseek_album_search_query(
+    track: &Track,
+    album: &str,
+    verified_artist_aliases: &[String],
+) -> Result<String, String> {
+    let album_key = matching::normalize(album);
+    if verified_artist_aliases
+        .iter()
+        .map(|alias| alias.trim())
+        .any(|alias| !alias.is_empty() && matching::normalize(alias) == album_key)
+    {
+        return Ok(album.trim().to_owned());
+    }
+    let artist = verified_artist_aliases
+        .iter()
+        .map(|alias| alias.trim())
+        .find(|alias| !alias.is_empty())
+        .or_else(|| {
+            track
+                .album_artist
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or(track.artist.trim());
+    if artist.is_empty() {
+        return Err("Album Soulseek search requires an artist credit".into());
+    }
+    let query = format!("{artist} {}", album.trim());
+    if query.chars().count() > 500 {
+        return Err("Album Soulseek search query is too long".into());
+    }
+    Ok(query)
+}
+
+fn soulseek_album_folder_matches(folder_album: &str, track: &Track) -> bool {
+    let Some(album) = track.album.as_deref() else {
+        return false;
+    };
+    let folder_key = matching::normalize(folder_album);
+    let album_key = matching::normalize(album);
+    // Providers often append volume, edition, or year labels to a folder.
+    // Preserve them; shared per-track version/runtime checks decide whether
+    // the files actually fit this requested release.
+    folder_key == album_key || folder_key.starts_with(&album_key)
+}
+
+fn minimum_soulseek_album_coverage(track_count: usize) -> usize {
+    track_count.min(2).max(1)
+}
+
+fn soulseek_expected_album_ordinals(track: &Track) -> (Option<u32>, Option<u32>) {
+    let (verified_track, verified_disc) =
+        crate::recording_identity::trusted_musicbrainz_ordinals(track);
+    (
+        track.track_number.or(verified_track),
+        track.disc_number.or(verified_disc),
+    )
+}
+
+async fn cached_download_candidate_search<F, Fut>(
+    cache: &CandidateSearchCache,
+    key: String,
+    cancel: watch::Receiver<bool>,
+    load: F,
+) -> Result<Vec<Candidate>, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
+{
+    cache
+        .get_or_search_cancelled_observed_decided(key, cancel, None, load)
+        .await
 }
 
 fn slskd_availability_order(candidate: &Candidate) -> (u8, u8, u32, std::cmp::Reverse<u64>) {
@@ -7358,6 +8941,7 @@ fn slskd_peer_failure_order(candidate: &Candidate, history: &[DownloadJob]) -> (
             restricted |= error.contains("banned") || error.contains("sharing") || error.contains("rejected");
         }
     }
+
     (restricted, failures)
 }
 
@@ -7367,7 +8951,15 @@ fn slskd_candidate_track(candidate: &Candidate) -> Track {
         .strip_prefix("slskd:")
         .unwrap_or(&candidate.id)
         .to_owned();
-    let (artist, title) = split_remote_title(&candidate.title);
+    let filename_observations = candidate
+        .source_metadata
+        .as_ref()
+        .filter(|metadata| metadata["sourceMetadataOrigin"] == "slskdFilename")
+        .map(|metadata| &metadata["filenameObservations"]);
+    let display_title = filename_observations
+        .and_then(|observations| observations["normalizedTitle"].as_str())
+        .unwrap_or(&candidate.title);
+    let (artist, title) = split_remote_title(display_title);
     let mut track = Track {
         id: format!("slskd:{provider_id}"),
         provider: "slskd".into(),
@@ -7388,15 +8980,621 @@ fn slskd_candidate_track(candidate: &Candidate) -> Track {
     track
 }
 
+struct EvaluatedSoulseekAlbumGroup {
+    peer: String,
+    directory: String,
+    assignments: Vec<(usize, Candidate)>,
+    lossless_count: usize,
+    bitrate_total: u64,
+    availability: (u8, u8, u32, std::cmp::Reverse<u64>),
+}
+
+#[derive(Default)]
+struct SoulseekAlbumSelection {
+    assignments: Vec<SoulseekAlbumAssignment>,
+    groups_total: usize,
+    groups_examined: usize,
+    candidate_pairs_total: usize,
+    candidate_pairs_after_ordinal: usize,
+    candidate_pairs_after_title: usize,
+    shared_assessments: usize,
+    assessment_rejections: HashMap<String, usize>,
+    best_coverage_at_stop: usize,
+    stopped_on_deadline: bool,
+}
+
+struct SoulseekAlbumCandidateGroup {
+    peer: String,
+    directory: String,
+    files: Vec<Candidate>,
+    potential_lossless_count: usize,
+    potential_bitrate_total: u64,
+    folder_artist_file_count: usize,
+    best_availability: (u8, u8, u32, std::cmp::Reverse<u64>),
+    exact_title_pair_count: usize,
+    ordinal_pair_count: usize,
+    exact_title_track_count: usize,
+    ordinal_track_count: usize,
+}
+
+#[derive(Default)]
+struct SoulseekAlbumSearchDiagnostics {
+    complete: bool,
+    poll_count: usize,
+    response_rows: usize,
+    unique_candidates: usize,
+    final_state: String,
+    warning_count: usize,
+}
+
+fn compare_soulseek_album_candidate_groups(
+    left: &SoulseekAlbumCandidateGroup,
+    right: &SoulseekAlbumCandidateGroup,
+) -> std::cmp::Ordering {
+    right
+        .exact_title_track_count
+        .cmp(&left.exact_title_track_count)
+        .then_with(|| right.ordinal_track_count.cmp(&left.ordinal_track_count))
+        .then_with(|| {
+            right
+                .exact_title_pair_count
+                .cmp(&left.exact_title_pair_count)
+        })
+        .then_with(|| right.ordinal_pair_count.cmp(&left.ordinal_pair_count))
+        .then_with(|| {
+            right
+                .potential_lossless_count
+                .cmp(&left.potential_lossless_count)
+        })
+        .then_with(|| {
+            right
+                .potential_bitrate_total
+                .cmp(&left.potential_bitrate_total)
+        })
+        .then_with(|| left.best_availability.cmp(&right.best_availability))
+        .then_with(|| left.peer.cmp(&right.peer))
+        .then_with(|| left.directory.cmp(&right.directory))
+}
+
+fn soulseek_album_format_rank(candidate: &Candidate) -> (bool, u64, u32, u32, u64) {
+    let format = candidate.formats.first();
+    (
+        format.is_some_and(|format| format.lossless),
+        format
+            .and_then(|format| format.bitrate)
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .map(|value| (value as u64).min(1_000_000))
+            .unwrap_or(0),
+        format.and_then(|format| format.sample_rate).unwrap_or(0),
+        format.and_then(|format| format.bit_depth).unwrap_or(0),
+        format.and_then(|format| format.size_bytes).unwrap_or(0),
+    )
+}
+
+fn ordered_soulseek_album_pair_indices(
+    ordinal_matches: &[usize],
+    exact_title_matches: &[usize],
+) -> Vec<usize> {
+    let mut ordered = Vec::with_capacity(ordinal_matches.len());
+    for index in exact_title_matches.iter().chain(ordinal_matches) {
+        if ordinal_matches.contains(index) && !ordered.contains(index) {
+            ordered.push(*index);
+        }
+    }
+    ordered
+}
+
+fn unique_soulseek_album_track_match(matches: &[usize]) -> Option<usize> {
+    match matches {
+        [index] => Some(*index),
+        _ => None,
+    }
+}
+
+fn soulseek_album_assessment_rejections(
+    assessment: &crate::recording_match::MatchAssessment,
+    track: &Track,
+    candidate: &Candidate,
+) -> Vec<&'static str> {
+    use crate::recording_match::{Comparison, MatchAction, MatchRelationship};
+
+    let mut reasons = Vec::new();
+    if assessment.action != MatchAction::Accept {
+        reasons.push("action_not_accept");
+    }
+    if !matches!(
+        assessment.relationship,
+        MatchRelationship::Exact | MatchRelationship::Probable
+    ) {
+        reasons.push("relationship_not_exact_or_probable");
+    }
+    if assessment.dimensions.title != Comparison::Agree {
+        reasons.push("title_not_agree");
+    }
+    if assessment.dimensions.artists != Comparison::Agree {
+        reasons.push("artists_not_agree");
+    }
+    if assessment.dimensions.version == Comparison::Conflict {
+        reasons.push("version_conflict");
+    }
+    if assessment.dimensions.runtime == Comparison::Conflict {
+        reasons.push("runtime_conflict");
+    }
+    if track
+        .version
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && assessment.dimensions.version != Comparison::Agree
+    {
+        reasons.push("requested_version_not_agree");
+    }
+    if track.duration_seconds.is_some()
+        && candidate.duration_seconds.is_some()
+        && assessment.dimensions.runtime != Comparison::Agree
+    {
+        reasons.push("requested_runtime_not_agree");
+    }
+    if assessment
+        .evidence
+        .as_ref()
+        .is_none_or(|evidence| evidence.parsing_incomplete)
+    {
+        reasons.push("evidence_parsing_incomplete_or_missing");
+    }
+    if assessment
+        .evidence
+        .as_ref()
+        .is_none_or(|evidence| evidence.conflicting_version_observations)
+    {
+        reasons.push("evidence_conflicting_version_or_missing");
+    }
+    reasons
+}
+
+fn select_soulseek_album_group(
+    store: &Store,
+    tracks: &[Track],
+    aliases: &[crate::artist_credit_aliases::VerifiedPlaybackArtistAliases],
+    candidates: Vec<Candidate>,
+    matching_level: crate::recording_match::MatchLevel,
+    deadline: Instant,
+    cancel: &watch::Receiver<bool>,
+) -> SoulseekAlbumSelection {
+    use crate::recording_match::MatchStage;
+
+    let mut selection = SoulseekAlbumSelection::default();
+    if aliases.len() != tracks.len() || *cancel.borrow() || Instant::now() >= deadline {
+        selection.stopped_on_deadline = Instant::now() >= deadline && !*cancel.borrow();
+        return selection;
+    }
+    let Some(_album) = tracks.first().and_then(|track| track.album.as_deref()) else {
+        return selection;
+    };
+    selection.candidate_pairs_total = candidates.len().saturating_mul(tracks.len());
+    let expected_ordinals = tracks
+        .iter()
+        .map(soulseek_expected_album_ordinals)
+        .collect::<Vec<_>>();
+    let title_keys = tracks
+        .iter()
+        .map(|track| matching::normalize(&track.title))
+        .collect::<Vec<_>>();
+    let mut groups = HashMap::<(String, String), Vec<Candidate>>::new();
+    for candidate in candidates {
+        if *cancel.borrow() || Instant::now() >= deadline {
+            selection.stopped_on_deadline = Instant::now() >= deadline && !*cancel.borrow();
+            return selection;
+        }
+        if candidate.provider != "slskd" || candidate.permission == "restricted" {
+            continue;
+        }
+        let Some(CandidateSource::Soulseek {
+            username, filename, ..
+        }) = candidate.source.as_ref()
+        else {
+            continue;
+        };
+        let Some(directory) = crate::recording_filename::remote_parent_directory_key(filename)
+        else {
+            continue;
+        };
+        let Some(observations) =
+            crate::recording_filename::verified_filename_observations(filename, &candidate.title)
+        else {
+            continue;
+        };
+        if observations["folderAlbum"]
+            .as_str()
+            .is_some_and(|folder_album| {
+                tracks
+                    .first()
+                    .is_none_or(|track| !soulseek_album_folder_matches(folder_album, track))
+            })
+        {
+            continue;
+        }
+        if candidate.formats.is_empty()
+            || candidate.formats.len() > 4
+            || candidate.formats.iter().any(|format| {
+                !matches!(
+                    format.extension.to_ascii_lowercase().as_str(),
+                    "mp3" | "flac" | "m4a" | "aac" | "ogg" | "opus" | "wav" | "aiff" | "wma"
+                )
+            })
+        {
+            continue;
+        }
+        groups
+            .entry((username.clone(), directory))
+            .or_default()
+            .push(candidate);
+    }
+
+    let mut ranked_groups = groups
+        .into_iter()
+        .map(|((peer, directory), files)| {
+            let mut ordinal_pair_count = 0usize;
+            let mut exact_title_pair_count = 0usize;
+            let mut ordinal_tracks = std::collections::HashSet::new();
+            let mut exact_title_tracks = std::collections::HashSet::new();
+            for candidate in &files {
+                let Some(CandidateSource::Soulseek { filename, .. }) = candidate.source.as_ref()
+                else {
+                    continue;
+                };
+                let Some(observations) = crate::recording_filename::verified_filename_observations(
+                    filename,
+                    &candidate.title,
+                ) else {
+                    continue;
+                };
+                let filename_track = observations["trackNumber"]
+                    .as_u64()
+                    .and_then(|number| u32::try_from(number).ok());
+                let filename_disc = observations["discNumber"]
+                    .as_u64()
+                    .and_then(|number| u32::try_from(number).ok());
+                let filename_title = observations["normalizedTitle"]
+                    .as_str()
+                    .unwrap_or(&candidate.title);
+                let filename_title_key = matching::normalize(filename_title);
+                for (index, _) in tracks.iter().enumerate() {
+                    let (expected_track, expected_disc) = expected_ordinals[index];
+                    if expected_track.is_some_and(|expected| {
+                        filename_track.is_some_and(|found| expected != found)
+                    }) || expected_disc.is_some_and(|expected| {
+                        filename_disc.is_some_and(|found| expected != found)
+                    }) {
+                        continue;
+                    }
+                    ordinal_pair_count = ordinal_pair_count.saturating_add(1);
+                    ordinal_tracks.insert(index);
+                    if filename_title_key == title_keys[index] {
+                        exact_title_pair_count = exact_title_pair_count.saturating_add(1);
+                        exact_title_tracks.insert(index);
+                    }
+                }
+            }
+            let mut formats = files
+                .iter()
+                .map(soulseek_album_format_rank)
+                .collect::<Vec<_>>();
+            formats.sort_by(|left, right| right.cmp(left));
+            let potential_slots = tracks.len().min(formats.len());
+            let potential_lossless_count = formats
+                .iter()
+                .take(potential_slots)
+                .filter(|format| format.0)
+                .count();
+            let potential_bitrate_total = formats
+                .iter()
+                .take(potential_slots)
+                .map(|format| format.1)
+                .fold(0u64, u64::saturating_add);
+            let folder_artist_file_count = files
+                .iter()
+                .filter(|candidate| {
+                    candidate.source_metadata.as_ref().is_some_and(|metadata| {
+                        metadata["filenameObservations"]["folderArtist"]
+                            .as_str()
+                            .is_some_and(|value| !value.trim().is_empty())
+                    })
+                })
+                .count();
+            let best_availability = files.iter().map(slskd_availability_order).min().unwrap_or((
+                u8::MAX,
+                u8::MAX,
+                u32::MAX,
+                std::cmp::Reverse(0),
+            ));
+            SoulseekAlbumCandidateGroup {
+                peer,
+                directory,
+                files,
+                potential_lossless_count,
+                potential_bitrate_total,
+                folder_artist_file_count,
+                best_availability,
+                exact_title_pair_count,
+                ordinal_pair_count,
+                exact_title_track_count: exact_title_tracks.len(),
+                ordinal_track_count: ordinal_tracks.len(),
+            }
+        })
+        .collect::<Vec<_>>();
+    ranked_groups.sort_by(compare_soulseek_album_candidate_groups);
+    selection.groups_total = ranked_groups.len();
+    trace_soulseek_album(
+        "group_plan",
+        serde_json::json!({
+            "groups": ranked_groups.iter().enumerate().map(|(rank, group)| serde_json::json!({
+                "rank": rank + 1,
+                "groupHash": soulseek_album_group_fingerprint(&group.peer, &group.directory),
+                "fileCount": group.files.len(),
+                "exactTitleTrackCount": group.exact_title_track_count,
+                "ordinalTrackCount": group.ordinal_track_count,
+                "exactTitlePairCount": group.exact_title_pair_count,
+                "ordinalPairCount": group.ordinal_pair_count,
+                "potentialLosslessCount": group.potential_lossless_count,
+                "potentialBitrateTotal": group.potential_bitrate_total,
+                "folderArtistFileCount": group.folder_artist_file_count,
+            })).collect::<Vec<_>>(),
+        }),
+    );
+
+    let mut evaluations = Vec::new();
+    let mut context = crate::recording_match_context::AssessmentContext::default();
+    'groups: for (group_rank, group) in ranked_groups.into_iter().enumerate() {
+        if *cancel.borrow() {
+            return selection;
+        }
+        if Instant::now() >= deadline {
+            selection.stopped_on_deadline = true;
+            break 'groups;
+        }
+        selection.groups_examined += 1;
+        let group_hash = soulseek_album_group_fingerprint(&group.peer, &group.directory);
+        let mut group_rejections = HashMap::<String, usize>::new();
+        let mut group_assessments = 0usize;
+        let mut group_ambiguous_files = 0usize;
+        let mut group_unmatched_files = 0usize;
+        let group_file_count = group.files.len();
+        let mut per_track = vec![Vec::<Candidate>::new(); tracks.len()];
+        for candidate in group.files {
+            if *cancel.borrow() {
+                return selection;
+            }
+            if Instant::now() >= deadline {
+                selection.stopped_on_deadline = true;
+                break 'groups;
+            }
+            let Some(CandidateSource::Soulseek { filename, .. }) = candidate.source.as_ref() else {
+                continue;
+            };
+            let Some(observations) = crate::recording_filename::verified_filename_observations(
+                filename,
+                &candidate.title,
+            ) else {
+                continue;
+            };
+            let filename_track = observations["trackNumber"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok());
+            let filename_disc = observations["discNumber"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok());
+            let filename_title = observations["normalizedTitle"]
+                .as_str()
+                .unwrap_or(&candidate.title);
+            let filename_title_key = matching::normalize(filename_title);
+            let mut matches = Vec::new();
+            let mut ordinal_matches = Vec::new();
+            for (index, track) in tracks.iter().enumerate() {
+                if *cancel.borrow() {
+                    return selection;
+                }
+                if Instant::now() >= deadline {
+                    selection.stopped_on_deadline = true;
+                    break 'groups;
+                }
+                let (expected_track, expected_disc) = soulseek_expected_album_ordinals(track);
+                if let (Some(expected), Some(observed)) = (expected_track, filename_track) {
+                    if expected != observed {
+                        continue;
+                    }
+                }
+                if let (Some(expected), Some(observed)) = (expected_disc, filename_disc) {
+                    if expected != observed {
+                        continue;
+                    }
+                }
+                ordinal_matches.push(index);
+            }
+            selection.candidate_pairs_after_ordinal = selection
+                .candidate_pairs_after_ordinal
+                .saturating_add(ordinal_matches.len());
+            // Exact normalized filename titles run first for cheapness, but
+            // alternate titles can still be accepted by shared evidence.
+            // Keep every ordinal-compatible track in the uniqueness check.
+            let exact_title_matches = ordinal_matches
+                .iter()
+                .copied()
+                .filter(|index| filename_title_key == title_keys[*index])
+                .collect::<Vec<_>>();
+            let pair_indices =
+                ordered_soulseek_album_pair_indices(&ordinal_matches, &exact_title_matches);
+            selection.candidate_pairs_after_title = selection
+                .candidate_pairs_after_title
+                .saturating_add(pair_indices.len());
+            for index in pair_indices {
+                if *cancel.borrow() {
+                    return selection;
+                }
+                if Instant::now() >= deadline {
+                    selection.stopped_on_deadline = true;
+                    break 'groups;
+                }
+                let track = &tracks[index];
+                let aliases = &aliases[index];
+                selection.shared_assessments = selection.shared_assessments.saturating_add(1);
+                group_assessments = group_assessments.saturating_add(1);
+                let assessment = crate::recording_match_context::assess_with_aliases_and_context(
+                    store,
+                    track,
+                    &candidate,
+                    matching_level,
+                    MatchStage::Resolved,
+                    aliases.tracks(),
+                    aliases.isrc_enriched(),
+                    aliases.verified_recording_isrc(),
+                    aliases.release_runtime_variants(),
+                    &mut context,
+                );
+                let rejection_reasons =
+                    soulseek_album_assessment_rejections(&assessment, track, &candidate);
+                if !rejection_reasons.is_empty() {
+                    for reason in rejection_reasons {
+                        *selection
+                            .assessment_rejections
+                            .entry(reason.to_owned())
+                            .or_default() += 1;
+                        *group_rejections.entry(reason.to_owned()).or_default() += 1;
+                    }
+                    continue;
+                }
+                matches.push(index);
+            }
+            // A peer file that plausibly maps to more than one track is not
+            // auto-assigned; repeated titles require stronger number evidence.
+            if let Some(index) = unique_soulseek_album_track_match(&matches) {
+                per_track[index].push(candidate);
+            } else if matches.is_empty() {
+                group_unmatched_files = group_unmatched_files.saturating_add(1);
+            } else {
+                group_ambiguous_files = group_ambiguous_files.saturating_add(1);
+            }
+        }
+
+        let mut assignments = Vec::new();
+        let mut lossless_count = 0;
+        let mut bitrate_total = 0u64;
+        for (index, mut options) in per_track.into_iter().enumerate() {
+            if options.is_empty() {
+                continue;
+            }
+            options.sort_by(|left, right| {
+                soulseek_album_format_rank(right)
+                    .cmp(&soulseek_album_format_rank(left))
+                    .then_with(|| {
+                        slskd_availability_order(left).cmp(&slskd_availability_order(right))
+                    })
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+            let best = options.remove(0);
+            let (lossless, bitrate, _, _, _) = soulseek_album_format_rank(&best);
+            lossless_count += usize::from(lossless);
+            bitrate_total = bitrate_total.saturating_add(bitrate);
+            assignments.push((index, best));
+        }
+        let availability = assignments
+            .iter()
+            .map(|(_, candidate)| slskd_availability_order(candidate))
+            .min()
+            .unwrap_or((u8::MAX, u8::MAX, u32::MAX, std::cmp::Reverse(0)));
+        let assigned_track_count = assignments.len();
+        if assigned_track_count >= minimum_soulseek_album_coverage(tracks.len()) {
+            selection.best_coverage_at_stop =
+                selection.best_coverage_at_stop.max(assigned_track_count);
+            evaluations.push(EvaluatedSoulseekAlbumGroup {
+                peer: group.peer,
+                directory: group.directory,
+                assignments,
+                lossless_count,
+                bitrate_total,
+                availability,
+            });
+        }
+        trace_soulseek_album(
+            "group_evaluated",
+            serde_json::json!({
+                "rank": group_rank + 1,
+                "groupHash": group_hash,
+                "fileCount": group_file_count,
+                "sharedAssessments": group_assessments,
+                "assessmentRejections": group_rejections,
+                "unmatchedFiles": group_unmatched_files,
+                "ambiguousFiles": group_ambiguous_files,
+                "assignedTracks": assigned_track_count,
+                "losslessAssigned": lossless_count,
+                "bitrateAssigned": bitrate_total,
+            }),
+        );
+    }
+    finish_soulseek_album_selection(selection, evaluations, tracks)
+}
+
+fn finish_soulseek_album_selection(
+    mut selection: SoulseekAlbumSelection,
+    mut evaluations: Vec<EvaluatedSoulseekAlbumGroup>,
+    tracks: &[Track],
+) -> SoulseekAlbumSelection {
+    evaluations.sort_by(|left, right| {
+        right
+            .assignments
+            .len()
+            .cmp(&left.assignments.len())
+            .then_with(|| right.lossless_count.cmp(&left.lossless_count))
+            .then_with(|| right.bitrate_total.cmp(&left.bitrate_total))
+            .then_with(|| left.availability.cmp(&right.availability))
+            .then_with(|| left.peer.cmp(&right.peer))
+            .then_with(|| left.directory.cmp(&right.directory))
+    });
+    let Some(best) = evaluations.into_iter().next() else {
+        return selection;
+    };
+    let coverage = best.assignments.len();
+    selection.best_coverage_at_stop = selection.best_coverage_at_stop.max(coverage);
+    selection.assignments = best
+        .assignments
+        .into_iter()
+        .map(|(index, candidate)| SoulseekAlbumAssignment {
+            track_id: tracks[index].id.clone(),
+            candidate,
+            group_peer: best.peer.clone(),
+            group_directory: best.directory.clone(),
+            group_coverage: coverage,
+            expected_tracks: tracks.len(),
+        })
+        .collect();
+    selection
+}
+
 fn split_remote_title(value: &str) -> (String, String) {
     let mut parts = value.split(" - ");
     let first = parts.next().unwrap_or_default().trim();
     let second = parts.next().unwrap_or_default().trim();
-    if !first.is_empty() && !second.is_empty() && parts.next().is_none() {
+    if !first.is_empty()
+        && !is_numbered_track_prefix(first)
+        && !second.is_empty()
+        && parts.next().is_none()
+    {
         (first.to_owned(), second.to_owned())
     } else {
         (String::new(), value.trim().to_owned())
     }
+}
+
+fn is_numbered_track_prefix(value: &str) -> bool {
+    fn short_number(value: &str) -> bool {
+        (1..=2).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit())
+    }
+    if short_number(value) {
+        return true;
+    }
+    let Some((disc, track)) = value.split_once('-') else {
+        return false;
+    };
+    short_number(disc) && short_number(track)
 }
 
 #[async_trait::async_trait]
@@ -7583,6 +9781,246 @@ async fn download_direct(
 mod tests {
     use super::*;
 
+    fn slskd_poll_fixture(id: &str) -> SlskdSearchPoll {
+        SlskdSearchPoll {
+            id: id.into(),
+            state: "complete".into(),
+            tracks: vec![Track {
+                id: format!("track:{id}"),
+                ..Track::default()
+            }],
+            candidates: vec![],
+            complete: true,
+            warnings: vec![],
+        }
+    }
+
+    fn slskd_response_fixture(
+        username: &str,
+        filenames: &[(&str, u64)],
+        free_slot: Option<bool>,
+    ) -> crate::slskd::SearchResponse {
+        crate::slskd::SearchResponse {
+            username: username.into(),
+            files: filenames
+                .iter()
+                .map(|(filename, size)| crate::slskd::RemoteFile {
+                    filename: (*filename).into(),
+                    size: *size,
+                    bit_rate: None,
+                    length: None,
+                    attributes: vec![],
+                })
+                .collect(),
+            has_free_upload_slot: free_slot,
+            queue_length: None,
+            upload_speed: None,
+        }
+    }
+
+    #[test]
+    fn slskd_poll_response_merge_keeps_embedded_rows_when_separate_endpoint_is_empty() {
+        let embedded = vec![slskd_response_fixture(
+            "peer-a",
+            &[("Music/Artist/Album/01 Song.flac", 1_000)],
+            Some(true),
+        )];
+        let merged = merge_slskd_search_responses(&embedded, &[]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].files.len(), 1);
+        assert_eq!(slskd_response_file_count(&merged), 1);
+    }
+
+    #[test]
+    fn slskd_poll_response_merge_unions_files_and_prefers_fresh_duplicate_rows() {
+        let embedded = vec![slskd_response_fixture(
+            "Peer-A",
+            &[("Music/Artist/Album/01 Song.flac", 1_000)],
+            Some(false),
+        )];
+        let separate = vec![slskd_response_fixture(
+            "peer-a",
+            &[
+                ("Music/Artist/Album/01 Song.flac", 1_000),
+                ("Music/Artist/Album/02 Song.flac", 2_000),
+            ],
+            Some(true),
+        )];
+        let merged = merge_slskd_search_responses(&embedded, &separate);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].files.len(), 2);
+        assert_eq!(merged[0].has_free_upload_slot, Some(true));
+        assert_eq!(slskd_response_file_count(&merged), 2);
+    }
+
+    #[tokio::test]
+    async fn concurrent_slskd_poll_waiter_reuses_cached_result_after_owner_deletes_session() {
+        let searches = Arc::new(Mutex::new(HashMap::from([(
+            "search-1".to_owned(),
+            SlskdSearchSession {
+                started: Instant::now(),
+                retain_completed_results: true,
+                poll_gate: Arc::new(tokio::sync::Mutex::new(())),
+            },
+        )])));
+        let completed = Arc::new(Mutex::new(HashMap::new()));
+        let remote_poll_count = Arc::new(AtomicU64::new(0));
+        let owner_entered = Arc::new(tokio::sync::Notify::new());
+        let waiter_waiting = Arc::new(tokio::sync::Notify::new());
+        let release_owner = Arc::new(tokio::sync::Notify::new());
+
+        let owner_searches = searches.clone();
+        let owner_completed = completed.clone();
+        let owner_count = remote_poll_count.clone();
+        let owner_entered_signal = owner_entered.clone();
+        let owner_release = release_owner.clone();
+        let owner = tokio::spawn(async move {
+            if let Some(result) = cached_slskd_search(&owner_completed, "search-1")? {
+                return Ok::<SlskdSearchPoll, String>(result);
+            }
+            let gate = slskd_search_poll_gate(&owner_searches, "search-1")?;
+            let _guard = gate.lock().await;
+            if let Some(result) = cached_slskd_search(&owner_completed, "search-1")? {
+                return Ok::<SlskdSearchPoll, String>(result);
+            }
+            let _ = active_slskd_search_session(&owner_searches, "search-1")?;
+            owner_count.fetch_add(1, Ordering::SeqCst);
+            owner_entered_signal.notify_one();
+            owner_release.notified().await;
+            let result = slskd_poll_fixture("search-1");
+            remember_completed_slskd_search(&owner_completed, "search-1", &result)?;
+            owner_searches.lock().unwrap().remove("search-1");
+            Ok::<SlskdSearchPoll, String>(result)
+        });
+
+        owner_entered.notified().await;
+        let waiter_searches = searches.clone();
+        let waiter_completed = completed.clone();
+        let waiter_count = remote_poll_count.clone();
+        let waiter_waiting_signal = waiter_waiting.clone();
+        let waiter = tokio::spawn(async move {
+            if let Some(result) = cached_slskd_search(&waiter_completed, "search-1")? {
+                return Ok::<SlskdSearchPoll, String>(result);
+            }
+            let gate = slskd_search_poll_gate(&waiter_searches, "search-1")?;
+            waiter_waiting_signal.notify_one();
+            let _guard = gate.lock().await;
+            if let Some(result) = cached_slskd_search(&waiter_completed, "search-1")? {
+                return Ok::<SlskdSearchPoll, String>(result);
+            }
+            let _ = active_slskd_search_session(&waiter_searches, "search-1")?;
+            waiter_count.fetch_add(1, Ordering::SeqCst);
+            panic!("serialized waiter must use the owner's completed result");
+        });
+
+        waiter_waiting.notified().await;
+        release_owner.notify_one();
+        let owner_result = owner.await.unwrap().unwrap();
+        let waiter_result = waiter.await.unwrap().unwrap();
+        assert_eq!(remote_poll_count.load(Ordering::SeqCst), 1);
+        assert_eq!(waiter_result.tracks[0].id, owner_result.tracks[0].id);
+        assert!(active_slskd_search_session(&searches, "search-1").is_err());
+    }
+
+    #[test]
+    fn slskd_completed_result_cache_is_bounded_and_expires_old_entries() {
+        let completed = Mutex::new(HashMap::new());
+        for index in 0..(SLSKD_COMPLETED_SEARCH_LIMIT + 1) {
+            let id = format!("search-{index}");
+            remember_completed_slskd_search(&completed, &id, &slskd_poll_fixture(&id)).unwrap();
+        }
+        let cache = completed.lock().unwrap();
+        assert_eq!(cache.len(), SLSKD_COMPLETED_SEARCH_LIMIT);
+        assert!(!cache.contains_key("search-0"));
+        drop(cache);
+
+        completed.lock().unwrap().insert(
+            "expired".into(),
+            (
+                Instant::now() - SLSKD_COMPLETED_SEARCH_TTL - Duration::from_secs(1),
+                slskd_poll_fixture("expired"),
+            ),
+        );
+        assert!(cached_slskd_search(&completed, "expired")
+            .unwrap()
+            .is_none());
+        assert!(!completed.lock().unwrap().contains_key("expired"));
+    }
+
+    #[test]
+    fn soulseek_album_uses_only_verified_missing_musicbrainz_ordinals() {
+        let release_id = "1f602996-f661-3611-b25a-93c3337fd76e";
+        let mut track = Track {
+            provider: "catalog".into(),
+            provider_id: "mb-track-id".into(),
+            source_url: format!("https://musicbrainz.org/release/{release_id}"),
+            provenance: serde_json::json!({
+                "sourceKind": "catalog",
+                "catalogProvider": "musicbrainz",
+                "releaseId": release_id,
+                "sourceUrl": format!("https://musicbrainz.org/release/{release_id}"),
+                "trackPositionOrdinal": 8,
+                "sourceMediumPosition": 2,
+                "manualFields": {}
+            }),
+            ..Track::default()
+        };
+        assert_eq!(soulseek_expected_album_ordinals(&track), (Some(8), Some(2)));
+
+        track.provenance["manualFields"] = serde_json::json!({
+            "trackNumber": true,
+            "discNumber": true
+        });
+        assert_eq!(soulseek_expected_album_ordinals(&track), (None, None));
+
+        track.provenance["manualFields"] = serde_json::json!({});
+        track.provenance["sourceUrl"] = serde_json::json!("https://example.test/release");
+        assert_eq!(soulseek_expected_album_ordinals(&track), (None, None));
+    }
+
+    #[test]
+    fn slskd_track_display_uses_weak_normalized_title_without_guessing_number_as_artist() {
+        let candidate = Candidate {
+            id: "slskd:fixture".into(),
+            provider: "slskd".into(),
+            title: "01 - Pilentze Pee".into(),
+            duration_seconds: Some(141.0),
+            source_metadata: Some(serde_json::json!({
+                "sourceMetadataOrigin":"slskdFilename",
+                "filenameObservations":{
+                    "normalizedTitle":"Pilentze Pee",
+                    "folderArtist":"Bulgarian State Television Female Choir"
+                }
+            })),
+            ..Candidate::default()
+        };
+        let track = slskd_candidate_track(&candidate);
+        assert_eq!(track.artist, "");
+        assert_eq!(track.title, "Pilentze Pee");
+        assert_eq!(candidate.title, "01 - Pilentze Pee");
+        assert_eq!(
+            candidate.source_metadata.as_ref().unwrap()["filenameObservations"]["folderArtist"],
+            "Bulgarian State Television Female Choir"
+        );
+    }
+
+    #[test]
+    fn numbered_filename_segments_are_not_inferred_as_artist_credits() {
+        for raw in [
+            "01 - Pilentze Pee",
+            "12 - Pilentze Pee",
+            "1-01 - Pilentze Pee",
+        ] {
+            let (artist, title) = split_remote_title(raw);
+            assert!(artist.is_empty(), "{raw}");
+            assert_eq!(title, raw, "{raw}");
+        }
+        assert_eq!(
+            split_remote_title("Bulgarian State Choir - Pilentze Pee"),
+            ("Bulgarian State Choir".into(), "Pilentze Pee".into())
+        );
+    }
+
     #[test]
     fn download_policy_snapshot_survives_settings_change() {
         let mut track = Track::default();
@@ -7608,6 +10046,7 @@ mod tests {
                 "album":"Live at the Hall",
                 "album_artist":"Live Ensemble",
                 "version":"Live",
+                "genre":"rumba",
                 "isrc":"USABC2600001",
                 "duration":180.0,
                 "view_count":27
@@ -7626,7 +10065,274 @@ mod tests {
         assert_eq!(metadata["album"], "Live at the Hall");
         assert_eq!(metadata["albumArtist"], "Live Ensemble");
         assert_eq!(metadata["version"], "Live");
+        assert_eq!(metadata["genre"], "rumba");
         assert_eq!(metadata["views"], 27);
+    }
+
+    fn source_reported_fixture() -> (Track, Candidate) {
+        let mut track = Track::default();
+        track.id = "youtube:video-123".into();
+        track.provider = "youtube".into();
+        track.provider_id = "video-123".into();
+        track.source_url = "https://youtube.com/watch?v=video-123".into();
+        track.title = "La Cubanita".into();
+        let candidate = Candidate {
+            id: track.id.clone(),
+            provider: track.provider.clone(),
+            url: track.source_url.clone(),
+            source_metadata: Some(serde_json::json!({
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "resolvedProviderId":"video-123",
+                "artists":["Los Niños de Sara"],
+                "catalogTitle":"La Cubanita",
+                "album":"Gipsyolé",
+                "genre":"rumba"
+            })),
+            ..Candidate::default()
+        };
+        (track, candidate)
+    }
+
+    #[test]
+    fn exact_source_metadata_fills_missing_fields_with_unverified_provenance() {
+        let (track, candidate) = source_reported_fixture();
+        let (enriched, fields) = promote_literal_source_metadata(&track, &candidate);
+        assert_eq!(enriched.artist, "Los Niños de Sara");
+        assert_eq!(enriched.title, "La Cubanita");
+        assert_eq!(enriched.album.as_deref(), Some("Gipsyolé"));
+        assert_eq!(enriched.genre.as_deref(), Some("rumba"));
+        assert_eq!(enriched.id, track.id);
+        assert_eq!(enriched.provider_id, track.provider_id);
+        assert_eq!(
+            enriched.provenance["sourceReportedMetadata"]["identityStatus"],
+            "source_reported_unverified"
+        );
+        assert_eq!(
+            enriched.provenance["sourceReportedMetadata"]["fields"]
+                .as_array()
+                .unwrap()
+                .len(),
+            fields.len()
+        );
+    }
+
+    #[test]
+    fn exact_original_source_selection_keeps_structured_metadata_unverified() {
+        let (track, candidate) = source_reported_fixture();
+        let artifact = artifact_track_for_match(
+            &track,
+            &candidate,
+            crate::recording_match::MatchRelationship::Unresolved,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(artifact.artist, "Los Niños de Sara");
+        assert_eq!(artifact.album.as_deref(), Some("Gipsyolé"));
+        assert_eq!(
+            artifact.provenance["sourceReportedMetadata"]["identityStatus"],
+            "source_reported_unverified"
+        );
+        assert_eq!(
+            artifact.provenance["sourceReportedMetadata"]["fields"],
+            serde_json::json!(["artist", "album", "genre"])
+        );
+        assert_eq!(artifact.provider, track.provider);
+        assert_eq!(artifact.provider_id, track.provider_id);
+        assert_eq!(artifact.source_url, track.source_url);
+    }
+
+    #[test]
+    fn exact_original_source_selection_never_promotes_uploader_or_cross_locator_metadata() {
+        let (track, mut candidate) = source_reported_fixture();
+        candidate.source_metadata = Some(serde_json::json!({
+            "sourceMetadataOrigin":"ytDlpFullInfo",
+            "resolvedProviderId":"video-123",
+            "uploader":"Unrelated Channel"
+        }));
+        let uploader_only = artifact_track_for_match(
+            &track,
+            &candidate,
+            crate::recording_match::MatchRelationship::Unresolved,
+            true,
+        )
+        .unwrap();
+        assert!(uploader_only.artist.is_empty());
+        assert_eq!(uploader_only.album, None);
+        assert!(uploader_only.provenance.get("sourceReportedMetadata").is_none());
+
+        candidate.source_metadata = Some(serde_json::json!({
+            "sourceMetadataOrigin":"ytDlpFullInfo",
+            "resolvedProviderId":"different-video-id",
+            "artists":["Wrong Artist"],
+            "album":"Wrong Album"
+        }));
+        let mismatched_id = artifact_track_for_match(
+            &track,
+            &candidate,
+            crate::recording_match::MatchRelationship::Unresolved,
+            true,
+        )
+        .unwrap();
+        assert!(mismatched_id.artist.is_empty());
+        assert_eq!(mismatched_id.album, None);
+        assert!(mismatched_id.provenance.get("sourceReportedMetadata").is_none());
+
+        candidate.source_metadata = Some(serde_json::json!({
+            "sourceMetadataOrigin":"ytDlpFullInfo",
+            "resolvedProviderId":"video-123",
+            "artists":["Wrong Artist"],
+            "album":"Wrong Album"
+        }));
+        candidate.url = "https://youtube.com/watch?v=other-video".into();
+        let mismatched_url = artifact_track_for_match(
+            &track,
+            &candidate,
+            crate::recording_match::MatchRelationship::Unresolved,
+            true,
+        );
+        assert_eq!(
+            mismatched_url.unwrap_err(),
+            "Alternative source resolves to the requested catalog identity"
+        );
+    }
+
+    #[test]
+    fn exact_original_source_metadata_does_not_replace_manual_fields() {
+        let (mut track, candidate) = source_reported_fixture();
+        track.artist = "Curated Artist".into();
+        track.album = Some("Curated Album".into());
+        track.provenance = serde_json::json!({"manualFields":{"artist":true,"album":true}});
+        let artifact = artifact_track_for_match(
+            &track,
+            &candidate,
+            crate::recording_match::MatchRelationship::Unresolved,
+            true,
+        )
+        .unwrap();
+        assert_eq!(artifact.artist, "Curated Artist");
+        assert_eq!(artifact.album.as_deref(), Some("Curated Album"));
+        let reported_fields = artifact.provenance["sourceReportedMetadata"]["fields"]
+            .as_array()
+            .expect("the remaining structured source field is retained");
+        assert!(reported_fields.iter().any(|field| field == "genre"));
+        assert!(!reported_fields.iter().any(|field| field == "artist"));
+        assert!(!reported_fields.iter().any(|field| field == "album"));
+    }
+
+    #[test]
+    fn source_metadata_cannot_replace_manual_fields_or_cross_source_identity() {
+        let (mut track, candidate) = source_reported_fixture();
+        track.provenance = serde_json::json!({"manualFields":{"artist":true}});
+        track.artist = "Curated Artist".into();
+        let (enriched, fields) = promote_literal_source_metadata(&track, &candidate);
+        assert_eq!(enriched.artist, "Curated Artist");
+        assert!(!fields.iter().any(|field| field == "artist"));
+
+        let mut mismatched = candidate.clone();
+        mismatched.url.push_str("&list=other");
+        let (unchanged, fields) = promote_literal_source_metadata(&track, &mismatched);
+        assert_eq!(unchanged, track);
+        assert!(fields.is_empty());
+    }
+
+    fn accepted_catalog_fixture() -> (Track, Candidate) {
+        let track = Track {
+            id: "spotify:requested-track".into(),
+            provider: "spotify".into(),
+            provider_id: "requested-track".into(),
+            title: "Requested title".into(),
+            artist: "Requested artist".into(),
+            duration_seconds: Some(141.5),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "monochrome:catalog-track-1".into(),
+            provider: "monochrome".into(),
+            url: "https://monochrome.test/track/catalog-track-1".into(),
+            source_metadata: Some(serde_json::json!({
+                "provider":"monochrome",
+                "trackId":"catalog-track-1",
+                "catalogTitle":"Requested title",
+                "artistNames":["Requested artist"],
+                "isrc":"USNO18716501",
+                "album":"Catalog album",
+                "albumArtist":"Catalog album artist",
+                "genre":"Traditional"
+            })),
+            ..Candidate::default()
+        };
+        (track, candidate)
+    }
+
+    #[test]
+    fn accepted_catalog_metadata_fills_only_missing_non_identity_fields() {
+        let (track, candidate) = accepted_catalog_fixture();
+        let artifact = promote_matched_catalog_metadata(
+            &track,
+            &candidate,
+            crate::recording_match::MatchRelationship::Exact,
+        );
+        assert_eq!(artifact.id, track.id);
+        assert_eq!(artifact.provider_id, track.provider_id);
+        assert_eq!(artifact.title, track.title);
+        assert_eq!(artifact.artist, track.artist);
+        assert_eq!(artifact.isrc.as_deref(), Some("USNO18716501"));
+        assert_eq!(artifact.album.as_deref(), Some("Catalog album"));
+        assert_eq!(
+            artifact.album_artist.as_deref(),
+            Some("Catalog album artist")
+        );
+        assert_eq!(artifact.genre.as_deref(), Some("Traditional"));
+        assert_eq!(
+            artifact.provenance["acceptedSourceMetadata"]["identityStatus"],
+            "accepted_recording_match"
+        );
+    }
+
+    #[test]
+    fn catalog_metadata_does_not_override_manual_or_conflicting_values() {
+        let (mut track, candidate) = accepted_catalog_fixture();
+        track.isrc = Some("USOTHER000001".into());
+        track.album = Some("Manually assigned album".into());
+        track.genre = Some("Curated genre".into());
+        track.provenance = serde_json::json!({"manualFields":{"album":true,"genre":true}});
+        let artifact = promote_matched_catalog_metadata(
+            &track,
+            &candidate,
+            crate::recording_match::MatchRelationship::Probable,
+        );
+        assert_eq!(artifact.isrc.as_deref(), Some("USOTHER000001"));
+        assert_eq!(artifact.album.as_deref(), Some("Manually assigned album"));
+        assert_eq!(artifact.genre.as_deref(), Some("Curated genre"));
+        assert_eq!(
+            artifact.album_artist.as_deref(),
+            Some("Catalog album artist")
+        );
+    }
+
+    #[test]
+    fn catalog_metadata_requires_accepted_relationship_and_bound_catalog_identity() {
+        let (track, candidate) = accepted_catalog_fixture();
+        for relationship in [
+            crate::recording_match::MatchRelationship::Alternative,
+            crate::recording_match::MatchRelationship::Unresolved,
+        ] {
+            assert_eq!(
+                promote_matched_catalog_metadata(&track, &candidate, relationship),
+                track
+            );
+        }
+        let mut mismatched = candidate;
+        mismatched.source_metadata.as_mut().unwrap()["trackId"] = serde_json::json!("other-id");
+        assert_eq!(
+            promote_matched_catalog_metadata(
+                &track,
+                &mismatched,
+                crate::recording_match::MatchRelationship::Exact,
+            ),
+            track
+        );
     }
 
     #[test]
@@ -9135,6 +11841,96 @@ mod tests {
     }
 
     #[test]
+    fn download_search_uses_a_validated_cached_scoped_alias_only_as_query_text() {
+        use sha2::Digest;
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("download-alias.sqlite")).unwrap();
+        let track = Track {
+            provider: "spotify".into(),
+            artist: "Lakis Chalkias".into(),
+            title: "To Miroloi Tis Manas".into(),
+            version: Some("Live".into()),
+            ..Track::default()
+        };
+        let id = "612d1573-bdea-4657-bfc9-f78593c9ab09";
+        let key = format!(
+            "v1:{:x}",
+            sha2::Sha256::digest(crate::matching::normalize_single_artist_name(&track.artist))
+        );
+        store
+            .set_provider_cache(
+                "artists.alias-discovery.scoped-name-search.v2",
+                &key,
+                &serde_json::json!({"outcome":"unique_exact_name_profile","artistId":id}),
+                3600,
+            )
+            .unwrap();
+        store
+            .set_retained_provider_cache(
+                "artists.profile.musicbrainz",
+                id,
+                &serde_json::json!({"id":id,"name":"Lakis Halkias","aliases":[{"name":"Lakis Chalkias"}]}),
+            )
+            .unwrap();
+
+        let alternate = cached_download_search_alternate(&store, &track).unwrap();
+        assert_eq!(alternate, "Lakis Halkias");
+        let queries = playback_search_queries(&track, Some(&alternate));
+        assert_eq!(queries.len(), 2);
+        assert!(queries[0].contains("lakis chalkias"));
+        assert!(queries[1].contains("lakis halkias"));
+        assert!(queries[1].contains("live"));
+        assert_eq!(track.artist, "Lakis Chalkias");
+    }
+
+    #[tokio::test]
+    async fn download_search_returns_partial_rows_but_retries_instead_of_caching_them() {
+        let cache = CandidateSearchCache::default();
+        let (_cancel_tx, cancel) = idle_cancel();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+
+        let partial = cached_download_candidate_search(
+            &cache,
+            "download-partial-search".into(),
+            cancel.clone(),
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok((
+                    vec![Candidate {
+                        id: "partial-row".into(),
+                        ..Default::default()
+                    }],
+                    false,
+                ))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(partial[0].id, "partial-row");
+
+        let complete = cached_download_candidate_search(
+            &cache,
+            "download-partial-search".into(),
+            cancel,
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok((
+                    vec![Candidate {
+                        id: "complete-row".into(),
+                        ..Default::default()
+                    }],
+                    true,
+                ))
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(complete[0].id, "complete-row");
+    }
+
+    #[test]
     fn default_original_versions_do_not_pollute_provider_queries() {
         let mut track = Track {
             artist: "Massivedrum, Bruno Rosado".into(),
@@ -9664,6 +12460,355 @@ mod tests {
             playback_candidate_search_cache_key(&track, &["youtube".into()], &balanced, &[]),
             playback_candidate_search_cache_key(&track, &["youtube".into()], &flexible, &[])
         );
+    }
+
+    #[tokio::test]
+    async fn raw_provider_query_cache_is_mode_independent_but_reassesses_rows() {
+        let cache = CandidateSearchCache::default();
+        let balanced = Settings::default();
+        let mut flexible = balanced.clone();
+        flexible.matching_level = crate::recording_match::MatchLevel::Flexible;
+        let key_balanced = playback_provider_query_cache_key(
+            "youtube",
+            "ytsearch10",
+            "Performer Recording",
+            10,
+            &balanced,
+            true,
+        );
+        let key_flexible = playback_provider_query_cache_key(
+            "youtube",
+            "ytsearch10",
+            "Performer Recording",
+            10,
+            &flexible,
+            true,
+        );
+        assert_eq!(key_balanced, key_flexible);
+
+        let (_tx, cancel) = idle_cancel();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let row = Candidate {
+            id: "youtube:raw-row".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=raw-row".into(),
+            title: "Main Artist - Song".into(),
+            duration_seconds: Some(200.0),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "track":"Song",
+                "artists":null,
+                "artistNames":null,
+                "duration":200.0
+            })),
+            ..Candidate::default()
+        };
+        let first = cache
+            .get_or_search_provider_query(key_balanced, cancel.clone(), || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(ProviderQueryResponse {
+                    candidates: vec![row.clone()],
+                    completeness: ProviderQueryCompleteness::ReturnedPage {
+                        row_count: 1,
+                        reached_limit: false,
+                    },
+                })
+            })
+            .await
+            .unwrap();
+        let second = cache
+            .get_or_search_provider_query(key_flexible, cancel, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(ProviderQueryResponse {
+                    candidates: vec![Candidate::default()],
+                    completeness: ProviderQueryCompleteness::ReturnedPage {
+                        row_count: 1,
+                        reached_limit: false,
+                    },
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(first.candidates[0].id, second.candidates[0].id);
+        assert_eq!(
+            second.completeness,
+            ProviderQueryCompleteness::ReturnedPage {
+                row_count: 1,
+                reached_limit: false,
+            }
+        );
+
+        let track = Track {
+            artist: "Main Artist".into(),
+            title: "Song".into(),
+            duration_seconds: None,
+            version: Some("Live Remix".into()),
+            ..Track::default()
+        };
+        let exact = crate::recording_match::assess(
+            &track,
+            &first.candidates[0],
+            crate::recording_match::MatchLevel::Exact,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        let permissive = crate::recording_match::assess(
+            &track,
+            &second.candidates[0],
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert_ne!(exact.action, crate::recording_match::MatchAction::Accept);
+        assert_eq!(
+            permissive.action,
+            crate::recording_match::MatchAction::Accept
+        );
+    }
+
+    #[test]
+    fn raw_provider_query_key_isolated_by_provider_profile_and_tool_context() {
+        let settings = Settings::default();
+        let key = playback_provider_query_cache_key(
+            "youtube",
+            "ytsearch10",
+            "Performer Recording",
+            10,
+            &settings,
+            false,
+        );
+        let native = playback_provider_query_cache_key(
+            "youtube",
+            "ytsearch10",
+            "Performer Recording",
+            10,
+            &settings,
+            true,
+        );
+        let other_query = playback_provider_query_cache_key(
+            "youtube",
+            "ytsearch10",
+            "Performer Recording version",
+            10,
+            &settings,
+            false,
+        );
+        let other_provider = playback_provider_query_cache_key(
+            "soundcloud",
+            "scsearch10",
+            "Performer Recording",
+            10,
+            &settings,
+            false,
+        );
+        let mut other_tool = settings.clone();
+        other_tool.yt_dlp_path = "custom-ytdlp".into();
+        let different_tool = playback_provider_query_cache_key(
+            "youtube",
+            "ytsearch10",
+            "Performer Recording",
+            10,
+            &other_tool,
+            false,
+        );
+        let monochrome = monochrome_playback_query_cache_key(
+            r#"["monochrome-track-search-v1","https://tracks.monochrome.st","/search/tracks",12]"#,
+            "Performer Recording",
+        );
+        let other_monochrome_profile = monochrome_playback_query_cache_key(
+            r#"["monochrome-track-search-v2","https://tracks.monochrome.st","/search/tracks",12]"#,
+            "Performer Recording",
+        );
+        assert_ne!(key, native);
+        assert_ne!(key, other_query);
+        assert_ne!(key, other_provider);
+        assert_ne!(key, different_tool);
+        assert_ne!(monochrome, other_monochrome_profile);
+        let mono_key_value: Value = serde_json::from_str(&monochrome).unwrap();
+        assert_eq!(mono_key_value[4], crate::monochrome::CANDIDATE_SEARCH_LIMIT);
+        assert_eq!(mono_key_value[5], "anonymous-session");
+        assert!(ProviderQueryCompleteness::Exhaustive { row_count: 1 }.cacheable());
+    }
+
+    #[tokio::test]
+    async fn partial_provider_query_rows_are_not_cached_as_complete() {
+        let cache = CandidateSearchCache::default();
+        let (_tx, cancel) = idle_cancel();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let partial = cache
+            .get_or_search_provider_query(
+                "partial-provider-response".into(),
+                cancel.clone(),
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(ProviderQueryResponse {
+                        candidates: vec![Candidate {
+                            id: "partial".into(),
+                            ..Default::default()
+                        }],
+                        completeness: ProviderQueryCompleteness::Partial { row_count: 1 },
+                    })
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(partial.candidates[0].id, "partial");
+        assert!(!partial.completeness.cacheable());
+        let complete = cache
+            .get_or_search_provider_query("partial-provider-response".into(), cancel, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(ProviderQueryResponse {
+                    candidates: vec![Candidate {
+                        id: "complete".into(),
+                        ..Default::default()
+                    }],
+                    completeness: ProviderQueryCompleteness::ReturnedPage {
+                        row_count: 1,
+                        reached_limit: false,
+                    },
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(complete.candidates[0].id, "complete");
+    }
+
+    #[tokio::test]
+    async fn successful_empty_provider_page_is_cached_as_a_negative_result() {
+        let cache = CandidateSearchCache::default();
+        let (_tx, cancel) = idle_cancel();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let empty = cache
+            .get_or_search_provider_query(
+                "empty-successful-page".into(),
+                cancel.clone(),
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(ProviderQueryResponse {
+                        candidates: Vec::new(),
+                        completeness: ProviderQueryCompleteness::ReturnedPage {
+                            row_count: 0,
+                            reached_limit: false,
+                        },
+                    })
+                },
+            )
+            .await
+            .unwrap();
+        assert!(empty.candidates.is_empty());
+        assert!(empty.completeness.cacheable());
+
+        let cached = cache
+            .get_or_search_provider_query("empty-successful-page".into(), cancel, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                panic!("a valid empty provider page should be cached")
+            })
+            .await
+            .unwrap();
+        assert!(cached.candidates.is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn incomplete_candidate_search_is_returned_but_not_cached() {
+        let cache = CandidateSearchCache::default();
+        let (_tx, cancel) = idle_cancel();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let first = cache
+            .get_or_search_cancelled_observed_decided_with_completeness(
+                "partial-search-key".into(),
+                cancel.clone(),
+                None,
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok((
+                        vec![Candidate {
+                            id: "partial".into(),
+                            ..Default::default()
+                        }],
+                        false,
+                    ))
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.0.len(), 1);
+        assert!(!first.1);
+        let second = cache
+            .get_or_search_cancelled_observed_decided_with_completeness(
+                "partial-search-key".into(),
+                cancel,
+                None,
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok((
+                        vec![Candidate {
+                            id: "complete".into(),
+                            ..Default::default()
+                        }],
+                        true,
+                    ))
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(second.0[0].id, "complete");
+        assert!(second.1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_provider_query_waiter_does_not_take_over_or_poison_owner() {
+        let cache = std::sync::Arc::new(CandidateSearchCache::default());
+        let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+        let release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let owner_cache = cache.clone();
+        let owner_entered = entered.clone();
+        let owner_release = release.clone();
+        let owner = tokio::spawn(async move {
+            let (_tx, cancel) = idle_cancel();
+            owner_cache
+                .get_or_search_provider_query("same-query".into(), cancel, || async move {
+                    owner_entered.notify_one();
+                    owner_release.notified().await;
+                    Ok(ProviderQueryResponse {
+                        candidates: vec![Candidate {
+                            id: "owner".into(),
+                            ..Default::default()
+                        }],
+                        completeness: ProviderQueryCompleteness::ReturnedPage {
+                            row_count: 1,
+                            reached_limit: false,
+                        },
+                    })
+                })
+                .await
+        });
+        entered.notified().await;
+
+        let (cancel_tx, cancel) = watch::channel(false);
+        let waiter_cache = cache.clone();
+        let waiter = tokio::spawn(async move {
+            waiter_cache
+                .get_or_search_provider_query("same-query".into(), cancel, || async {
+                    panic!("a waiter must not become a second query owner")
+                })
+                .await
+        });
+        tokio::task::yield_now().await;
+        cancel_tx.send(true).unwrap();
+        assert_eq!(waiter.await.unwrap().unwrap_err(), "Cancelled");
+
+        release.notify_one();
+        assert_eq!(owner.await.unwrap().unwrap().candidates[0].id, "owner");
+        let (_tx, cancel) = idle_cancel();
+        let cached = cache
+            .get_or_search_provider_query("same-query".into(), cancel, || async {
+                panic!("completed owner response should be cached")
+            })
+            .await
+            .unwrap();
+        assert_eq!(cached.candidates[0].id, "owner");
     }
 
     #[cfg(unix)]
@@ -10600,6 +13745,859 @@ mod tests {
         assert_eq!(selected.id, source.id);
         assert_eq!(selected.final_codec, "opus");
     }
+
+    #[tokio::test]
+    async fn preserved_cross_catalog_source_reuse_requires_exact_identifier_evidence() {
+        fn fixture(isrc: &str) -> (tempfile::TempDir, Store, Track, LocalAsset, Candidate) {
+            let directory = tempfile::tempdir().unwrap();
+            let store = Store::open(&directory.path().join("source-reuse.sqlite")).unwrap();
+            let candidate = Candidate {
+                id: "monochrome:recording-123".into(),
+                provider: "monochrome".into(),
+                url: "https://tracks.monochrome.st/track/recording-123".into(),
+                title: "Song".into(),
+                duration_seconds: Some(4.0),
+                source_metadata: Some(serde_json::json!({
+                    "provider":"monochrome",
+                    "trackId":"recording-123",
+                    "catalogTitle":"Song",
+                    "artistNames":["Artist"],
+                    "duration":4.0,
+                    "isrc":isrc,
+                    "verified":true
+                })),
+                ..Candidate::default()
+            };
+            let requested = Track {
+                id: "musicbrainz:release-track-1".into(),
+                provider: "musicbrainz".into(),
+                provider_id: "release-track-1".into(),
+                title: "Song".into(),
+                artist: "Artist".into(),
+                album: Some("Requested Album".into()),
+                duration_seconds: Some(4.0),
+                isrc: Some(isrc.into()),
+                provenance: serde_json::json!({"manualFields":{"album":true}}),
+                ..Track::default()
+            };
+            let existing_track = Track {
+                id: "spotify:existing-track".into(),
+                provider: "spotify".into(),
+                provider_id: "existing-track".into(),
+                title: "Song".into(),
+                artist: "Artist".into(),
+                album: Some("Existing Album".into()),
+                duration_seconds: Some(4.0),
+                isrc: Some(isrc.into()),
+                provenance: serde_json::json!({"acquisition":{
+                    "provider":"monochrome",
+                    "id":candidate.id,
+                    "url":candidate.url
+                }}),
+                ..Track::default()
+            };
+            store.save_track(&requested).unwrap();
+            store.save_track(&existing_track).unwrap();
+            let existing = LocalAsset {
+                id: "existing-asset".into(),
+                recording_id: existing_track.id.clone(),
+                path: "/music/existing.flac".into(),
+                hash: "a".repeat(64),
+                source_codec: "flac".into(),
+                final_codec: "flac".into(),
+                source_bitrate: None,
+                final_bitrate: None,
+                sample_rate: Some(44100),
+                channels: Some(2),
+                bit_depth: Some(16),
+                duration_seconds: Some(4.0),
+                size_bytes: Some(1000),
+                bitrate_origin: None,
+                processing: "original audio codec preserved".into(),
+                track: existing_track,
+            };
+            (directory, store, requested, existing, candidate)
+        }
+
+        let isrc = "USABC2400001";
+        let (_directory, store, requested, existing, candidate) = fixture(isrc);
+        let assessment = preserved_source_reuse_assessment(
+            &store,
+            &requested,
+            &existing,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+        )
+        .expect("the same verified recording source can be copied to the requested listing");
+        let artifact =
+            preserved_source_reuse_track(&requested, &existing, &candidate, &assessment, None)
+                .unwrap();
+        assert_eq!(artifact.id, requested.id);
+        assert_eq!(artifact.provider_id, requested.provider_id);
+        assert_eq!(artifact.album, requested.album);
+        assert_eq!(artifact.provenance["manualFields"]["album"], true);
+        assert_eq!(artifact.provenance["acquisition"]["id"], candidate.id);
+        assert_eq!(artifact.provenance["sourceReuse"]["assetId"], existing.id);
+        assert_eq!(artifact.provenance["sourceReuse"]["isrcAgreement"], true);
+
+        if std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let original_path = _directory.path().join("original.wav");
+        let generated = std::process::Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=4",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+            ])
+            .arg(&original_path)
+            .output()
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        let original_hash = media::hash_file(&original_path).unwrap();
+        let mut existing = existing;
+        existing.path = original_path.to_string_lossy().into_owned();
+        existing.hash = original_hash.clone();
+        media::verify_asset(&existing).await.unwrap();
+        store.save_asset(&existing).unwrap();
+
+        let settings = Settings {
+            music_directory: _directory
+                .path()
+                .join("managed")
+                .to_string_lossy()
+                .into_owned(),
+            ..Settings::default()
+        };
+        let copy = media::finalize_download(
+            &original_path,
+            &artifact,
+            &candidate,
+            &settings,
+            "source",
+            "verified-source-reuse-test",
+        )
+        .await
+        .unwrap();
+        store.save_asset(&copy).unwrap();
+        assert_ne!(copy.path, existing.path);
+        assert_eq!(copy.recording_id, requested.id);
+        assert_eq!(copy.track.id, requested.id);
+        assert_eq!(copy.track.album.as_deref(), Some("Requested Album"));
+        assert_eq!(copy.track.provenance["sourceReuse"]["assetId"], existing.id);
+        assert_eq!(media::hash_file(&original_path).unwrap(), original_hash);
+        assert!(store.list_assets().unwrap().iter().any(|asset| {
+            asset.id == existing.id
+                && asset.recording_id == existing.recording_id
+                && asset.path == existing.path
+                && asset.hash == original_hash
+        }));
+
+        let (_directory, store, mut requested, existing, candidate) = fixture(isrc);
+        requested.isrc = Some("USXYZ2400002".into());
+        requested.provenance["manualFields"]["isrc"] = serde_json::json!(true);
+        assert!(preserved_source_reuse_assessment(
+            &store,
+            &requested,
+            &existing,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+        )
+        .is_none());
+
+        let (_directory, store, requested, existing, mut candidate) = fixture(isrc);
+        candidate.id = "monochrome:another-recording".into();
+        candidate.url = "https://tracks.monochrome.st/track/another-recording".into();
+        candidate.source_metadata.as_mut().unwrap()["trackId"] =
+            serde_json::json!("another-recording");
+        assert!(preserved_source_reuse_assessment(
+            &store,
+            &requested,
+            &existing,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn soulseek_album_selection_groups_exact_peer_and_directory_and_checks_numbering() {
+        fn expected(id: &str, title: &str, number: u32) -> Track {
+            Track {
+                id: id.into(),
+                provider: "musicbrainz".into(),
+                provider_id: id.into(),
+                artist: "Artist".into(),
+                album_artist: Some("Artist".into()),
+                title: title.into(),
+                album: Some("Album".into()),
+                track_number: Some(number),
+                duration_seconds: Some(120.0),
+                ..Track::default()
+            }
+        }
+        fn file(peer: &str, directory: &str, number: u32, title: &str) -> Candidate {
+            let filename = format!("{directory}/{number:02} - {title}.flac");
+            let basename = format!("{number:02} - {title}");
+            Candidate {
+                id: format!("slskd:{peer}:{directory}:{number}"),
+                provider: "slskd".into(),
+                title: basename.clone(),
+                uploader: Some(peer.into()),
+                duration_seconds: Some(120.0),
+                formats: vec![AudioFormat {
+                    id: "flac".into(),
+                    codec: "flac".into(),
+                    extension: "flac".into(),
+                    bitrate: Some(900.0),
+                    sample_rate: Some(44100),
+                    bit_depth: Some(16),
+                    channels: Some(2),
+                    size_bytes: Some(2_000_000),
+                    lossless: true,
+                }],
+                permission: "unknown".into(),
+                source_metadata: Some(serde_json::json!({
+                    "sourceMetadataOrigin":"slskdFilename",
+                    "filenameObservations":crate::recording_filename::filename_observations(&filename,&basename)
+                })),
+                source: Some(CandidateSource::Soulseek {
+                    username: peer.into(),
+                    filename,
+                    size_bytes: 2_000_000,
+                    bitrate_kbps: Some(900),
+                    search_id: None,
+                    batch_id: None,
+                    transfer_id: None,
+                }),
+                ..Candidate::default()
+            }
+        }
+        fn mp3(mut candidate: Candidate) -> Candidate {
+            if let Some(format) = candidate.formats.first_mut() {
+                format.id = "mp3".into();
+                format.codec = "mp3".into();
+                format.extension = "mp3".into();
+                format.bitrate = Some(320.0);
+                format.sample_rate = Some(44100);
+                format.bit_depth = None;
+                format.lossless = false;
+            }
+            candidate
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("album-selection.sqlite")).unwrap();
+        let expected_tracks = vec![
+            expected("track-1", "Song One", 1),
+            expected("track-2", "Song Two", 2),
+        ];
+        let aliases = expected_tracks
+            .iter()
+            .map(|track| {
+                crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, track)
+            })
+            .collect::<Vec<_>>();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let assignments = select_soulseek_album_group(
+            &store,
+            &expected_tracks,
+            &aliases,
+            vec![
+                file("peer-b", "Music/Artist/Album", 1, "Song One"),
+                file("peer-b", "Music/Artist/Album", 2, "Song Two"),
+                file("peer-b", "Music/Artist/Album", 2, "Song One"),
+                file("peer-a", "Music/Artist/Album", 1, "Song One"),
+                file("peer-a", "Music/Artist/Album", 2, "Song Two"),
+                file("peer-a", "Music/Artist/Album", 1, "Wrong Song"),
+                file("peer-c", "Music/Artist/Other Album", 1, "Song One"),
+                file("peer-c", "Music/Artist/Other Album", 2, "Song Two"),
+            ],
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert_eq!(assignments.assignments.len(), 2);
+        assert!(assignments.assignments.iter().all(|assignment| {
+            assignment.group_peer == "peer-a"
+                && assignment.group_directory == "Music/Artist/Album"
+                && assignment.group_coverage == 2
+        }));
+        assert_eq!(
+            assignments
+                .assignments
+                .iter()
+                .map(|assignment| assignment.track_id.as_str())
+                .collect::<std::collections::HashSet<_>>(),
+            std::collections::HashSet::from(["track-1", "track-2"])
+        );
+        assert!(assignments.assignments.iter().all(|assignment| {
+            !matches!(assignment.candidate.source.as_ref(), Some(CandidateSource::Soulseek { filename, .. }) if filename.contains("02 - Song One") || filename.contains("Wrong Song"))
+        }));
+
+        let reversed = select_soulseek_album_group(
+            &store,
+            &expected_tracks,
+            &aliases,
+            vec![
+                file("peer-c", "Music/Artist/Other Album", 2, "Song Two"),
+                file("peer-c", "Music/Artist/Other Album", 1, "Song One"),
+                file("peer-a", "Music/Artist/Album", 2, "Song Two"),
+                file("peer-a", "Music/Artist/Album", 1, "Song One"),
+                file("peer-b", "Music/Artist/Album", 2, "Song Two"),
+                file("peer-b", "Music/Artist/Album", 1, "Song One"),
+            ],
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert!(reversed
+            .assignments
+            .iter()
+            .all(|assignment| assignment.group_peer == "peer-a"));
+
+        let quality_selection = select_soulseek_album_group(
+            &store,
+            &expected_tracks,
+            &aliases,
+            vec![
+                mp3(file("aaa-mp3", "Music/Artist/Album", 1, "Song One")),
+                mp3(file("aaa-mp3", "Music/Artist/Album", 2, "Song Two")),
+                file("zzz-flac", "Music/Artist/Album", 1, "Song One"),
+                file("zzz-flac", "Music/Artist/Album", 2, "Song Two"),
+            ],
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert_eq!(quality_selection.groups_examined, 2);
+        assert_eq!(quality_selection.assignments.len(), 2);
+        assert!(quality_selection
+            .assignments
+            .iter()
+            .all(|assignment| assignment.group_peer == "zzz-flac"));
+
+        let singleton = select_soulseek_album_group(
+            &store,
+            &expected_tracks,
+            &aliases,
+            vec![file("peer-single", "Music/Artist/Album", 1, "Song One")],
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert!(
+            singleton.assignments.is_empty(),
+            "one accidental hit is not an album group"
+        );
+        let already_expired = select_soulseek_album_group(
+            &store,
+            &expected_tracks,
+            &aliases,
+            vec![file("peer-single", "Music/Artist/Album", 1, "Song One")],
+            crate::recording_match::MatchLevel::Balanced,
+            Instant::now() - Duration::from_millis(1),
+            &cancel,
+        );
+        assert!(already_expired.assignments.is_empty());
+        let (_cancel_tx, cancelled) = watch::channel(true);
+        let cancelled_selection = select_soulseek_album_group(
+            &store,
+            &expected_tracks,
+            &aliases,
+            vec![file("peer-single", "Music/Artist/Album", 1, "Song One")],
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancelled,
+        );
+        assert!(cancelled_selection.assignments.is_empty());
+    }
+
+    #[test]
+    fn soulseek_album_group_ranking_uses_title_coverage_before_ordinals_then_quality() {
+        fn group(
+            peer: &str,
+            title_tracks: usize,
+            ordinal_tracks: usize,
+            title_pairs: usize,
+            ordinal_pairs: usize,
+            lossless: usize,
+        ) -> SoulseekAlbumCandidateGroup {
+            SoulseekAlbumCandidateGroup {
+                peer: peer.into(),
+                directory: format!("Music/{peer}/Album"),
+                files: Vec::new(),
+                potential_lossless_count: lossless,
+                potential_bitrate_total: 3_200,
+                folder_artist_file_count: 13,
+                best_availability: (0, 0, 0, std::cmp::Reverse(0)),
+                exact_title_pair_count: title_pairs,
+                ordinal_pair_count: ordinal_pairs,
+                exact_title_track_count: title_tracks,
+                ordinal_track_count: ordinal_tracks,
+            }
+        }
+
+        let ordinal_only = group("ordinal", 0, 13, 0, 13, 13);
+        let title_supported = group("title", 10, 13, 10, 13, 0);
+        assert!(compare_soulseek_album_candidate_groups(&title_supported, &ordinal_only).is_lt());
+
+        // Once identity-supporting title coverage ties, retain the existing
+        // preference for a coherent lossless group over a lossy one.
+        let lossless = group("lossless", 10, 13, 10, 13, 13);
+        let lossy = group("lossy", 10, 13, 10, 13, 0);
+        assert!(compare_soulseek_album_candidate_groups(&lossless, &lossy).is_lt());
+    }
+
+    #[test]
+    fn soulseek_album_selection_accepts_bulgaria_release_fixture_group() {
+        const RELEASE_ID: &str = "1f602996-f661-3611-b25a-93c3337fd76e";
+        const ARTIST_ID: &str = "80fb9c75-af15-4a6b-9528-715f9ef4ebea";
+        const ALBUM: &str = "Le Mystère des voix bulgares";
+        const CATALOG_ARTIST: &str = "The Bulgarian State Radio and Television Female Vocal Choir";
+        const FOLDER_ARTIST: &str = "Bulgarian State Radio & Television Female Vocal Choir";
+        let rows = [
+            ("Pilentze Pee", 146.666, 146.0),
+            ("Svatba", 91.0, 91.0),
+            ("Kalimankou Denkou", 310.0, 311.0),
+            ("Strati na Angelaki Doumasche", 160.0, 161.0),
+            ("Polegnala e Pschenitza", 124.0, 124.0),
+            ("Messetschinko lio Greïlivko", 154.0, 154.0),
+            ("Breï Yvane", 94.973, 94.0),
+            ("Erghen Diado", 174.0, 174.0),
+            ("Sableyalo mi Agontze", 275.0, 275.0),
+            ("Prïtourïtze Planinata", 168.04, 170.0),
+            ("Mir Stanke Le", 197.0, 197.0),
+            ("Schopska Pesen", 88.52, 90.0),
+            ("Polegnala e Todora", 217.134, 217.0),
+        ];
+        let source_url = format!("https://musicbrainz.org/release/{RELEASE_ID}");
+        let tracks = rows
+            .iter()
+            .enumerate()
+            .map(|(index, (title, duration, _))| {
+                let position = index + 1;
+                Track {
+                    id: format!("catalog:musicbrainz:{RELEASE_ID}:1:{position}:1:fixture"),
+                    provider: "catalog".into(),
+                    provider_id: format!("musicbrainz:{RELEASE_ID}:1:{position}:1:fixture"),
+                    source_url: source_url.clone(),
+                    artist: CATALOG_ARTIST.into(),
+                    title: (*title).into(),
+                    album: Some(ALBUM.into()),
+                    duration_seconds: Some(*duration),
+                    provenance: serde_json::json!({
+                        "artistCredits": [{
+                            "artist": {"provider":"musicbrainz", "id":ARTIST_ID},
+                            "creditedAs":CATALOG_ARTIST,
+                            "joinPhrase":"",
+                            "name":CATALOG_ARTIST,
+                            "role":"artist credit",
+                            "sourceUrl":source_url,
+                        }],
+                        "catalogProvider":"musicbrainz",
+                        "manualFields":{},
+                        "mediumPosition":1,
+                        "occurrence":1,
+                        "releaseId":RELEASE_ID,
+                        "sourceKind":"catalog",
+                        "sourceUrl":source_url,
+                        "trackPosition":position.to_string(),
+                    }),
+                    ..Track::default()
+                }
+            })
+            .collect::<Vec<_>>();
+        let candidates = rows
+            .iter()
+            .enumerate()
+            .map(|(index, (title, _, candidate_duration))| {
+                let position = index + 1;
+                let basename = format!("{position:02} - {title}");
+                let filename = format!("Root/{FOLDER_ARTIST}/{ALBUM}, Volume 1 (1975)/{basename}.flac");
+                Candidate {
+                    id: format!("slskd:fixture-peer:track-{position}"),
+                    provider: "slskd".into(),
+                    title: basename.clone(),
+                    uploader: Some("fixture-peer".into()),
+                    duration_seconds: Some(*candidate_duration),
+                    formats: vec![AudioFormat {
+                        id: "flac".into(),
+                        codec: "flac".into(),
+                        extension: "flac".into(),
+                        bitrate: None,
+                        sample_rate: None,
+                        bit_depth: None,
+                        channels: None,
+                        size_bytes: None,
+                        lossless: true,
+                    }],
+                    permission: "unknown".into(),
+                    source_metadata: Some(serde_json::json!({
+                        "sourceMetadataOrigin":"slskdFilename",
+                        "filenameObservations":crate::recording_filename::filename_observations(&filename, &basename),
+                    })),
+                    source: Some(CandidateSource::Soulseek {
+                        username: "fixture-peer".into(),
+                        filename,
+                        size_bytes: 16_000_000,
+                        bitrate_kbps: None,
+                        search_id: None,
+                        batch_id: None,
+                        transfer_id: None,
+                    }),
+                    ..Candidate::default()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("bulgaria-album-selection.sqlite")).unwrap();
+        store
+            .set_retained_provider_cache(
+                "artists.profile.musicbrainz",
+                ARTIST_ID,
+                &serde_json::json!({
+                    "id":ARTIST_ID,
+                    "name":"Bulgarian State Radio and Television Female Vocal Choir",
+                    "aliases":[
+                        {"name":FOLDER_ARTIST,"type":"Artist name"},
+                        {"name":"The Bulgarian State Radio and Television Female Vocal Choir","type":"Artist name"},
+                    ],
+                }),
+            )
+            .unwrap();
+        let aliases = tracks
+            .iter()
+            .map(|track| {
+                crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, track)
+            })
+            .collect::<Vec<_>>();
+        let mut assessment_context = crate::recording_match_context::AssessmentContext::default();
+        for (index, (track, candidate)) in tracks.iter().zip(&candidates).enumerate() {
+            let direct = crate::recording_match_context::assess(
+                &store,
+                track,
+                candidate,
+                crate::recording_match::MatchLevel::Balanced,
+                crate::recording_match::MatchStage::Resolved,
+            );
+            let prepared = crate::recording_match_context::assess_with_aliases_and_context(
+                &store,
+                track,
+                candidate,
+                crate::recording_match::MatchLevel::Balanced,
+                crate::recording_match::MatchStage::Resolved,
+                aliases[index].tracks(),
+                aliases[index].isrc_enriched(),
+                aliases[index].verified_recording_isrc(),
+                aliases[index].release_runtime_variants(),
+                &mut assessment_context,
+            );
+            assert_eq!(prepared.action, direct.action, "{}", track.title);
+            assert_eq!(
+                prepared.relationship, direct.relationship,
+                "{}",
+                track.title
+            );
+            assert_eq!(prepared.dimensions, direct.dimensions, "{}", track.title);
+            assert_eq!(
+                prepared
+                    .evidence
+                    .as_ref()
+                    .map(|e| (e.parsing_incomplete, e.conflicting_version_observations,)),
+                direct
+                    .evidence
+                    .as_ref()
+                    .map(|e| (e.parsing_incomplete, e.conflicting_version_observations,)),
+                "{}",
+                track.title
+            );
+            assert_eq!(
+                direct.action,
+                crate::recording_match::MatchAction::Accept,
+                "{}",
+                track.title
+            );
+            assert!(
+                direct
+                    .evidence
+                    .as_ref()
+                    .and_then(|evidence| evidence.scoped_artist_credit_set_alias.as_ref())
+                    .is_some(),
+                "expected typed MusicBrainz profile credit-set alias for {}",
+                track.title
+            );
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let selection = select_soulseek_album_group(
+            &store,
+            &tracks,
+            &aliases,
+            candidates.clone(),
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert_eq!(selection.assignments.len(), rows.len());
+        assert!(selection
+            .assignments
+            .iter()
+            .all(|assignment| assignment.group_coverage == rows.len()));
+
+        // With no filename ordinal, one exact-title file is compatible with
+        // both duplicate requested rows. Both shared assessments accept, so
+        // the selector must retain ambiguity instead of assigning it to the
+        // first row only.
+        let duplicate_tracks = [tracks[0].clone(), tracks[0].clone()]
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut track)| {
+                track.id = format!("{}:duplicate-{index}", track.id);
+                track
+            })
+            .collect::<Vec<_>>();
+        let duplicate_aliases = duplicate_tracks
+            .iter()
+            .map(|track| {
+                crate::artist_credit_aliases::cached_verified_playback_artist_aliases(
+                    &store, track,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut unnumbered = candidates[0].clone();
+        unnumbered.id = "slskd:fixture-peer:unnumbered-duplicate-title".into();
+        unnumbered.title = rows[0].0.into();
+        let filename = format!(
+            "Root/{FOLDER_ARTIST}/{ALBUM}, Volume 1 (1975)/{}.flac",
+            rows[0].0
+        );
+        if let Some(CandidateSource::Soulseek {
+            filename: source_filename,
+            ..
+        }) = unnumbered.source.as_mut()
+        {
+            *source_filename = filename.clone();
+        }
+        unnumbered.source_metadata = Some(serde_json::json!({
+            "sourceMetadataOrigin":"slskdFilename",
+            "filenameObservations":crate::recording_filename::filename_observations(&filename, rows[0].0),
+        }));
+        assert!(unnumbered.source_metadata.as_ref().unwrap()["filenameObservations"]
+            ["trackNumber"]
+            .is_null());
+        let mut duplicate_assessment_context =
+            crate::recording_match_context::AssessmentContext::default();
+        for (track, aliases) in duplicate_tracks.iter().zip(&duplicate_aliases) {
+            let assessment = crate::recording_match_context::assess_with_aliases_and_context(
+                &store,
+                track,
+                &unnumbered,
+                crate::recording_match::MatchLevel::Balanced,
+                crate::recording_match::MatchStage::Resolved,
+                aliases.tracks(),
+                aliases.isrc_enriched(),
+                aliases.verified_recording_isrc(),
+                aliases.release_runtime_variants(),
+                &mut duplicate_assessment_context,
+            );
+            assert_eq!(assessment.action, crate::recording_match::MatchAction::Accept);
+            assert_eq!(
+                assessment.dimensions.title,
+                crate::recording_match::Comparison::Agree
+            );
+        }
+        let duplicate_selection = select_soulseek_album_group(
+            &store,
+            &duplicate_tracks,
+            &duplicate_aliases,
+            vec![unnumbered],
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert_eq!(duplicate_selection.shared_assessments, 2);
+        assert_eq!(duplicate_selection.candidate_pairs_after_ordinal, 2);
+        assert_eq!(duplicate_selection.candidate_pairs_after_title, 2);
+        assert!(duplicate_selection.assignments.is_empty());
+
+        let rebase_candidates = |folder_artist: &str, root: &str| {
+            candidates
+                .iter()
+                .map(|candidate| {
+                    let mut rebased = candidate.clone();
+                    let filename = format!(
+                        "{root}/{folder_artist}/{ALBUM}, Volume 1 (1975)/{}.flac",
+                        candidate.title
+                    );
+                    if let Some(CandidateSource::Soulseek {
+                        filename: current, ..
+                    }) = rebased.source.as_mut()
+                    {
+                        *current = filename.clone();
+                    }
+                    rebased.source_metadata = Some(serde_json::json!({
+                        "sourceMetadataOrigin":"slskdFilename",
+                        "filenameObservations":crate::recording_filename::filename_observations(&filename, &candidate.title),
+                    }));
+                    rebased
+                })
+                .collect::<Vec<_>>()
+        };
+        let music_root_selection = select_soulseek_album_group(
+            &store,
+            &tracks,
+            &aliases,
+            rebase_candidates(FOLDER_ARTIST, "Music"),
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert_eq!(music_root_selection.assignments.len(), rows.len());
+        let unrelated_artist_selection = select_soulseek_album_group(
+            &store,
+            &tracks,
+            &aliases,
+            rebase_candidates("Unrelated Folder Artist", "Root"),
+            crate::recording_match::MatchLevel::Balanced,
+            deadline,
+            &cancel,
+        );
+        assert!(unrelated_artist_selection.assignments.is_empty());
+    }
+
+    #[test]
+    fn soulseek_album_deadline_keeps_best_fully_validated_group() {
+        let track = Track {
+            id: "track-one".into(),
+            title: "Song One".into(),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "slskd:peer:album:1".into(),
+            ..Candidate::default()
+        };
+        let selection = SoulseekAlbumSelection {
+            stopped_on_deadline: true,
+            best_coverage_at_stop: 1,
+            ..SoulseekAlbumSelection::default()
+        };
+        let finished = finish_soulseek_album_selection(
+            selection,
+            vec![EvaluatedSoulseekAlbumGroup {
+                peer: "peer-good".into(),
+                directory: "Music/Artist/Album".into(),
+                assignments: vec![(0, candidate.clone())],
+                lossless_count: 1,
+                bitrate_total: 900,
+                availability: (0, 0, 0, std::cmp::Reverse(100)),
+            }],
+            &[track],
+        );
+        assert!(finished.stopped_on_deadline);
+        assert_eq!(finished.assignments.len(), 1);
+        assert_eq!(finished.assignments[0].group_peer, "peer-good");
+        assert_eq!(finished.assignments[0].candidate.id, candidate.id);
+    }
+
+    #[test]
+    fn soulseek_album_query_uses_verified_compact_alias_and_title_only_when_alias_is_album() {
+        let mut track = Track {
+            artist: "The Long Canonical Artist Credit".into(),
+            album_artist: Some("The Long Canonical Artist Credit".into()),
+            album: Some("Le Mystère des voix bulgares".into()),
+            ..Track::default()
+        };
+        assert_eq!(
+            soulseek_album_search_query(
+                &track,
+                track.album.as_deref().unwrap(),
+                &["Le Mystère des voix bulgares".into()]
+            )
+            .unwrap(),
+            "Le Mystère des voix bulgares"
+        );
+        assert_eq!(
+            soulseek_album_search_query(
+                &track,
+                track.album.as_deref().unwrap(),
+                &["Verified Compact Artist".into()]
+            )
+            .unwrap(),
+            "Verified Compact Artist Le Mystère des voix bulgares"
+        );
+        track.album = Some("Greatest Hits".into());
+        assert_eq!(
+            soulseek_album_search_query(&track, "Greatest Hits", &[]).unwrap(),
+            "The Long Canonical Artist Credit Greatest Hits"
+        );
+        assert_eq!(minimum_soulseek_album_coverage(13), 2);
+        assert_eq!(minimum_soulseek_album_coverage(1), 1);
+    }
+
+    #[test]
+    fn soulseek_album_caller_returns_validated_assignments_after_selection_deadline() {
+        assert_eq!(
+            soulseek_album_query_decision(false, true, true, false),
+            SoulseekAlbumQueryDecision::Return,
+            "a deadline must not discard assignments already validated by the selector"
+        );
+        assert_eq!(
+            soulseek_album_query_decision(false, true, false, false),
+            SoulseekAlbumQueryDecision::Return,
+            "an exhausted deadline must stop before starting another query"
+        );
+        assert_eq!(
+            soulseek_album_query_decision(false, false, false, false),
+            SoulseekAlbumQueryDecision::Continue
+        );
+        assert_eq!(
+            soulseek_album_query_decision(true, true, true, true),
+            SoulseekAlbumQueryDecision::Cancel,
+            "cancellation takes precedence over returning an assignment"
+        );
+    }
+
+    #[test]
+    fn soulseek_album_folder_suffix_does_not_override_track_identity() {
+        let mut track = Track {
+            album: Some("Le Mystère des voix bulgares".into()),
+            release_date: Some("1986".into()),
+            ..Track::default()
+        };
+        assert!(soulseek_album_folder_matches(
+            "Le Mystère des voix bulgares, Volume 1 [1986]",
+            &track
+        ));
+        // A reissue year alone is not a recording contradiction.
+        assert!(soulseek_album_folder_matches(
+            "Le Mystère des voix bulgares [1990 Remaster]",
+            &track
+        ));
+        track.album = Some("Other Album".into());
+        assert!(!soulseek_album_folder_matches(
+            "Le Mystère des voix bulgares, Volume 1",
+            &track
+        ));
+    }
+
     #[test]
     fn restrictions_are_not_inferred_as_permissions() {
         let public = candidate_from_json(
@@ -12477,6 +16475,70 @@ echo "$result"
                 ("Accept-Language".into(), "en-US,en;q=0.9".into()),
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn canonical_playback_warmup_reuses_first_query_and_leaves_alias_slot() {
+        let directory = tempfile::tempdir().unwrap();
+        let calls = directory.path().join("calls.txt");
+        let output = r#"{"entries":[{"id":"canonical","url":"https://www.youtube.com/watch?v=canonical","title":"Artist One - Night Drive (Extended Mix)","duration":360,"uploader":"Artist One"}]}"#;
+        let unrelated = r#"{"entries":[{"id":"unrelated","url":"https://www.youtube.com/watch?v=unrelated","title":"Other Artist - Different Recording","duration":360,"uploader":"Other Artist"}]}"#;
+        let (_tool_directory, settings) = fake_tool(&format!(
+            "printf '%s\\n' \"$*\" >> '{}'; case \"$*\" in *'Verified Alias'*) cat <<'JSON'\n{}\nJSON\n;; *) cat <<'JSON'\n{}\nJSON\n;; esac",
+            calls.display(),
+            output,
+            unrelated
+        ));
+        let store = Arc::new(Store::open(&directory.path().join("canonical-warm.sqlite")).unwrap());
+        let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let manager = AcquisitionManager::new_for_playback_test(store, connections);
+        let track = Track {
+            artist: "Artist One".into(),
+            title: "Night Drive".into(),
+            version: Some("Extended Mix".into()),
+            duration_seconds: Some(360.0),
+            ..Track::default()
+        };
+        let (_stop, cancel) = idle_cancel();
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(10));
+        assert_eq!(
+            manager
+                .warm_canonical_playback_query_cancelled(
+                    &track,
+                    "youtube",
+                    &settings,
+                    cancel.clone(),
+                    deadline
+                )
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
+
+        let (rows, complete) = find_candidates_with_cancel_until_alias_detailed(
+            &track,
+            &["youtube".into()],
+            &settings,
+            cancel,
+            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+            PREVIEW_SEARCH_TIMEOUT,
+            Some(deadline),
+            Some("Verified Alias".into()),
+            Some(&manager.inner.search_cache),
+        )
+        .await
+        .unwrap();
+        assert!(complete);
+        assert!(!rows.is_empty());
+        // Foreground joins the cached canonical query and spends exactly one
+        // ordinary alias query. The warm phase performs no extraction.
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 2);
+        assert!(std::fs::read_to_string(&calls)
+            .unwrap()
+            .lines()
+            .all(|args| args.contains("--flat-playlist") && args.contains("--skip-download")));
     }
 
     #[cfg(unix)]

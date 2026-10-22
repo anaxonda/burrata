@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "probe": "webkitgtk_connection",
+  "started_at": "2026-10-21T20:47:51Z",
+  "url_origin": "https://monochrome.tf",
+  "webkit_version": {
+    "major": 2,
+    "minor": 54,
+    "micro": 1
+  },
+  "load_events": [
+    "started",
+    "committed",
+    "finished"
+  ],
+  "failures": [],
+  "api_resources": [
+    {
+      "host": "auth.monochrome.st",
+      "path": "/api/auth/get-session"
+    },
+    {
+      "host": "rustrak-api.edideaur.works",
+      "path": "/api/2/envelope/"
+    },
+    {
+      "host": "auth.tidal.com",
+      "path": "/v1/oauth2/token"
+    },
+    {
+      "host": "plausible.canine.tools",
+      "path": "/api/event"
+    }
+  ],
+  "main_response_status": 200,
+  "page": {
+    "origin": "https://monochrome.st",
+    "title": "Monochrome",
+    "has_turnstile_script": false,
+    "has_challenge_frame": false,
+    "response_api_error": false,
+    "api_error_category": null,
+    "catalog_summary": null,
+    "indicators": {
+      "blocked": false,
+      "origin_dns_error": false,
+      "signature": false,
+      "captcha": false,
+      "login": false
+    }
+  },
+  "response_api_error": false
+}

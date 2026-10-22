@@ -4,6 +4,7 @@ __pycache__/
 dist/
 .cache/
 src-tauri/target/
+scripts/**/target/
 src-tauri/recognizer/target/
 src-tauri/resources/
 src-tauri/gen/

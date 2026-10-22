@@ -56,7 +56,7 @@ describe("measurePlaybackLayout",()=>{
     const footer=report.elements.find(item=>item.role==="footer")!;
     expect(right.x).toBeGreaterThanOrEqual(footer.x);
     expect(right.x+right.width).toBeLessThanOrEqual(footer.x+footer.width); // right-side controls remain inside the player bounds
-    expect(report.elements.map(item=>item.role)).toEqual(["footer","now_playing","transport","scrubber","right","quality","error","queue_panel","queue_header","queue_title","identify","queue_close","panel_close"]);
+    expect(report.elements.map(item=>item.role)).toEqual(["footer","now_playing","transport","scrubber","right","quality","error","queue_panel","queue_header","queue_title","identify","queue_close","panel_close","expanded_player","expanded_artwork","expanded_close","expanded_cards"]);
     expect(report.elements.find(item=>item.role==="now_playing")).toMatchObject({visible:true,x:0,width:180,clientWidth:180,scrollWidth:205});
     expect(report.elements.find(item=>item.role==="error")).toMatchObject({visible:false});
     expect(JSON.stringify(report)).not.toMatch(/"(?:title|artist|sourceUrl)"\s*:|PRIVATE TITLE|PRIVATE ARTIST|https?:/i);

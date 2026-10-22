@@ -9,13 +9,13 @@
 
   let {
     release, tracks = [], loading = false, error = "", onPlay = () => {}, onQueue = () => {},
-    onDownload = () => {}, onDownloadAlbum, onSaveToLibrary, onArtist, onContext, onPlaylist, onAddSelectedToPlaylist, onFavorite,
+    onDownload = () => {}, onDownloadAlbum, onAddAlbumToPlaylist, onSaveToLibrary, onArtist, onContext, onPlaylist, onAddSelectedToPlaylist, onFavorite,
     playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false,
   }: {
     release: ArtistReleaseRef & { artworkUrl?: string | null };
     tracks?: Track[]; loading?: boolean; error?: string;
     onPlay?: (track: Track, tracks: Track[], index: number) => void;
-    onQueue?: (tracks: Track[], mode: "next" | "append") => void; onDownload?: (track: Track) => void; onDownloadAlbum?: (tracks: Track[]) => void; onSaveToLibrary?: (tracks: Track[]) => Promise<void>;
+    onQueue?: (tracks: Track[], mode: "next" | "append") => void; onDownload?: (track: Track) => void; onDownloadAlbum?: (tracks: Track[], onReceipt?: (receipt: unknown) => void | Promise<void>) => unknown | Promise<unknown>; onAddAlbumToPlaylist?: (tracks: Track[], title: string) => void | Promise<void>; onSaveToLibrary?: (tracks: Track[]) => Promise<void>;
     onArtist?: (track: Track) => void; onContext?: (track: Track, event: MouseEvent) => void; onPlaylist?: (track: Track) => void; onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>; onFavorite?: (track: Track) => void;
     playingTrack?: Track | null; bufferingTrack?: Track | null;
     playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
@@ -59,6 +59,26 @@
   }
   const albumOccurrences = $derived(tracks.map((track, sourceIndex) => ({ track, sourceIndex })).sort((a, b) => trackNumber(a.track, a.sourceIndex) - trackNumber(b.track, b.sourceIndex) || a.sourceIndex - b.sourceIndex));
   const albumTracks = $derived(albumOccurrences.map(row => row.track));
+  function loadedAlbumSnapshot() {
+    const identity = `${release.release.provider}:${release.release.id}`;
+    const source = `${identity}\n${release.sourceUrl}\n${albumOccurrences.map(row => `${row.sourceIndex}:${row.track.id}`).join("\n")}`;
+    let hash = 2166136261;
+    for (let index = 0; index < source.length; index++) hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
+    return { identity, revision: `${albumOccurrences.length}:${(hash >>> 0).toString(16).padStart(8, "0")}`, trackCount: albumOccurrences.length, loaded: !loading && albumOccurrences.length > 0 };
+  }
+  export function captureLoadedAlbumSnapshot() { return loadedAlbumSnapshot(); }
+  function downloadAlbum() {
+    if (!onDownloadAlbum || loading || !albumTracks.length) return;
+    return onDownloadAlbum(albumTracks);
+  }
+  export function downloadLoadedAlbum(expectedIdentity: string, expectedRevision: string, onReceipt?: (receipt: unknown) => void | Promise<void>) {
+    const snapshot = loadedAlbumSnapshot();
+    if (!snapshot.loaded || snapshot.identity !== expectedIdentity || snapshot.revision !== expectedRevision || !onDownloadAlbum) {
+      throw new Error("The loaded catalog release changed; navigate to it again before downloading.");
+    }
+    if (!onDownloadAlbum || loading || !albumTracks.length) throw new Error("The loaded catalog release is not ready to download.");
+    return onDownloadAlbum(albumTracks,onReceipt);
+  }
   const saveAlbumButtonLabel = $derived(
     release.trackCount != null && albumTracks.length > 0 && albumTracks.length === release.trackCount
       ? "Save album to Library"
@@ -112,7 +132,7 @@
       <h1>{release.title}</h1>
       {#if artists.length}<p class="artists">{#each artists as artist, i}<span>{#if i > 0}<span aria-hidden="true"> · </span>{/if}{#if tracks[0] && onArtist}<button onclick={() => onArtist?.(tracks[0])}>{artist}</button>{:else}{artist}{/if}</span>{/each}</p>{/if}
       <p class="release-meta">{#if release.year}{release.year}{:else if release.releaseDate}{release.releaseDate}{/if}{#if release.label}<span> · {release.label}</span>{/if}{#if release.country}<span> · {release.country}</span>{/if}</p>
-      <div class="hero-actions"><button class="primary" disabled={!tracks.length || loading} onclick={playAlbum}>▶ Play album</button><button disabled={!tracks.length || loading} onclick={() => onQueue(albumTracks, "append")}>＋ Queue album</button>{#if onDownloadAlbum}<button disabled={!tracks.length || loading} onclick={() => onDownloadAlbum(albumTracks)}>↓ Download album</button>{/if}{#if onSaveToLibrary}<button class="save-album" disabled={!tracks.length || loading || savingToLibrary} onclick={() => void saveAlbumToLibrary()}>{savingToLibrary ? "Saving to Library…" : saveAlbumButtonLabel}</button>{/if}</div>
+      <div class="hero-actions"><button class="primary" disabled={!tracks.length || loading} onclick={playAlbum}>▶ Play album</button><button disabled={!tracks.length || loading} onclick={() => onQueue(albumTracks, "append")}>＋ Queue album</button>{#if onDownloadAlbum}<button disabled={!tracks.length || loading} onclick={() => void downloadAlbum()}>↓ Download album</button>{/if}{#if onAddAlbumToPlaylist}<button class="add-album-playlist" disabled={!albumTracks.length || loading} onclick={() => void onAddAlbumToPlaylist?.(albumTracks, release.title)}>Add to playlist</button>{:else if onSaveToLibrary}<button class="save-album" disabled={!tracks.length || loading || savingToLibrary} onclick={() => void saveAlbumToLibrary()}>{savingToLibrary ? "Saving to Library…" : saveAlbumButtonLabel}</button>{/if}</div>
     </div>
   </header>
   <div class="track-heading"><h2>Tracks <span>{tracks.length}</span></h2><div class="track-controls"><input aria-label="Filter tracks" placeholder="Filter tracks" bind:value={filter} /><select aria-label="Sort tracks" bind:value={sort}><option value="sourceOrder">Track number</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select><select aria-label="Sort direction" bind:value={sortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select><TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" /></div></div>

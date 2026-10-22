@@ -1,0 +1,557 @@
+{
+  "evidence_type": "read_only_local_file_and_job_verification",
+  "created_at_utc": "2026-10-22T05:54:43Z",
+  "app_build_hash": "498ad2f5a8dbe0dc82e939abe8129f23ebbb42f7c1cf1bd5aadcaff9b0bc58d4",
+  "job_batch": {
+    "accepted_result_count": 8,
+    "completed": 7,
+    "failed": 1
+  },
+  "tools": {
+    "ffprobe": "ffprobe version n9.0.2 Copyright (c) 2007-2026 the FFmpeg developers",
+    "ffmpeg": "ffmpeg version n9.0.2 Copyright (c) 2000-2026 the FFmpeg developers"
+  },
+  "results": [
+    {
+      "index": 1,
+      "status": "completed",
+      "error_class": null,
+      "job_title": "La Rumba de Tato",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 3746898,
+      "saved_asset_bytes_match": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "saved_library_metadata": {
+        "title": "La Rumba de Tato",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 215.5805
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 215.5805,
+        "bitrate_bps": 139044,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "La Rumba de Tato"
+        }
+      },
+      "source_reported_candidate_metadata": {
+        "title": "La Rumba de Tato",
+        "artists": [
+          "Antoine Tato Garcia"
+        ],
+        "album": "Rumbason",
+        "duration_seconds": 216,
+        "origin": "ytDlpFullInfo"
+      },
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present_in_saved_library": false,
+        "source_album_present_in_saved_library": false,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      },
+      "source_identity_status": "unverified_user_selected_source",
+      "duration_comparison": {
+        "saved_library_duration_matches_probe_within_0_01_seconds": true,
+        "file_minus_source_reported_seconds": -0.4195,
+        "source_duration_is_extractor_reported": true
+      }
+    },
+    {
+      "index": 2,
+      "status": "completed",
+      "error_class": null,
+      "job_title": "Luna",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 3752647,
+      "saved_asset_bytes_match": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "saved_library_metadata": {
+        "title": "Luna",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 215.3205
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 215.3205,
+        "bitrate_bps": 139425,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "Luna"
+        }
+      },
+      "source_reported_candidate_metadata": {
+        "title": "Luna",
+        "artists": [
+          "Kaloomé"
+        ],
+        "album": "De Otro Color",
+        "duration_seconds": 215,
+        "origin": "ytDlpFullInfo"
+      },
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present_in_saved_library": false,
+        "source_album_present_in_saved_library": false,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      },
+      "source_identity_status": "unverified_user_selected_source",
+      "duration_comparison": {
+        "saved_library_duration_matches_probe_within_0_01_seconds": true,
+        "file_minus_source_reported_seconds": 0.3205,
+        "source_duration_is_extractor_reported": true
+      }
+    },
+    {
+      "index": 3,
+      "status": "completed",
+      "error_class": null,
+      "job_title": "CLIP Hasta ayer du groupe Sabor de Perpinya",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 3255150,
+      "saved_asset_bytes_match": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "saved_library_metadata": {
+        "title": "CLIP Hasta ayer du groupe Sabor de Perpinya",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 201.8205
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 201.8205,
+        "bitrate_bps": 129031,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "CLIP Hasta ayer du groupe Sabor de Perpinya"
+        }
+      },
+      "source_reported_candidate_metadata": {
+        "title": "CLIP Hasta ayer du groupe Sabor de Perpinya",
+        "artists": [],
+        "album": null,
+        "duration_seconds": 202,
+        "origin": "ytDlpFullInfo"
+      },
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present_in_saved_library": null,
+        "source_album_present_in_saved_library": null,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      },
+      "source_identity_status": "unverified_user_selected_source",
+      "duration_comparison": {
+        "saved_library_duration_matches_probe_within_0_01_seconds": true,
+        "file_minus_source_reported_seconds": -0.1795,
+        "source_duration_is_extractor_reported": true
+      }
+    },
+    {
+      "index": 4,
+      "status": "completed",
+      "error_class": null,
+      "job_title": "Vagabundo",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 3679075,
+      "saved_asset_bytes_match": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "saved_library_metadata": {
+        "title": "Vagabundo",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 225.0405
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 225.0405,
+        "bitrate_bps": 130788,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "Vagabundo"
+        }
+      },
+      "source_reported_candidate_metadata": {
+        "title": "Vagabundo",
+        "artists": [
+          "Los Niños de Sara"
+        ],
+        "album": "Gipsyolé",
+        "duration_seconds": 225,
+        "origin": "ytDlpFullInfo"
+      },
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present_in_saved_library": false,
+        "source_album_present_in_saved_library": false,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      },
+      "source_identity_status": "unverified_user_selected_source",
+      "duration_comparison": {
+        "saved_library_duration_matches_probe_within_0_01_seconds": true,
+        "file_minus_source_reported_seconds": 0.0405,
+        "source_duration_is_extractor_reported": true
+      }
+    },
+    {
+      "index": 5,
+      "status": "completed",
+      "error_class": null,
+      "job_title": "La Rumba Me Va",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 4532992,
+      "saved_asset_bytes_match": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "saved_library_metadata": {
+        "title": "La Rumba Me Va",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 282.4605
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 282.4605,
+        "bitrate_bps": 128385,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "La Rumba Me Va"
+        }
+      },
+      "source_reported_candidate_metadata": {
+        "title": "La Rumba Me Va",
+        "artists": [
+          "Tato Garcia",
+          "Jeff the Fish"
+        ],
+        "album": "Sol Vibrations: Latin Dance Movements",
+        "duration_seconds": 282,
+        "origin": "ytDlpFullInfo"
+      },
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present_in_saved_library": false,
+        "source_album_present_in_saved_library": false,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      },
+      "source_identity_status": "unverified_user_selected_source",
+      "duration_comparison": {
+        "saved_library_duration_matches_probe_within_0_01_seconds": true,
+        "file_minus_source_reported_seconds": 0.4605,
+        "source_duration_is_extractor_reported": true
+      }
+    },
+    {
+      "index": 6,
+      "status": "completed",
+      "error_class": null,
+      "job_title": "Gitano Te Vas",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 3810646,
+      "saved_asset_bytes_match": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "saved_library_metadata": {
+        "title": "Gitano Te Vas",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 211.8605
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 211.8605,
+        "bitrate_bps": 143892,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "Gitano Te Vas"
+        }
+      },
+      "source_reported_candidate_metadata": {
+        "title": "Gitano Te Vas",
+        "artists": [
+          "Kaloomé"
+        ],
+        "album": "De Otro Color",
+        "duration_seconds": 212,
+        "origin": "ytDlpFullInfo"
+      },
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present_in_saved_library": false,
+        "source_album_present_in_saved_library": false,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      },
+      "source_identity_status": "unverified_user_selected_source",
+      "duration_comparison": {
+        "saved_library_duration_matches_probe_within_0_01_seconds": true,
+        "file_minus_source_reported_seconds": -0.1395,
+        "source_duration_is_extractor_reported": true
+      }
+    },
+    {
+      "index": 7,
+      "status": "failed",
+      "error_class": "http_403",
+      "job_title": "LA LUNA MORENA SON TEKAMELI",
+      "file_found": false,
+      "saved_asset_found": false
+    },
+    {
+      "index": 8,
+      "status": "completed",
+      "error_class": null,
+      "job_title": "Vivire Para Ti",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 3633517,
+      "saved_asset_bytes_match": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "saved_library_metadata": {
+        "title": "Vivire Para Ti",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 228.8205
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 228.8205,
+        "bitrate_bps": 127034,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "Vivire Para Ti"
+        }
+      },
+      "source_reported_candidate_metadata": {
+        "title": "Vivire Para Ti",
+        "artists": [
+          "Los Niños de Sara"
+        ],
+        "album": "La Cubanita",
+        "duration_seconds": 229,
+        "origin": "ytDlpFullInfo"
+      },
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present_in_saved_library": false,
+        "source_album_present_in_saved_library": false,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      },
+      "source_identity_status": "unverified_user_selected_source",
+      "duration_comparison": {
+        "saved_library_duration_matches_probe_within_0_01_seconds": true,
+        "file_minus_source_reported_seconds": -0.1795,
+        "source_duration_is_extractor_reported": true
+      }
+    }
+  ],
+  "limitations": [
+    "Index 7 is unresolved: the job reports HTTP 403 and no saved asset exists for that job.",
+    "This verifies local job records and files; a direct MCP transfer does not establish that the UI batch flow completed end to end.",
+    "Source metadata is extractor-reported candidate metadata and is not treated as proof of recording identity.",
+    "The original failed job later completed on retry build 6a081173ff2fb3b7cda41623806c4982fd71ede084db8197f98d94f4283f81d2; the retry job and saved provenance contain no formatId or resolvedFormatId, so the recovery trigger is undetermined.",
+    "The eighth file has matching title metadata but the extractor reported no structured artist or album; the uploader string is not treated as track metadata."
+  ],
+  "verification_summary": {
+    "completed_files_found_and_probed": 7,
+    "bounded_decode_passed": 7,
+    "registered_root_fingerprints_match_live_files": 7,
+    "titles_match_source_saved_library_and_file_tags": 7,
+    "file_artist_or_album_tags_present": 0,
+    "source_metadata_artist_missing_from_saved_library": 6,
+    "source_metadata_album_missing_from_saved_library": 6,
+    "original_build_completed_files_found_and_probed": 7,
+    "retry_build_additional_files_found_and_probed": 1,
+    "current_completed_files_found_and_probed": 8,
+    "current_bounded_decode_passed": 8,
+    "current_registered_root_fingerprints_match_live_files": 8,
+    "current_titles_match_source_saved_library_and_file_tags": 8,
+    "current_file_artist_or_album_tags_present": 0
+  },
+  "retry_verification": {
+    "job_id": "31de80b0-066b-4f51-973b-8421714b3e4d",
+    "chronology": {
+      "same_job_id_as_original_failure": true,
+      "original_snapshot_state": "failed",
+      "original_error_class": "http_403",
+      "original_app_build_hash": "498ad2f5a8dbe0dc82e939abe8129f23ebbb42f7c1cf1bd5aadcaff9b0bc58d4",
+      "retry_snapshot_state": "completed",
+      "retry_app_build_hash": "6a081173ff2fb3b7cda41623806c4982fd71ede084db8197f98d94f4283f81d2",
+      "retry_created_at_utc": "2026-10-22T05:11:19.099122329+00:00",
+      "retry_format_id": null,
+      "persisted_acquisition_format_id": null,
+      "persisted_resolved_format_id": null,
+      "alternate_format_recovery_trigger_demonstrated": false,
+      "interpretation": "The retry completed, but neither the job nor persisted acquisition provenance identifies a resolved format. The cause of recovery is undetermined."
+    },
+    "local_asset": {
+      "saved_asset_id": "80d031ef-047e-4c0d-be87-b9379e1caed7",
+      "root_relative_path": "Unknown - LA LUNA MORENA SON TEKAMELI.opus",
+      "file_found": true,
+      "saved_asset_found": true,
+      "file_extension": ".opus",
+      "file_bytes": 4926414,
+      "database_hash_matches_live_file": true,
+      "registered_root_membership": true,
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": true,
+      "directory_browser_fingerprint": {
+        "modified": "1792648192275454611",
+        "size": 4926414
+      },
+      "saved_library_metadata": {
+        "recording_id": "youtube:WthU1IjzZxo",
+        "provider": "youtube",
+        "provider_id": "WthU1IjzZxo",
+        "source_url": "https://www.youtube.com/watch?v=WthU1IjzZxo",
+        "title": "LA LUNA MORENA SON TEKAMELI",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 344.9605
+      },
+      "file_probe": {
+        "container": "ogg",
+        "duration_seconds": 344.9605,
+        "audio_codec": "opus",
+        "sample_rate_hz": 48000,
+        "channels": 2,
+        "tags": {
+          "title": "LA LUNA MORENA SON TEKAMELI"
+        },
+        "cover_stream_present": true
+      },
+      "source_reported_candidate_metadata": {
+        "title": "LA LUNA MORENA SON TEKAMELI",
+        "artist": null,
+        "album": null,
+        "duration_seconds": 345,
+        "origin": "ytDlpFullInfo"
+      },
+      "candidate_uploader": "Guy Bertrand",
+      "uploader_used_as_artist_metadata": false,
+      "metadata_comparison": {
+        "source_title_matches_saved_title": true,
+        "source_title_matches_file_title_tag": true,
+        "source_artist_present": false,
+        "source_album_present": false,
+        "file_artist_tag_present": false,
+        "file_album_tag_present": false
+      },
+      "bounded_decode": {
+        "start_seconds": 1.0,
+        "duration_seconds": 5.0,
+        "exit_code": 0,
+        "stderr_empty": true
+      }
+    },
+    "evidence_sources": [
+      "current MCP retry job snapshot",
+      "initial MCP job snapshot",
+      "read-only SQLite asset/job records",
+      "live file stat and SHA-256",
+      "ffprobe",
+      "bounded ffmpeg decode"
+    ],
+    "limitations": [
+      "This verifies the completed retry and current file; it does not establish why the retry succeeded.",
+      "No alternate format ID or resolved-format provenance was persisted.",
+      "The structured extractor response reported no artist or album; uploader text is not treated as track metadata.",
+      "No audio was copied, transmitted, or modified."
+    ]
+  }
+}

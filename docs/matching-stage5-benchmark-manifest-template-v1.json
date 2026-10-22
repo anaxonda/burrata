@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "status": "unmeasured-template",
+  "benchmarkId": "REPLACE_WITH_RUN_ID",
+  "purpose": "Matched cold/warm playback or download matching; not an accuracy sample",
+  "frozenBuild": {
+    "gitCommit": "REQUIRED_FULL_COMMIT",
+    "artifactSha256": "REQUIRED_SHA256_OF_TESTED_ARTIFACT",
+    "evaluatorVersion": "REQUIRED_EVALUATOR_VERSION",
+    "evidenceVersion": "REQUIRED_EVIDENCE_SCHEMA_VERSION",
+    "policyVersion": "REQUIRED_POLICY_VERSION",
+    "platform": "REQUIRED_OS_AND_ARCH"
+  },
+  "protocol": {
+    "pairsPerCase": 5,
+    "conditions": ["cold", "warm"],
+    "coldDefinition": "State the exact caches reset and any network/session state retained.",
+    "warmDefinition": "Repeat the identical request and candidate under the same build after the stated cold run.",
+    "randomizePairOrder": true,
+    "retainFailures": true,
+    "notes": "Do not change source identity, matching mode, evaluator/policy version, or build within a pair."
+  },
+  "cases": [
+    {
+      "pairId": "REQUIRED_STABLE_PAIR_ID",
+      "caseId": "REQUIRED_MATRIX_CASE_ID",
+      "operation": "playback",
+      "stage": "Resolved",
+      "mode": "Balanced",
+      "requestIdentity": {
+        "provider": "REQUIRED_REQUEST_PROVIDER",
+        "providerId": "REQUIRED_STABLE_REQUEST_ID",
+        "title": "REQUIRED_REQUEST_TITLE",
+        "artist": "REQUIRED_REQUEST_ARTIST"
+      },
+      "candidateIdentity": {
+        "provider": "REQUIRED_CANDIDATE_PROVIDER",
+        "id": "REQUIRED_STABLE_SOURCE_ID"
+      }
+    }
+  ],
+  "observationFile": "REQUIRED_JSONL_PATH",
+  "requiredObservationFields": {
+    "outcome": ["status", "failureStage"],
+    "timingsMs": ["parseMs", "comparisonMs", "aliasLookupMs", "providerSearchMs", "extractionMs", "verificationMs", "accessValidationMs", "resolutionMs", "firstAudioMs"],
+    "counts": ["cacheHits", "externalRequests", "extractionAttempts"]
+  },
+  "interpretationLimits": [
+    "This is not a held-out precision or recall estimate.",
+    "Resolver completion is not an audible-start or audible-correctness claim.",
+    "Keep failed observations and their available timing/resource data."
+  ]
+}

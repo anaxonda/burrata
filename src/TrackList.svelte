@@ -10,10 +10,13 @@
   import { sameTrackIdentity } from "./lib/track-identity";
   import { playableDuration } from "./lib/track-sort";
   import { rowWindow } from "./lib/table";
+  import { invertSelection } from "./lib/selection";
+  import { playlistPosition } from "./lib/source-position";
+  import { playlistDropIndex } from "./lib/playlist-reorder";
 
   let {
     tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo,
-    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, selectionContext, selectionKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, listLabel = "Tracks", initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default",
+    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onInvertSelection, selectionContext, selectionKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, listLabel = "Tracks", initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, onReorder,
   }: {
     tracks: Track[];
     orderedRows?: Array<{ kind: "track"; key: string; trackIndex: number } | { kind: "status"; key: string; title: string; detail: string }>;
@@ -30,6 +33,8 @@
     onSelect?: (track: Track, event: MouseEvent, index: number) => void;
     onRowSelect?: (track: Track, event: MouseEvent, index: number) => void;
     onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
+    /** Invert parent-controlled selection within the currently listed track occurrences. */
+    onInvertSelection?: (keys: string[], tracks: Track[]) => void;
     selectionContext?: string;
     selectionKeys?: string[];
     selectionTracks?: Track[];
@@ -49,6 +54,10 @@
     paused?: boolean;
     listLabel?: string;
     presentation?: "default" | "playlist";
+    /** Enable local playlist drag reorder only when the parent is showing source order without filters. */
+    reorderable?: boolean;
+    /** Called with zero-based persisted occurrence indices (not track IDs). */
+    onReorder?: (from: number, to: number) => void | Promise<void>;
     virtualizationThreshold?: number;
     initialScroll?: number;
     onScroll?: (scrollTop: number) => void;
@@ -57,6 +66,13 @@
   let scrollTop = $state(0);
   let viewportHeight = $state(560);
   let scrollElement: HTMLDivElement;
+  let draggedPlaylistPosition = $state<number | null>(null);
+  let reorderingPlaylist = $state(false);
+  const canReorderPlaylist = $derived.by(() => {
+    if (!reorderable || !onReorder) return false;
+    const positions = tracks.map(track => playlistPosition(track));
+    return positions.every((value): value is number => value !== null) && new Set(positions).size === positions.length;
+  });
   const rowHeight = $derived(presentation === "playlist" ? 60 : 88);
   const displayRows = $derived(orderedRows ?? tracks.map((track, trackIndex) => ({ kind: "track" as const, key: `${track.id}:${trackIndex}`, trackIndex })));
   const virtualized = $derived(displayRows.length > virtualizationThreshold);
@@ -94,6 +110,10 @@
     displayRows.forEach((row, rowIndex) => { if (row.kind === "track" && keys[row.trackIndex] !== undefined) positions.set(keys[row.trackIndex]!, rowIndex); });
     return positions;
   });
+  const selectionScopeKeys = $derived(displayRows.flatMap(row => row.kind === "track" && selectionKeys?.[row.trackIndex] !== undefined
+    ? [selectionKeys[row.trackIndex]!]
+    : row.kind === "track" ? [defaultVisibleKeys[row.trackIndex]!] : []));
+  const selectionScopeTracks = $derived(displayRows.flatMap(row => row.kind === "track" && tracks[row.trackIndex] ? [tracks[row.trackIndex]!] : []));
   function selectionKey(track: Track, index: number) {
     if (selectionKeys?.[index] !== undefined) return selectionKeys[index]!;
     return defaultVisibleKeys[index] ?? track.id;
@@ -171,12 +191,13 @@
 
 <div class:virtualized class:playlist={presentation === "playlist"} style:--track-row-height={`${rowHeight}px`} class="track-list-viewport" bind:this={scrollElement} onscroll={updateViewport}>
 {#if sourceOpenFailure}<p role="alert">{sourceOpenFailure}</p>{/if}
-  {#if onAddSelectedToPlaylist || (onSelect && controlledSelectionMode === undefined)}<div class="playlist-selection-actions" role="group" aria-label="Track selection">
-  {#if selectionMode}
+  {#if onAddSelectedToPlaylist || (onSelect && controlledSelectionMode === undefined) || (onInvertSelection && showSelection)}<div class="playlist-selection-actions" role="group" aria-label="Track selection">
+  {#if showSelection}
     <span>{onAddSelectedToPlaylist ? (selectedPlaylistTracks.length ? `${selectedPlaylistTracks.length} tracks selected` : `${tracks.length} visible tracks`) : `${selectedTrackIds.length} tracks selected`}</span>
     {#if onAddSelectedToPlaylist}<button type="button" onclick={selectAllPlaylistRows} disabled={!tracks.length}>Select visible</button>{/if}
+    {#if onInvertSelection || onAddSelectedToPlaylist}<button type="button" class="invert-selection" disabled={!selectionScopeKeys.length} onclick={() => onInvertSelection ? onInvertSelection(selectionScopeKeys, selectionScopeTracks) : selectedForPlaylist = invertSelection(selectionScopeKeys, selectedForPlaylist)}>Invert selection</button>{/if}
     {#if selectedPlaylistTracks.length}<button type="button" onclick={() => selectedForPlaylist = []}>Clear selection</button><button type="button" class="add-selected" onclick={() => void onAddSelectedToPlaylist?.(selectedPlaylistTracks)}>Add selected to playlist</button>{/if}
-    <button type="button" class="cancel-selection" onclick={cancelPlaylistSelection}>Cancel</button>
+    {#if controlledSelectionMode === undefined}<button type="button" class="cancel-selection" onclick={cancelPlaylistSelection}>Cancel</button>{/if}
   {:else}
     <button type="button" class="start-selection" aria-label="Select tracks" onclick={() => selectionMode = true}>Select</button>
   {/if}
@@ -193,8 +214,10 @@
     {@const current = playingTrack ? sameTrackIdentity(track, playingTrack) : track.id === playingTrackId}
     {@const buffering = bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId}
     {@const duration = playableDuration(track)}
-    <li data-track-index={index} class:current class:buffering class:paused={current && paused} class:selected={selectedTrackIds.includes(track.id) || selectedTrackId === track.id} title={timestamp?.(track, index)?.full} aria-current={current ? "true" : undefined} oncontextmenu={(event) => openActions(track, index, event)}>
+    {@const occurrencePosition = playlistPosition(track)}
+    <li data-track-index={index} class:current class:buffering class:paused={current && paused} class:selected={selectedTrackIds.includes(track.id) || selectedTrackId === track.id} class:playlist-drop-target={draggedPlaylistPosition !== null && draggedPlaylistPosition !== occurrencePosition} title={timestamp?.(track, index)?.full} aria-current={current ? "true" : undefined} oncontextmenu={(event) => openActions(track, index, event)} ondragover={(event) => { if (canReorderPlaylist && draggedPlaylistPosition !== null && occurrencePosition !== null && draggedPlaylistPosition !== occurrencePosition) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = "move"; } }} ondrop={(event) => { event.preventDefault(); if (!canReorderPlaylist || draggedPlaylistPosition === null || occurrencePosition === null) return; const fromPosition = draggedPlaylistPosition; const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect(); const after = event.clientY >= bounds.top + bounds.height / 2; const destination = playlistDropIndex(fromPosition, occurrencePosition, after); draggedPlaylistPosition = null; if (destination !== null) { reorderingPlaylist = true; void Promise.resolve(onReorder?.(fromPosition - 1, destination)).finally(() => reorderingPlaylist = false); } }}>
       {#if showSelection && (onSelect || onAddSelectedToPlaylist)}<input class="select-track" type="checkbox" checked={selectedTrackIds.includes(track.id) || selectedTrackIds.includes(selectionKeys?.[index] ?? "") || selectedForPlaylist.includes(selectionKey(track,index))} aria-label={selectionLabel?.(track,index) ?? (onAddSelectedToPlaylist ? `Select ${track.title} for playlist` : `Select ${track.title}`)} onclick={(event) => { event.stopPropagation(); if (onSelect) onSelect(track, event, index); }} onchange={(event) => { event.stopPropagation(); if (onAddSelectedToPlaylist) togglePlaylistSelection(selectionKey(track,index)); }} />{/if}
+      {#if canReorderPlaylist}<button type="button" class="playlist-reorder-handle" draggable={!reorderingPlaylist} disabled={reorderingPlaylist} aria-label={`Reorder ${track.title} at position ${occurrencePosition}`} title="Drag to reorder this playlist item" ondragstart={(event) => { if (occurrencePosition === null) { event.preventDefault(); return; } draggedPlaylistPosition = occurrencePosition; event.dataTransfer?.setData("text/plain", "burrata-playlist-row"); if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"; }} ondragend={() => draggedPlaylistPosition = null}>⠿</button>{/if}
       {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={`Play ${track.title}`} title="Play audio" onclick={() => onPlay?.(track, tracks, index)}>▶</button>{/if}</div>{/if}
       <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} /></span>
       {#if current}<span class="playback-state table-playback-state" class:status-buffering={buffering} role="status" aria-label={`${buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}`} title={`${buffering ? "Buffering" : paused ? "Paused" : "Playing"} · ${track.title}`} aria-live="polite">{buffering ? "…" : paused ? "Ⅱ" : "♫"}</span>{/if}
@@ -242,6 +265,8 @@
   .track-list-viewport{min-width:0}.track-list-viewport.virtualized{max-height:70vh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.track-list-viewport.virtualized .shared-track-list li:not(.virtual-spacer){box-sizing:border-box;height:var(--track-row-height,88px);max-height:var(--track-row-height,88px);overflow:hidden}.track-list-viewport.virtualized .track-subtitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis}.track-list-viewport.virtualized .track-time{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-list-viewport .virtual-spacer{display:block;padding:0!important;border:0!important;pointer-events:none}
   .shared-track-list{list-style:none;margin:0;padding:0;min-width:0;container-type:inline-size}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.buffering .icon-action.play{animation:track-pulse 1s ease-in-out infinite alternate}.shared-track-list li.paused .icon-action.play{animation:none}@keyframes track-pulse{to{opacity:.45;transform:scale(.88)}}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.playback-state{flex:0 0 22px;text-align:center;color:var(--accent);font-size:15px;font-weight:700}.playback-state.status-buffering{animation:track-pulse 1s ease-in-out infinite alternate}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link,.album-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px;font:inherit;cursor:pointer}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more-trigger{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;touch-action:manipulation}.icon-action:hover,.more-trigger:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}
   .position-slot{position:relative;display:flex;flex:0 0 24px;align-items:center;justify-content:flex-end}.position-play{position:absolute;inset:0;display:none;padding:0;border:0;background:var(--surface);color:var(--accent);cursor:pointer}
+  .playlist .position-play.buffering{display:block;position:absolute;z-index:1;opacity:1;border-radius:50%;background:var(--surface);color:var(--accent)}.playlist .position-play.buffering::after{content:"";position:absolute;inset:1px;border:2px solid color-mix(in srgb,var(--accent) 28%,transparent);border-top-color:var(--accent);border-radius:50%;animation:row-play-loading 850ms linear infinite;pointer-events:none}@keyframes row-play-loading{to{transform:rotate(360deg)}}
+  .playlist-reorder-handle{display:grid;flex:0 0 28px;place-items:center;width:28px;height:32px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--muted);font-size:18px;cursor:grab;touch-action:none}.playlist-reorder-handle:active{cursor:grabbing}.playlist-reorder-handle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.playlist-drop-target{border-top-color:var(--accent)!important}
   @media(min-width:641px){
     .playlist .shared-track-list li:not(.virtual-spacer){position:relative;box-sizing:border-box;height:60px;max-height:60px;gap:12px;padding:7px 10px;overflow:hidden}
     .playlist .artwork{flex-basis:36px;width:36px;height:36px;border-radius:4px}
@@ -257,6 +282,7 @@
   @container (max-width: 430px){.shared-track-list li{gap:5px}.track-position,.artwork{display:none}.playlist .track-position{display:block}.row-actions>.icon-action{display:none}.more-trigger{width:40px;height:40px}.row-actions{gap:2px}.track-copy{flex-basis:0}}
   @container (max-width: 350px){.row-actions{gap:1px}.track-title strong{font-size:12px}}
   @media(prefers-reduced-motion:reduce){.shared-track-list li.buffering .icon-action.play{animation:none}}
+  @media(prefers-reduced-motion:reduce){.playlist .position-play.buffering::after{animation:none;border-style:dashed}}
   .shared-track-list li.selected{outline:1px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}.select-track{flex:0 0 16px;width:16px;height:16px;margin:0;accent-color:var(--accent)}
   .icon-action{font-size:19px}.more-trigger{font-size:23px}
   .playlist-selection-actions{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;padding:.35rem .4rem;margin-bottom:.35rem;border-bottom:1px solid var(--border,#383d43);font-size:.8rem;color:var(--muted,#a3a8ae)}.playlist-selection-actions span{margin-right:auto}.playlist-selection-actions button{font:inherit;color:var(--text,#eee);background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:6px;padding:.3rem .5rem;cursor:pointer}.playlist-selection-actions button:disabled{opacity:.5;cursor:default}.playlist-selection-actions .add-selected{background:var(--accent,#4c78c8);color:#fff;border-color:var(--accent,#4c78c8)}

@@ -126,6 +126,107 @@ async fn direct_wiring_success_binds_epoch_and_preserves_reduced_validation_dead
 }
 
 #[tokio::test]
+async fn seek_recovery_aac_is_exact_video_bounded_and_validated_before_use() {
+    let (_directory, manager, track, candidate, trace) = fixture();
+    let (_stop, cancel) = watch::channel(false);
+    let deadline = PlaybackDeadline::after(Duration::from_secs(20));
+    let validations = AtomicUsize::new(0);
+    let audio = try_direct_youtube_explicit_with_opportunity(
+        &manager,
+        &track,
+        &candidate,
+        cancel,
+        &trace,
+        deadline,
+        direct_youtube_recovery_deadline,
+        |id, budget, _| async move {
+            assert_eq!(id, "uZGRATckoBM");
+            assert!((1..=6_000).contains(&budget));
+            let mut resolved = response();
+            resolved.audio.mime_type = "audio/mp4".into();
+            resolved.audio.codec = Some("mp4a.40.2".into());
+            resolved.audio.selected_format_id = Some("140".into());
+            Ok(resolved)
+        },
+        |audio, _, _, validation_deadline| {
+            validations.fetch_add(1, Ordering::SeqCst);
+            async move {
+                assert!(
+                    validation_deadline.instant() < deadline.instant() - Duration::from_secs(13)
+                );
+                assert!(validation_deadline.remaining() <= Duration::from_secs(6));
+                Ok(audio)
+            }
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(validations.load(Ordering::SeqCst), 1);
+    assert_eq!(audio.selected_format_id.as_deref(), Some("140"));
+    assert!(audio.provider_session_current());
+}
+
+#[tokio::test]
+async fn seek_recovery_aac_rejects_wrong_video_or_duration_before_validation() {
+    for mismatch in ["id", "duration"] {
+        let (_directory, manager, track, candidate, trace) = fixture();
+        let (_stop, cancel) = watch::channel(false);
+        let mut resolved = response();
+        if mismatch == "id" {
+            resolved.audio.resolved_provider_id = Some("abcdefghijk".into());
+        } else {
+            resolved.audio.duration_seconds = Some(240.);
+        }
+        let validations = AtomicUsize::new(0);
+        let result = try_direct_youtube_explicit_with_opportunity(
+            &manager,
+            &track,
+            &candidate,
+            cancel,
+            &trace,
+            PlaybackDeadline::after(Duration::from_secs(20)),
+            direct_youtube_recovery_deadline,
+            move |_, _, _| async move { Ok(resolved) },
+            |audio, _, _, _| {
+                validations.fetch_add(1, Ordering::SeqCst);
+                async { Ok(audio) }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(result.is_none(), "{mismatch}");
+        assert_eq!(validations.load(Ordering::SeqCst), 0, "{mismatch}");
+    }
+}
+
+#[tokio::test]
+async fn seek_recovery_aac_keeps_provider_session_change_terminal() {
+    let (_directory, manager, track, candidate, trace) = fixture();
+    let (_stop, cancel) = watch::channel(false);
+    let reset = manager.clone();
+    let result = try_direct_youtube_explicit_with_opportunity(
+        &manager,
+        &track,
+        &candidate,
+        cancel,
+        &trace,
+        PlaybackDeadline::after(Duration::from_secs(20)),
+        direct_youtube_recovery_deadline,
+        |_, _, _| async { Ok(response()) },
+        move |audio, _, _, _| async move {
+            reset.invalidate_playback_provider_session("youtube");
+            Ok(audio)
+        },
+    )
+    .await;
+    assert_eq!(
+        result.unwrap_err(),
+        "Audio source provider session changed during resolution"
+    );
+}
+
+#[tokio::test]
 async fn direct_wiring_failure_leaves_exactly_one_shared_fallback_attempt() {
     let (_directory, manager, track, candidate, trace) = fixture();
     let (_stop, cancel) = watch::channel(false);

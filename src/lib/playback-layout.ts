@@ -11,7 +11,11 @@ export type PlaybackLayoutRole =
   | "queue_title"
   | "identify"
   | "queue_close"
-  | "panel_close";
+  | "panel_close"
+  | "expanded_player"
+  | "expanded_artwork"
+  | "expanded_close"
+  | "expanded_cards";
 
 export type PlaybackLayoutElement = {
   role: PlaybackLayoutRole;
@@ -49,6 +53,10 @@ const TARGETS: ReadonlyArray<[PlaybackLayoutRole, string]> = [
   ["identify", "aside.playback-queue-panel > header.queue-header button.identify"],
   ["queue_close", "aside.playback-queue-panel > header.queue-header button.close"],
   ["panel_close", ".player-panel-tabs button[aria-label='Close player panel']"],
+  ["expanded_player", ".now-playing-view"],
+  ["expanded_artwork", ".now-playing-view .hero-art"],
+  ["expanded_close", ".now-playing-view header button"],
+  ["expanded_cards", ".now-playing-view .cards"],
 ];
 
 const rounded = (value: number) => Math.round(value * 100) / 100;

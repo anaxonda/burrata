@@ -1,0 +1,62 @@
+{
+  "description": "Sanitized fields captured from the retained public MusicBrainz recording search used during the Bulgarian release matching diagnosis. Missing final joinphrase is preserved as observed.",
+  "sourceOccurrence": {
+    "releaseId": "1f602996-f661-3611-b25a-93c3337fd76e",
+    "recordingId": "df27ce01-abf3-4c10-afa2-fdfe2bfc5abf",
+    "trackGuid": "cbd3a5a6-5ba0-3ba6-a90e-0326090b69bc",
+    "title": "Kalimankou Denkou",
+    "durationSeconds": 310.0,
+    "artistIds": [
+      "80fb9c75-af15-4a6b-9528-715f9ef4ebea"
+    ],
+    "isrcs": [
+      "USNO18716503"
+    ]
+  },
+  "search": {
+    "count": 1,
+    "recordings": [
+      {
+        "id": "df27ce01-abf3-4c10-afa2-fdfe2bfc5abf",
+        "title": "Kalimankou Denkou (The Evening Gathering)",
+        "isrcs": [
+          "USNO18716503"
+        ],
+        "artist-credit": [
+          {
+            "name": "The Bulgarian State Radio and Television Female Vocal Choir",
+            "artist": {
+              "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+              "name": "Bulgarian State Radio & Television Female Vocal Choir"
+            }
+          }
+        ],
+        "releases": [
+          {
+            "id": "7da26152-ccc7-4e0c-9f75-28b5edbcaea5",
+            "artist-credit": [
+              {
+                "name": "Bulgarian State Television Female Choir",
+                "artist": {
+                  "id": "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                  "name": "Bulgarian State Radio & Television Female Vocal Choir"
+                }
+              }
+            ],
+            "media": [
+              {
+                "track": [
+                  {
+                    "id": "de1370c0-273a-4ab0-98f8-9ece744fbf1e",
+                    "title": "Kalimankou Denkou (The Evening Gathering)",
+                    "length": 306000
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

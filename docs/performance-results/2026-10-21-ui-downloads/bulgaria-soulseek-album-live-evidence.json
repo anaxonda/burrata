@@ -1,0 +1,348 @@
+{
+  "qualification": "live forced-Soulseek album batch; read-only physical verification",
+  "operationId": "f6ce9e22-bc79-44da-8fd8-4725834aa1d3",
+  "status": "completed",
+  "requestedCount": 13,
+  "processedCount": 13,
+  "completedJobCount": 9,
+  "failedJobCount": 0,
+  "skippedTrackCount": 4,
+  "completionScope": "selectionAndEnqueue",
+  "sourceProvider": "slskd",
+  "selectedSourceGroup": {
+    "peerGroupCount": 1,
+    "directoryGroupCount": 1,
+    "folderLabel": "Le Mystère des voix bulgares, Volume 1 (1975)",
+    "peerIdentity": "redacted"
+  },
+  "completedTracks": [
+    {
+      "index": 0,
+      "title": "Pilentze Pee",
+      "jobId": "f0d50f86-dbd4-4a83-bf8e-35961cb3c840",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 146.373333,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "match",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 2,
+      "title": "Kalimankou Denkou",
+      "jobId": "cbbadaf2-d852-42ae-a20e-593be385a2a9",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 311.2,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "no_expected",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 3,
+      "title": "Strati na Angelaki Doumasche",
+      "jobId": "6b25fb5a-f5b4-4719-a40e-17a37b1fe6ef",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 161.2,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "no_expected",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 5,
+      "title": "Messetschinko lio Greïlivko",
+      "jobId": "32c6a318-1983-4e31-aa24-e5e3c36db883",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 154.8,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "no_expected",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 6,
+      "title": "Breï Yvane",
+      "jobId": "7082a195-5dad-4e35-a553-e4866802d9f3",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 94.933333,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "no_expected",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 7,
+      "title": "Erghen Diado",
+      "jobId": "23abf92f-033b-4cfa-b970-90eb78089801",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 174.0,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "match",
+          "label": "match",
+          "isrc": "no_expected"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 8,
+      "title": "Sableyalo mi Agontze",
+      "jobId": "5bb3d165-8cab-405b-803f-6f183dff2fa5",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 275.306667,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "no_expected",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 9,
+      "title": "Prïtourïtze Planinata",
+      "jobId": "8cf53315-7e2b-4003-9938-141a4d4f9002",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 170.333333,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "no_expected",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    },
+    {
+      "index": 10,
+      "title": "Mir Stanke Le",
+      "jobId": "6ec34cda-f8be-4cd2-83c5-189875f0007f",
+      "jobState": "completed",
+      "provider": "slskd",
+      "candidateFormat": "flac",
+      "outputAudio": {
+        "container": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitsPerSample": 16,
+        "durationSeconds": 197.026667,
+        "dateTagKey": "releasedate",
+        "dateTagValues": [
+          "1986"
+        ],
+        "tagStatus": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "date": "match",
+          "genre": "no_expected",
+          "label": "match",
+          "isrc": "match"
+        }
+      },
+      "selectedDirectoryLabel": "Le Mystère des voix bulgares, Volume 1 (1975)"
+    }
+  ],
+  "skippedIndexesZeroBased": [
+    1,
+    4,
+    11,
+    12
+  ],
+  "skippedAssessment": {
+    "count": 4,
+    "action": "reject",
+    "title": "agree",
+    "runtime": "agree",
+    "artist": "conflict",
+    "reason": "filenameCaptionOnly + artistConflict",
+    "sourceCaption": "Bulgarian State Radio and Television Female Vocal Choir",
+    "requestedCredit": "The Bulgarian State Radio and Television Female Vocal Choir",
+    "interpretation": "The folder caption alone does not establish the missing recording-scoped artist credit. Accepted sibling recordings had a verified MusicBrainz occurrence credit variant tied to their ISRC; these four did not."
+  },
+  "physicalOutputSummary": {
+    "count": 9,
+    "allCompleted": true,
+    "container": "FLAC",
+    "sampleRateHz": "44100",
+    "channels": 2,
+    "bitsPerSample": 16,
+    "tagFieldStatusCounts": {
+      "artist": {
+        "match": 9
+      },
+      "title": {
+        "match": 9
+      },
+      "album": {
+        "match": 9
+      },
+      "date": {
+        "match": 9
+      },
+      "genre": {
+        "match": 2,
+        "no_expected": 7
+      },
+      "label": {
+        "match": 9
+      },
+      "isrc": {
+        "match": 8,
+        "no_expected": 1
+      }
+    },
+    "actualOutputFilesProbed": true,
+    "usedLibraryAssetLinks": false,
+    "tagKeyCounts": {
+      "releasedate": 9
+    }
+  },
+  "limitations": [
+    "Nine of thirteen requested tracks were downloaded. This is not a complete album qualification.",
+    "Album artist was not present in requested track metadata; no completeness claim is made for that field.",
+    "No PCM comparison was available for the remote source files."
+  ],
+  "taggingVerification": {
+    "dateFieldProbe": "Inspected actual ffprobe format and stream tag keys, including date/originaldate/year/recordingdate/releasedate and ID3 year/date conventions. The files store release year under `releasedate`; all nine equal the requested 1986. No tag-writing fix is needed.",
+    "actualDownloadedDateTagKey": "releasedate",
+    "actualDownloadedDateValues": [
+      "1986"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "purpose": "Synthetic-only test of passing FFmpeg MOV CENC decryption_key through the concat demuxer without placing key material in FFmpeg argv",
+  "ffmpeg": "n9.0.2",
+  "method": "Generated a three-second 440 Hz, 44100 Hz mono FLAC-in-MP4 reference and ordinary plus fragmented CENC AES-CTR MP4 samples with synthetic key and KID. Wrote an ffconcat manifest with absolute media path, `option decryption_key <synthetic hex>`, and `duration 3` to a temporary 0600 file. Passed only the manifest path in argv, then decoded all audio to s16le and compared bytes against the clear reference. Also applied output-side `-ss 1` after the input and compared against the same seek from the clear reference.",
+  "results": [
+    {
+      "container": "ordinary_mp4",
+      "decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "seek_exit": 0,
+      "clear_seek_exit": 0,
+      "seek_pcm_bytes": 176400,
+      "seek_pcm_matches_reference": true,
+      "diagnostic": ""
+    },
+    {
+      "container": "fragmented_mp4",
+      "decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "seek_exit": 0,
+      "clear_seek_exit": 0,
+      "seek_pcm_bytes": 176400,
+      "seek_pcm_matches_reference": true,
+      "diagnostic": ""
+    }
+  ],
+  "key_transport": {
+    "ffmpeg_argv_contains_key": false,
+    "synthetic_key_written_to": "temporary ffconcat manifest, mode 0600",
+    "temporary_file_contains_key_until_deleted": true,
+    "ffmpeg_stderr_contains_key": false,
+    "stdin_manifest_attempt": "Failed for absolute media paths in this invocation: concat resolved `/tmp/.../file.mp4` relative to `pipe:0` as `pipe:/tmp/.../file.mp4`. The 0600 temporary-file manifest worked."
+  },
+  "implementation_implication": "A native launcher can create a private, mode-0600 ffconcat manifest, invoke FFmpeg with only the manifest path, and unlink it after process completion. This is simpler than a libavformat helper and worked for full decode and post-input start seek in both synthetic container forms. Key material remains briefly on disk in the manifest; cleanup and restrictive permissions are part of this method. This probe does not validate provider URLs, live credentials, real media, or device playback.",
+  "official_reference": {
+    "title": "FFmpeg Formats Documentation, concat demuxer syntax",
+    "url": "https://www.ffmpeg.org/ffmpeg-formats.html#concat",
+    "note": "Documents per-file `option key value` directives and `duration` directives in an ffconcat script."
+  }
+}

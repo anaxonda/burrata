@@ -1,0 +1,28 @@
+{
+  "scope": "User-authorized two-excerpt SongRec/Shazam identification test; no library or tag changes",
+  "assetTitle": "Por ella",
+  "requestedArtist": "Clip Tekameli",
+  "excerptDurationSeconds": 20,
+  "results": [
+    {
+      "startSeconds": 5,
+      "exitCode": 0,
+      "recognized": true,
+      "title": "Por Ella",
+      "artist": "Tékaméli",
+      "shazamId": "10222041",
+      "isrc": "FRZ089900030"
+    },
+    {
+      "startSeconds": 188.5,
+      "exitCode": 0,
+      "recognized": true,
+      "title": "Por Ella",
+      "artist": "Tékaméli",
+      "shazamId": "10222041",
+      "isrc": "FRZ089900030"
+    }
+  ],
+  "conclusion": "Both excerpts agree on recording identification. This probe does not establish the result of the historical MusicBrainz lookup or album metadata, nor exact mix/version identity.",
+  "rawProviderResponsesPublished": false
+}

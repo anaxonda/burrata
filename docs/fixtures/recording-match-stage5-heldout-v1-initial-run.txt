@@ -1,0 +1,23 @@
+   Compiling burrata-heldout-matching v0.0.0 (/home/loki/projects/burrata/scripts/heldout-matching)
+    Finished `dev` profile [unoptimized] target(s) in 6.48s
+     Running `.cache/verification-target/debug/burrata-heldout-matching`
+PASS case=same-isrc-seven-nation-army stage=Search mode=Exact expected=Exact/Inspect/RecordingIdentifier actual=Exact/Inspect/RecordingIdentifier reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees, IsrcAgrees] synthetic=false
+PASS case=same-isrc-seven-nation-army stage=Search mode=Balanced expected=Exact/Inspect/RecordingIdentifier actual=Exact/Inspect/RecordingIdentifier reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees, IsrcAgrees] synthetic=false
+PASS case=same-isrc-seven-nation-army stage=Search mode=Flexible expected=Exact/Inspect/RecordingIdentifier actual=Exact/Inspect/RecordingIdentifier reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees, IsrcAgrees] synthetic=false
+PASS case=same-isrc-seven-nation-army stage=Resolved mode=Exact expected=Exact/Accept/RecordingIdentifier actual=Exact/Accept/RecordingIdentifier reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees, IsrcAgrees] synthetic=false
+PASS case=same-isrc-seven-nation-army stage=Resolved mode=Balanced expected=Exact/Accept/RecordingIdentifier actual=Exact/Accept/RecordingIdentifier reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees, IsrcAgrees] synthetic=false
+PASS case=same-isrc-seven-nation-army stage=Resolved mode=Flexible expected=Exact/Accept/RecordingIdentifier actual=Exact/Accept/RecordingIdentifier reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees, IsrcAgrees] synthetic=false
+PASS case=known-isrc-conflict-seven-vs-smells stage=Search mode=Exact expected=Unresolved/Reject/MetadataOnly actual=Unresolved/Reject/MetadataOnly reasons=[RuntimeConflict, IsrcConflict, TitleConflict, ArtistConflict] synthetic=false
+PASS case=known-isrc-conflict-seven-vs-smells stage=Search mode=Balanced expected=Unresolved/Reject/MetadataOnly actual=Unresolved/Reject/MetadataOnly reasons=[RuntimeConflict, IsrcConflict, TitleConflict, ArtistConflict] synthetic=false
+PASS case=known-isrc-conflict-seven-vs-smells stage=Search mode=Flexible expected=Unresolved/Reject/MetadataOnly actual=Unresolved/Reject/MetadataOnly reasons=[RuntimeConflict, IsrcConflict, TitleConflict, ArtistConflict] synthetic=false
+PASS case=known-isrc-conflict-seven-vs-smells stage=Resolved mode=Exact expected=Unresolved/Reject/MetadataOnly actual=Unresolved/Reject/MetadataOnly reasons=[RuntimeConflict, IsrcConflict, TitleConflict, ArtistConflict] synthetic=false
+PASS case=known-isrc-conflict-seven-vs-smells stage=Resolved mode=Balanced expected=Unresolved/Reject/MetadataOnly actual=Unresolved/Reject/MetadataOnly reasons=[RuntimeConflict, IsrcConflict, TitleConflict, ArtistConflict] synthetic=false
+PASS case=known-isrc-conflict-seven-vs-smells stage=Resolved mode=Flexible expected=Unresolved/Reject/MetadataOnly actual=Unresolved/Reject/MetadataOnly reasons=[RuntimeConflict, IsrcConflict, TitleConflict, ArtistConflict] synthetic=false
+DIFF case=missing-id-agreement-seven-nation-army stage=Search mode=Exact expected=Unresolved/Inspect/MetadataOnly actual=Exact/Inspect/MetadataOnly reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees] synthetic=true
+DIFF case=missing-id-agreement-seven-nation-army stage=Search mode=Balanced expected=Unresolved/Inspect/MetadataOnly actual=Exact/Inspect/MetadataOnly reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees] synthetic=true
+DIFF case=missing-id-agreement-seven-nation-army stage=Search mode=Flexible expected=Unresolved/Inspect/MetadataOnly actual=Exact/Inspect/MetadataOnly reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees] synthetic=true
+DIFF case=missing-id-agreement-seven-nation-army stage=Resolved mode=Exact expected=Unresolved/Enrich/MetadataOnly actual=Exact/Accept/MetadataOnly reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees] synthetic=true
+DIFF case=missing-id-agreement-seven-nation-army stage=Resolved mode=Balanced expected=Unresolved/Enrich/MetadataOnly actual=Exact/Accept/MetadataOnly reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees] synthetic=true
+DIFF case=missing-id-agreement-seven-nation-army stage=Resolved mode=Flexible expected=Unresolved/Enrich/MetadataOnly actual=Exact/Accept/MetadataOnly reasons=[TitleAgrees, ArtistAgrees, RuntimeAgrees] synthetic=true
+evaluated=18 differences=6; catalog identity outcomes do not verify provider audio
+6 held-out expectations differ

@@ -228,7 +228,7 @@ describe("RadioView", () => {
       throw new Error(`Unexpected command ${command}`);
     });
     const onPlayStation = vi.fn(), onArtist = vi.fn();
-    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onStationsChanged } });
+    const instance = mount(RadioView, { target: document.body, props: { onPlayStation, onArtist, onStationsChanged, showAdd: true } });
     cleanup = () => { void unmount(instance); };
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
@@ -275,7 +275,7 @@ describe("RadioView", () => {
       throw new Error(`Unexpected command ${command}`);
     });
     const onStationsChanged = vi.fn();
-    const instance = mount(RadioView, { target: document.body, props: { onPlayStation: vi.fn(), onArtist: vi.fn(), onStationsChanged } });
+    const instance = mount(RadioView, { target: document.body, props: { onPlayStation: vi.fn(), onArtist: vi.fn(), onStationsChanged, showAdd: true } });
     cleanup = () => { void unmount(instance); };
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
@@ -312,6 +312,34 @@ describe("RadioView", () => {
     expect(document.querySelector(".radio-empty")?.classList.contains("empty")).toBe(false);
     expect(document.querySelector<HTMLButtonElement>(".station-actions .add-button")?.textContent).toContain("Play station");
     expect(mocks.call).toHaveBeenCalledWith("poll_radio_station", { stationId: "rock", recognize: false });
+  });
+
+  it("keeps Add station in the sidebar flow and edits the selected station URL by stable ID", async () => {
+    const updated = { ...stations[0]!, streamUrl: "https://radio.example/replacement" };
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_radio_stations") return stations;
+      if (command === "get_station_details") return { stationId: args?.stationId, streamUrl: "https://radio.example/stale-details" };
+      if (command === "poll_radio_station") return { stationId: args?.stationId, nowPlaying: null, history: [], historyAvailable: false, note: "" };
+      if (command === "edit_radio_station_url") return [updated, ...stations.slice(1)];
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const onStationsChanged = vi.fn();
+    const instance = mount(RadioView, { target: document.body, props: { onPlayStation: vi.fn(), onArtist: vi.fn(), onStationsChanged, selectedStationId: "main" } });
+    cleanup = () => { void unmount(instance); };
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    await tick();
+    expect([...document.querySelectorAll("button")].some(button => button.textContent?.includes("Add station"))).toBe(false);
+    document.querySelector<HTMLButtonElement>(".station-actions button:nth-child(2)")!.click();
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Edit stream URL"]')!;
+    expect(input.value).toBe(stations[0]!.streamUrl);
+    input.value = "https://radio.example/replacement";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    document.querySelector<HTMLFormElement>(".edit-station-url")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    await tick();
+    expect(mocks.call).toHaveBeenCalledWith("edit_radio_station_url", { stationId: "main", url: "https://radio.example/replacement" });
+    expect(onStationsChanged).toHaveBeenLastCalledWith([updated, ...stations.slice(1)]);
   });
 
   it("uses the selected station’s own page identity and loads persistent history without polling while browsing", async () => {
@@ -531,4 +559,53 @@ describe("RadioView", () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("Recognition service unavailable");
   });
 
+});
+
+it("persists station playlist capture only after explicit opt-in and offers local targets", async () => {
+  mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+    if (command === "get_radio_playlist_option") return {enabled: false, collectionId: null};
+    if (command === "list_radio_playlist_targets") return [{id: "local-target", name: "My local songs"}];
+    if (command === "set_radio_playlist_option") return {enabled: args?.enabled, collectionId: "local-target"};
+    if (command === "search_playback_history") return {items: [], total: 0};
+    if (command === "get_station_details") return {stationId: args?.stationId};
+    throw new Error(`Unexpected command ${command}`);
+  });
+  const instance = mount(RadioView, {target: document.body, props: {savedStations: stations, selectedStationId: "main", onPlayStation: vi.fn(), onArtist: vi.fn()}});
+  cleanup = () => unmount(instance);
+  for (let i = 0; i < 8; i++) {await tick(); await Promise.resolve();}
+  const checkbox = document.querySelector<HTMLInputElement>('.radio-playlist-capture input[type="checkbox"]')!;
+  expect(checkbox.checked).toBe(false);
+  expect(mocks.call.mock.calls.some(([command]) => command === "set_radio_playlist_option")).toBe(false);
+  const target = document.querySelector<HTMLSelectElement>('select[aria-label="Radio capture playlist"]')!;
+  expect(target.textContent).toContain("New playlist: Main Mix");
+  target.value = "local-target"; target.dispatchEvent(new Event("change", {bubbles: true}));
+  checkbox.checked = true; checkbox.dispatchEvent(new Event("change", {bubbles: true}));
+  for (let i = 0; i < 8; i++) {await tick(); await Promise.resolve();}
+  expect(mocks.call).toHaveBeenCalledWith("set_radio_playlist_option", {stationId: "main", enabled: true, collectionId: "local-target"});
+  expect(checkbox.checked).toBe(true);
+});
+
+it("selects radio history for playlists and keeps canonical song downloads", async () => {
+  const metadata = {stationId: "main", artist: "Fixture Artist", title: "Heard Song", sourceUrl: "", metadataConfidence: "station"};
+  const canonical = {id: "radio_song:heard", provider: "radio_song", providerId: "heard", title: "Heard Song", artist: "Fixture Artist", sourceUrl: "", provenance: {sourceKind: "radioSong"}};
+  mocks.call.mockImplementation(async (command: string) => {
+    if (command === "get_radio_playlist_option") return {enabled: false, collectionId: null};
+    if (command === "list_radio_playlist_targets") return [];
+    if (command === "get_station_details") return {stationId: "main", history: [metadata], historyAvailable: true};
+    if (command === "search_playback_history") return {items: [], total: 0};
+    if (command === "get_radio_song_track") return canonical;
+    throw new Error(`Unexpected command ${command}`);
+  });
+  const onAddSelectedToPlaylist = vi.fn(), onDownloadTrack = vi.fn();
+  const instance = mount(RadioView, {target: document.body, props: {savedStations: stations, selectedStationId: "main", onPlayStation: vi.fn(), onArtist: vi.fn(), onAddSelectedToPlaylist, onDownloadTrack}});
+  cleanup = () => unmount(instance);
+  for (let i = 0; i < 12; i++) {await tick(); await Promise.resolve();}
+  document.querySelector<HTMLButtonElement>('.history .start-selection')!.click(); await tick();
+  [...document.querySelectorAll<HTMLButtonElement>('.history button')].find(button => button.textContent === "Select visible")!.click(); await tick();
+  document.querySelector<HTMLButtonElement>('.history .add-selected')!.click();
+  for (let i = 0; i < 8; i++) {await tick(); await Promise.resolve();}
+  expect(onAddSelectedToPlaylist).toHaveBeenCalledWith([expect.objectContaining({id: "radio_song:heard", sourceUrl: ""})]);
+  document.querySelector<HTMLButtonElement>('[aria-label="Download Heard Song"]')!.click();
+  for (let i = 0; i < 8; i++) {await tick(); await Promise.resolve();}
+  expect(onDownloadTrack).toHaveBeenCalledWith(expect.objectContaining({id: "radio_song:heard", sourceUrl: ""}));
 });

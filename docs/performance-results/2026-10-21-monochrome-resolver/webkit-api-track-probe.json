@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "probe": "webkitgtk_connection",
+  "started_at": "2026-10-21T20:28:12Z",
+  "url_origin": "https://music-api.geeked.wtf",
+  "webkit_version": {
+    "major": 2,
+    "minor": 54,
+    "micro": 1
+  },
+  "load_events": [
+    "started",
+    "committed",
+    "finished"
+  ],
+  "failures": [],
+  "api_resources": [
+    {
+      "host": "music-api.geeked.wtf",
+      "path": "/api/v2/track/"
+    }
+  ],
+  "main_response_status": 401,
+  "page": {
+    "origin": "https://music-api.geeked.wtf",
+    "title": null,
+    "has_turnstile_script": false,
+    "has_challenge_frame": false,
+    "response_api_error": true,
+    "indicators": {
+      "blocked": false,
+      "origin_dns_error": false,
+      "signature": false,
+      "captcha": false,
+      "login": false
+    }
+  },
+  "response_api_error": true
+}

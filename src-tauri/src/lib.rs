@@ -42,6 +42,8 @@ pub mod metadata;
 pub mod metadata_normalization;
 pub mod models;
 pub mod monochrome;
+pub(crate) mod monochrome_playback;
+pub mod monochrome_resolver;
 #[cfg(target_os = "linux")]
 pub mod mpris;
 pub mod native_output;
@@ -62,6 +64,7 @@ pub mod provider_read_requests;
 pub mod providers;
 mod queued_playback;
 pub mod radio;
+pub mod recording_filename;
 pub mod recording_identity;
 pub mod recording_match;
 mod recording_match_aliases;
@@ -85,6 +88,7 @@ mod webview_audio_transport;
 pub mod webview_identification;
 pub mod webview_radio_pcm;
 mod youtube_direct_experiment;
+mod youtube_download_recovery;
 pub mod youtube_music;
 pub mod youtube_support;
 mod youtube_web_search;
@@ -301,6 +305,34 @@ async fn add_custom_radio_station(
     radio::add_custom_radio_station(name, url, &state.store).await
 }
 #[tauri::command]
+async fn edit_radio_station_url(
+    state: State<'_, AppState>,
+    station_id: String,
+    url: String,
+) -> Result<Vec<radio::RadioStation>> {
+    radio::edit_radio_station_url(station_id, url, &state.store).await
+}
+#[tauri::command]
+fn list_radio_playlist_targets(state: State<'_, AppState>) -> Result<Vec<Collection>> {
+    radio::list_radio_playlist_targets(&state.store)
+}
+#[tauri::command]
+fn get_radio_playlist_option(
+    state: State<'_, AppState>,
+    station_id: String,
+) -> Result<radio::RadioPlaylistOption> {
+    radio::get_radio_playlist_option(&state.store, &station_id)
+}
+#[tauri::command]
+fn set_radio_playlist_option(
+    state: State<'_, AppState>,
+    station_id: String,
+    enabled: bool,
+    collection_id: Option<String>,
+) -> Result<radio::RadioPlaylistOption> {
+    radio::set_radio_playlist_option(&state.store, &station_id, enabled, collection_id.as_deref())
+}
+#[tauri::command]
 fn remove_radio_station(
     state: State<'_, AppState>,
     station_id: String,
@@ -376,6 +408,8 @@ async fn resolve_radio_station_playback_url(
                     content_length: None,
                     has_video: false,
                 }),
+
+                cenc: None,
             };
             let convert = webview_audio_transcode::needs_live_ogg_conversion(
                 mime.as_deref(),
@@ -2150,6 +2184,13 @@ fn retry_autotag(state: State<'_, AppState>, asset_id: String) -> Result<bool> {
     state.autotag.retry(&asset_id)
 }
 #[tauri::command]
+async fn repair_download_source_tags(
+    state: State<'_, AppState>,
+    asset_id: String,
+) -> Result<autotag::DownloadSourceTagRepairResult> {
+    state.autotag.repair_download_source_tags(&asset_id).await
+}
+#[tauri::command]
 fn review_autotag_candidate(
     state: State<'_, AppState>,
     asset_id: String,
@@ -2166,6 +2207,18 @@ async fn apply_autotag_review(
     state
         .autotag
         .apply_review(&asset_id, &field_keys.unwrap_or_default())
+        .await
+}
+
+#[tauri::command]
+async fn apply_recognition_review(
+    state: State<'_, AppState>,
+    asset_id: String,
+    field_keys: Vec<String>,
+) -> Result<LocalAsset> {
+    state
+        .autotag
+        .apply_recognition_review(&asset_id, &field_keys)
         .await
 }
 
@@ -2191,6 +2244,238 @@ async fn playback_command(
     command: serde_json::Value,
 ) -> Result<serde_json::Value> {
     state.playback.execute(command).await
+}
+
+// Queue projections deliberately contain only occurrence display identity.
+// Compare source metadata against the active-track snapshot, where the WebView
+// publisher actually sends it, while retaining the compact queue ID check.
+fn webview_handoff_track_matches(
+    active_track: &serde_json::Value,
+    queue_track: Option<&serde_json::Value>,
+    expected: &Track,
+) -> bool {
+    queue_track.and_then(|track| track["id"].as_str()) == Some(expected.id.as_str())
+        && active_track["id"].as_str() == Some(expected.id.as_str())
+        && active_track["sourceUrl"].as_str() == Some(expected.source_url.as_str())
+        && active_track["durationSeconds"].as_f64() == expected.duration_seconds
+}
+
+/// CENC sources are native-decoder inputs, never WebView media URLs. Keep this
+/// check ahead of transport registration and preview serialization so the
+/// lease-bearing loopback URL cannot cross the Tauri command boundary.
+fn ensure_webview_compatible_source(
+    source: &native_output::AudioSource,
+) -> std::result::Result<(), &'static str> {
+    if source.cenc.is_some() {
+        Err("Encrypted lossless audio requires native playback")
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod webview_handoff_snapshot_tests {
+    use super::*;
+    #[test]
+    fn compact_queue_uses_active_track_metadata_and_rejects_changed_sources() {
+        let expected = Track {
+            id: "youtube:6MAzUT1YhWE".into(),
+            source_url: "https://www.youtube.com/watch?v=6MAzUT1YhWE".into(),
+            duration_seconds: Some(6128.0),
+            ..Track::default()
+        };
+        let queue =
+            serde_json::json!({"id":expected.id,"artist":"Fred again..","title":"Rooftop Live"});
+        let active = serde_json::json!({"id":expected.id,"sourceUrl":expected.source_url,"durationSeconds":6128.0});
+        assert!(webview_handoff_track_matches(
+            &active,
+            Some(&queue),
+            &expected
+        ));
+        let mut changed = active.clone();
+        changed["sourceUrl"] = serde_json::json!("https://www.youtube.com/watch?v=otherSource");
+        assert!(!webview_handoff_track_matches(
+            &changed,
+            Some(&queue),
+            &expected
+        ));
+        changed = active.clone();
+        changed["durationSeconds"] = serde_json::json!(42.0);
+        assert!(!webview_handoff_track_matches(
+            &changed,
+            Some(&queue),
+            &expected
+        ));
+        assert!(!webview_handoff_track_matches(&active, None, &expected));
+        assert!(!webview_handoff_track_matches(
+            &active,
+            Some(&serde_json::json!({"id":"different-occurrence-track"})),
+            &expected
+        ));
+    }
+}
+
+#[cfg(test)]
+mod webview_cenc_boundary_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn source(cenc: bool) -> native_output::AudioSource {
+        native_output::AudioSource {
+            input: "http://127.0.0.1/webview-audio/test?token=redacted".into(),
+            ffmpeg: PathBuf::new(),
+            headers: vec![],
+            decoder_hint: None,
+            cenc: cenc.then(|| {
+                native_output::EncryptedMp4Audio::new(
+                    native_output::CencDecryptionKey::from_hex("0123456789abcdef0123456789abcdef")
+                        .unwrap(),
+                )
+            }),
+        }
+    }
+
+    #[test]
+    fn encrypted_sources_are_rejected_before_webview_preview_registration() {
+        assert_eq!(
+            ensure_webview_compatible_source(&source(true)),
+            Err("Encrypted lossless audio requires native playback")
+        );
+        assert!(ensure_webview_compatible_source(&source(false)).is_ok());
+    }
+}
+
+#[tauri::command]
+async fn handoff_resolved_playback_source(
+    state: State<'_, AppState>,
+    handoff: playback::ResolvedSourceHandoff,
+) -> Result<serde_json::Value> {
+    let automation = state.automation.clone();
+    let resolution = state.playback_resolution.clone();
+    state
+        .playback
+        .handoff_webview_resolved_source(handoff, move |request, track_id| {
+            let Ok(gate) = resolution.lock() else {
+                return false;
+            };
+            if gate.generation != request.source_generation {
+                return false;
+            }
+            let current = automation.playback_tracking_snapshot();
+            if current["engine"].as_str() == Some("native")
+                || current["status"].as_str() != Some("buffering")
+                || current["trackId"].as_str() != Some(track_id)
+                || current["sourceGeneration"].as_u64() != Some(request.source_generation)
+                || current["seekSerial"].as_u64() != Some(request.seek_serial)
+                || current["sessionId"].as_str() != Some(request.session_id.as_str())
+                || current["entryId"].as_str() != Some(request.entry_id.as_str())
+                || current["currentIndex"].as_u64() != Some(request.index as u64)
+            {
+                return false;
+            }
+            let expected = &request.tracks[request.index];
+            let mut revision = None;
+            for offset in (0..request.tracks.len()).step_by(200) {
+                let page = automation.playback_snapshot_page(offset, 200);
+                if page["queueTotal"].as_u64() != Some(request.tracks.len() as u64) {
+                    return false;
+                }
+                if let Some(previous) = &revision {
+                    if previous != &page["queueRevision"] {
+                        return false;
+                    }
+                } else {
+                    revision = Some(page["queueRevision"].clone());
+                }
+                let Some(rows) = page["queue"].as_array() else {
+                    return false;
+                };
+                let Some(ids) = page["queueEntryIds"].as_array() else {
+                    return false;
+                };
+                let length = (request.tracks.len() - offset).min(200);
+                if rows.len() != length || ids.len() != length {
+                    return false;
+                }
+                for index in 0..length {
+                    if rows[index]["id"].as_str()
+                        != Some(request.tracks[offset + index].id.as_str())
+                        || ids[index].as_str() != Some(request.entry_ids[offset + index].as_str())
+                    {
+                        return false;
+                    }
+                }
+                if (offset..offset + length).contains(&request.index)
+                    && !webview_handoff_track_matches(
+                        &current["track"],
+                        rows.get(request.index - offset),
+                        expected,
+                    )
+                {
+                    return false;
+                }
+            }
+            true
+        })
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+async fn handoff_webview_playback(
+    state: State<'_, AppState>,
+    handoff: playback::WebViewPlaybackHandoff,
+) -> Result<serde_json::Value> {
+    if state.playback.native_enabled() {
+        return Err("Playback ownership has already transferred".into());
+    }
+    let idx = handoff.index;
+    let expected_track_id = handoff
+        .tracks
+        .get(idx)
+        .map(|track| track.id.clone())
+        .ok_or_else(|| "Playback queue position is out of range".to_owned())?;
+    let expected_track = handoff.tracks[idx].clone();
+    let automation = state.automation.clone();
+    let identification = state.webview_identification.clone();
+    let expected_source_generation = handoff.source_generation;
+    let expected_seek_serial = handoff.seek_serial;
+    let expected_session = handoff.session_id.clone();
+    let expected_entry = handoff.entry_id.clone();
+    state
+        .playback
+        .handoff_webview(handoff, move |generation, track_id| {
+            let current = automation.playback_tracking_snapshot();
+            let queue = automation.playback_snapshot_page(idx, 1);
+            let queue_track = queue["queue"].as_array().and_then(|tracks| tracks.first());
+            let current_status = current["status"].as_str();
+            let active_webview_audio = if current_status == Some("paused") {
+                current["paused"].as_bool() == Some(true)
+            } else {
+                matches!(current_status, Some("playing" | "buffering"))
+                    && current["paused"].as_bool() == Some(false)
+            };
+            current["engine"].as_str() != Some("native")
+                && active_webview_audio
+                && current["trackId"]
+                    .as_str()
+                    .or_else(|| current["track"]["id"].as_str())
+                    == Some(expected_track_id.as_str())
+                && current["sourceGeneration"].as_u64() == Some(expected_source_generation)
+                && current["seekSerial"].as_u64() == Some(expected_seek_serial)
+                && current["sessionId"].as_str() == Some(expected_session.as_str())
+                && current["entryId"].as_str() == Some(expected_entry.as_str())
+                && current["currentIndex"].as_u64() == Some(idx as u64)
+                && webview_handoff_track_matches(&current["track"], queue_track, &expected_track)
+                && queue["queueEntryIds"]
+                    .as_array()
+                    .and_then(|ids| ids.first())
+                    .and_then(serde_json::Value::as_str)
+                    == Some(expected_entry.as_str())
+                && identification.matches_registered_youtube_source(generation, track_id)
+        })
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -2255,10 +2540,16 @@ fn automation_ui_navigation_complete(
     request_id: String,
     destination: String,
     status: String,
+    release_revision: Option<String>,
+    track_count: Option<usize>,
 ) {
-    state
-        .automation
-        .complete_ui_navigation_request(&request_id, &destination, &status);
+    state.automation.complete_ui_navigation_request(
+        &request_id,
+        &destination,
+        &status,
+        release_revision.as_deref(),
+        track_count,
+    );
 }
 
 #[tauri::command]
@@ -2374,6 +2665,7 @@ pub(crate) fn invalidate_managed_playback_sources(state: &AppState, providers: &
         state.webview_audio_transport.cancel_older_than(generation);
         state.webview_audio_transcoder.cancel_older_than(generation);
     }
+    state.playback.cancel_all_pending_native_sources();
     state.webview_identification.clear();
 }
 
@@ -2782,6 +3074,8 @@ async fn resolve_preview(
                     ffmpeg: tools::executable(&settings.ffmpeg_path, "ffmpeg"),
                     headers: vec![],
                     decoder_hint: None,
+
+                    cenc: None,
                 })
             } else {
                 None
@@ -2797,6 +3091,8 @@ async fn resolve_preview(
                     ffmpeg: tools::executable(&state.store.settings()?.ffmpeg_path, "ffmpeg"),
                     headers: vec![],
                     decoder_hint: None,
+
+                    cenc: None,
                 })
             } else {
                 None
@@ -2895,6 +3191,57 @@ fn playback_request_budget(settings: &Settings, budget_ms: Option<u64>) -> std::
     std::time::Duration::from_millis(budget_ms.unwrap_or(maximum_ms).clamp(1, maximum_ms))
 }
 
+fn should_relay_seek_recovery_source(
+    seek_recovery: bool,
+    track: &Track,
+    candidate: Option<&Candidate>,
+    source_url: &str,
+    local_source: bool,
+    is_station: bool,
+) -> bool {
+    if !seek_recovery || local_source || is_station || track.provider != "youtube" {
+        return false;
+    }
+    let Some(candidate) = candidate else {
+        return false;
+    };
+    let Some(video_id) = candidate.id.strip_prefix("youtube:") else {
+        return false;
+    };
+    if candidate.provider != "youtube"
+        || video_id != track.provider_id
+        || candidate.source.is_some()
+        || candidate
+            .chapters
+            .as_ref()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || track.provenance["chapters"]
+            .as_array()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || track.local_path.is_some()
+        || track.asset_id.is_some()
+        || track.playback_range.is_some()
+        || track
+            .version
+            .as_deref()
+            .is_some_and(|version| !version.trim().is_empty())
+        || !track
+            .duration_seconds
+            .is_some_and(|duration| duration.is_finite() && (5.0..=86_400.0).contains(&duration))
+        || acquisition::validate_source_url(&candidate.url, "youtube").is_err()
+        || acquisition::youtube_video_id(&candidate.url).as_deref() != Some(video_id)
+        || acquisition::validate_source_url(&track.source_url, "youtube").is_err()
+        || acquisition::youtube_video_id(&track.source_url).as_deref() != Some(video_id)
+    {
+        return false;
+    }
+    let Ok(url) = acquisition::validate_source_url(source_url, "direct") else {
+        return false;
+    };
+    url.host_str()
+        .is_some_and(|host| host == "googlevideo.com" || host.ends_with(".googlevideo.com"))
+}
+
 #[tauri::command]
 async fn resolve_playback_track(
     state: State<'_, AppState>,
@@ -2905,6 +3252,7 @@ async fn resolve_playback_track(
     failed_candidates: Option<Vec<playback_sources::FailedPlaybackCandidate>>,
     refresh_candidate_fresh: Option<bool>,
     refresh_candidate: Option<Candidate>,
+    seek_recovery: Option<bool>,
     attempt_limit: Option<usize>,
     webview_capabilities: Option<webview_audio_transcode::WebviewAudioCapabilities>,
 ) -> Result<serde_json::Value> {
@@ -2943,6 +3291,7 @@ async fn resolve_playback_track(
                 cancel.clone(),
                 request_generation,
                 deadline,
+                seek_recovery.unwrap_or(false),
             )
             .await
         } else {
@@ -2966,6 +3315,27 @@ async fn resolve_playback_track(
     let resolved = resolve_with_shared_playback_deadline(deadline, &stop, &cancel, resolver).await;
 
     let mut resolved = resolved?;
+    if resolved.source.cenc.is_some() {
+        let mut gate = state
+            .playback_resolution
+            .lock()
+            .map_err(|_| "Playback resolver unavailable")?;
+        gate.finish(request_generation, &stop);
+        if gate.generation != request_generation || *cancel.borrow() {
+            return Err("Playback resolution was superseded".into());
+        }
+        // Retain the encrypted input and its lease entirely in Rust. The
+        // WebView receives only a short-lived one-use handoff capability.
+        let source_handle =
+            state
+                .playback
+                .register_native_resolved_source(request_generation, &track, resolved)?;
+        return Ok(serde_json::json!({
+            "transport":"native", "sourceHandle":source_handle,
+            "sourceGeneration":request_generation
+        }));
+    }
+    ensure_webview_compatible_source(&resolved.source)?;
     if let Some(station) = resolved.station.as_ref() {
         let transport = radio::resolve_station_playback_until(
             station.id.clone(),
@@ -3021,6 +3391,8 @@ async fn resolve_playback_track(
                     ffmpeg: tools::executable(&settings.ffmpeg_path, "ffmpeg"),
                     headers: vec![],
                     decoder_hint: None,
+
+                    cenc: None,
                 }
             } else {
                 resolved.source.clone()
@@ -3048,6 +3420,14 @@ async fn resolve_playback_track(
     }
     let resolved_asset_id = resolved.quality["assetId"].as_str();
     let local_source = resolved_asset_id.is_some();
+    let seek_recovery_relay = should_relay_seek_recovery_source(
+        seek_recovery.unwrap_or(false),
+        &track,
+        resolved.candidate.as_ref(),
+        &resolved.source.input,
+        local_source,
+        resolved.station.is_some(),
+    );
     let mut relayed = false;
     let convert = resolved.station.is_some()
         && webview_audio_transcode::needs_live_ogg_conversion(
@@ -3085,7 +3465,10 @@ async fn resolve_playback_track(
             return Err("Verified excerpt asset changed after proof validation".into());
         }
         state.local_audio.url_for(&asset.id)?
-    } else if convert || webview_audio_transport::needs_relay(&resolved.source) {
+    } else if convert
+        || seek_recovery_relay
+        || webview_audio_transport::needs_relay(&resolved.source)
+    {
         relayed = true;
         state
             .webview_audio_transport
@@ -3155,6 +3538,7 @@ async fn resolve_playback_track(
         "audioExpectedContentLength": resolved.quality.get("expectedContentLength").and_then(serde_json::Value::as_u64),
         "sourceHeaderPolicy": webview_header_policy(&resolved.source.headers),
         "sourceTransport": if convert { "loopback-transcode" } else if relayed { "loopback-relay" } else { "direct" },
+        "seekRecoveryRelay": seek_recovery_relay,
         "sourceGeneration": request_generation
     });
     Ok(serde_json::json!({
@@ -3179,6 +3563,9 @@ fn cancel_playback_resolution(state: State<'_, AppState>, request_generation: u6
         .lock()
         .map_err(|_| "Playback resolver unavailable")?
         .cancel_older_than(request_generation);
+    state
+        .playback
+        .cancel_pending_native_sources_older_than(request_generation);
     Ok(())
 }
 
@@ -4365,6 +4752,79 @@ async fn find_candidates(
         .find_candidates(&track, &provider_ids, &state.store.settings()?)
         .await
 }
+
+#[tauri::command]
+async fn find_soulseek_album_candidates(
+    state: State<'_, AppState>,
+    tracks: Vec<Track>,
+    request_id: String,
+) -> Result<Vec<acquisition::SoulseekAlbumAssignment>> {
+    let guard = state.provider_reads.begin(request_id)?;
+    state
+        .acquisition
+        .find_soulseek_album_candidates(&tracks, guard.cancellation())
+        .await
+}
+
+#[tauri::command]
+async fn prepare_download_match_identity(
+    state: State<'_, AppState>,
+    track: Track,
+    request_id: String,
+) -> Result<()> {
+    let guard = state.provider_reads.begin(request_id.clone())?;
+    let cancel = guard.cancellation();
+    if !crate::artist_alias_lookup::enabled()
+        || !(track.provider == "spotify"
+            || track.provider == "catalog"
+                && matches!(
+                    track.provenance["catalogProvider"].as_str(),
+                    Some("musicbrainz" | "discogs")
+                )
+            || matches!(
+                track.provider.as_str(),
+                "beatport" | "traxsource" | "local" | "radio_song"
+            ) && track.isrc.is_some())
+    {
+        return Ok(());
+    }
+    let deadline = playback_sources::PlaybackDeadline::after(std::time::Duration::from_secs(8));
+    let trace = playback_sources::SourceTrace::new(Some(request_id), None, None);
+    let _ = crate::artist_alias_lookup::lookup(
+        &state.acquisition,
+        &track,
+        cancel.clone(),
+        deadline,
+        &trace,
+    )
+    .await;
+    if *cancel.borrow() {
+        return Err("Download identity preparation cancelled".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn find_download_candidates(
+    state: State<'_, AppState>,
+    track: Track,
+    provider_id: String,
+    request_id: String,
+) -> Result<Vec<Candidate>> {
+    let guard = state.provider_reads.begin(request_id)?;
+    let deadline = playback_sources::PlaybackDeadline::after(std::time::Duration::from_secs(22));
+    state
+        .acquisition
+        .find_download_candidates_with_cached_aliases(
+            &track,
+            &provider_id,
+            &state.store.settings()?,
+            guard.cancellation(),
+            deadline,
+        )
+        .await
+}
+
 #[tauri::command]
 async fn search_audio_tracks(
     state: State<'_, AppState>,
@@ -4455,6 +4915,8 @@ async fn resolve_candidate_audio(
                 content_length: audio.expected_content_length,
                 has_video: audio.selected_format_has_video,
             }),
+
+            cenc: None,
         };
         hls_transport = webview_audio_transport::is_hls(&source);
         if webview_audio_transport::needs_relay(&source) {
@@ -4502,6 +4964,8 @@ async fn resolve_candidate_audio(
                     ffmpeg: tools::executable(&settings.ffmpeg_path, "ffmpeg"),
                     headers: audio.headers.clone(),
                     decoder_hint: None,
+
+                    cenc: None,
                 },
                 false,
                 None,
@@ -4576,8 +5040,8 @@ fn emit_upcoming_candidate_search_trace(
     eprintln!("burrata_playback_phase {}", payload);
 }
 
-// Candidate search only: no inspection, matching promotion, audio URL resolution,
-// probing, mapping writes or changes to the foreground playback deadline.
+// Queue-owned identity facts and raw candidate search only: no audio extraction,
+// expiring URL resolution, probing or foreground deadline changes.
 #[tauri::command]
 async fn warm_playback_candidate_search(
     state: State<'_, AppState>,
@@ -4616,20 +5080,18 @@ async fn warm_playback_candidate_search(
             || serde_json::json!({"requestId":trace_request_id}),
         );
     }
-    let alternate_artists =
-        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&state.store, &track)
-            .search_artist_candidates();
-    let search = state
-        .acquisition
-        .warm_playback_candidates_cancelled(
-            &track,
-            &alternate_artists,
-            std::slice::from_ref(&provider),
-            &settings,
-            cancel,
-            deadline,
-        )
-        .await;
+    let trace = playback_sources::SourceTrace::new(trace_request_id.clone(), None, None);
+    let search = crate::playback::warm_upcoming_playback_identity(
+        &state.acquisition,
+        &state.store,
+        &track,
+        &settings,
+        std::slice::from_ref(&provider),
+        cancel.clone(),
+        deadline,
+        &trace,
+    )
+    .await;
     let elapsed_ms = started.elapsed().as_millis();
     let (ok, result_count, cancelled, deadline_expired) = match &search {
         Ok(found) => (true, Some(*found), false, false),
@@ -4692,6 +5154,21 @@ async fn inspect_candidate(
         .acquisition
         .inspect_formats(&track, &candidate, &state.store.settings()?)
         .await
+}
+#[tauri::command]
+fn assess_download_candidate(
+    state: State<'_, AppState>,
+    track: Track,
+    candidate: Candidate,
+) -> Result<recording_match::MatchAssessment> {
+    let level = state.store.settings()?.matching_level;
+    Ok(recording_match_context::assess(
+        &state.store,
+        &track,
+        &candidate,
+        level,
+        recording_match::MatchStage::Resolved,
+    ))
 }
 #[tauri::command]
 async fn enqueue_download(
@@ -5614,7 +6091,7 @@ pub fn run() {
             automation.set_autotag_manager(autotag.clone());
             let playback = playback::PlaybackService::new(app.handle().clone(), store.clone(), acquisition.clone(), history.clone()).map_err(std::io::Error::other)?;
             automation.set_playback_service(playback.clone());
-            let system_media = if playback.native_enabled() { match system_media::SystemMediaService::start(app.handle().clone(), playback.clone()) { Ok(service)=>Some(service),Err(error)=>{diagnostics.push(format!("System media controls unavailable: {error}"));None} } } else { None };
+            let system_media = match system_media::SystemMediaService::start(app.handle().clone(), playback.clone()) { Ok(service)=>Some(service),Err(error)=>{diagnostics.push(format!("System media controls unavailable: {error}"));None} };
             let local_audio = local_audio::LocalAudioManager::new(store.clone());
             let webview_audio_transport = webview_audio_transport::WebviewAudioTransport::new();
             let webview_audio_transcoder = webview_audio_transcode::WebviewAudioTranscoder::new();
@@ -5736,15 +6213,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
             get_release_setup, complete_release_setup, get_radio_recognition, set_radio_recognition, choose_music_directory,
-            get_playback_snapshot, playback_command,
+            get_playback_snapshot, playback_command, handoff_webview_playback, handoff_resolved_playback_source,
             get_browser_install_status, register_browser_host, unregister_browser_host,
             youtube_support_status,youtube_support_check,youtube_support_update,youtube_support_rollback,youtube_support_diagnose,
             get_radio_stations, rename_radio_station, resolve_radio_station_playback_url, resolve_radio_station_artwork, get_station_details, poll_radio_station, identify_radio_station, get_mpv_status, open_in_mpv,
-            search_radio_stations, add_radio_station, add_custom_radio_station, remove_radio_station,
+            search_radio_stations, add_radio_station, add_custom_radio_station, edit_radio_station_url, get_radio_playlist_option, set_radio_playlist_option, list_radio_playlist_targets, remove_radio_station,
             get_radio_metadata,
             get_sidebar_layout,
             save_sidebar_layout,
-            list_search_sources, register_chapter_track, search_source, poll_search_source, inspect_youtube_source, enrich_search_result, get_autotag_jobs, get_autotag_settings, save_autotag_settings, retry_autotag, review_autotag_candidate, apply_autotag_review,
+            list_search_sources, register_chapter_track, search_source, poll_search_source, inspect_youtube_source, enrich_search_result, get_autotag_jobs, get_autotag_settings, save_autotag_settings, retry_autotag, repair_download_source_tags, review_autotag_candidate, apply_autotag_review, apply_recognition_review,
             get_browser_status, get_automation_status, set_automation_permissions, automation_playback_state, automation_playback_complete, automation_queued_playback_accept, automation_queued_playback_update, automation_queued_playback_status, automation_identify_complete, set_automation_frontend_ready, automation_layout_complete, automation_search_ui_complete, automation_search_controls_complete, automation_player_panel_complete, automation_ui_navigation_complete,
             request_browser_import,
             import_collection_url,
@@ -5792,10 +6269,14 @@ pub fn run() {
             search_audio_tracks,
             save_audio_match,
             find_candidates,
+            find_soulseek_album_candidates,
+            prepare_download_match_identity,
+            find_download_candidates,
             resolve_candidate_audio,
             warm_track_previews,
             warm_playback_candidate_search,
             inspect_candidate,
+            assess_download_candidate,
             enqueue_download,
             cancel_download,
             retry_download,
@@ -6214,6 +6695,88 @@ mod playback_request_budget_tests {
             playback_request_budget(&settings, Some(u64::MAX)),
             std::time::Duration::from_secs(20)
         );
+    }
+}
+
+#[cfg(test)]
+mod seek_recovery_relay_tests {
+    use super::*;
+
+    fn fixture() -> (Track, Candidate, String) {
+        let source = "https://rr1.googlevideo.com/videoplayback?sig=private".to_owned();
+        let track = Track {
+            id: "youtube:abcdefghijk".into(),
+            provider: "youtube".into(),
+            provider_id: "abcdefghijk".into(),
+            source_url: "https://www.youtube.com/watch?v=abcdefghijk".into(),
+            title: "Exact video".into(),
+            duration_seconds: Some(300.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: track.id.clone(),
+            provider: "youtube".into(),
+            url: track.source_url.clone(),
+            title: track.title.clone(),
+            duration_seconds: track.duration_seconds,
+            ..Candidate::default()
+        };
+        (track, candidate, source)
+    }
+
+    #[test]
+    fn only_relays_the_exact_remote_youtube_source_during_seek_recovery() {
+        let (track, candidate, source) = fixture();
+        assert!(should_relay_seek_recovery_source(
+            true,
+            &track,
+            Some(&candidate),
+            &source,
+            false,
+            false,
+        ));
+        assert!(!should_relay_seek_recovery_source(
+            false,
+            &track,
+            Some(&candidate),
+            &source,
+            false,
+            false,
+        ));
+        assert!(!should_relay_seek_recovery_source(
+            true,
+            &track,
+            Some(&candidate),
+            &source,
+            true,
+            false,
+        ));
+        assert!(!should_relay_seek_recovery_source(
+            true,
+            &track,
+            Some(&candidate),
+            &source,
+            false,
+            true,
+        ));
+        assert!(!should_relay_seek_recovery_source(
+            true,
+            &track,
+            Some(&candidate),
+            "https://unrelated.example/audio.mp4",
+            false,
+            false,
+        ));
+        let mut wrong_video = candidate;
+        wrong_video.id = "youtube:other-video".into();
+        assert!(!should_relay_seek_recovery_source(
+            true,
+            &track,
+            Some(&wrong_video),
+            &source,
+            false,
+            false,
+        ));
     }
 }
 

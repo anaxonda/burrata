@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "probe": "normal_turnstile_authorization",
+  "started_at": "2026-10-21T20:40:25Z",
+  "site_origin": "https://monochrome.st",
+  "api_host": "music-api.geeked.wtf",
+  "widget_state": "error",
+  "widget_error_category": "turnstile_error_callback",
+  "turnstile_error_code": "110200",
+  "turnstile_token_present": false,
+  "auth_status": null,
+  "auth_token_present": false,
+  "auth_expiration": null,
+  "auth_error_category": null,
+  "auth_response": null,
+  "resolve_status": null,
+  "resolve_error_category": null,
+  "resolve_response_is_json": null,
+  "resolve_response": null,
+  "complete": false,
+  "configuration_provenance": {
+    "site_key": "Public constant from pinned upstream api.js",
+    "client_configuration_revision": "3fdbf7cdcbff2faa105f6e178ed1c8d4971b094c",
+    "client_configuration_source": "Public historical upstream storage.js; values omitted",
+    "browser_profile": "Fresh temporary WebKitGTK profile; default user agent; no imported cookies",
+    "automatic_widget_retry": false
+  },
+  "interpretation": "Domain not authorized for tested site key on monochrome.st. No authorization exchange or resolver request occurred. This does not establish browser incompatibility or whether credentials would be accepted.",
+  "error_reference": "https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/error-codes/"
+}

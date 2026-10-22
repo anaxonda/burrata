@@ -447,7 +447,7 @@
     {#if durationProblem}<p class="directory-error" role="alert">{durationProblem}</p>{/if}
     {#if loadingPage}<p class="directory-loading" role="status">Loading folder…</p>
     {:else if page}
-      {#if orderedRows.length}<TrackList presentation="playlist" tracks={indexedOccurrences.map(row => row.track)} {orderedRows} selectionContext={`directory:${selectedRootId}:${selectedRelativePath}`} selectionKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} selectionTracks={indexedOccurrences.map(row => row.track)} selectionTrackKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} listLabel="Audio files" onPlay={playOccurrence} {onDownload} {onFavorite} {onQueue} {onNext} {onPlaylist} {onArtist} onAlbum={onTrackAlbum} {onInfo} {onContext} onAddSelectedToPlaylist={indexedOccurrences.length ? onAddSelectedToPlaylist : undefined} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} meta={(_track, index) => indexedOccurrences[index]?.file.name ?? ""} />{/if}
+      {#if orderedRows.length}<div class="directory-list-scroll" class:virtualized={orderedRows.length > 40} style:flex="1 1 0" style:min-height="0" style:overflow-y={orderedRows.length > 40 ? "hidden" : "auto"}><TrackList presentation="playlist" virtualizationThreshold={40} tracks={indexedOccurrences.map(row => row.track)} {orderedRows} selectionContext={`directory:${selectedRootId}:${selectedRelativePath}`} selectionKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} selectionTracks={indexedOccurrences.map(row => row.track)} selectionTrackKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} listLabel="Audio files" onPlay={playOccurrence} {onDownload} {onFavorite} {onQueue} {onNext} {onPlaylist} {onArtist} onAlbum={onTrackAlbum} {onInfo} {onContext} onAddSelectedToPlaylist={indexedOccurrences.length ? onAddSelectedToPlaylist : undefined} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} meta={(_track, index) => indexedOccurrences[index]?.file.name ?? ""} /></div>{/if}
       {#if !page.files.length}<p class="directory-empty">No audio files match these filters.</p>{/if}
       {#if page.files.length < page.total}<div class="directory-load-more"><button type="button" disabled={loadingMore} onclick={() => void browseDirectory(page!.relativePath, true)}>{loadingMore ? "Loading…" : `Load more files (${page.total - page.files.length} remaining)`}</button></div>{/if}
     {:else if !error}<p class="directory-empty">Choose a folder to browse.</p>{/if}
@@ -455,7 +455,11 @@
 </section>
 
 <style>
-  .directory-browser { min-width:0; display:flex; flex-direction:column; gap:6px; padding:8px 10px; }
+  :global(.app-shell > main > div[aria-hidden="false"]:has(> .directory-browser)) { flex:1 1 0; min-height:0; display:flex; overflow:hidden; }
+  .directory-browser { min-width:0; min-height:0; flex:1 1 auto; display:flex; flex-direction:column; gap:6px; padding:8px 10px; }
+  .directory-list-scroll { display:flex; flex-direction:column; min-width:0; overscroll-behavior:contain; }
+  .directory-list-scroll :global(.track-list-viewport) { flex:1 1 0; min-height:0; max-height:none; overflow:visible; }
+  .directory-list-scroll.virtualized :global(.track-list-viewport.virtualized) { overflow:auto; }
   .directory-toolbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .directory-toolbar button,.directory-load-more button,.directory-empty-state button { min-height:34px; }
   .directory-breadcrumbs { flex:1;min-width:0;display:flex; align-items:center; gap:7px; flex-wrap:wrap; min-height:34px; font-size:.9rem; }

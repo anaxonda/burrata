@@ -1,0 +1,62 @@
+[
+  {
+    "track": "alvafro",
+    "evidenceKind": "actual_encrypted_cdn_prefix_no_key_used",
+    "headerProbeExit": 0,
+    "headerMetadata": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "flac",
+          "codec_type": "audio",
+          "codec_tag_string": "fLaC",
+          "sample_rate": "44100",
+          "channels": 2,
+          "duration": "238.052608",
+          "bits_per_raw_sample": "16",
+          "side_data_list": [
+            {}
+          ]
+        }
+      ],
+      "format": {
+        "duration": "238.052608"
+      }
+    },
+    "schemeBoxMarkers": [
+      "cenc"
+    ],
+    "limitation": "Partial container headers; not a decoded audio verification or resolver response."
+  },
+  {
+    "track": "bacc",
+    "evidenceKind": "actual_encrypted_cdn_prefix_no_key_used",
+    "headerProbeExit": 0,
+    "headerMetadata": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "flac",
+          "codec_type": "audio",
+          "codec_tag_string": "fLaC",
+          "sample_rate": "48000",
+          "channels": 2,
+          "duration": "197.900104",
+          "bits_per_raw_sample": "24",
+          "side_data_list": [
+            {}
+          ]
+        }
+      ],
+      "format": {
+        "duration": "197.900104"
+      }
+    },
+    "schemeBoxMarkers": [
+      "cenc"
+    ],
+    "limitation": "Partial container headers; not a decoded audio verification or resolver response."
+  }
+]

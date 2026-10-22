@@ -1,0 +1,1157 @@
+{
+  "schemaVersion": 1,
+  "schemaId": "burrata.recording-match.stage5-matrix",
+  "description": "Independent policy-contract fixture matrix. Expectations are reviewable regression targets, not empirical accuracy labels. `candidateProof` describes the supplied evidence; no metadata-only case asserts acoustic identity.",
+  "modes": [
+    "Exact",
+    "Balanced",
+    "Flexible"
+  ],
+  "stages": [
+    "Search",
+    "Resolved"
+  ],
+  "proofLabels": [
+    "metadataAgreementOnly",
+    "selfConsistentCatalogIdentity",
+    "unboundCaption",
+    "unverifiedAlternative",
+    "conflictingFields",
+    "conflictingIdentifiers",
+    "conflictingCompleteCredits",
+    "explicitPreview"
+  ],
+  "cases": [
+    {
+      "id": "metadata-agreement-without-recording-binding",
+      "labels": {
+        "evidenceBasis": "providerShapedPublicRegression",
+        "candidateProof": "metadataAgreementOnly",
+        "uncertainty": "No stable recording-to-source binding or audio verification; exact means metadata relationship only.",
+        "sourceReference": "Public-shaped baseline from /tmp/burrata-matching-audit/main.rs; synthetic identity values.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "video-1",
+        "url": "https://example.invalid/video-1",
+        "title": "Artist - Song",
+        "uploader": "Artist",
+        "durationSeconds": 200.0,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Song",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200.0
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "remix-alternative-requires-explicit-policy",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "unverifiedAlternative",
+        "uncertainty": "The remix label identifies a different edition; the synthetic candidate has no independently verified relationship to the requested recording.",
+        "sourceReference": "Documented Flexible alternative policy; synthetic no-live-source test.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {},
+        "version": "Original Mix"
+      },
+      "candidate": {
+        "provider": "monochrome",
+        "id": "monochrome:candidate-remix-id",
+        "url": "https://example.invalid/mono-remix",
+        "title": "Artist - Song (Alice Remix)",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "monochrome",
+          "trackId": "candidate-remix-id",
+          "catalogTitle": "Song (Alice Remix)",
+          "artistNames": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "unknown-tuning-annotation",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "unboundCaption",
+        "uncertainty": "The annotation is unresolved and could describe a distinct rendition; fixture does not assert whether the source is the requested audio.",
+        "sourceReference": "Durable annotation-stripping reproductions in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "unknown-tuning-annotation",
+        "url": "https://example.invalid/unknown-tuning-annotation",
+        "title": "Artist - Song [432Hz]",
+        "uploader": "Artist",
+        "durationSeconds": 200.0,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Artist - Song [432Hz]",
+          "catalogTitle": "Artist - Song [432Hz]",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "unknown-speed-annotation",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "unboundCaption",
+        "uncertainty": "The annotation is unresolved and could describe a distinct rendition; fixture does not assert whether the source is the requested audio.",
+        "sourceReference": "Durable annotation-stripping reproductions in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "unknown-speed-annotation",
+        "url": "https://example.invalid/unknown-speed-annotation",
+        "title": "Artist - Song [Slowed + Reverb]",
+        "uploader": "Artist",
+        "durationSeconds": 200.0,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Artist - Song [Slowed + Reverb]",
+          "catalogTitle": "Artist - Song [Slowed + Reverb]",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "unknown-remaster-annotation",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "unboundCaption",
+        "uncertainty": "The annotation is unresolved and could describe a distinct rendition; fixture does not assert whether the source is the requested audio.",
+        "sourceReference": "Durable annotation-stripping reproductions in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "unknown-remaster-annotation",
+        "url": "https://example.invalid/unknown-remaster-annotation",
+        "title": "Artist - Song [Remastered 2024]",
+        "uploader": "Artist",
+        "durationSeconds": 200.0,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Artist - Song [Remastered 2024]",
+          "catalogTitle": "Artist - Song [Remastered 2024]",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "live-caption-conflicts-with-clean-structured-title",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "unboundCaption",
+        "uncertainty": "Structured Song fields conflict with the uploader caption Live label; do not silently prefer the clean field.",
+        "sourceReference": "Durable clean-structured-title-hides-live reproduction in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "caption-live",
+        "url": "https://example.invalid/caption-live",
+        "title": "Artist - Song (Live)",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Song",
+          "catalogTitle": "Song",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "request-title-and-version-conflict",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "conflictingFields",
+        "uncertainty": "Request itself names Live and Original Mix; preserve both observations and require review/enrichment.",
+        "sourceReference": "Durable request-title-live-explicit-original reproduction in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song (Live)",
+        "durationSeconds": 200.0,
+        "provenance": {},
+        "version": "Original Mix"
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "live-vs-original",
+        "url": "https://example.invalid/live-vs-original",
+        "title": "Artist - Song (Live)",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Song (Original Mix)",
+          "catalogTitle": "Song (Original Mix)",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "unicode-guest-slicing-safe",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "metadataAgreementOnly",
+        "uncertainty": "Unicode case expansion may exercise guest parsing; a valid parse can be metadata-exact, but panic is always invalid.",
+        "sourceReference": "Durable panic reproducer in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt; positive Unicode spelling is synthetic.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "İ feat. Å",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "unicode-guest",
+        "url": "https://example.invalid/unicode-guest",
+        "title": "İ feat. Å - Song",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Song",
+          "catalogTitle": "Song",
+          "artists": [
+            "İ",
+            "Å"
+          ],
+          "artistCount": 2,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "empty-normalized-title-does-not-match",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "unboundCaption",
+        "uncertainty": "Distinct punctuation-only titles normalize to empty keys; duration and artist agreement cannot establish title identity.",
+        "sourceReference": "Durable punctuation-only title reproducer in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "!!!",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "punctuation-only",
+        "url": "https://example.invalid/punctuation-only",
+        "title": "???",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "???",
+          "catalogTitle": "???",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "nested-request-isrc-conflicts-with-candidate",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "conflictingIdentifiers",
+        "uncertainty": "Request identifier is in nested remoteCatalog provenance and conflicts with candidate ISRC; no same-recording claim.",
+        "sourceReference": "Durable nested-ISRC reproduction in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {
+          "remoteCatalog": {
+            "isrc": "USAAA2400001"
+          }
+        }
+      },
+      "candidate": {
+        "provider": "spotify",
+        "id": "isrc-conflict",
+        "url": "https://example.invalid/isrc-conflict",
+        "title": "Artist - Song",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "spotify",
+          "catalog": true,
+          "catalogTitle": "Song",
+          "artistNames": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200,
+          "isrc": "USBBB2400002"
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "extra-complete-performer-credit",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "completeCandidateCredits",
+        "uncertainty": "The request explicitly declares its performer credits complete, and the complete candidate list adds an unrequested performer; this is a contradiction.",
+        "sourceReference": "Durable extra-complete-performer reproduction in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {
+          "performerCreditsComplete": true,
+          "manualFields": {
+            "performerCreditsComplete": true
+          }
+        }
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "extra-artist",
+        "url": "https://example.invalid/extra-artist",
+        "title": "Artist, Other Singer - Song",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Song",
+          "catalogTitle": "Song",
+          "artists": [
+            "Artist",
+            "Other Singer"
+          ],
+          "artistCount": 2,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "bound-catalog-missing-runtime-cumulative",
+      "labels": {
+        "evidenceBasis": "providerShapedPublicRegression",
+        "candidateProof": "selfConsistentCatalogIdentity",
+        "uncertainty": "Bound Monochrome ID plus complete title/artist evidence, but no runtime; acceptance should be cumulative across Balanced/Flexible.",
+        "sourceReference": "Durable cumulative-policy reproduction in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt; request/candidate IDs are fixture-shaped, not a real recording claim.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "monochrome",
+        "providerId": "177409920331984896",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": null,
+        "provenance": {
+          "remoteCatalog": {
+            "provider": "monochrome",
+            "trackId": "177409920331984896",
+            "title": "Monochrome",
+            "artists": [
+              "Artist"
+            ]
+          }
+        }
+      },
+      "candidate": {
+        "provider": "monochrome",
+        "id": "monochrome:177409920331984896",
+        "url": "https://example.invalid/monochrome:177409920331984896",
+        "title": "Song",
+        "uploader": "Artist",
+        "durationSeconds": null,
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "monochrome",
+          "trackId": "177409920331984896",
+          "catalogTitle": "Song",
+          "artistNames": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": null
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Probable",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Probable",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Probable",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Probable",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "matching-preview-is-not-full-recording",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "explicitPreview",
+        "uncertainty": "Preview evidence contradicts requested full-length runtime.",
+        "sourceReference": "Existing corpus cowboy-preview policy contrast, simplified and synthetic.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "preview",
+        "url": "https://example.invalid/preview",
+        "title": "Artist - Song (Preview)",
+        "uploader": "Artist",
+        "durationSeconds": 20,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Song",
+          "catalogTitle": "Song",
+          "artists": [
+            "Artist"
+          ],
+          "artistCount": 1,
+          "duration": 20,
+          "isPreview": true
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    },
+    {
+      "id": "same-title-different-performer",
+      "labels": {
+        "evidenceBasis": "syntheticPolicyProbe",
+        "candidateProof": "conflictingCompleteCredits",
+        "uncertainty": "Different performer is a hard negative even with identical title and runtime.",
+        "sourceReference": "Stage-5 close-negative coverage requested by docs/track-matching-improvement-plan.txt.",
+        "synthetic": true
+      },
+      "request": {
+        "provider": "fixture",
+        "providerId": "requested-song",
+        "artist": "Artist",
+        "title": "Song",
+        "durationSeconds": 200.0,
+        "provenance": {}
+      },
+      "candidate": {
+        "provider": "youtube",
+        "id": "wrong-artist",
+        "url": "https://example.invalid/wrong-artist",
+        "title": "Different Artist - Song",
+        "uploader": "Artist",
+        "durationSeconds": 200,
+        "permission": "stream",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "track": "Song",
+          "catalogTitle": "Song",
+          "artists": [
+            "Different Artist"
+          ],
+          "artistCount": 1,
+          "duration": 200
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
+    }
+  ],
+  "metamorphicTests": [
+    {
+      "id": "artist-field-relocation",
+      "sourceCaseId": "metadata-agreement-without-recording-binding",
+      "transformation": "renameSourceMetadataArtistsToArtistNames",
+      "assertion": "preserveAllSixOutcomesAndProofStrength",
+      "evidenceBasis": "syntheticPolicyProbe"
+    },
+    {
+      "id": "unicode-canonical-form",
+      "sourceCaseId": "unicode-guest-slicing-safe",
+      "transformation": "decomposeRequestAndCandidateArtistText",
+      "assertion": "preserveAllSixOutcomesAndProofStrength",
+      "evidenceBasis": "syntheticPolicyProbe"
+    },
+    {
+      "id": "contradictory-isrc-monotonicity",
+      "sourceCaseId": "metadata-agreement-without-recording-binding",
+      "transformation": "addDifferentRequestAndCandidateIsrc",
+      "assertion": "allSixCellsUnresolvedRejectMetadataOnly",
+      "evidenceBasis": "syntheticPolicyProbe"
+    },
+    {
+      "id": "increasing-mode-permissiveness",
+      "sourceCaseId": "allCases",
+      "transformation": "none",
+      "assertion": "acceptanceSetIsMonotonicExactToBalancedToFlexible",
+      "evidenceBasis": "syntheticPolicyProbe"
+    }
+  ]
+}

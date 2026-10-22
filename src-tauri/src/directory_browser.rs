@@ -160,6 +160,42 @@ struct Inner {
 pub struct DirectoryBrowser {
     inner: Arc<Inner>,
 }
+
+/// Stamp a finished local asset when its final path is inside a registered
+/// directory root. Acquisition calls this after publishing the file and before
+/// saving the asset; paths outside folder browsing roots are left untouched.
+pub(crate) fn stamp_registered_asset_fingerprint(
+    store: &Store,
+    asset: &mut LocalAsset,
+) -> std::result::Result<bool, String> {
+    let Some(serialized_roots) = store.get_json_preference(ROOTS_KEY)? else {
+        return Ok(false);
+    };
+    let roots = serde_json::from_value::<Vec<DirectoryRoot>>(serialized_roots)
+        .map_err(|_| "Directory browser roots are invalid")?;
+    let asset_path = Path::new(&asset.path);
+    for root in roots {
+        let Ok(relative) = relative_text(Path::new(&root.path), asset_path) else {
+            continue;
+        };
+        let Ok(path) = contained_path(&root, &relative) else {
+            continue;
+        };
+        if path.as_path() != asset_path || !supported_audio(&path) {
+            continue;
+        }
+        let Ok(current) = fingerprint(&path) else {
+            continue;
+        };
+        if !asset.track.provenance.is_object() {
+            asset.track.provenance = serde_json::json!({});
+        }
+        asset.track.provenance["directoryBrowserFingerprint"] = current;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 impl DirectoryBrowser {
     pub fn new(store: Arc<Store>) -> Self {
         Self {
@@ -385,10 +421,17 @@ impl DirectoryBrowser {
                 let path = contained_path(&root, &relative)?;
                 let text = path_text(&path)?;
                 let asset = assets.remove(&text);
-                let asset = asset.filter(|asset| {
-                    fingerprint(&path).ok().as_ref()
-                        == asset.track.provenance.get("directoryBrowserFingerprint")
-                });
+                let asset = match asset {
+                    Some(asset)
+                        if self.asset_is_current_for_browse(
+                            &root,
+                            &relative,
+                            &path,
+                            &text,
+                            &asset,
+                        ) => Some(asset),
+                    _ => None,
+                };
                 let (asset_id, track) = match asset {
                     Some(asset) => {
                         let mut track = asset.track;
@@ -901,6 +944,37 @@ impl DirectoryBrowser {
         }
         asset.track.provenance["directoryBrowserFingerprint"] = before.clone();
         self.inner.store.save_asset(&asset)
+    }
+    /// A saved asset without a directory fingerprint is legacy data. Verify its
+    /// content hash before trusting the metadata, then persist the current stat
+    /// fingerprint so subsequent folder browsing stays cheap.
+    fn asset_is_current_for_browse(
+        &self,
+        root: &DirectoryRoot,
+        relative: &str,
+        path: &Path,
+        path_text_value: &str,
+        asset: &LocalAsset,
+    ) -> bool {
+        if asset.path != path_text_value {
+            return false;
+        }
+        let Ok(before) = fingerprint(path) else {
+            return false;
+        };
+        if asset.track.provenance.get("directoryBrowserFingerprint") == Some(&before) {
+            return true;
+        }
+        let (_cancel_tx, cancel) = watch::channel(false);
+        self.reuse_existing_asset(
+            root,
+            relative,
+            &before,
+            asset.clone(),
+            &cancel,
+            media::hash_file,
+        )
+        .is_ok()
     }
     fn commit_inspection(
         &self,
@@ -2174,31 +2248,83 @@ mod tests {
         (path, asset)
     }
     #[test]
-    fn legacy_asset_verifies_hash_once_then_reuses_metadata_and_exact_asset_without_probe() {
+    fn acquisition_fingerprint_stamping_is_limited_to_registered_audio_paths() {
+        let (temp, manager, root) = fixture();
+        let (path, mut asset) = legacy_download(&manager, &root, "existing.wav");
+        assert!(stamp_registered_asset_fingerprint(&manager.inner.store, &mut asset).unwrap());
+        let initial_stamp = fingerprint(&path).unwrap();
+        assert_eq!(
+            asset.track.provenance.get("directoryBrowserFingerprint"),
+            Some(&initial_stamp)
+        );
+
+        // A local retag can change the file stat without changing the audio
+        // hash. The repair path must replace the stale browse stamp while
+        // preserving the stored hash, journal, and recording provenance.
+        let original_hash = asset.hash.clone();
+        asset.track.provenance["retagJournalId"] = serde_json::json!("journal-1");
+        asset.track.provenance["identityStatus"] =
+            serde_json::json!("source_reported_unverified");
+        let future = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+        fs::File::open(&path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(future))
+            .unwrap();
+        assert!(stamp_registered_asset_fingerprint(&manager.inner.store, &mut asset).unwrap());
+        let refreshed_stamp = fingerprint(&path).unwrap();
+        assert_ne!(refreshed_stamp, initial_stamp);
+        assert_eq!(
+            asset.track.provenance.get("directoryBrowserFingerprint"),
+            Some(&refreshed_stamp)
+        );
+        assert_eq!(asset.hash, original_hash);
+        assert_eq!(asset.track.provenance["retagJournalId"], "journal-1");
+        assert_eq!(
+            asset.track.provenance["identityStatus"],
+            "source_reported_unverified"
+        );
+
+        let outside = temp.path().join("outside.wav");
+        fs::write(&outside, b"outside audio").unwrap();
+        asset.path = outside.to_string_lossy().into_owned();
+        asset
+            .track
+            .provenance
+            .as_object_mut()
+            .unwrap()
+            .remove("directoryBrowserFingerprint");
+        assert!(!stamp_registered_asset_fingerprint(&manager.inner.store, &mut asset).unwrap());
+        assert!(asset.track.provenance.get("directoryBrowserFingerprint").is_none());
+    }
+    #[test]
+    fn legacy_asset_verifies_hash_on_first_browse_then_reuses_metadata_and_exact_asset() {
         let (_temp, manager, root) = fixture();
         let (path, legacy) = legacy_download(&manager, &root, "existing.wav");
-        assert!(manager.browse(&root.id, "", 0, 30).unwrap().files[0]
-            .track
-            .is_none());
+        let first_page = manager.browse(&root.id, "", 0, 30).unwrap();
+        assert_eq!(
+            first_page.files[0].track.as_ref().unwrap().title,
+            legacy.track.title
+        );
         let mut manual = legacy.track.clone();
         manual.title = "Manual retained".into();
         manager.inner.store.update_track(&manual).unwrap();
         let before = fingerprint(&path).unwrap();
         let (_, cancel) = watch::channel(false);
-        let hash_calls = std::sync::atomic::AtomicUsize::new(0);
         let known = manager
             .inner
             .store
             .get_asset_by_path(path.to_str().unwrap())
             .unwrap()
             .unwrap();
+        assert_eq!(
+            known.track.provenance.get("directoryBrowserFingerprint"),
+            Some(&before)
+        );
         manager
-            .reuse_existing_asset(&root, "existing.wav", &before, known, &cancel, |file| {
-                hash_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                media::hash_file(file)
+            .reuse_existing_asset(&root, "existing.wav", &before, known, &cancel, |_| {
+                panic!("a stamped asset must not be hashed again")
             })
             .unwrap();
-        assert_eq!(hash_calls.load(std::sync::atomic::Ordering::Relaxed), 1);
         let page = manager.browse(&root.id, "", 0, 30).unwrap();
         let row = page.files[0].track.as_ref().unwrap();
         assert_eq!(page.files[0].asset_id.as_deref(), Some(legacy.id.as_str()));

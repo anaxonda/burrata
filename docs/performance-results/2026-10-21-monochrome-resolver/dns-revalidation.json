@@ -1,0 +1,17 @@
+{
+  "checked_at": "2026-10-21T20:42:46.188751+00:00",
+  "hosts": {
+    "monochrome.samidy.com": {
+      "dns": "failed",
+      "error_number": -5
+    },
+    "monochrome.st": {
+      "dns": "resolved",
+      "address_count": 4
+    },
+    "music-api.geeked.wtf": {
+      "dns": "resolved",
+      "address_count": 4
+    }
+  }
+}

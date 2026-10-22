@@ -255,6 +255,7 @@ impl Fixture {
                 content_length: Some(self.bytes.len() as u64),
                 has_video: false,
             }),
+            cenc: None,
         }
     }
 }

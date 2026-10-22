@@ -1,0 +1,806 @@
+{
+  "appSha256": "aa7bc880e8f6fedd8b3b915e7ec0a35f920b7adf5229aba35c6417f913fcf045",
+  "operationId": "ac090bd2-3773-4836-924b-2723b5b2fc88",
+  "scope": "all13coherentlosslesscandidateassignments andenqueue, actualfileverificationpending",
+  "trace": [
+    {
+      "details": {
+        "aliasPrepMs": 164,
+        "deadlineMs": 22000,
+        "queryCount": 1,
+        "queryHashes": [
+          "8a571bbc61a05873e5787640e5bf2df590263e1599d3d7c47a9fdc804fa0d2a6"
+        ],
+        "trackCount": 13,
+        "trackInputs": [
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 146666,
+            "expectedOrdinals": [
+              1,
+              1
+            ],
+            "index": 0,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "ed783c12a38af06e",
+            "trackIdHash": "b6de8b7cd7ac7b19",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 91000,
+            "expectedOrdinals": [
+              2,
+              1
+            ],
+            "index": 1,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "27c08eb37647e12e",
+            "trackIdHash": "c9d21c08bc63fe05",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 310000,
+            "expectedOrdinals": [
+              3,
+              1
+            ],
+            "index": 2,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "99289ddcd03bdff2",
+            "trackIdHash": "77eba72b4d4c70d1",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 160000,
+            "expectedOrdinals": [
+              4,
+              1
+            ],
+            "index": 3,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "0d500facd225dd72",
+            "trackIdHash": "268a73854108b14f",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 124000,
+            "expectedOrdinals": [
+              5,
+              1
+            ],
+            "index": 4,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 11,
+            "sourceKind": "catalog",
+            "titleHash": "8987738a7f434013",
+            "trackIdHash": "cd53bc0ac78a6a69",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 154000,
+            "expectedOrdinals": [
+              6,
+              1
+            ],
+            "index": 5,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "91cf6a8f225d274d",
+            "trackIdHash": "b478d54b510d6bca",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 94973,
+            "expectedOrdinals": [
+              7,
+              1
+            ],
+            "index": 6,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 9,
+            "sourceKind": "catalog",
+            "titleHash": "f3341b6738edf394",
+            "trackIdHash": "2056564d67eabbb4",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 23,
+            "artistHash": "98b9bd533e6212d7",
+            "durationMillis": 174000,
+            "expectedOrdinals": [
+              8,
+              1
+            ],
+            "index": 7,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "e83370b9a23d7789",
+            "trackIdHash": "5f58c62e5390c9fe",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 275000,
+            "expectedOrdinals": [
+              9,
+              1
+            ],
+            "index": 8,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 11,
+            "sourceKind": "catalog",
+            "titleHash": "75d54f4317d47734",
+            "trackIdHash": "400f2f5c276862eb",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 23,
+            "artistHash": "8a571bbc61a05873",
+            "durationMillis": 168040,
+            "expectedOrdinals": [
+              10,
+              1
+            ],
+            "index": 9,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "5e1fcc2e07c25629",
+            "trackIdHash": "d664bb7d6c04382b",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 197000,
+            "expectedOrdinals": [
+              11,
+              1
+            ],
+            "index": 10,
+            "isrcPresent": true,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "bee803151b6abb5b",
+            "trackIdHash": "c42ec03b84c1cf24",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 88520,
+            "expectedOrdinals": [
+              12,
+              1
+            ],
+            "index": 11,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 10,
+            "sourceKind": "catalog",
+            "titleHash": "fba797872ba79f20",
+            "trackIdHash": "9665b01f0cc5e8ae",
+            "versionPresent": false
+          },
+          {
+            "albumHash": "8a571bbc61a05873",
+            "aliasTrackCount": 24,
+            "artistHash": "ad564388d574e382",
+            "durationMillis": 217134,
+            "expectedOrdinals": [
+              13,
+              1
+            ],
+            "index": 12,
+            "isrcPresent": false,
+            "localAssetPresent": true,
+            "releaseRuntimeVariantCount": 12,
+            "sourceKind": "catalog",
+            "titleHash": "42299f1ec184e152",
+            "trackIdHash": "f0fa6d65d38e1a1e",
+            "versionPresent": false
+          }
+        ]
+      },
+      "event": "begin"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 0,
+        "advertisedResponseCount": 0,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 189,
+        "advertisedResponseCount": 9,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 955,
+        "advertisedResponseCount": 42,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 1822,
+        "advertisedResponseCount": 77,
+        "embeddedResponseCount": 0,
+        "normalizedCandidateCount": 0,
+        "rawFileCount": 0,
+        "separateResponseCount": 0,
+        "settleMs": 0,
+        "state": "InProgress"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "advertisedFileCount": 2288,
+        "advertisedResponseCount": 100,
+        "embeddedResponseCount": 100,
+        "normalizedCandidateCount": 500,
+        "rawFileCount": 2288,
+        "separateResponseCount": 100,
+        "settleMs": 0,
+        "state": "Completed, ResponseLimitReached"
+      },
+      "event": "poll_response_visibility"
+    },
+    {
+      "details": {
+        "groups": [
+          {
+            "exactTitlePairCount": 13,
+            "exactTitleTrackCount": 13,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "ebafc50c51c25370",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 1
+          },
+          {
+            "exactTitlePairCount": 12,
+            "exactTitleTrackCount": 12,
+            "fileCount": 12,
+            "folderArtistFileCount": 12,
+            "groupHash": "6a684ce8d09686b2",
+            "ordinalPairCount": 12,
+            "ordinalTrackCount": 12,
+            "potentialBitrateTotal": 2304,
+            "potentialLosslessCount": 0,
+            "rank": 2
+          },
+          {
+            "exactTitlePairCount": 10,
+            "exactTitleTrackCount": 10,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "e477f1927cfaf460",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 0,
+            "rank": 3
+          },
+          {
+            "exactTitlePairCount": 9,
+            "exactTitleTrackCount": 9,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "b83364768aecf5fb",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 4
+          },
+          {
+            "exactTitlePairCount": 8,
+            "exactTitleTrackCount": 8,
+            "fileCount": 13,
+            "folderArtistFileCount": 0,
+            "groupHash": "0adc64bbd5013b0c",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 2864,
+            "potentialLosslessCount": 0,
+            "rank": 5
+          },
+          {
+            "exactTitlePairCount": 8,
+            "exactTitleTrackCount": 8,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "105e23adbfd8fcee",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 2496,
+            "potentialLosslessCount": 0,
+            "rank": 6
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 16,
+            "folderArtistFileCount": 16,
+            "groupHash": "f4e731781d9c23d5",
+            "ordinalPairCount": 208,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 7
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 16,
+            "folderArtistFileCount": 16,
+            "groupHash": "9fd15e976c08640e",
+            "ordinalPairCount": 208,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 4160,
+            "potentialLosslessCount": 0,
+            "rank": 8
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "bea0f96a0e73f611",
+            "ordinalPairCount": 169,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 9
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "eb2af80bb5cbe5e4",
+            "ordinalPairCount": 169,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 10
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "63c1ccff0402e6ae",
+            "ordinalPairCount": 169,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 4160,
+            "potentialLosslessCount": 0,
+            "rank": 11
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 17,
+            "folderArtistFileCount": 17,
+            "groupHash": "5b4c460eb1a3c1b0",
+            "ordinalPairCount": 113,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 4160,
+            "potentialLosslessCount": 0,
+            "rank": 12
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "ccf470fb9a4399b4",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 13
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "c00185f9b005743a",
+            "ordinalPairCount": 61,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 3145,
+            "potentialLosslessCount": 0,
+            "rank": 14
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 16,
+            "folderArtistFileCount": 16,
+            "groupHash": "7ad2ab8bcd2b7578",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 15
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 14,
+            "folderArtistFileCount": 14,
+            "groupHash": "1a337c830c922fca",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 16
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 20,
+            "folderArtistFileCount": 20,
+            "groupHash": "189ca8cde0010c2b",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 17
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 13,
+            "groupHash": "dd4181f4b16d4fb4",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 18
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 16,
+            "folderArtistFileCount": 16,
+            "groupHash": "21413ec8a228d7fe",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 19
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 14,
+            "folderArtistFileCount": 14,
+            "groupHash": "76f25aeb9011ed1d",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 20
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 13,
+            "folderArtistFileCount": 0,
+            "groupHash": "d4a404ff27190e20",
+            "ordinalPairCount": 13,
+            "ordinalTrackCount": 13,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 13,
+            "rank": 21
+          },
+          {
+            "exactTitlePairCount": 0,
+            "exactTitleTrackCount": 0,
+            "fileCount": 6,
+            "folderArtistFileCount": 0,
+            "groupHash": "43e7310e96ee2364",
+            "ordinalPairCount": 6,
+            "ordinalTrackCount": 6,
+            "potentialBitrateTotal": 0,
+            "potentialLosslessCount": 6,
+            "rank": 22
+          }
+        ]
+      },
+      "event": "group_plan"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {},
+        "assignedTracks": 13,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "ebafc50c51c25370",
+        "losslessAssigned": 13,
+        "rank": 1,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 0
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 12,
+          "artists_not_agree": 12,
+          "relationship_not_exact_or_probable": 12
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 12,
+        "groupHash": "6a684ce8d09686b2",
+        "losslessAssigned": 0,
+        "rank": 2,
+        "sharedAssessments": 12,
+        "unmatchedFiles": 12
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 13,
+          "artists_not_agree": 13,
+          "relationship_not_exact_or_probable": 13,
+          "title_not_agree": 3
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "e477f1927cfaf460",
+        "losslessAssigned": 0,
+        "rank": 3,
+        "sharedAssessments": 13,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 61,
+          "artists_not_agree": 61,
+          "relationship_not_exact_or_probable": 61,
+          "requested_runtime_not_agree": 47,
+          "runtime_conflict": 47,
+          "title_not_agree": 52
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "b83364768aecf5fb",
+        "losslessAssigned": 0,
+        "rank": 4,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 61,
+          "artists_not_agree": 61,
+          "relationship_not_exact_or_probable": 61,
+          "requested_runtime_not_agree": 47,
+          "runtime_conflict": 47,
+          "title_not_agree": 53
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "0adc64bbd5013b0c",
+        "losslessAssigned": 0,
+        "rank": 5,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 61,
+          "artists_not_agree": 61,
+          "relationship_not_exact_or_probable": 61,
+          "requested_runtime_not_agree": 50,
+          "runtime_conflict": 50,
+          "title_not_agree": 53
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 13,
+        "groupHash": "105e23adbfd8fcee",
+        "losslessAssigned": 0,
+        "rank": 6,
+        "sharedAssessments": 61,
+        "unmatchedFiles": 13
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 208,
+          "artists_not_agree": 208,
+          "relationship_not_exact_or_probable": 208,
+          "requested_runtime_not_agree": 203,
+          "runtime_conflict": 203,
+          "title_not_agree": 208
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 16,
+        "groupHash": "f4e731781d9c23d5",
+        "losslessAssigned": 0,
+        "rank": 7,
+        "sharedAssessments": 208,
+        "unmatchedFiles": 16
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "ambiguousFiles": 0,
+        "assessmentRejections": {
+          "action_not_accept": 208,
+          "artists_not_agree": 208,
+          "relationship_not_exact_or_probable": 208,
+          "requested_runtime_not_agree": 203,
+          "runtime_conflict": 203,
+          "title_not_agree": 208
+        },
+        "assignedTracks": 0,
+        "bitrateAssigned": 0,
+        "fileCount": 16,
+        "groupHash": "9fd15e976c08640e",
+        "losslessAssigned": 0,
+        "rank": 8,
+        "sharedAssessments": 208,
+        "unmatchedFiles": 16
+      },
+      "event": "group_evaluated"
+    },
+    {
+      "details": {
+        "aliasPrepMs": 164,
+        "assessmentRejections": {
+          "action_not_accept": 631,
+          "artists_not_agree": 631,
+          "relationship_not_exact_or_probable": 631,
+          "requested_runtime_not_agree": 556,
+          "runtime_conflict": 556,
+          "title_not_agree": 584
+        },
+        "assignmentCount": 13,
+        "bestCoverageAtStop": 13,
+        "cancelled": false,
+        "candidateCount": 500,
+        "candidatePairsAfterOrdinal": 650,
+        "candidatePairsAfterTitle": 650,
+        "candidatePairsTotal": 6500,
+        "deadlineRemainingMs": 0,
+        "groupsExamined": 9,
+        "groupsTotal": 22,
+        "networkMs": 2506,
+        "queryHash": "8a571bbc61a05873e5787640e5bf2df590263e1599d3d7c47a9fdc804fa0d2a6",
+        "queryIndex": 0,
+        "queryLength": 28,
+        "searchComplete": true,
+        "searchFinalState": "other",
+        "searchPollCount": 6,
+        "searchResponseRows": 500,
+        "searchUniqueCandidates": 500,
+        "searchWarningCount": 0,
+        "selectedFullCoverage": true,
+        "selectionMs": 17350,
+        "selectionStoppedOnDeadline": true,
+        "sharedAssessments": 644
+      },
+      "event": "query_complete"
+    }
+  ]
+}

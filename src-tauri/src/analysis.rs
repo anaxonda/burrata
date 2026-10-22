@@ -10,22 +10,28 @@ use tokio::sync::mpsc;
 
 pub const VERSION: &str = media::ANALYSIS_VERSION;
 
+struct AnalysisWorkItem {
+    asset_id: String,
+    force: bool,
+}
+
 pub struct AnalysisManager {
     store: Arc<Store>,
     pending: Arc<Mutex<HashSet<String>>>,
-    sender: mpsc::UnboundedSender<String>,
+    sender: mpsc::UnboundedSender<AnalysisWorkItem>,
 }
 
 impl AnalysisManager {
     pub fn new(app: tauri::AppHandle, store: Arc<Store>) -> Self {
-        let (sender, mut receiver) = mpsc::unbounded_channel::<String>();
+        let (sender, mut receiver) = mpsc::unbounded_channel::<AnalysisWorkItem>();
         let pending = Arc::new(Mutex::new(HashSet::new()));
         let worker_store = store.clone();
         let worker_pending = pending.clone();
         tauri::async_runtime::spawn(async move {
             let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
             let mut item_index = 0usize;
-            while let Some(id) = receiver.recv().await {
+            while let Some(item) = receiver.recv().await {
+                let id = item.asset_id;
                 item_index += 1;
                 let lookup_started = std::time::Instant::now();
                 let asset = worker_store.get_asset_by_id(&id).ok().flatten();
@@ -53,8 +59,10 @@ impl AnalysisManager {
                     let result = async {
                         let settings = worker_store.settings()?;
                         let analysis_started = std::time::Instant::now();
-                        let updated_result =
-                            media::analyze_and_retag_asset(&asset, &settings).await;
+                        let updated_result = media::analyze_and_retag_asset_with_force(
+                            &asset, &settings, item.force,
+                        )
+                        .await;
                         if perf_trace {
                             eprintln!(
                                 "[perf] analysis.worker media item={} outcome={} elapsed_ms={}",
@@ -146,7 +154,18 @@ impl AnalysisManager {
             let Some(hydrated) = self.store.get_asset_by_id(&asset.id)? else {
                 continue;
             };
-            if !force && hydrated.track.bpm.is_some() && hydrated.track.key.is_some() {
+            let manual_fields = &hydrated.track.provenance["manualFields"];
+            let bpm_manual = manual_fields["bpm"] == true;
+            let key_manual = manual_fields["key"] == true;
+            if !force
+                && (hydrated.track.bpm.is_some() || bpm_manual)
+                && (hydrated
+                    .track
+                    .key
+                    .as_deref()
+                    .is_some_and(|key| !key.trim().is_empty())
+                    || key_manual)
+            {
                 continue;
             }
             if !std::path::Path::new(&hydrated.path).is_file() {
@@ -160,7 +179,14 @@ impl AnalysisManager {
                 &json!({}),
             )?;
             pending.insert(hydrated.id.clone());
-            if self.sender.send(hydrated.id.clone()).is_err() {
+            if self
+                .sender
+                .send(AnalysisWorkItem {
+                    asset_id: hydrated.id.clone(),
+                    force,
+                })
+                .is_err()
+            {
                 pending.remove(&hydrated.id);
                 return Err("Analysis worker is not running".into());
             }

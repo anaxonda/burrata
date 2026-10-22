@@ -1,0 +1,1775 @@
+{
+  "schema": "burrata.matching-performance-cohort/v1",
+  "qualification": false,
+  "frozen": {
+    "binarySha256": "937e4cbbcc055a477a9af7d141d4d12d38eaf906e6a424a694791fbdc83df073",
+    "manifestSha256": "7202ffdf4fc69a9e927dc1b7c1cad611b7b8a0cd68608671849d4531ee58176a",
+    "sourceRevision": "9d5a4194111b023ba9252d85039aeb50e7b6fcfa",
+    "repetitions": 1,
+    "warmups": 0,
+    "levels": [
+      "exact",
+      "balanced",
+      "flexible"
+    ],
+    "providerPolicy": "public settings fixture only; same fixture policy across modes",
+    "startedAtUtc": "2026-10-22T08:06:40.713060+00:00"
+  },
+  "cases": [
+    {
+      "caseId": "bacc-saved",
+      "trackSha256": "6703178b0ec43f2e6f6c021e4f1ee6868516302186f2c71fa98487e0d658afdd",
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "exact": {
+          "runPassed": false,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 16465.748141,
+              "wallMs": 16465.758118,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 585.1890000000001,
+              "reapedChildCpuMs": 9711.967,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 52,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "bandcamp_fallback_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 3,
+                  "candidate_gate_evidence": 3,
+                  "candidate_gate_evidence_rows": 4,
+                  "candidate_gate": 3,
+                  "extract_and_validate_start": 3,
+                  "preview_audio_lookup_start": 3,
+                  "extraction_start": 2,
+                  "extraction_end": 2,
+                  "preview_audio_lookup_end": 3,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 6,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    499.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.9039159999999997,
+                    2.739297,
+                    2.777596
+                  ],
+                  "canonical_search_warmup_end": [
+                    1722.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    341.0
+                  ],
+                  "extraction_end": [
+                    5974.0,
+                    4308.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 52,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 2864.079918,
+              "wallMs": 2864.095315,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 334.895,
+              "reapedChildCpuMs": 1999.045,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 46,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "candidate_gate_evidence": 3,
+                  "candidate_gate_evidence_rows": 4,
+                  "candidate_gate": 3,
+                  "extract_and_validate_start": 3,
+                  "preview_audio_lookup_start": 3,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 6,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.3390910000000003,
+                    2.6501620000000004,
+                    3.3246550000000004
+                  ],
+                  "bandcamp_fallback_end": [
+                    723.0
+                  ],
+                  "extraction_end": [
+                    2542.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": null,
+                "nativeEventCount": 46,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 1,
+              "successes": 0,
+              "failures": 1,
+              "resolveMsP50": 16465.748141,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 1,
+              "successes": 0,
+              "failures": 1,
+              "resolveMsP50": 2864.079918,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "catalog_alias_preparation_end": 1,
+                "alias_cache_lookup_end": 3,
+                "provider_start": 3,
+                "search_start": 3,
+                "bandcamp_fallback_start": 1,
+                "canonical_search_warmup_end": 1,
+                "bandcamp_fallback_end": 1,
+                "search_end": 3,
+                "candidate_gate_evidence": 3,
+                "candidate_gate_evidence_rows": 4,
+                "candidate_gate": 3,
+                "extract_and_validate_start": 3,
+                "preview_audio_lookup_start": 3,
+                "extraction_start": 2,
+                "extraction_end": 2,
+                "preview_audio_lookup_end": 3,
+                "full_identity_check": 2,
+                "extract_and_validate_end": 6,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 2,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 3,
+                  "p50": 2.777596,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 341.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 1,
+                  "p50": 1722.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 1,
+                  "p50": 499.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 2,
+                  "p50": 4308.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "alias_cache_lookup_end": 3,
+                "provider_start": 3,
+                "search_start": 3,
+                "search_end": 3,
+                "candidate_gate_evidence": 3,
+                "candidate_gate_evidence_rows": 4,
+                "candidate_gate": 3,
+                "extract_and_validate_start": 3,
+                "preview_audio_lookup_start": 3,
+                "full_identity_check": 2,
+                "extract_and_validate_end": 6,
+                "extraction_start": 1,
+                "bandcamp_fallback_start": 1,
+                "bandcamp_fallback_end": 1,
+                "extraction_end": 1,
+                "preview_audio_lookup_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 1,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 3,
+                  "p50": 2.6501620000000004,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 723.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 1,
+                  "p50": 2542.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 0,
+                "sum": null,
+                "p50": null,
+                "p95": null,
+                "max": null
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 98,
+            "directNativeEvents": 98,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "exact",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 1,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "exact",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        },
+        "balanced": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9504.476233,
+              "wallMs": 9869.984659,
+              "firstPcmFromRequestMs": 9752.54645,
+              "helperCpuMs": 651.192,
+              "reapedChildCpuMs": 3617.372,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    565.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.2267470000000005,
+                    3.1986559999999997
+                  ],
+                  "canonical_search_warmup_end": [
+                    1639.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    552.0
+                  ],
+                  "extraction_end": [
+                    5466.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 550.1822530000001,
+              "wallMs": 863.437339,
+              "firstPcmFromRequestMs": 779.865801,
+              "helperCpuMs": 205.12699999999995,
+              "reapedChildCpuMs": 99.8140000000003,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    8.838904999999999,
+                    2.908562
+                  ],
+                  "mapped_direct_youtube_end": [
+                    445.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 9504.476233,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 550.1822530000001,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "catalog_alias_preparation_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 2,
+                "bandcamp_fallback_start": 1,
+                "canonical_search_warmup_end": 1,
+                "bandcamp_fallback_end": 1,
+                "search_end": 2,
+                "candidate_gate_evidence": 2,
+                "candidate_gate_evidence_rows": 3,
+                "candidate_gate": 2,
+                "extract_and_validate_start": 1,
+                "preview_audio_lookup_start": 2,
+                "extraction_start": 1,
+                "extraction_end": 1,
+                "preview_audio_lookup_end": 2,
+                "full_identity_check": 1,
+                "extract_and_validate_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 1,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 3.1986559999999997,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 552.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 1,
+                  "p50": 1639.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 1,
+                  "p50": 565.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 1,
+                  "p50": 5466.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 1,
+                "search_end": 1,
+                "candidate_gate_evidence": 1,
+                "candidate_gate_evidence_rows": 2,
+                "candidate_gate": 1,
+                "mapping_resolve_start": 1,
+                "mapped_direct_youtube_start": 1,
+                "mapped_direct_youtube_end": 1,
+                "mapping_resolve_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 2.908562,
+                  "p95": null
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 1,
+                  "p50": 445.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 1,
+                "p50": 1,
+                "p95": null,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 52,
+            "directNativeEvents": 52,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 0,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        },
+        "flexible": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10917.832475000001,
+              "wallMs": 11318.04631,
+              "firstPcmFromRequestMs": 11195.390649,
+              "helperCpuMs": 605.536,
+              "reapedChildCpuMs": 3858.908,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1342.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    1493.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    6.6526,
+                    4.953515
+                  ],
+                  "bandcamp_fallback_end": [
+                    348.0
+                  ],
+                  "extraction_end": [
+                    5855.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 1047.03784,
+              "wallMs": 1574.969867,
+              "firstPcmFromRequestMs": 1518.573469,
+              "helperCpuMs": 147.05700000000002,
+              "reapedChildCpuMs": 40.4380000000001,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.5170280000000003,
+                    4.492185999999999
+                  ],
+                  "mapped_direct_youtube_end": [
+                    938.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 10917.832475000001,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 1047.03784,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "canonical_search_warmup_end": 1,
+                "catalog_alias_preparation_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 2,
+                "bandcamp_fallback_start": 1,
+                "bandcamp_fallback_end": 1,
+                "search_end": 2,
+                "candidate_gate_evidence": 2,
+                "candidate_gate_evidence_rows": 3,
+                "candidate_gate": 2,
+                "extract_and_validate_start": 1,
+                "preview_audio_lookup_start": 2,
+                "extraction_start": 1,
+                "extraction_end": 1,
+                "preview_audio_lookup_end": 2,
+                "full_identity_check": 1,
+                "extract_and_validate_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 1,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 4.953515,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 348.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 1,
+                  "p50": 1342.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 1,
+                  "p50": 1493.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 1,
+                  "p50": 5855.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 1,
+                "search_end": 1,
+                "candidate_gate_evidence": 1,
+                "candidate_gate_evidence_rows": 2,
+                "candidate_gate": 1,
+                "mapping_resolve_start": 1,
+                "mapped_direct_youtube_start": 1,
+                "mapped_direct_youtube_end": 1,
+                "mapping_resolve_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 3.5170280000000003,
+                  "p95": null
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 1,
+                  "p50": 938.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 1,
+                "p50": 1,
+                "p95": null,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 52,
+            "directNativeEvents": 52,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "flexible",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 0,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "flexible",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "caseId": "vibe-saved",
+      "trackSha256": "99604787c9f87835f25a543fe4bf71d2e0402770c771bd27b4b42aece7c3a1e4",
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "exact": {
+          "runPassed": false,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 17855.699345,
+              "wallMs": 17855.710638,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 562.5300000000001,
+              "reapedChildCpuMs": 9599.551,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 51,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 3,
+                  "candidate_gate_evidence": 3,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 3,
+                  "bandcamp_fallback_end": 1,
+                  "extract_and_validate_start": 3,
+                  "preview_audio_lookup_start": 3,
+                  "extraction_start": 2,
+                  "extraction_end": 2,
+                  "preview_audio_lookup_end": 3,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 6,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    893.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.262462,
+                    3.617557,
+                    4.734566
+                  ],
+                  "canonical_search_warmup_end": [
+                    1088.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    732.0
+                  ],
+                  "extraction_end": [
+                    6696.0,
+                    4763.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 51,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 2202.817645,
+              "wallMs": 2202.832039,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 144.90599999999995,
+              "reapedChildCpuMs": 1752.1730000000007,
+              "providerId": null,
+              "trace": {
+                "matchedEventCount": 45,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "candidate_gate_evidence": 3,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 3,
+                  "extract_and_validate_start": 3,
+                  "preview_audio_lookup_start": 3,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 6,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.7136370000000003,
+                    2.881428,
+                    4.789063
+                  ],
+                  "bandcamp_fallback_end": [
+                    446.0
+                  ],
+                  "extraction_end": [
+                    2067.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": null,
+                "nativeEventCount": 45,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 1,
+              "successes": 0,
+              "failures": 1,
+              "resolveMsP50": 17855.699345,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 1,
+              "successes": 0,
+              "failures": 1,
+              "resolveMsP50": 2202.817645,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "catalog_alias_preparation_end": 1,
+                "alias_cache_lookup_end": 3,
+                "provider_start": 3,
+                "search_start": 3,
+                "canonical_search_warmup_end": 1,
+                "bandcamp_fallback_start": 1,
+                "search_end": 3,
+                "candidate_gate_evidence": 3,
+                "candidate_gate_evidence_rows": 3,
+                "candidate_gate": 3,
+                "bandcamp_fallback_end": 1,
+                "extract_and_validate_start": 3,
+                "preview_audio_lookup_start": 3,
+                "extraction_start": 2,
+                "extraction_end": 2,
+                "preview_audio_lookup_end": 3,
+                "full_identity_check": 2,
+                "extract_and_validate_end": 6,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 2,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 3,
+                  "p50": 4.262462,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 732.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 1,
+                  "p50": 1088.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 1,
+                  "p50": 893.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 2,
+                  "p50": 4763.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "alias_cache_lookup_end": 3,
+                "provider_start": 3,
+                "search_start": 3,
+                "search_end": 3,
+                "candidate_gate_evidence": 3,
+                "candidate_gate_evidence_rows": 3,
+                "candidate_gate": 3,
+                "extract_and_validate_start": 3,
+                "preview_audio_lookup_start": 3,
+                "full_identity_check": 2,
+                "extract_and_validate_end": 6,
+                "extraction_start": 1,
+                "bandcamp_fallback_start": 1,
+                "bandcamp_fallback_end": 1,
+                "extraction_end": 1,
+                "preview_audio_lookup_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 1,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 3,
+                  "p50": 2.881428,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 446.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 1,
+                  "p50": 2067.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 0,
+                "sum": null,
+                "p50": null,
+                "p95": null,
+                "max": null
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 96,
+            "directNativeEvents": 96,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "exact",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 1,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "exact",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        },
+        "balanced": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8984.580425,
+              "wallMs": 9382.878423,
+              "firstPcmFromRequestMs": 9260.959867,
+              "helperCpuMs": 320.178,
+              "reapedChildCpuMs": 3927.994,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    370.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    8.629098,
+                    7.943162999999999
+                  ],
+                  "canonical_search_warmup_end": [
+                    917.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    898.0
+                  ],
+                  "extraction_end": [
+                    7628.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 661.9189709999999,
+              "wallMs": 852.024129,
+              "firstPcmFromRequestMs": 801.5372739999999,
+              "helperCpuMs": 143.183,
+              "reapedChildCpuMs": 126.91800000000012,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    8.283214000000001,
+                    3.8042800000000003
+                  ],
+                  "mapped_direct_youtube_end": [
+                    613.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 8984.580425,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 661.9189709999999,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "catalog_alias_preparation_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 2,
+                "canonical_search_warmup_end": 1,
+                "search_end": 2,
+                "candidate_gate_evidence": 2,
+                "candidate_gate_evidence_rows": 2,
+                "candidate_gate": 2,
+                "extract_and_validate_start": 1,
+                "preview_audio_lookup_start": 2,
+                "extraction_start": 1,
+                "bandcamp_fallback_start": 1,
+                "bandcamp_fallback_end": 1,
+                "extraction_end": 1,
+                "preview_audio_lookup_end": 2,
+                "full_identity_check": 1,
+                "extract_and_validate_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 1,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 7.943162999999999,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 898.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 1,
+                  "p50": 917.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 1,
+                  "p50": 370.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 1,
+                  "p50": 7628.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 1,
+                "search_end": 1,
+                "candidate_gate_evidence": 1,
+                "candidate_gate_evidence_rows": 1,
+                "candidate_gate": 1,
+                "mapping_resolve_start": 1,
+                "mapped_direct_youtube_start": 1,
+                "mapped_direct_youtube_end": 1,
+                "mapping_resolve_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 3.8042800000000003,
+                  "p95": null
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 1,
+                  "p50": 613.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 1,
+                "p50": 1,
+                "p95": null,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 50,
+            "directNativeEvents": 50,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 0,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        },
+        "flexible": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8752.352365,
+              "wallMs": 9017.457008,
+              "firstPcmFromRequestMs": 8930.867118,
+              "helperCpuMs": 399.091,
+              "reapedChildCpuMs": 3773.475,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    514.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.067671,
+                    3.463978
+                  ],
+                  "canonical_search_warmup_end": [
+                    967.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    435.0
+                  ],
+                  "extraction_end": [
+                    5796.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 618.207286,
+              "wallMs": 909.318893,
+              "firstPcmFromRequestMs": 814.814623,
+              "helperCpuMs": 125.56200000000001,
+              "reapedChildCpuMs": 60.702999999999975,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.362713,
+                    3.116435
+                  ],
+                  "mapped_direct_youtube_end": [
+                    577.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 8752.352365,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 1,
+              "successes": 1,
+              "failures": 0,
+              "resolveMsP50": 618.207286,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "catalog_alias_preparation_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 2,
+                "canonical_search_warmup_end": 1,
+                "search_end": 2,
+                "candidate_gate_evidence": 2,
+                "candidate_gate_evidence_rows": 2,
+                "candidate_gate": 2,
+                "extract_and_validate_start": 1,
+                "preview_audio_lookup_start": 2,
+                "extraction_start": 1,
+                "bandcamp_fallback_start": 1,
+                "bandcamp_fallback_end": 1,
+                "extraction_end": 1,
+                "preview_audio_lookup_end": 2,
+                "full_identity_check": 1,
+                "extract_and_validate_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 1,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 3.463978,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 1,
+                  "p50": 435.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 1,
+                  "p50": 967.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 1,
+                  "p50": 514.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 1,
+                  "p50": 5796.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 1,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 1,
+                "settings_read_start": 1,
+                "settings_read_end": 1,
+                "alias_cache_lookup_end": 2,
+                "provider_start": 2,
+                "search_start": 1,
+                "search_end": 1,
+                "candidate_gate_evidence": 1,
+                "candidate_gate_evidence_rows": 1,
+                "candidate_gate": 1,
+                "mapping_resolve_start": 1,
+                "mapped_direct_youtube_start": 1,
+                "mapped_direct_youtube_end": 1,
+                "mapping_resolve_end": 1,
+                "alias_lookup_skipped": 1,
+                "resolution_end": 1
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 2,
+                  "p50": 3.116435,
+                  "p95": null
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 1,
+                  "p50": 577.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 1,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 1,
+                "sum": 1,
+                "p50": 1,
+                "p95": null,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 50,
+            "directNativeEvents": 50,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "flexible",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 0,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "flexible",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "Failures remain in attempt denominators; p95 is withheld unless >=20 measured timing samples. Trace fields count allowlisted logical events and observed resolver counter snapshots only; they do not represent HTTP request totals. Concurrent phase duration samples are not additive. Per-attempt RSS is omitted because available child RSS is a lifetime high-water mark."
+}

@@ -41,6 +41,7 @@
     onFavoriteTrack,
     onDownloadAlbum,
     onSaveAlbumToLibrary,
+    onAddAlbumToPlaylist,
     onBrowseArtistProvider,
     onAddTrackToPlaylist,
     onAddSelectedToPlaylist,
@@ -51,7 +52,7 @@
     playingTrackId = "",
     bufferingTrackId = "",
     paused = false,
-  }: ArtistPageProps & { showSearchResultsButton?: boolean; onDownloadAlbum?: (tracks: Track[], release: ArtistReleaseRef) => void | Promise<void>; onSaveAlbumToLibrary?: (tracks: Track[], release: ArtistReleaseRef) => Promise<void>; onBrowseArtistProvider?: (name: string, provider: "spotify" | "musicbrainz") => void | Promise<void>; onTrackAlbum?: (track: Track) => void | Promise<void> } = $props();
+  }: ArtistPageProps & { showSearchResultsButton?: boolean; onDownloadAlbum?: (tracks: Track[], release: ArtistReleaseRef) => void | Promise<void>; onAddAlbumToPlaylist?: (tracks: Track[], title: string) => void | Promise<void>; onSaveAlbumToLibrary?: (tracks: Track[], release: ArtistReleaseRef) => Promise<void>; onBrowseArtistProvider?: (name: string, provider: "spotify" | "musicbrainz") => void | Promise<void>; onTrackAlbum?: (track: Track) => void | Promise<void> } = $props();
 
   let query = $state("");
   let results = $state<ArtistSearchResult[]>([]);
@@ -448,19 +449,24 @@
   }
 
   async function saveAlbumToLibrary(release: ArtistReleaseRef, groupKey: string) {
-    if (!onSaveAlbumToLibrary || albumSaveState[release.sourceUrl]?.status === "saving") return;
+    if ((!onSaveAlbumToLibrary && !onAddAlbumToPlaylist) || albumSaveState[release.sourceUrl]?.status === "saving") return;
     const generation = requestGeneration;
     const artistIdentity = selectedArtist ? `${selectedArtist.artist.provider}:${selectedArtist.artist.id}` : "";
     const sourceUrl = release.sourceUrl;
     const isCurrent = () => !navigationDestroyed && generation === requestGeneration
       && `${selectedArtist?.artist.provider ?? ""}:${selectedArtist?.artist.id ?? ""}` === artistIdentity
       && releaseGroups.some(group => group.key === groupKey && selectedEdition(group).sourceUrl === sourceUrl);
-    albumSaveState = { ...albumSaveState, [sourceUrl]: { status: "saving", message: "Saving album to library…" } };
+    albumSaveState = { ...albumSaveState, [sourceUrl]: { status: "saving", message: onAddAlbumToPlaylist ? "Loading album tracks…" : "Saving album to library…" } };
     try {
       const sourceTracks = releaseTrackCache[sourceUrl] ?? await loadReleaseTracks(release);
       if (!isCurrent()) return;
       if (!sourceTracks.length) throw new Error("No album tracks are available to save.");
-      await onSaveAlbumToLibrary(sourceTracks, release);
+      if (onAddAlbumToPlaylist) {
+        await onAddAlbumToPlaylist(sourceTracks, release.title);
+        if (isCurrent()) { const next = {...albumSaveState}; delete next[sourceUrl]; albumSaveState = next; }
+        return;
+      }
+      await onSaveAlbumToLibrary!(sourceTracks, release);
       if (!isCurrent()) return;
       const expectedCount = release.trackCount;
       const messageText = typeof expectedCount === "number" && expectedCount > sourceTracks.length
@@ -775,8 +781,8 @@
         {@const artworkTrack = (releaseTrackCache[release.sourceUrl] ?? []).find((track) => track.artworkUrl)}
         {@const artworkSources = [...(artworkTrack ? trackArtworkSources(artworkTrack) : []), ...(release.artworkUrls ?? []), musicBrainzCover(release.sourceUrl)]}
         <article class="release-card"><div class="release-card-header"><div class="release-card-main"><div class="release-art" aria-hidden="true"><ArtworkImage urls={artworkSources} /></div><div class="release-info"><small class="release-source">{providerLabel(release.release.provider)}</small><button class="album-title" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}><strong>{release.title}</strong></button><p>{release.year ?? "Year unknown"}{#if release.country} · {release.country}{/if}{#if release.label} · {release.label}{/if}</p><small>{release.format ?? release.primaryType ?? "Format unknown"}{#if release.catalogNumber} · {release.catalogNumber}{/if} · {release.trackCount ?? "?"} tracks</small></div></div>
-          <div class="release-actions"><button class="secondary" aria-label={`Play album ${release.title}`} onclick={() => void playRelease(release)} disabled={!getReleaseTracks || !onPlayTrack || loadingRelease[release.sourceUrl]}>Play album</button><button class="secondary" aria-label={`Queue album ${release.title}`} onclick={() => void queueRelease(release, "append")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Queue</button><button class="secondary" aria-label={`Play album ${release.title} next`} onclick={() => void queueRelease(release, "next")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Play next</button>{#if onDownloadAlbum}<button class="secondary" aria-label={`Download album ${release.title}`} onclick={() => void downloadRelease(release)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl]}>Download album</button>{/if}{#if onSaveAlbumToLibrary}<button class="secondary" aria-label={`Save album ${release.title} to library`} onclick={() => void saveAlbumToLibrary(release, group.key)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl] || albumSaveState[release.sourceUrl]?.status === "saving"}>{albumSaveState[release.sourceUrl]?.status === "saving" ? "Saving…" : albumSaveState[release.sourceUrl]?.status === "saved" ? "Saved" : "Save to library"}</button>{/if}<button class="secondary" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}>Tracks</button></div></div>
-          {#if onSaveAlbumToLibrary && albumSaveState[release.sourceUrl]}<p class={`notice album-save-status ${albumSaveState[release.sourceUrl].status === "error" ? "error" : ""}`} aria-live="polite">{albumSaveState[release.sourceUrl].message}</p>{/if}
+          <div class="release-actions"><button class="secondary" aria-label={`Play album ${release.title}`} onclick={() => void playRelease(release)} disabled={!getReleaseTracks || !onPlayTrack || loadingRelease[release.sourceUrl]}>Play album</button><button class="secondary" aria-label={`Queue album ${release.title}`} onclick={() => void queueRelease(release, "append")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Queue</button><button class="secondary" aria-label={`Play album ${release.title} next`} onclick={() => void queueRelease(release, "next")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Play next</button>{#if onDownloadAlbum}<button class="secondary" aria-label={`Download album ${release.title}`} onclick={() => void downloadRelease(release)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl]}>Download album</button>{/if}{#if onAddAlbumToPlaylist || onSaveAlbumToLibrary}<button class="secondary" aria-label={onAddAlbumToPlaylist ? `Add album ${release.title} to playlist` : `Save album ${release.title} to library`} onclick={() => void saveAlbumToLibrary(release, group.key)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl] || albumSaveState[release.sourceUrl]?.status === "saving"}>{albumSaveState[release.sourceUrl]?.status === "saving" ? (onAddAlbumToPlaylist ? "Loading…" : "Saving…") : onAddAlbumToPlaylist ? "Add to playlist" : albumSaveState[release.sourceUrl]?.status === "saved" ? "Saved" : "Save to library"}</button>{/if}<button class="secondary" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}>Tracks</button></div></div>
+          {#if (onAddAlbumToPlaylist || onSaveAlbumToLibrary) && albumSaveState[release.sourceUrl]}<p class={`notice album-save-status ${albumSaveState[release.sourceUrl].status === "error" ? "error" : ""}`} aria-live="polite">{albumSaveState[release.sourceUrl].message}</p>{/if}
           {#if release.tracks.length && !getReleaseTracks}<details class="source-track-details"><summary>Track titles from source · {release.tracks.length}</summary><ol class="release-tracklist">{#each release.tracks as sourceTrack, trackIndex (trackIndex)}<li>{sourceTrack.position ? `${sourceTrack.position}. ` : ""}{sourceTrack.title}</li>{/each}</ol></details>{/if}
           {#if group.editions.length > 1}<label class="edition-select">Edition <select value={release.sourceUrl} onchange={(event) => { editionByGroup = { ...editionByGroup, [group.key]: event.currentTarget.value }; const chosen = group.editions.find((item) => item.sourceUrl === event.currentTarget.value); if (chosen && expandedRelease === group.key) void loadReleaseTracks(chosen); }} aria-label={`Edition of ${release.title}`}>{#each group.editions as edition (edition.sourceUrl)}<option value={edition.sourceUrl}>{edition.year ?? "Year unknown"} · {providerLabel(edition.release.provider)}{edition.country ? ` · ${edition.country}` : ""}</option>{/each}</select></label>{/if}
           {#if expandedRelease === group.key}<div class="expanded-tracks">

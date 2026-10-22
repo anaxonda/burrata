@@ -435,3 +435,34 @@ footer.player .player-transport button[aria-label="Autoplay radio after queue"]:
   footer.player .player-transport { gap:2px; }
   footer.player .player-transport button[aria-label="Autoplay radio after queue"] { flex-basis:30px;width:30px; }
 }
+
+/* Pressed transport modes must remain distinct from hover in either theme. */
+footer.player .player-transport .transport-mode {
+  position:relative;
+  border:1px solid transparent;
+}
+footer.player .player-transport .transport-mode[aria-pressed="true"],
+footer.player .player-transport .transport-mode[aria-pressed="true"]:hover {
+  background:var(--accent);
+  color:var(--base);
+  border-color:var(--accent);
+  box-shadow:0 0 0 1px var(--accent);
+}
+footer.player .player-transport .transport-mode[aria-pressed="true"]::after {
+  content:"";
+  position:absolute;
+  bottom:3px;
+  left:calc(50% - 2px);
+  width:4px;
+  height:4px;
+  border-radius:50%;
+  background:currentColor;
+}
+footer.player .player-transport .repeat-one-badge {
+  position:absolute;
+  top:1px;
+  right:3px;
+  font-size:10px;
+  font-weight:800;
+  line-height:1;
+}

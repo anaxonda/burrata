@@ -92,6 +92,7 @@ export interface ApproximateExcerptProvenance {
   boundaryUncertaintySeconds?: number;
 }
 export interface NativePlaybackSnapshot {
+  handoffId?: string | null;
   failure?: PlaybackFailure | null;
   engine: "native" | "webview";
   revision: number;

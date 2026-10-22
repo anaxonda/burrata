@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-21",
+  "job": {
+    "id": "dbf61aa0-a76d-4b98-bf52-d5faaae3824d",
+    "state": "completed",
+    "progress": 100,
+    "sourceProvider": "slskd",
+    "sourceCandidateTitle": "Bulgarian State Radio & Television Female Vocal Choir - Le Mystere des voix bulgares, Volume 1 - 08 - Erghen Diado",
+    "catalogTrackTitle": "Erghen Diado",
+    "format": {
+      "codec": "mp3",
+      "extension": "mp3",
+      "lossless": false
+    },
+    "error": null
+  },
+  "evidenceLimit": "This is the app job-list record only. No physical output probe, tag check, PCM comparison, or source-identity qualification is asserted here.",
+  "albumOperationIdPrefix": "e0c003fa",
+  "physicalMetadata": {
+    "assetId": "f366e0e7-bae1-40d6-b4e7-cbec4af34672",
+    "title": "Erghen Diado",
+    "path": "Bulgarian State Radio & Television Female Vocal Choir - Erghen Diado.mp3",
+    "file": {
+      "codec": "mp3",
+      "sampleRate": "44100",
+      "channels": 2,
+      "bitsPerSample": 0,
+      "durationSeconds": "174.132208",
+      "sizeBytes": 4195467
+    },
+    "fields": {
+      "artist": {
+        "expected": "Bulgarian State Radio & Television Female Vocal Choir",
+        "observed": [
+          "Bulgarian State Radio & Television Female Vocal Choir"
+        ],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "match"
+      },
+      "title": {
+        "expected": "Erghen Diado",
+        "observed": [
+          "Erghen Diado"
+        ],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "match"
+      },
+      "album": {
+        "expected": "Le Myst\u00e8re des voix bulgares",
+        "observed": [
+          "Le Myst\u00e8re des voix bulgares"
+        ],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "match"
+      },
+      "album_artist": {
+        "expected": null,
+        "observed": [],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "no_library_value"
+      },
+      "date": {
+        "expected": "1986",
+        "observed": [
+          "1986"
+        ],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "match"
+      },
+      "genre": {
+        "expected": "folk",
+        "observed": [
+          "folk"
+        ],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "match"
+      },
+      "label": {
+        "expected": "4AD",
+        "observed": [
+          "4AD"
+        ],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "match"
+      },
+      "isrc": {
+        "expected": null,
+        "observed": [],
+        "sourceProvided": null,
+        "sourceStatus": "not_recorded",
+        "status": "no_library_value"
+      }
+    },
+    "sourceMetadataSnapshotRecorded": false
+  },
+  "qualification": "Album route remains failing: twelve skipped. One Soulseek fallback job completed, and its published MP3 exists with matching available saved metadata. Independent acoustic recording identity is not established."
+}

@@ -1,0 +1,297 @@
+{
+  "appBuildSha256": "498ad2f5a8dbe0dc82e939abe8129f23ebbb42f7c1cf1bd5aadcaff9b0bc58d4",
+  "scope": "Read-only shared app assessment of thirteen numbered candidate files from one coherent peer directory against exact MusicBrainz release occurrences. No searches or transfers performed.",
+  "groupFingerprint": "ebafc50c51c25370",
+  "results": [
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:1:1:32f1893e-8c1b-4640-a001-54cf66971988",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:2:1:212b4d8d-192e-4b45-82f5-50c7f52d773f",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:3:1:df27ce01-abf3-4c10-afa2-fdfe2bfc5abf",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:4:1:aa4fcc7d-886f-45d4-9c9d-47c5fcf3a00d",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:5:1:cd0af23b-8cd5-4337-a4b0-cf29ad5ae7f0",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:6:1:fcda8a1b-4859-4b24-b76d-8c8b9f7cc7ec",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:7:1:e03f4c06-1ce6-46a7-a004-ed5641ef1f0e",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:8:1:4437000a-b4ef-467d-bb2a-41194896fe6a",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:9:1:dcc60f43-9517-49ad-b456-111f8a5293f6",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:10:1:664c890c-506c-46e0-a084-24520280b996",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:11:1:0bc2caef-5650-497c-8e69-aa90d3a4694d",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:12:1:40eef23d-baa8-47a9-b176-f6e938175c52",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    },
+    {
+      "trackId": "catalog:musicbrainz:1f602996-f661-3611-b25a-93c3337fd76e:1:13:1:996abdad-b90f-4a18-b3e1-48361be727ba",
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "dimensions": {
+        "artists": "agree",
+        "guests": "unknown",
+        "isrc": "unknown",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      },
+      "reasons": [
+        "titleAgrees",
+        "artistAgrees",
+        "runtimeAgrees",
+        "filenameCaptionOnly"
+      ],
+      "isError": false
+    }
+  ],
+  "limits": [
+    "Metadata-only probable recording agreement; no fingerprint proof or exact version/ISRC evidence.",
+    "This does not prove album selector efficiency, transfer success, or file contents."
+  ]
+}

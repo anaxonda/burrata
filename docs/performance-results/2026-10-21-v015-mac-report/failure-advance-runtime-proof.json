@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "appBuildPrefix": "ed056432",
+  "matchingLevel": "Balanced",
+  "queueSubmissionCount": 1,
+  "queueOrder": [
+    {
+      "title": "Level 2 - Miami (Insane)",
+      "artist": "Pengus",
+      "outcome": "skipped",
+      "reasonCategory": "recording_identity_unverified",
+      "queueEntryId": "035ea0b2-2b05-4435-bba3-d651ec080bf7"
+    },
+    {
+      "title": "Bacc Of The Bach",
+      "artist": "Nipsey Hussle,Bino Rideaux",
+      "outcome": "played_after_prior_entry_skip",
+      "queueEntryId": "bf511034-74c3-408a-8ad7-e96ddfc599b7"
+    }
+  ],
+  "afterSkipPlaybackState": {
+    "currentIndex": 1,
+    "currentEntryId": "bf511034-74c3-408a-8ad7-e96ddfc599b7",
+    "status": "playing",
+    "positionSeconds": 27.496031,
+    "durationSeconds": 198,
+    "mediaFailure": false,
+    "source": { "provider": "youtube", "id": "rpCswezRrLs" }
+  },
+  "laterAppOwnedCapture": {
+    "skipNoticeVisible": true,
+    "currentTitle": "Bacc Of The Bach",
+    "status": "paused_at_natural_end",
+    "positionSecondsApprox": 197,
+    "durationSecondsApprox": 198
+  },
+  "limitations": [
+    "This verifies a two-item queue submitted once: the first entry was skipped and the exact second queue occurrence played afterward.",
+    "The later UI capture supports the visible skip notice and end-of-track pause; it is not a test of single-click library context or Mac behavior.",
+    "This is not a source-identity or acoustic-fingerprint validation for the skipped item."
+  ]
+}

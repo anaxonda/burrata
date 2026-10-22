@@ -1,0 +1,62 @@
+{
+  "observedAt": "2026-10-21T20:16:26.136152+00:00",
+  "purpose": "Bounded live CDN native decode/seek probe of user-supplied resources, not a Burrata resolver integration test",
+  "requestHeaders": "none beyond FFmpeg defaults; no API credentials",
+  "results": [
+    {
+      "track": "alvafro",
+      "keySource": "user-supplied playback request; not retained in evidence",
+      "transport": "https CDN child URL in ffconcat manifest delivered over stdin",
+      "outputFormat": "s32le",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "start": {
+        "exitCode": 0,
+        "decodedBytes": 705600,
+        "expectedBytes": 705600,
+        "sha256": "fcd2a904758a6fea256248f212340694aa7ef590e543fbb8d6c14219c68f002b",
+        "hasNonzeroSamples": true,
+        "stderrPresent": false
+      },
+      "seek": {
+        "exitCode": 0,
+        "decodedBytes": 352800,
+        "expectedBytes": 352800,
+        "sha256": "62113364d2ed5b162aa980b92e7ee61ed663556ca94bf46c8a8c8af9b989c898",
+        "hasNonzeroSamples": true,
+        "stderrPresent": false
+      },
+      "seekEqualsSecondOfStart": true
+    },
+    {
+      "track": "bacc",
+      "keySource": "user-supplied playback request; not retained in evidence",
+      "transport": "https CDN child URL in ffconcat manifest delivered over stdin",
+      "outputFormat": "s32le",
+      "sampleRateHz": 48000,
+      "channels": 2,
+      "start": {
+        "exitCode": 0,
+        "decodedBytes": 768000,
+        "expectedBytes": 768000,
+        "sha256": "5c244af668fff56e1c19ba72b45e0e5dc6e3dbe14732fabbb4a5a8ee2d74db19",
+        "hasNonzeroSamples": true,
+        "stderrPresent": false
+      },
+      "seek": {
+        "exitCode": 0,
+        "decodedBytes": 384000,
+        "expectedBytes": 384000,
+        "sha256": "77cf5ea01745150319c121cdd8138c6a32595db35862522db9c22dbafc71a182",
+        "hasNonzeroSamples": true,
+        "stderrPresent": false
+      },
+      "seekEqualsSecondOfStart": true
+    }
+  ],
+  "limitations": [
+    "Only first two seconds and a one-second seek decoded; no full playback or device output tested.",
+    "Original user-supplied resource/key pairs used; resolver acquisition by native app remains unverified.",
+    "No raw keys, media URLs, audio bytes or raw stderr retained in this artifact."
+  ]
+}

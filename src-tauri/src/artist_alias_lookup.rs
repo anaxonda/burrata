@@ -16,7 +16,9 @@ use std::{
 };
 use tokio::sync::watch;
 
-const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v4";
+// v6 invalidates prior negatives because exact MusicBrainz release
+// occurrences can now prepare recording-scoped release runtime evidence.
+const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v6";
 
 struct Flight {
     id: uuid::Uuid,
@@ -231,6 +233,18 @@ mod tests {
 
         let complete = spotify_track_with_artist_identity();
         assert!(negative_cache_key(&complete, &complete).is_some());
+    }
+
+    #[test]
+    fn recording_runtime_evidence_does_not_reuse_pre_v6_negative_cache() {
+        assert_eq!(
+            NEGATIVE_CACHE_NAMESPACE,
+            "artists.alias-discovery.negative.v6"
+        );
+        assert_ne!(
+            NEGATIVE_CACHE_NAMESPACE,
+            "artists.alias-discovery.negative.v5"
+        );
     }
 
     #[test]

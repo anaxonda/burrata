@@ -1,0 +1,21 @@
+[package]
+name = "burrata-matching-stage5-audit"
+version = "0.0.0"
+edition = "2021"
+publish = false
+autobins = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
+[[bin]]
+name = "stage5-matrix"
+path = "src/main.rs"
+
+[[bin]]
+name = "legacy-resolved-reproducer"
+path = "legacy-resolved-reproducer.rs"

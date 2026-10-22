@@ -2567,7 +2567,8 @@ pub(crate) fn parse_musicbrainz_release_tracks(
     for (medium_index, medium) in data["media"].as_array().into_iter().flatten().enumerate() {
         let medium_position = medium["position"]
             .as_u64()
-            .unwrap_or((medium_index + 1) as u64) as u32;
+            .and_then(|position| u32::try_from(position).ok())
+            .unwrap_or((medium_index + 1) as u32);
         for (track_index, track) in medium["tracks"]
             .as_array()
             .into_iter()
@@ -2598,7 +2599,20 @@ pub(crate) fn parse_musicbrainz_release_tracks(
                 .unwrap_or_else(|| (track_index + 1).to_string());
             let numeric_position = track["position"]
                 .as_u64()
-                .unwrap_or((track_index + 1) as u64) as u32;
+                .unwrap_or((track_index + 1) as u64);
+            let source_track_number = track["position"]
+                .as_u64()
+                .or_else(|| {
+                    track["number"]
+                        .as_str()
+                        .and_then(|number| number.parse::<u64>().ok())
+                })
+                .and_then(|number| u32::try_from(number).ok())
+                .filter(|number| *number > 0);
+            let source_disc_number = medium["position"]
+                .as_u64()
+                .and_then(|number| u32::try_from(number).ok())
+                .filter(|number| *number > 0);
             let recording_credits =
                 parse_musicbrainz_credits(&recording["artist-credit"], &release_url);
             let track_credits = parse_musicbrainz_credits(&track["artist-credit"], &release_url);
@@ -2660,12 +2674,16 @@ pub(crate) fn parse_musicbrainz_release_tracks(
                 source_track_guid,
                 duration_ms,
                 isrc,
+                source_track_number,
+                source_disc_number,
+                track["position"].as_u64(),
+                medium["position"].as_u64(),
             ));
         }
     }
     ordered.sort_by_key(|row| (row.0, row.1, row.2));
     let mut occurrences = std::collections::HashMap::<(u32, String), u32>::new();
-    ordered.into_iter().map(|(medium, _, _, title, position, credits, artist, reference_id, source_track_guid, duration_ms, isrc)| {
+    ordered.into_iter().map(|(medium, _, _, title, position, credits, artist, reference_id, source_track_guid, duration_ms, isrc, track_number, disc_number, source_track_position, source_medium_position)| {
         let key = (medium, position.clone());
         let occurrence = occurrences.entry(key).and_modify(|value| *value += 1).or_insert(1);
         let (id, provider_id) = catalog_track_id("musicbrainz", edition_id, reference_id.as_deref(), &medium.to_string(), &position, *occurrence);
@@ -2673,12 +2691,15 @@ pub(crate) fn parse_musicbrainz_release_tracks(
             id, provider: "catalog".into(), provider_id, source_url: release_url.clone(),
             artist, title, album: Some(album.clone()), label: label.clone(), catalog_number: catalog_number.clone(),
             duration_seconds: duration_ms.map(|duration| duration as f64 / 1000.0),
+            track_number,
+            disc_number,
             release_date: release_date.clone(), isrc,
             artwork_url: Some(artwork_url.clone()),
             provenance: json!({"sourceKind":"catalog", "catalogProvider":"musicbrainz", "sourceUrl":release_url,
                 "requestedReleaseSourceUrl":requested_source_url, "releaseId":edition_id,
                 "releaseGroupId":data["release-group"]["id"],
                 "mediumPosition":medium, "trackPosition":position, "occurrence":occurrence,
+                "trackPositionOrdinal":source_track_position, "sourceMediumPosition":source_medium_position,
                 "recordingId":reference_id, "trackGuid":source_track_guid, "artistCredits":credits, "representativeEdition":representative}),
             ..Track::default()
         }
@@ -4341,8 +4362,73 @@ mod tests {
         assert_ne!(rows[0].id, rows[1].id);
         assert_eq!(rows[0].provenance["recordingId"], recording);
         assert_eq!(rows[0].provenance["trackGuid"], "not-a-recording-mbid");
+        assert_eq!(rows[0].track_number, Some(1));
+        assert_eq!(rows[0].disc_number, Some(1));
         assert!(rows[0].provider_id.contains(recording));
         assert_tracks_round_trip(&rows);
+    }
+
+    #[test]
+    fn musicbrainz_track_parser_separates_numeric_ordinals_from_printed_numbering() {
+        let release_id = "00000000-0000-4000-8000-000000000002";
+        let rows = parse_musicbrainz_release_tracks(
+            &json!({
+                "title":"Album",
+                "artist-credit":[{"name":"Artist"}],
+                "media":[{"position":2,"tracks":[{
+                    "id":"00000000-0000-4000-8000-000000000003",
+                    "number":"A1","position":3,"title":"Song",
+                    "recording":{"id":"00000000-0000-4000-8000-000000000004","length":120000}
+                }]}]
+            }),
+            release_id,
+            &format!("https://musicbrainz.org/release/{release_id}"),
+            false,
+            None,
+        );
+        let track = &rows[0];
+        assert_eq!(track.track_number, Some(3));
+        assert_eq!(track.disc_number, Some(2));
+        assert_eq!(track.provenance["trackPosition"], "A1");
+        assert_eq!(track.provenance["trackPositionOrdinal"], 3);
+        assert_eq!(track.provenance["sourceMediumPosition"], 2);
+        assert_eq!(
+            crate::recording_identity::trusted_musicbrainz_ordinals(track),
+            (Some(3), Some(2))
+        );
+
+        let mut cached_legacy = track.clone();
+        cached_legacy.track_number = None;
+        cached_legacy.disc_number = None;
+        cached_legacy
+            .provenance
+            .as_object_mut()
+            .unwrap()
+            .remove("trackPositionOrdinal");
+        cached_legacy
+            .provenance
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceMediumPosition");
+        cached_legacy.provenance["trackPosition"] = json!("4");
+        cached_legacy.provenance["mediumPosition"] = json!(2);
+        assert_eq!(
+            crate::recording_identity::trusted_musicbrainz_ordinals(&cached_legacy),
+            (Some(4), Some(2))
+        );
+
+        cached_legacy.provenance["trackPosition"] = json!("A1");
+        assert_eq!(
+            crate::recording_identity::trusted_musicbrainz_ordinals(&cached_legacy),
+            (None, Some(2)),
+            "nonnumeric printed numbers remain provenance, not ordinals"
+        );
+
+        cached_legacy.provenance["manualFields"] = json!({"trackNumber":true});
+        assert_eq!(
+            crate::recording_identity::trusted_musicbrainz_ordinals(&cached_legacy),
+            (None, Some(2))
+        );
     }
 
     #[test]

@@ -44,6 +44,8 @@ fn preload(generation: u64, active: Arc<AtomicU64>) -> PreloadFixture {
                 ffmpeg: "unused".into(),
                 headers: vec![],
                 decoder_hint: None,
+
+                cenc: None,
             },
             end: None,
             activation_tx,
@@ -288,6 +290,8 @@ fn real_preload_producer_publishes_failure_before_disconnecting_its_pcm_channel(
             ffmpeg: "unused".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         },
         0.,
         None,

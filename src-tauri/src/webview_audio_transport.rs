@@ -14,10 +14,141 @@ use axum::{
 use futures_util::StreamExt;
 use serde::Deserialize;
 use std::{
-    sync::{Arc, Mutex},
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, Weak,
+    },
     time::Duration,
 };
 use tokio::sync::watch;
+
+static NEXT_RANGE_TRACE_ID: AtomicU64 = AtomicU64::new(1);
+
+fn normalized_request_range(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "none".into();
+    };
+    if !valid_range(value) {
+        return "invalid".into();
+    }
+    let Some(range) = value.strip_prefix("bytes=") else {
+        return "invalid".into();
+    };
+    let Some((start, end)) = range.split_once('-') else {
+        return "invalid".into();
+    };
+    match (start.parse::<u64>().ok(), end.parse::<u64>().ok()) {
+        (Some(start), Some(end)) => format!("{start}-{end}"),
+        (Some(start), None) => format!("{start}-"),
+        (None, Some(end)) => format!("-{end}"),
+        _ => "invalid".into(),
+    }
+}
+
+fn normalized_content_range(value: Option<&HeaderValue>) -> String {
+    let Some(value) = value.and_then(|value| value.to_str().ok()) else {
+        return "none".into();
+    };
+    let Some(value) = value.strip_prefix("bytes ") else {
+        return "invalid".into();
+    };
+    let Some((range, total)) = value.split_once('/') else {
+        return "invalid".into();
+    };
+    let total = match total.parse::<u64>() {
+        Ok(total) => total.to_string(),
+        Err(_) => return "invalid".into(),
+    };
+    if let Some((start, end)) = range.split_once('-') {
+        if let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>()) {
+            if start <= end {
+                return format!("{start}-{end}/{total}");
+            }
+        }
+    }
+    if range == "*" {
+        return format!("*/{total}");
+    }
+    "invalid".into()
+}
+
+fn normalized_content_length(value: Option<&HeaderValue>) -> String {
+    let Some(value) = value.and_then(|value| value.to_str().ok()) else {
+        return "none".into();
+    };
+    value
+        .parse::<u64>()
+        .map(|length| length.to_string())
+        .unwrap_or_else(|_| "invalid".into())
+}
+
+struct RangeTrace {
+    id: u64,
+    generation: u64,
+    range: String,
+    started: tokio::time::Instant,
+    bytes: u64,
+    first_byte_ms: Option<u128>,
+    finished: bool,
+}
+
+impl RangeTrace {
+    fn begin(session: &Session, method: &Method, range: Option<&HeaderValue>) -> Option<Self> {
+        if std::env::var_os("BURRATA_TRACE_AUDIO_RANGES").as_deref()
+            != Some(std::ffi::OsStr::new("1"))
+        {
+            return None;
+        }
+        let id = NEXT_RANGE_TRACE_ID.fetch_add(1, Ordering::Relaxed);
+        let range = normalized_request_range(range.and_then(|value| value.to_str().ok()));
+        eprintln!(
+            "[audio-range] id={id} generation={} phase=request method={} range={range}",
+            session.generation,
+            method.as_str()
+        );
+        Some(Self {
+            id,
+            generation: session.generation,
+            range,
+            started: tokio::time::Instant::now(),
+            bytes: 0,
+            first_byte_ms: None,
+            finished: false,
+        })
+    }
+
+    fn headers(&self, status: StatusCode, headers: &HeaderMap) {
+        eprintln!("[audio-range] id={} generation={} phase=response status={} range={} status_range={} content_range={} content_length={} elapsed_ms={}",
+            self.id, self.generation, status.as_u16(), self.range,
+            if self.range == "none" { "not_requested" } else { "requested" },
+            normalized_content_range(headers.get(header::CONTENT_RANGE)),
+            normalized_content_length(headers.get(header::CONTENT_LENGTH)), self.started.elapsed().as_millis());
+    }
+
+    fn add_bytes(&mut self, length: usize) {
+        self.bytes = self.bytes.saturating_add(length as u64);
+        if self.first_byte_ms.is_none() {
+            self.first_byte_ms = Some(self.started.elapsed().as_millis());
+        }
+    }
+
+    fn finish(&mut self, outcome: &'static str) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        eprintln!("[audio-range] id={} generation={} phase=body_end outcome={} bytes={} first_byte_ms={} elapsed_ms={}",
+            self.id, self.generation, outcome, self.bytes,
+            self.first_byte_ms.map_or_else(|| "none".into(), |value| value.to_string()), self.started.elapsed().as_millis());
+    }
+}
+
+impl Drop for RangeTrace {
+    fn drop(&mut self) {
+        self.finish("dropped");
+    }
+}
 
 struct Session {
     id: String,
@@ -41,7 +172,50 @@ struct Registry {
 #[derive(Default)]
 pub(crate) struct WebviewAudioTransport {
     registry: Mutex<Registry>,
+    // Native CENC relay sessions have independent ownership from the single
+    // WebView playback session. A decoder/preload lease controls their lifetime.
+    native_sessions: Mutex<HashMap<String, Arc<Session>>>,
     base_url: Mutex<Option<String>>,
+}
+
+struct NativeLeaseInner {
+    id: String,
+    session: Arc<Session>,
+    owner: Weak<WebviewAudioTransport>,
+    loopback_url: String,
+}
+
+impl Drop for NativeLeaseInner {
+    fn drop(&mut self) {
+        self.session.stop.send_replace(true);
+        if let Some(owner) = self.owner.upgrade() {
+            if let Ok(mut sessions) = owner.native_sessions.lock() {
+                sessions.remove(&self.id);
+            }
+        }
+    }
+}
+
+/// Opaque capability for one pinned native CENC relay session.
+/// The URL is intentionally only available inside the crate and Debug never
+/// reveals its random authorization token.
+#[derive(Clone)]
+pub(crate) struct RegisteredNativeAudioLease(Arc<NativeLeaseInner>);
+
+impl RegisteredNativeAudioLease {
+    pub(crate) fn loopback_url(&self) -> &str {
+        &self.0.loopback_url
+    }
+
+    pub(crate) fn matches_input(&self, input: &str) -> bool {
+        self.0.loopback_url == input
+    }
+}
+
+impl std::fmt::Debug for RegisteredNativeAudioLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RegisteredNativeAudioLease([REDACTED])")
+    }
 }
 impl WebviewAudioTransport {
     pub(crate) fn new() -> Arc<Self> {
@@ -49,6 +223,35 @@ impl WebviewAudioTransport {
     }
     pub(crate) fn set_base_url(&self, url: String) {
         *self.base_url.lock().unwrap() = Some(url.trim_end_matches('/').into());
+    }
+    fn commit_native_session(
+        self: &Arc<Self>,
+        session: Arc<Session>,
+    ) -> Result<RegisteredNativeAudioLease, String> {
+        let base = self
+            .base_url
+            .lock()
+            .map_err(|_| "Audio transport unavailable")?
+            .clone()
+            .ok_or("Audio transport server is not running")?;
+        let loopback_url = format!(
+            "{base}/webview-audio/{}?token={}",
+            session.id, session.token
+        );
+        let mut sessions = self
+            .native_sessions
+            .lock()
+            .map_err(|_| "Audio transport unavailable")?;
+        if sessions.len() >= 4 {
+            return Err("Native audio relay capacity is full".into());
+        }
+        sessions.insert(session.id.clone(), session.clone());
+        Ok(RegisteredNativeAudioLease(Arc::new(NativeLeaseInner {
+            id: session.id.clone(),
+            session,
+            owner: Arc::downgrade(self),
+            loopback_url,
+        })))
     }
     pub(crate) fn router(self: &Arc<Self>) -> Router {
         Router::new()
@@ -119,6 +322,92 @@ impl WebviewAudioTransport {
                 .build()
                 .map_err(|_| "Audio transport client unavailable")?;
             self.commit(epoch, generation, track_id, url, source, client)
+        };
+        tokio::select! {biased;
+            _=crate::playback_sources::wait_for_cancellation(cancel)=>Err("Cancelled".into()),
+            _=tokio::time::sleep_until(deadline.instant())=>Err("Audio transport exceeded startup deadline".into()),
+            result=setup=>result,
+        }
+    }
+
+    /// Register a public HTTPS CENC source without replacing the WebView
+    /// transport. The returned lease is the sole lifetime capability for the
+    /// loopback input; resolver credentials are deliberately not accepted.
+    pub(crate) async fn register_native_cenc_input(
+        self: &Arc<Self>,
+        generation: u64,
+        track_id: &str,
+        remote_input: &str,
+        source_headers: &[(String, String)],
+        deadline: PlaybackDeadline,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<RegisteredNativeAudioLease, String> {
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        for (name, _) in source_headers {
+            if ["authorization", "proxy-authorization", "cookie"]
+                .iter()
+                .any(|blocked| name.eq_ignore_ascii_case(blocked))
+            {
+                return Err("Native encrypted media cannot use credential headers".into());
+            }
+        }
+        let setup = async {
+            let url = validated_url(remote_input, false)?;
+            if url.scheme() != "https" {
+                return Err("Native encrypted media requires HTTPS".to_owned());
+            }
+            let mut addresses = acquisition::public_addresses(&url).await?;
+            for address in &mut addresses {
+                address.set_port(
+                    url.port_or_known_default()
+                        .ok_or("Audio transport port is missing")?,
+                );
+            }
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(Duration::from_secs(5))
+                .read_timeout(Duration::from_secs(15))
+                .resolve_to_addrs(
+                    url.host_str().ok_or("Audio transport hostname missing")?,
+                    &addresses,
+                )
+                .build()
+                .map_err(|_| "Audio transport client unavailable")?;
+            let mut headers = reqwest::header::HeaderMap::new();
+            for (name, value) in source_headers {
+                if ["user-agent", "referer", "origin", "accept-language"]
+                    .iter()
+                    .any(|allowed| name.eq_ignore_ascii_case(allowed))
+                {
+                    headers.insert(
+                        reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                            .map_err(|_| "Invalid audio header")?,
+                        HeaderValue::from_str(value).map_err(|_| "Invalid audio header")?,
+                    );
+                }
+            }
+            headers.insert(
+                reqwest::header::ACCEPT_ENCODING,
+                HeaderValue::from_static("identity"),
+            );
+            let (stop, _) = watch::channel(false);
+            let session = Arc::new(Session {
+                id: uuid::Uuid::new_v4().to_string(),
+                token: uuid::Uuid::new_v4().to_string(),
+                generation,
+                _track_id: track_id.into(),
+                source: url,
+                headers,
+                client,
+                stop,
+                slots: Arc::new(tokio::sync::Semaphore::new(4)),
+                hls: Mutex::new(hls::Graph::default()),
+                allow_radio_http: false,
+            });
+            self.commit_native_session(session)
         };
         tokio::select! {biased;
             _=crate::playback_sources::wait_for_cancellation(cancel)=>Err("Cancelled".into()),
@@ -294,21 +583,37 @@ async fn direct_audio(
     if !allowed_origin(&headers) {
         return missing();
     }
-    let session = manager.registry.lock().ok().and_then(|state| {
-        state
-            .active
-            .as_ref()
-            .filter(|session| {
-                session.id == id
-                    && session.generation == state.generation
-                    && equal_token(&session.token, &auth.token)
+    let session = manager
+        .registry
+        .lock()
+        .ok()
+        .and_then(|state| {
+            state
+                .active
+                .as_ref()
+                .filter(|session| {
+                    session.id == id
+                        && session.generation == state.generation
+                        && equal_token(&session.token, &auth.token)
+                })
+                .cloned()
+        })
+        .or_else(|| {
+            manager.native_sessions.lock().ok().and_then(|sessions| {
+                sessions
+                    .get(&id)
+                    .filter(|session| equal_token(&session.token, &auth.token))
+                    .cloned()
             })
-            .cloned()
-    });
+        });
     let Some(session) = session else {
         return missing();
     };
+    let mut range_trace = RangeTrace::begin(&session, &method, headers.get(header::RANGE));
     let Ok(permit) = session.slots.clone().try_acquire_owned() else {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("concurrency_limit");
+        }
         return Response::builder()
             .status(StatusCode::TOO_MANY_REQUESTS)
             .body(Body::empty())
@@ -316,6 +621,9 @@ async fn direct_audio(
     };
     let mut stop = session.stop.subscribe();
     if *stop.borrow() {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("revoked_before_request");
+        }
         return missing();
     }
     let (target, depth) = match resource.as_deref() {
@@ -366,6 +674,9 @@ async fn direct_audio(
             return missing();
         };
         if !valid_range(value) {
+            if let Some(trace) = range_trace.as_mut() {
+                trace.finish("invalid_request_range");
+            }
             return Response::builder()
                 .status(StatusCode::RANGE_NOT_SATISFIABLE)
                 .body(Body::empty())
@@ -373,8 +684,31 @@ async fn direct_audio(
         }
         request = request.header(header::RANGE, range);
     }
-    let response = tokio::select! {biased;_=stop.changed()=>return missing(), result=tokio::time::timeout(Duration::from_secs(5),request.send())=>match result{Ok(Ok(response))=>response,_=>return Response::builder().status(StatusCode::BAD_GATEWAY).body(Body::empty()).unwrap()}};
+    let response = tokio::select! {
+        biased;
+        _ = stop.changed() => {
+            if let Some(trace) = range_trace.as_mut() { trace.finish("revoked_before_headers"); }
+            return missing();
+        },
+        result = tokio::time::timeout(Duration::from_secs(5), request.send()) => match result {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => {
+                if let Some(trace) = range_trace.as_mut() { trace.finish("request_error"); }
+                return Response::builder().status(StatusCode::BAD_GATEWAY).body(Body::empty()).unwrap();
+            }
+            Err(_) => {
+                if let Some(trace) = range_trace.as_mut() { trace.finish("request_timeout"); }
+                return Response::builder().status(StatusCode::BAD_GATEWAY).body(Body::empty()).unwrap();
+            }
+        }
+    };
+    if let Some(trace) = range_trace.as_ref() {
+        trace.headers(response.status(), response.headers());
+    }
     if hls::is_manifest(&target, response.headers()) {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("manifest_response");
+        }
         return hls::manifest_response(
             &manager, &session, &target, depth, response, stop, headers, method,
         )
@@ -404,12 +738,18 @@ async fn direct_audio(
                     ))
             })
     {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("response_mime_rejected");
+        }
         return Response::builder()
             .status(StatusCode::BAD_GATEWAY)
             .body(Body::empty())
             .unwrap();
     }
     if !matches!(response.status().as_u16(), 200 | 206 | 416) {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("upstream_status_rejected");
+        }
         return Response::builder()
             .status(StatusCode::BAD_GATEWAY)
             .body(Body::empty())
@@ -445,18 +785,47 @@ async fn direct_audio(
         response
             .headers_mut()
             .insert(header::CONTENT_LENGTH, HeaderValue::from_static("0"));
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("range_not_satisfiable");
+        }
         return response;
     }
     if method == Method::HEAD {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("head_complete");
+        }
         return builder.body(Body::empty()).unwrap();
     }
     let stream = futures_util::stream::unfold(
-        (response.bytes_stream(), stop, permit),
-        |(mut upstream, mut stop, permit)| async move {
+        (response.bytes_stream(), stop, permit, range_trace),
+        |(mut upstream, mut stop, permit, mut range_trace)| async move {
             if *stop.borrow() {
+                if let Some(trace) = range_trace.as_mut() {
+                    trace.finish("revoked_during_body");
+                }
                 return None;
             }
-            tokio::select! {biased;_=stop.changed()=>None,chunk=upstream.next()=>chunk.map(|chunk|(chunk.map_err(|_|std::io::Error::other("Audio transport interrupted")),(upstream,stop,permit)))}
+            tokio::select! {
+                biased;
+                _ = stop.changed() => {
+                    if let Some(trace) = range_trace.as_mut() { trace.finish("revoked_during_body"); }
+                    None
+                },
+                chunk = upstream.next() => match chunk {
+                    Some(Ok(bytes)) => {
+                        if let Some(trace) = range_trace.as_mut() { trace.add_bytes(bytes.len()); }
+                        Some((Ok(bytes), (upstream, stop, permit, range_trace)))
+                    }
+                    Some(Err(_)) => {
+                        if let Some(trace) = range_trace.as_mut() { trace.finish("body_error"); }
+                        Some((Err(std::io::Error::other("Audio transport interrupted")), (upstream, stop, permit, range_trace)))
+                    }
+                    None => {
+                        if let Some(trace) = range_trace.as_mut() { trace.finish("body_eof"); }
+                        None
+                    }
+                }
+            }
         },
     );
     builder.body(Body::from_stream(stream)).unwrap()
@@ -495,6 +864,8 @@ mod tests {
             != Some("fixture-agent")
             || headers.get(header::REFERER).and_then(|v| v.to_str().ok())
                 != Some("https://catalog.example/")
+            || headers.contains_key(header::AUTHORIZATION)
+            || headers.contains_key(header::COOKIE)
         {
             return Response::builder().status(403).body(Body::empty()).unwrap();
         }
@@ -541,6 +912,7 @@ mod tests {
                 ("Referer".into(), "https://catalog.example/".into()),
             ],
             decoder_hint: None,
+            cenc: None,
         }
     }
     fn fixture_register(
@@ -565,6 +937,50 @@ mod tests {
                     .unwrap(),
             )
             .unwrap()
+    }
+    fn fixture_native_lease(
+        manager: &Arc<WebviewAudioTransport>,
+        upstream: &Server,
+        path: &str,
+    ) -> RegisteredNativeAudioLease {
+        manager
+            .commit_native_session(fixture_native_session(upstream, path))
+            .unwrap()
+    }
+    fn fixture_native_session(upstream: &Server, path: &str) -> Arc<Session> {
+        let url = url::Url::parse(&format!("{}{path}", upstream.base)).unwrap();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            header::USER_AGENT,
+            HeaderValue::from_static("fixture-agent"),
+        );
+        headers.insert(
+            header::REFERER,
+            HeaderValue::from_static("https://catalog.example/"),
+        );
+        headers.insert(
+            reqwest::header::ACCEPT_ENCODING,
+            HeaderValue::from_static("identity"),
+        );
+        let (stop, _) = watch::channel(false);
+        let session = Arc::new(Session {
+            id: uuid::Uuid::new_v4().to_string(),
+            token: uuid::Uuid::new_v4().to_string(),
+            generation: 1,
+            _track_id: "fixture-native".into(),
+            source: url,
+            headers,
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap(),
+            stop,
+            slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            hls: Mutex::new(hls::Graph::default()),
+            allow_radio_http: false,
+        });
+        session
     }
     async fn fixture() -> (
         Arc<WebviewAudioTransport>,
@@ -625,6 +1041,276 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn native_lease_relays_ranges_without_replacing_webview_session() {
+        let (manager, _upstream, relay, calls, webview_url) = fixture().await;
+        let native = fixture_native_lease(&manager, &_upstream, "/required");
+        assert!(native.matches_input(native.loopback_url()));
+        let range = client()
+            .get(native.loopback_url())
+            .header(header::RANGE, "bytes=4-7")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(range.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(range.headers()[header::CONTENT_RANGE], "bytes 4-7/16");
+        assert_eq!(range.bytes().await.unwrap().as_ref(), b"4567");
+        let head = client().head(native.loopback_url()).send().await.unwrap();
+        assert_eq!(head.status(), StatusCode::OK);
+        assert_eq!(head.headers()[header::CONTENT_LENGTH], "16");
+        assert!(head.bytes().await.unwrap().is_empty());
+
+        // Registering the independent native input must leave the single
+        // WebView source playable and its generation ownership unchanged.
+        let webview = client().get(webview_url).send().await.unwrap();
+        assert_eq!(webview.status(), StatusCode::OK);
+        assert_eq!(webview.bytes().await.unwrap().as_ref(), b"0123456789abcdef");
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn native_lease_never_follows_upstream_redirects() {
+        let upstream = server(
+            Router::new()
+                .route(
+                    "/redirect",
+                    get(|| async {
+                        Response::builder()
+                            .status(StatusCode::FOUND)
+                            .header(header::LOCATION, "/private")
+                            .body(Body::empty())
+                            .unwrap()
+                    }),
+                )
+                .route(
+                    "/private",
+                    get(|| async {
+                        Response::builder()
+                            .header(header::CONTENT_TYPE, "audio/mpeg")
+                            .body(Body::from("must not be reached"))
+                            .unwrap()
+                    }),
+                ),
+        )
+        .await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+        let lease = fixture_native_lease(&manager, &upstream, "/redirect");
+        let response = client().get(lease.loopback_url()).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    }
+
+    #[tokio::test]
+    async fn native_lease_drop_revokes_registered_route() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let upstream = server(
+            Router::new()
+                .route("/required", get(self::upstream).head(self::upstream))
+                .with_state(calls),
+        )
+        .await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+        let lease = fixture_native_lease(&manager, &upstream, "/required");
+        let route = lease.loopback_url().to_owned();
+        assert_eq!(
+            client().get(&route).send().await.unwrap().status(),
+            StatusCode::OK
+        );
+        drop(lease);
+        assert_eq!(
+            client().get(&route).send().await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        assert!(manager.native_sessions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn dropping_native_lease_interrupts_an_inflight_body() {
+        let upstream = server(Router::new().route(
+            "/slow",
+            get(|| async {
+                let chunks = futures_util::stream::once(async {
+                    Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"first"))
+                })
+                .chain(futures_util::stream::pending::<
+                    Result<axum::body::Bytes, std::io::Error>,
+                >());
+                Response::builder()
+                    .header(header::CONTENT_TYPE, "audio/mpeg")
+                    .body(Body::from_stream(chunks))
+                    .unwrap()
+            }),
+        ))
+        .await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+        let lease = fixture_native_lease(&manager, &upstream, "/slow");
+        let response = client().get(lease.loopback_url()).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = tokio::spawn(async move { response.bytes().await });
+        drop(lease);
+        assert!(tokio::time::timeout(Duration::from_secs(1), body)
+            .await
+            .is_ok());
+        assert!(manager.native_sessions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn native_registry_is_bounded_and_releases_capacity_on_final_drop() {
+        let upstream = server(Router::new().route("/required", get(|| async { "ok" }))).await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+        let mut leases = (0..4)
+            .map(|_| {
+                manager
+                    .commit_native_session(fixture_native_session(&upstream, "/required"))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(manager.native_sessions.lock().unwrap().len(), 4);
+        assert!(manager
+            .commit_native_session(fixture_native_session(&upstream, "/required"))
+            .unwrap_err()
+            .contains("capacity"));
+        drop(leases.pop());
+        let replacement = manager
+            .commit_native_session(fixture_native_session(&upstream, "/required"))
+            .unwrap();
+        assert_eq!(manager.native_sessions.lock().unwrap().len(), 4);
+        drop(replacement);
+    }
+
+    #[tokio::test]
+    async fn native_registration_rejects_http_and_credentials_before_network_access() {
+        let manager = WebviewAudioTransport::new();
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+        let deadline = PlaybackDeadline::after(Duration::from_secs(2));
+        let http = manager
+            .register_native_cenc_input(
+                1,
+                "fixture",
+                "http://127.0.0.1:1/media.m4a",
+                &[],
+                deadline,
+                cancel_rx.clone(),
+            )
+            .await;
+        assert!(http.unwrap_err().contains("HTTPS"));
+        let private_address = manager
+            .register_native_cenc_input(
+                1,
+                "fixture",
+                "https://127.0.0.1/media.m4a",
+                &[],
+                deadline,
+                cancel_rx.clone(),
+            )
+            .await;
+        assert!(private_address.is_err());
+        let credentials = manager
+            .register_native_cenc_input(
+                1,
+                "fixture",
+                "https://media.example/media.m4a",
+                &[("Authorization".into(), "Bearer secret".into())],
+                deadline,
+                cancel_rx,
+            )
+            .await;
+        assert!(credentials.unwrap_err().contains("credential headers"));
+        assert!(manager.native_sessions.lock().unwrap().is_empty());
+    }
+    #[test]
+    fn range_trace_normalizes_only_numeric_ranges_and_lengths() {
+        assert_eq!(normalized_request_range(Some("bytes=12-34")), "12-34");
+        assert_eq!(normalized_request_range(Some("bytes=12-")), "12-");
+        assert_eq!(normalized_request_range(Some("bytes=-34")), "-34");
+        assert_eq!(
+            normalized_request_range(Some("bytes=12-34\r\nAuthorization: secret")),
+            "invalid"
+        );
+        assert_eq!(normalized_request_range(Some("Bearer secret")), "invalid");
+        assert_eq!(
+            normalized_content_range(Some(&HeaderValue::from_static("bytes 10-19/200"))),
+            "10-19/200"
+        );
+        assert_eq!(
+            normalized_content_range(Some(&HeaderValue::from_static("bytes */200"))),
+            "*/200"
+        );
+        assert_eq!(
+            normalized_content_range(Some(&HeaderValue::from_static("Bearer secret"))),
+            "invalid"
+        );
+        assert_eq!(
+            normalized_content_length(Some(&HeaderValue::from_static("1234"))),
+            "1234"
+        );
+        assert_eq!(
+            normalized_content_length(Some(&HeaderValue::from_static("Bearer secret"))),
+            "invalid"
+        );
+    }
+
+    #[tokio::test]
+    async fn range_passthrough_currently_accepts_ignored_and_mismatched_upstream_ranges() {
+        let upstream = server(
+            Router::new()
+                .route(
+                    "/ignore",
+                    get(|| async {
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .body(Body::from("0123456789"))
+                            .unwrap()
+                    }),
+                )
+                .route(
+                    "/mismatch",
+                    get(|| async {
+                        Response::builder()
+                            .status(StatusCode::PARTIAL_CONTENT)
+                            .header(header::CONTENT_RANGE, "bytes 0-3/10")
+                            .header(header::CONTENT_LENGTH, "4")
+                            .body(Body::from("0123"))
+                            .unwrap()
+                    }),
+                ),
+        )
+        .await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+
+        let ignored = fixture_register(&manager, 1, &source(format!("{}/ignore", upstream.base)));
+        let response = client()
+            .get(ignored)
+            .header(header::RANGE, "bytes=4-7")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"0123456789");
+
+        let mismatched =
+            fixture_register(&manager, 2, &source(format!("{}/mismatch", upstream.base)));
+        let response = client()
+            .get(mismatched)
+            .header(header::RANGE, "bytes=4-7")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 0-3/10");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"0123");
+    }
+
     #[tokio::test]
     async fn header_required_relay_delivers_real_aac_that_decodes_without_device() {
         use rodio::Source;

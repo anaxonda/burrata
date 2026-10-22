@@ -1,0 +1,602 @@
+Broader Monochrome playback access and lossless fallback plan
+Date: 2026-10-21
+LATEST USER DIRECTION: Proceed with implementation from this plan; further
+research is paused. The previous implementation hold is lifted in todo.md.
+This direction supersedes the historical HOLD/NO-GO instructions below, but
+does not change the evidence: fresh provider authorization and end-to-end
+lossless playback remain unverified. Implementable work may proceed; record
+access dependencies and do not claim metadata-only work completes streaming.
+
+Status: current upstream behavior and live CDN container/range behavior
+        researched; three actual Firefox resolver responses captured, including
+        Alvafro request headers; bounded live CDN decode/seek passed for two
+        tracks; official-site WebKit page and unauthenticated API probes
+        captured; fresh-profile authorization, native resolver access and
+        full-session Burrata playback remain unverified.
+
+Problem and local evidence
+--------------------------
+Burrata's src-tauri/src/monochrome.rs uses tracks.monochrome.st, searches
+/search/tracks and resolves numeric Tracks IDs. It does not implement the
+broader metadata resolver observed in the reported Apple-album browser flow.
+Its observed v2 response is distinct from the numeric Tracks API. The captured
+responses establish this protocol for those Firefox page lookups; they do not
+identify a stable supported contract or guarantee deployment availability.
+Changing the Tracks base URL alone would not implement that separate flow.
+
+The requested recording in the local library is Alvafro by LATIN MAFIA &
+Fred again.., ISRC GBAHS2600508, duration 238.05 seconds. Playback history
+records YouTube on 2026-10-21 at 05:00:55 UTC; a verified YouTube mapping
+exists for qj43MfnUw3o. This does not prove why the Tracks attempt lost.
+No trace demonstrating its search result, rejection or timeout was located.
+
+Saved preferences choose Monochrome with YouTube/SoundCloud fallbacks and
+a 1500 ms grace period. playback_sources.rs::prefer_with_grace starts the
+preferred and first fallback together. A ready fallback can win after grace,
+or immediately after preferred failure. This is provider priority with a time
+limit, not a guarantee that every lossless route has finished.
+
+Upstream and deployment evidence
+--------------------------------
+An older indexed frontend snapshot described a unified resolver at
+music-api.geeked.wtf, including /api/v2/track/ and Turnstile authentication.
+The route is now directly observed returning HTTP 200 in an authorized Firefox
+page capture, so it was active for those page lookups at capture time. This does
+not prove a stable officially supported public contract or that every client
+receives the same deployment. The older snapshot is not sufficient evidence for
+the current authorization recipe.
+
+The pinned current upstream revision examined for this handoff is
+86dc77aa5d1cfeebf78729211e87256800ff238d. Its js/storage.js has unified playback
+disabled, an empty default API base and an empty default API token. The former
+public/sw-decrypter.js path is absent at this revision (404); git history records
+its removal. The README says the official instance is the recommended access
+path and that streaming is limited to official instances; self-hosted instances
+can stream only on localhost, except for a working paid HiFi endpoint configured
+in Dev Mode. This source snapshot does not establish which revision Firefox
+served, nor does it reveal the current resolver contract behind the reported
+playback. The live capture therefore demonstrates a difference between this
+pinned source and the bundle/configuration served in the captured Firefox page;
+it does not identify the deployed revision. Pinned references: [storage.js](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/js/storage.js), [README.md](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/README.md), and [the removed worker path](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/public/sw-decrypter.js) (404 at this revision). Git history records its removal. DNS/source findings are summarized in docs/performance-results/2026-10-21-monochrome-resolver/source-and-dns-findings.json.
+
+Two sanitized successful resolver responses for Bacc of the Bach and Count On
+You from the authorized Firefox page are recorded in
+[the live observation](docs/performance-results/2026-10-21-monochrome-resolver/live-firefox-resolver-observation.json).
+The observed endpoint music-api.geeked.wtf/api/v2/track/ returned HTTP 200
+with schema 2.0 for “Count On You” and “Bacc of the Bach,” both by Nipsey
+Hussle & Bino Rideaux from PROLIFIC [Explicit]. Both selected Amazon and
+reported direct audio/mp4 containing FLAC, CENC AES-CTR, stereo 24-bit/48 kHz.
+Playback URLs, keys, tokens, and cookies are redacted. The response identity
+includes title, full artist credit, album, ASIN and ISRC; duration_ms is null,
+so duration must be measured from decoded media if needed. These bodies contain
+no expiry or reuse contract; the source cache marker does not establish media
+resource reuse or TTL.
+
+Alvafro's separate capture is recorded in
+[live-firefox-alvafro-observation.json](docs/performance-results/2026-10-21-monochrome-resolver/live-firefox-alvafro-observation.json).
+The request was GET with track=Alvafro, artist=LATIN MAFIA & Fred again..,
+album=9 months & 50 hours, ISRC GBAHS2600508, duration=238, intent=stream and
+quality=LOSSLESS. It returned HTTP 200/schema 2.0 with selected Amazon ASIN
+B0HCDL81N4 and direct FLAC in CENC AES-CTR MP4, 16-bit/44.1 kHz/stereo. The
+request had Bearer authorization and X-Turnstile-JWT headers; only header
+presence was retained, with no token values, auth exchange body or JWT expiry.
+Returned duration_ms is null. This verifies the authorized Firefox page's
+request at capture time, not native-client credential acquisition. Header
+presence alone does not reveal whether its Turnstile JWT was freshly issued or
+previously cached.
+
+Direct API and mirror research
+-----------------------------
+The pinned upstream [api.js](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/js/api.js) contains a v2 browser client for /api/v2/track/. It reads an API base and token from settings, sends a Bearer token, and, for the built-in-default-token path, obtains a Turnstile JWT in the browser and sends X-Turnstile-JWT. The pinned [storage.js](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/js/storage.js) currently disables unified playback and sets the default base and token to empty. The repo documents no supported way to obtain a native-client credential: source code shows a configurable browser setting, not a credential issuance or native auth contract. Browser success therefore establishes a working page flow, not that Burrata can call the endpoint directly with the same authorization.
+
+That pinned client builds a query with required track evidence and optional
+artist, album, ISRC, rounded-seconds duration, intent and quality; it defaults
+quality to HI_RES_LOSSLESS. Alvafro's capture confirms the GET query fields,
+rounded duration, LOSSLESS quality and presence of Bearer and X-Turnstile-JWT
+headers. It retains no credential values or auth exchange body.
+
+Public resolver docs were not found through web search. The unauthenticated root,
+/docs and /openapi.json requests are blocked by the same edge response recorded
+below, so no official resolver docs or OpenAPI contract could be inspected. The pinned [INSTANCES.md](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/INSTANCES.md) lists official UI mirrors (.tf, lossless.wtf, if-it-runs-ship-it.lol) and older HiFi API hosts, but labels itself outdated after the April 30, 2026 service migration. Those entries do not establish mirrors for the observed v2 resolver. The only v2 host directly verified by the live capture is music-api.geeked.wtf; no compatible mirror has been verified.
+
+A direct unauthenticated probe of the root, /docs, /openapi.json and
+/api/v2/track/ returned 403 Cloudflare JSON saying the site owner blocked the
+request based on browser signature. It had no WWW-Authenticate or Retry-After
+header. This is an edge denial, not an API-authentication test: it proves
+neither that credentials are required nor that a supplied key would work.
+No browser-signature spoofing or bypass was attempted. Details:
+docs/performance-results/2026-10-21-monochrome-resolver/direct-unauthenticated-api-probe.json.
+
+A second probe removed shell proxy variables to match Burrata's reqwest
+no_proxy behavior; both the v2 track endpoint and Tracks catalog search still
+returned the same browser-signature 403. Four Tracks searches for the observed
+Alvafro and Bacc recordings also returned 403. These outcomes are edge blocks,
+not evidence that the API rejected credentials or that the catalog has no
+matches. See [no-proxy probe](docs/performance-results/2026-10-21-monochrome-resolver/native-no-proxy-api-probe.json)
+and [Tracks search probe](docs/performance-results/2026-10-21-monochrome-resolver/current-tracks-search-probe.json).
+
+For a later implementation, use the managed WebView session as the first
+resolver transport and keep API credentials inside that page context. Native
+HTTP remains a future option only if a supported native credential and edge
+access path are established. No mirror pool is qualified; launch with one
+verified resolver endpoint and use existing providers as playback fallback.
+Do not treat legacy HiFi hosts or website domains as interchangeable v2 routes.
+
+Mirror capability table (current evidence):
+
+| Endpoint class | v2 schema | Native auth | Use as mirror |
+| --- | --- | --- | --- |
+| music-api.geeked.wtf | Three Firefox page responses verified | Authorized browser request headers confirmed; native access unknown; no-credential probe edge-blocked | Research primary only; native use gated |
+| Official website mirrors listed by upstream | Not checked for this v2 route | Unknown | No, until route and auth are verified |
+| Legacy API rows in INSTANCES.md | List is marked outdated; no v2 contract verified | Unknown | No, until route and auth are verified |
+
+Other upstream services are separate integration options, not mirrors of these
+Amazon resources. The maintainer's https://github.com/binimum/hifi-api describes
+a Tidal-specific account-backed playback/manifest API; its current hosted
+availability and these two recordings were not verified. Amazon's own developer
+documentation describes authenticated Music playback, MPEG-DASH and Widevine,
+with HD/UHD FLAC, and labels its APIs closed beta. That is a distinct supported
+partner integration, not a replacement base URL for this resolver or a public
+raw-key interface: https://developer.amazon.com/docs/music/playback_overview.html.
+
+Decision research: architecture and release gates
+-------------------------------------------------
+Implementation remains on hold under the user's explicit instruction. The
+preferred first transport is a dedicated managed WebView with its own profile,
+loading the current official site at https://monochrome.st and performing its
+normal user verification there. Keep API credentials and verification state in
+that page; hand the native player only the matched metadata and ephemeral media
+resource/key through a narrow private bridge. A browser addon is a fallback only
+if a fresh-profile WebKit session cannot complete the normal site flow. Do not
+assume `window.monochrome` exposes a production resolver method or make the user
+open the site manually for each track; an automatic selected-row request bridge
+must be proven before implementation. Do not add a mirror pool at launch.
+
+Current decision is **NO-GO for implementation**. The managed WebView is the
+best-supported architecture candidate, but the successful Firefox observations
+do not prove Burrata can establish its own authorized page session or perform a
+fresh resolver lookup. WebKit loaded the official page and reached an API 401
+without authorization; Burrata-style direct no-proxy requests to both the v2
+resolver and Tracks catalog were edge-blocked with 403. The WebKit root
+request's 530 is an origin DNS error. None is a successful auth bootstrap or a
+catalog miss. The WebKit `/search/tracks` query for Alvafro returned HTTP 200 and three
+tracks, but none matched Alvafro or its ISRC. This proves the WebKit catalog
+request can return JSON in this probe, not that the catalog lacks Alvafro. The
+four command-line 403s remain edge denials and are not comparable catalog
+results. See [WebKit Tracks probe](docs/performance-results/2026-10-21-monochrome-resolver/webkit-tracks-alvafro-probe.json). Keep production changes at zero while this decision is NO-GO.
+
+Discovery and playback are separate steps. Search Apple Music metadata and the
+existing Tracks catalog independently, union the candidate rows, and preserve
+provider namespaces and provenance in each ID. The pinned upstream
+[music-api.js](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/js/music-api.js), [apple-music-api.js](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/js/apple-music-api.js), and [tracks-api.js](https://github.com/monochrome-music/monochrome/blob/86dc77aa5d1cfeebf78729211e87256800ff238d/js/tracks-api.js) are pinned at revision 86dc77aa5d1cfeebf78729211e87256800ff238d (SHA-256: music-api.js 918b09cd4d27ab0f5c3375e85666476bc3a9204f948754a16eedaee691e04e2a; apple-music-api.js de77a2af7d9388735a227d77a67ca0aa6b156b12bfde9ed5a0116800d4845ecf; tracks-api.js 01d0b1deb066ce8cccc27f61f25739e173b4b0ac309d32feb68ddbcc6dcc95bf). In that source MusicAPI search returns Tracks results early and calls Apple Music only as fallback; Burrata's target should union the catalogs because Tracks-only discovery misses broader metadata candidates. The WebKit Alvafro response demonstrates why this matters: a successful Tracks response can contain unrelated results while the desired candidate is absent. After the user selects a candidate, build the v2 playback query from that row's title, artist, album, ISRC and duration plus requested quality. Keep namespace IDs out of the resolver's title field, and do not ask the user to repeat the search on Monochrome.
+
+WebKit evidence is preliminary, not authorization success. With WebKitGTK 2.54.1,
+the official https://monochrome.st page returned 200 with title Monochrome and no
+challenge indicators; resource timing showed session, Tidal token and telemetry
+hosts. This did not test a fresh signed-in playback or v2 resolver request. A
+separate unauthenticated WebKit request to `/api/v2/track/` returned 401, which
+shows that client reached an API auth response but supplied no accepted
+authorization. WebKit's API-root request returned 530 with “Origin DNS error
+amz.binimum.org”; do not infer track availability from that unrelated root
+failure. Records: [official-site probe](docs/performance-results/2026-10-21-monochrome-resolver/webkit-official-site-probe.json), [API track probe](docs/performance-results/2026-10-21-monochrome-resolver/webkit-api-track-probe.json), and [API root probe](docs/performance-results/2026-10-21-monochrome-resolver/webkit-api-root-probe.json). The earlier public DNS no-answer for monochrome.samidy.com remains; why Firefox could load its page is unknown. Burrata's Google and Spotify login flows may inform management of a separate browser profile and its lifecycle. Their credentials and sessions are not Monochrome API credentials and do not establish Monochrome authorization. A separate fresh Turnstile/bootstrap attempt stopped at a widget error before producing a token; that is a failed probe, not evidence of successful authorization or proof that the official site cannot authenticate. Its diagnosis remains in progress.
+
+Cloudflare's [Mobile implementation guidance](https://developers.cloudflare.com/turnstile/get-started/mobile-implementation/) says Turnstile in a native app needs a WebView with JavaScript, DOM storage and standard web APIs, network access to `challenges.cloudflare.com`, and a stable user agent/browser profile. Its [supported browsers guidance](https://developers.cloudflare.com/cloudflare-challenges/reference/supported-browsers/) qualifies that embedded or custom browser engines have limited support. This supports testing a normally configured managed WebView, but does not establish that Monochrome uses Turnstile on its current official site or that WebKitGTK will pass its auth flow.
+
+Research readiness gates (no production implementation):
+
+1. In an isolated fresh managed-WebView profile (preferred), or a fresh ordinary
+   browser profile using the optional companion if WebView qualification fails,
+   complete the official site's
+   ordinary bootstrap/verification path and capture a successful authorized
+   v2 resolver response for held-out recordings. Preserve only sanitized
+   status/schema/evidence. The current API 401, widget error before token, and
+   Firefox captures do not prove Burrata can obtain fresh authorization.
+2. Demonstrate how the selected Burrata metadata row reaches that resolver
+   request automatically, without per-track site actions. Specify the exact
+   supported WebView/page-to-native bridge method, lifecycle, and error mapping;
+   a guessed `window.monochrome` method is not sufficient. Cover both a matching
+   and a no-match/incorrect-result case, and retain source-namespaced catalog
+   IDs. The WebKit Alvafro Tracks result was HTTP 200 but unrelated, so test the
+   Apple Music plus Tracks union and resolver lookup on a held-out set.
+3. Using freshly acquired authorized resources in an isolated native decoder
+   probe, verify real media decode, seek, cancellation, and re-resolution after
+   a forced stale/expired resource. State the refresh/resume contract and what
+   is known versus unknown about URL/key reuse and TTL. Keep credentials, URLs
+   and keys out of saved artifacts.
+4. Record the feasible exact integration boundaries and failure semantics:
+   separate Tracks and v2 routes; identity match inputs; typed direct FLAC/MP4
+   CENC transport; ephemeral key handoff to FFmpeg without argv/log exposure;
+   and AuthRequired, EdgeBlocked, RateLimited, NoMatch, InvalidSchema and
+   transport failures. The current ffconcat and live-decode probes inform the
+   design, but do not establish fresh resolver acquisition in Burrata.
+
+When these research gates make the plan verified and reviewable, the parent can
+release the implementation hold and update TODO according to the user's existing
+authorization. Until that point, keep production changes at zero. After any
+later implementation, evaluate separate product acceptance gates in Burrata's
+real UI, queue, and supported platform builds: arbitrary search-to-play, identity
+safety, refresh/seek/cancel, and fallback behavior. Those are post-implementation
+acceptance checks, not prerequisites for research readiness.
+
+Immediate access decision (2026-10-21, 20:43 UTC)
+------------------------------------------------
+The original monochrome.samidy.com hostname still fails system DNS outside the
+sandbox; monochrome.st and music-api.geeked.wtf resolve. See
+docs/performance-results/2026-10-21-monochrome-resolver/dns-revalidation.json.
+Single unauthenticated requests to the historically documented UI hosts returned
+503 for monochrome.tf and connection errors for lossless.wtf and
+if-it-runs-ship-it.lol. These are request outcomes, not proof of global outages
+or API mirror compatibility. See documented-ui-host-revalidation.json in the
+same evidence directory. Do not build an automatic mirror pool from this list.
+
+The user completed the requested fresh Firefox check and reported "Server Not
+Found" for monochrome.samidy.com. This independently confirms that a fresh
+Firefox session on their machine cannot reach the original site; the problem
+is not confined to Chrome. The reason the earlier tab worked remains unknown.
+Existing-tab playback alone cannot establish new-user onboarding. Research is
+blocked on a reachable supported deployment/configuration. Native decoding is
+already feasible for the captured resources, but does not resolve this access
+dependency. Resume when the original site becomes reachable or a supported
+replacement supplies its normal authorization flow. Then qualify fresh auth,
+automatic selected-row resolution and fresh-resource playback before releasing
+the hold. An extension alone does not repair an unavailable site.
+Do not substitute historical client keys, guessed page methods, a relocated
+verification widget, or copied browser credentials for that missing contract.
+Passive observation of another playback in an existing tab is insufficient
+unless it includes a demonstrably fresh normal authorization exchange.
+
+Implementation outline and interfaces
+-------------------------------------
+Keep the existing Tracks path and v2 resolver path separate. Do not route a
+resolver result through numeric Tracks IDs or the current Tracks URL validator.
+The following pseudocode defines the proposed boundary, not implemented code:
+
+```text
+enum ResolverKind { Tracks, UnifiedV2 }
+
+resolve(route, query):
+  match route:
+    Tracks    -> existing Tracks search/resolve path (unchanged)
+    UnifiedV2 -> UnifiedV2Resolver.resolve(query)
+
+struct ResolverEndpoint {
+  base_url: Url
+  schema_versions: Set<u32>
+  auth_mode: AuthMode
+  enabled: bool
+}
+
+struct ResolverConfig { endpoint: ResolverEndpoint } // no mirror pool at launch
+
+struct ResolverQuery {
+  title: String
+  artist: Optional<String>
+  album: Optional<String>
+  isrc: Optional<String>
+  duration_seconds: Optional<u32>
+  intent: "stream"
+  quality: Quality
+}
+
+struct ResolvedTrack {
+  identity: ResolverIdentity       // title, artists[], album, ISRC, optional duration
+  source: ResolverSource           // e.g. Amazon; opaque provider ID, never Tracks ID
+  resource: PlaybackResource       // selected direct media only
+}
+
+struct PlaybackResource {
+  url: SecretUrl                   // memory only; never cache or serialize
+  mime: "audio/mp4"
+  container: "mp4"
+  codec: "flac"
+  quality: Quality
+  encryption: CencAesCtr { key_bytes: Secret<[u8; 16]>, iv_metadata: ProviderIvMetadata }
+  generation: ResourceGeneration  // replaced only by a fresh successful resolve
+}
+
+interface ManagedWebViewResolverBridge {
+  resolve_selected_row(query, quality, cancellation)
+    -> Result<ResolverEnvelope, ResolverFailure>
+}
+
+interface UnifiedV2Resolver {
+  resolve(query, quality, managed_page, cancellation)
+    -> Result<ResolvedTrack, ResolverFailure>
+}
+
+enum ResolverFailure {
+  NoMatch, AuthRequired, Forbidden, EdgeBlocked, RateLimited,
+  Transport, RetryableServer, InvalidSchema, Unsupported, IdentityMismatch
+}
+```
+
+The request shape in the pinned browser source and Alvafro capture is GET
+`/api/v2/track/?track=…&artist=…&album=…&isrc=…&duration=…&intent=stream&quality=…`;
+omit absent optional fields, round duration to seconds, and use the canonical
+quality token. The pinned client sends `Accept: application/json`,
+`Authorization: Bearer …`, and optional `X-Turnstile-JWT`; it uses no-store and
+a bounded timeout. The capture confirms query fields and auth-header presence,
+not secret values or how the Turnstile exchange produced them. Never forward
+either auth header to the CDN.
+
+The proposed credential boundary is a managed-WebView bridge: the page performs
+the normal official-site bootstrap and resolver request, then returns only the
+matched response and ephemeral playback material needed by the native session.
+This bridge is not yet demonstrated. The pinned production app does not expose
+a resolver method on `window.monochrome`; the inspected global only exposes
+development classes, so do not assume an existing-method bridge. Do not export
+browser-profile credentials or persist captured secrets. Native HTTP remains
+out of scope until a supported native credential flow and ordinary edge access
+are demonstrated. Direct no-proxy requests are currently edge-blocked by
+browser signature; classify that separately from 401/403 returned by the API
+after reaching it, and do not try to defeat the edge block.
+
+The following verification sequence is from the pinned frontend's `api.js`;
+it does not establish the auth flow in the newer official site or captured
+Firefox deployment. In particular, the fresh WebKit official-site probe loaded
+no Turnstile script or challenge frame:
+1. The configured default-key client requests a Turnstile challenge in the real
+   website context, displaying the interactive challenge when required.
+2. POST /api/auth/turnstile with the configured Bearer credential and JSON
+   {"turnstile_token": "<fresh challenge response>"}. Keep these values within
+   the authorized browser session. The frontend accepts access_token, jwt, or
+   token in the response and sends it as X-Turnstile-JWT on resolver requests.
+3. The frontend uses JWT exp with a 15-second early-expiry margin; its one-hour
+   fallback when exp is absent is a client assumption, not a server guarantee.
+   Coalesce concurrent verification attempts rather than presenting duplicates.
+4. A first 401 or 428 clears the cached JWT and forces one verification retry.
+   A custom configured API credential is tried without a new challenge on the
+   initial request, but server acceptance of that branch is unverified here.
+5. A 429 respects Retry-After. Do not rotate mirrors to evade a shared limit.
+The actual captures confirm the resolver's Bearer/JWT header combination, not
+the issuance response or native acceptance of these browser credentials. A
+production browser transport still needs a deliberate credential/session
+interface; the public app does not expose a ready-made production resolver
+method that can simply be called from the companion.
+
+Parse one authoritative top-level `playback[]` resource. The captured response
+also duplicates that resource in `sources[].resources[]`; do not resolve or
+consume the duplicate. Require schema_version 2, a track object, selected_source,
+and a coherent resource with kind=audio, delivery=direct, matching source, and
+the expected container/codec. Preserve `track.artists[]`, title, album and ISRC
+independently from transport; `duration_ms` may be null and stays unknown. Keep
+Amazon ASINs and other resolver IDs in an opaque typed namespace. Compare ISRC,
+title, full artist credit and album/version against the requested recording; do
+not accept an echoed ISRC by itself. For CENC, accept only the verified
+`cenc-aes-ctr` scheme and hex encoding that decodes to exactly 16 key bytes;
+reject unknown key encoding or IV semantics until verified. Never persist the
+media URL or key.
+
+Map failures before fallback policy: 429 is RateLimited and honors Retry-After;
+401/403 from the API is AuthRequired/Forbidden; the observed Cloudflare 403 is
+EdgeBlocked, not an auth result; a 404 is NoMatch only when its response schema
+confirms that meaning, otherwise it is EndpointOrProtocolError; malformed or
+unknown schema is InvalidResponse. With one launch endpoint, return transport,
+server, rate-limit, edge-block and auth failures to existing-provider fallback
+scheduling and diagnostics. Add a resolver mirror only after independently
+verifying its v2 schema and authorized session behavior, in later user-approved
+scope; never rotate on identity mismatch or silently downgrade auth failures.
+
+Resolve a fresh resource before each new playback. Keep its URL, key and
+generation only in the active playback session. Seek within that session using
+the same ranged resource; if it expires or fails, resolve once again and resume
+at the last confirmed position. Do not retain a URL/key across tracks, queue
+items or restarts. Preserve API auth only for the resolver host; media requests
+use the returned URL and range headers without resolver credentials.
+
+Live resolver and transport qualification
+-----------------------------------------
+User reports Firefox plays FLAC 16-bit/44.1 kHz at:
+https://monochrome.samidy.com/album/apple:album:6796842304
+Connected Chrome fails that exact HTTPS URL with ERR_NAME_NOT_RESOLVED. A later
+DNS check outside the sandbox resolved github.com and music-api.geeked.wtf;
+public Google and Cloudflare DNS returned NOERROR with no A or AAAA answers for
+monochrome.samidy.com. Firefox is not available through the connected browser
+tools. Firefox subsequently made successful resolver requests at capture time.
+Whether cached Firefox state, a different page bundle, or another DNS vantage
+explains the mismatch with command-line DNS and the pinned source remains
+unproven. These results do not establish that the backend is down, that
+authorization failed, or that Alvafro is unavailable. DNS/source findings are recorded in
+docs/performance-results/2026-10-21-monochrome-resolver/source-and-dns-findings.json.
+
+Live CDN qualification (2026-10-21)
+----------------------------------
+Using user-supplied media URLs, without API tokens, cookies or decryption keys,
+range probes for Alvafro and “Bacc of the Bach” both returned 206 for initial,
+repeated initial, and later byte ranges. These observations show the supplied
+URLs accepted those range requests during this probe; they do not establish
+URL TTL, one-use semantics over other requests, or resolver refresh behavior.
+Partial container metadata identifies FLAC in CENC-protected MP4: Alvafro is
+stereo 16-bit/44.1 kHz, 238.052608 s; Bacc is stereo 24-bit/48 kHz,
+197.900104 s. No key was used in these range/container probes, so those findings
+alone do not establish decoded properties. Full probe records:
+docs/performance-results/2026-10-21-monochrome-resolver/live-cdn-range-probe.json
+and live-cdn-container-metadata.json.
+
+The user subsequently supplied a Firefox request to /api/decrypt-stream with
+codec=flac-hls-segment, a CloudFront MP4 source, a media key and a segment byte
+range. Its sanitized shape is recorded in
+docs/fixtures/monochrome-alvafro-transport-observation.json. The full URL and key
+were deliberately not saved. Alvafro's resolver response is captured separately.
+The bounded live decode below verifies audio bytes from the user-supplied
+resource/key pair, independently of native resolver acquisition.
+
+The older public service-worker implementation explains that request shape as
+a browser-side transformation for encrypted fragmented MP4. That worker has
+since been removed from the pinned revision, so it cannot be assumed to describe
+the current official deployment. Do not feed this browser-local route into
+Burrata or assume a server handles it. The preceding resolver is identified for
+all three captured tracks. The live FFmpeg probe below separately establishes
+decoded properties for the first two seconds of Alvafro and Bacc.
+
+Bounded live CDN decode and seek (2026-10-21)
+--------------------------------------------
+Using the original user-supplied Alvafro and Bacc resource/key pairs, with no
+API credentials and no saved URLs or keys, FFmpeg n9.0.2 decoded the first two
+seconds from HTTPS CDN URLs through an ffconcat manifest sent over stdin. Both
+tracks exited 0 without stderr. Alvafro produced 705600 bytes of stereo s32le
+at 44.1 kHz; Bacc produced 768000 bytes at 48 kHz. One-second input-side
+seeks also exited 0 and exactly matched the corresponding second
+of each start decode. This is direct live CENC decryption and seek evidence for
+the supplied resource pairs, not resolver acquisition by Burrata, full-song or
+device playback, or evidence of resource TTL. The same resource pair worked for
+start and seek during this probe; expiry remains unknown. Record:
+docs/performance-results/2026-10-21-monochrome-resolver/live-native-decode-probe.json.
+
+Chrome's exact HTTPS album request fails DNS; browser-tool policy also prevents
+inspection of chrome://settings/security. No browser/network settings changed.
+
+Implementation plan after the hold is released
+-----------------------------------------------
+1. Build the dedicated managed WebView transport on the official site origin,
+   with its own profile and normal verification flow. Keep API credentials in
+   the page context and expose only matched metadata and the ephemeral resource
+   through a narrow bridge. A browser addon is a fallback only if fresh-profile
+   WebKit cannot complete that flow. Do not begin until the gates above pass and
+   the user explicitly releases the hold. No mirror pool at launch.
+
+2. Add a distinct typed resolver adapter. Input is recording evidence and target
+   quality; output separates matched identity, underlying source, transport and
+   measured quality. Keep resolver identity distinct from the existing Tracks
+   provider IDs. Never coerce Apple IDs into numeric Tracks IDs or broaden the
+   current Tracks URL validator globally. Integrate at the shared acquisition
+   and playback boundary so catalog, radio, queue and later download use agree.
+   Qualify download semantics separately before enabling batch downloads.
+
+3. Feed actual returned recording evidence through the shared matcher in all
+   three modes. A request ISRC echoed in a response is not independent proof.
+   Keep confidence/provenance and missing evidence explicit. Do not loosen
+   identity checks simply because a candidate offers FLAC. Preserve full credits
+   and version information; consult the existing track-matching plan.
+
+4. Carry the selected direct FLAC/MP4 resource and its CENC key in an ephemeral
+   playback context. Never place the key in FFmpeg argv or diagnostics. A synthetic
+   n9.0.2 probe established two viable handoffs: (a) a small native libavformat
+   helper accepts the 16 raw key bytes over a pipe and sets `decryption_key` in
+   memory; packet reads succeeded with no key in argv/logs, or (b) FFmpeg's concat
+   demuxer accepts an ffconcat manifest with `option decryption_key <hex>` sent
+   through stdin or an inherited pipe. The pipe-manifest probe decoded ordinary
+   and fragmented MP4 to exact reference PCM (264600 bytes); input-side and
+   output-side one-second seeks each matched the clear reference (176400 bytes).
+   It kept the key off disk, argv and stderr. Use fully qualified child URLs
+   (`file:/absolute/path` in the probe, HTTPS URL for remote delivery); a bare
+   absolute path over the pipe was mis-resolved as `pipe:/...`. Keep protocol
+   allowlists, TLS, redirects, Range, cancellation, and output safety explicit.
+   The simpler ffconcat path is a candidate for the current CLI; the helper avoids
+   subprocess parsing and is a second option. The separate live probe confirms
+   the supplied Alvafro and Bacc key/resource pairs decode and seek for the
+   measured samples, but does not validate the shipped FFmpeg build, full-track
+   or device playback, resolver acquisition, or production secret lifecycle.
+   Evidence:
+   docs/performance-results/2026-10-21-monochrome-resolver/key-handoff-probe.json,
+   concat-key-handoff-probe.json, and concat-key-handoff-pipe-probe.json. See
+   FFmpeg's [concat demuxer](https://www.ffmpeg.org/ffmpeg-formats.html#concat)
+   and [MOV demuxer](https://ffmpeg.org/ffmpeg-formats.html#mov_002fmp4_002f3gp).
+
+   Burrata's AudioSource currently has no typed media-encryption context. Add
+   ephemeral key ownership and guaranteed disposal at playback-session end or
+   failure, and audit subprocess arguments, diagnostics, crash reports and temp
+   files. Qualify this integration with the shipped FFmpeg and playback session
+   lifecycle; the standalone live decode/seek proof is already recorded above.
+
+   Concrete native_output.rs change: decode_ffmpeg_with_diagnostics currently
+   uses `.stdin(Stdio::null())` and `-i source.input`. For this typed resource,
+   use piped stdin, `-f concat -safe 0 -i pipe:0`, and write then close a bounded
+   in-memory manifest before consuming PCM. Preserve the existing stdout PCM,
+   cancellation, child reaper and position handling. `-nostdin` can remain: it
+   disables interactive controls, not media input on pipe:0. Manifest shape:
+
+     ffconcat version 1.0
+     file '<validated, correctly escaped HTTPS media URL>'
+     option decryption_key <32 hex characters from the ephemeral 16-byte key>
+     option rw_timeout 5000000
+
+   Pass a narrow protocol whitelist (pipe,https,tls,tcp,crypto for these live
+   resources). Treat ffconcat as a language: reject CR/LF/NUL in input, escape
+   its quoting correctly, and never interpolate unchecked response text as
+   directives. Do not set a fabricated duration when duration_ms is null; the
+   tested MP4 demuxer discovers it. Keep both the URL and key out of argv.
+   Error paths must redact media URLs/key material before retaining FFmpeg
+   stderr; the current safe_failure_text path needs explicit coverage for this
+   source. Add per-child HTTP options to the manifest rather than assuming an
+   outer concat option reaches its child demuxer. HTTP timeout forwarding still
+   needs a controlled timeout fixture; the live probe established decoding and
+   seeking, not all transport error handling.
+
+   Use one resolver lookup for identity plus the selected audio resource, and
+   inspect that same resource for playback. Reject unsupported delivery clearly.
+   Validate TLS, destinations and redirects; never forward API credentials to
+   an audio CDN. Native FLAC decoding alone does not qualify encrypted MP4.
+
+5. Use fresh transport resolution for each playback when required. Cache stable
+   recording/source evidence independently from expiring transport state. Include
+   source, policy version and proof freshness in reuse decisions. Avoid caching
+   auth/DNS/rate-limit failures as permanent recording misses. Coalesce overlapping
+   work, bound retries and cancellation, and respect the global playback deadline.
+
+6. Make quality preference explicit in scheduling. Prepare fallback concurrently,
+   but allow a bounded lossless-resolution budget when lossless is preferred.
+   Do not silently change the meaning of the existing 1500 ms setting. Preserve
+   explicitly selected sources and existing cancellation/queue behavior. Report
+   whether fallback occurred because of no match, unsupported transport, auth,
+   DNS, rate limiting or deadline. Do not switch streams mid-song unexpectedly.
+   A cached YouTube mapping must not permanently suppress a new preferred route.
+
+7. Extend queue preparation after basic playback is proven. Prepare identity and
+   stable evidence early; resolve ephemeral resources close enough to consumption
+   to avoid expiry. Measure cold and warm startup plus fallback latency, endpoint
+   requests and cancellations. Generalize to a held-out set of recordings that
+   the website can play losslessly but Burrata currently resolves to YouTube.
+
+Acceptance and handoff
+----------------------
+- Additional user-supplied website reference (2026-10-21): “Bacc of the Bach,”
+  Nipsey Hussle & Bino Rideaux, PROLIFIC (2026), displays HD 24/48 during
+  playback (0:11 of 3:17). Add this existing playback regression song to live
+  lossless qualification. The screenshot establishes the displayed website
+  quality, not independently decoded format or Burrata transport support;
+  verify recording identity, decoded properties, start, seek and replay.
+- The authorized Firefox page has returned successful resolver responses for
+  all three tracks, and the supplied Alvafro/Bacc media has passed bounded native
+  decoding. Still obtain a fresh resource through Burrata's authorized resolver
+  transport and carry that same response identity into playback.
+- Demonstrate Burrata playback with decoded FLAC properties and matching identity;
+  retain sanitized trace and revision. Check start, seek, replay and next track.
+- Test Exact/Balanced/Flexible acceptance, conflicting versions and identifiers,
+  missing metadata, stale sessions, 401/403/428/429, DNS/timeouts, unavailable FLAC,
+  unsupported responses, expired resources, cancellation and a one-use URL fixture.
+  Add encrypted-FLAC fixtures covering segmented/fragmented MP4, wrong keys,
+  byte-range seeks and disposal of media secrets. The initial synthetic local
+  probe is evidence of feasibility, not a replacement for these regressions.
+- Verify fallback reasons and bounded latency, including warm YouTube mappings.
+- Record successful and failed live cases separately; no completion claim based
+  solely on mocked responses or a website quality badge.
+
+Coordinate ownership of acquisition.rs, playback_sources.rs, monochrome.rs,
+storage/session handling and transport changes with the agents already editing
+them. This investigation adds documentation and isolated diagnostic tooling;
+shared production code and running playback settings remain under their
+existing owners.
+
+Temporary Firefox capture
+-------------------------
+scripts/monochrome-research builds an opt-in temporary companion at
+.cache/monochrome-research-extension/manifest.json. It observes page fetch/XHR
+JSON after injection, strips credentials/media URLs/keys before export, and
+stops observing after five minutes. Requests made earlier or inside another
+realm/service worker are outside that observer's coverage.
+
+The user approved the org.burrata.monochrome_research native sink, which
+accepted bounded sanitized reports at fixed local paths and had no network
+listener or command execution interface. Clicking the extension's activeTab
+action resolved page visibility and enabled capture of the three resolver
+responses above. The saved observation records stopped=false. The observer is
+configured to stop after five minutes, but shutdown was not independently
+verified. The temporary native-messaging registration JSON has been removed;
+the helper can no longer be launched by Firefox through that registration.
+The temporary companion itself remains loaded and can be removed from Firefox's
+about:debugging page. Its generated extension manifest was not deleted.
+
+Related plan: docs/track-matching-improvement-plan.txt
+
+Further backend/alternative-route research: docs/monochrome-backend-alternatives-research.txt. Independent public Apple lookup/search now verified for the target album and both reported recordings; alternate lossless acquisition remains unverified.

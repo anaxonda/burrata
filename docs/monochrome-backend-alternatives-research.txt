@@ -1,0 +1,132 @@
+Monochrome backend and independent access research
+Date: 2026-10-21
+Latest user direction: implementation may proceed from the documented plan; further research is paused. Historical hold language below is superseded by todo.md. Evidence limitations and unverified provider access remain unchanged.
+
+Findings that change the plan
+-----------------------------
+1. Metadata access does not depend on the Samidy website. Direct public Apple
+   iTunes API calls succeeded without a token, browser or extension:
+   GET https://itunes.apple.com/lookup?id=6796842304&entity=song&country=us
+   returned HTTP 200, one album and all 14 songs. Alvafro is song 6796842308,
+   artist LATIN MAFIA & Fred again.., duration 238053 ms.
+   GET /search?term=Alvafro+LATIN+MAFIA&entity=song&country=us&limit=10
+   found that recording, alongside unrelated candidates.
+   GET /search?term=Bacc+of+the+Bach+Nipsey+Hussle&entity=song&country=us&limit=10
+   found song 6801271674, duration 197900 ms, album PROLIFIC.
+   Evidence: performance-results/2026-10-21-monochrome-resolver/
+   independent-itunes-catalog-probe.json and independent-itunes-search-probe.json.
+   These prove bounded catalog lookups, not exhaustive Apple Music coverage or
+   FLAC availability. Search still requires matching; first result is not proof.
+   Public iTunes results lack the authoritative ISRC evidence needed for a
+   high-confidence cross-provider binding. Never treat preview audio as full media.
+   Official documentation: https://performance-partners.apple.com/search-api
+
+2. A fresh WebKit navigation to
+   https://monochrome.tf/album/apple/6796842304
+   finished at origin https://monochrome.st with HTTP 200. The page resource
+   observations included auth.monochrome.st and auth.tidal.com, but no successful
+   unified resolver exchange. This does not prove album rendering or playback.
+   Evidence: performance-results/2026-10-21-monochrome-resolver/
+   webkit-tf-album-probe.json. A plain HTTP client received 503 from .tf earlier;
+   browser-specific differences explain why that was not a global-outage proof.
+   In this live test, .tf is not an independent fallback deployment.
+
+3. The current upstream head was rechecked through GitHub API:
+   86dc77aa5d1cfeebf78729211e87256800ff238d (2026-10-17).
+   Its README recommends monochrome.st. Older search-index README copies still
+   recommend .tf/Samidy; do not use those as evidence of current deployment.
+   Current defaults disable the old unified resolver, with empty API base/token.
+   The frontend source is public; an independently deployable complete Amazon
+   unified resolver backend was not identified in this bounded research.
+   https://github.com/monochrome-music/monochrome/tree/86dc77aa5d1cfeebf78729211e87256800ff238d
+
+Backend model: evidence versus inference
+----------------------------------------
+The working Firefox capture establishes this sequence for the reported tracks:
+Apple catalog metadata -> metadata-based unified v2 request -> selected Amazon
+recording/resource -> Amazon CloudFront encrypted MP4 containing FLAC -> browser
+segment decryption/playback. Native decoding of the supplied resources was
+separately demonstrated. Apple album IDs are not Amazon media IDs.
+
+Public upstream issue reports expose per-source results for Amazon, Tidal and
+an adapter labelled Mono. Reports show no-match, account cooldown/unavailability,
+upstream authentication failures and quality failures independently. This is
+consistent with a backend that coordinates provider adapters and caches, rather
+than one complete static music catalog. Its full implementation remains unknown.
+Do not assume Mono is a particular service without additional evidence.
+https://github.com/monochrome-music/monochrome/issues/1207
+https://github.com/monochrome-music/monochrome/issues/1186
+
+Issue 1198 reports HTTP 200 with selected_source amazon but an empty playback
+array, quality_unavailable and other providers not attempted because of an
+Amazon cache result. Therefore accept only a validated playable resource;
+HTTP 200, selected_source and cached=true cannot establish success. This historical
+report informs regression coverage; it does not prove the current bug persists.
+https://github.com/monochrome-music/monochrome/issues/1198
+
+Alternative routes and decisions
+---------------------------------
+A. Independent metadata: verified for the target album and two target tracks.
+   Use public iTunes search/lookup as a limited metadata fallback; for richer,
+   broader Apple Music metadata use Burrata's own developer-token integration.
+   Official Apple Music catalog requests support song lookup by ISRC, song ID
+   and album ID, with storefront recorded explicitly. Keep the signing key on
+   a backend, not in distributed desktop code. A public third-party token mint
+   is another availability dependency, not the durable bootstrap design.
+   https://developer.apple.com/musickit/
+   https://developer.apple.com/documentation/applemusicapi/get-multiple-catalog-songs-by-isrc
+   This supplies metadata/quality declarations, not raw full-length audio URLs.
+
+B. Same unified backend through another frontend: not verified. Historical
+   official mirror lists are stale; .tf led to .st in the live test. Merely
+   self-hosting the frontend does not reproduce upstream accounts, credentials,
+   provider adapters or accepted verification configuration. Current README
+   permits a configured paid HiFi endpoint in Dev Mode; this is a separate
+   backend requirement, not included server capability.
+
+C. Self-operated Tidal HiFi adapter: public implementation exists at
+   https://github.com/binimum/hifi-api
+   It documents account setup, catalog searches, direct lossless FLAC manifests
+   and DASH delivery. It is Tidal-specific, not a mirror of the Amazon resolver.
+   The current maintainer README warns of account blocking, including private
+   deployments. No account, stream or Alvafro coverage was tested here. Treat it
+   as an optional research candidate requiring an explicitly supplied account
+   and measured reliability, not the default production route or guaranteed
+   replacement. Do not claim metadata coverage implies full-stream entitlement.
+
+D. Official provider integration: Apple MusicKit and Tidal offer catalog and
+   player integrations with user authorization. They do not establish a generic
+   raw-FLAC URL contract for Burrata's native decoder. Lossless catalog tags do
+   not prove a given web SDK/platform actually delivers lossless output.
+   https://developer.tidal.com/documentation/api-sdk/api-sdk-authorization
+   https://developer.tidal.com/documentation/guidelines/guidelines-design-guidelines
+   https://developer.apple.com/musickit/
+   Amazon's own V2 API is closed beta for approved developers and requires LWA
+   authorization plus a security profile. Playback uses a DRM integration;
+   this differs from Monochrome's service returning a media URL/key response.
+   https://developer.amazon.com/docs/music/API_web_overview_v2.html
+   https://developer.amazon.com/docs/music/playback_overview.html
+   Qobuz partner access is another candidate, pending granted API credentials
+   and actual technical qualification; no working Burrata route is claimed.
+   https://static.qobuz.com/apps/api/QobuzAPI-TermsofUse.pdf
+
+Recommended architecture refinement
+------------------------------------
+Make catalog discovery independent of playback resolvers. Union candidates from
+Apple metadata and Tracks, preserving storefront, provider IDs, full credits,
+duration and ISRC evidence. For a selected row, independently resolve eligible
+providers and validate returned recording identity, actual delivery and decoded
+quality. A provider outage must not make the track disappear from search.
+
+Keep the observed Amazon unified adapter optional and capability-gated. Do not
+require it for catalog search, or assume an extension repairs its missing fresh
+bootstrap. Introduce an explicit distinction between listed, matched, playable,
+and verified lossless. Handle missing quality with a specific result; do not
+silently identify a YouTube result as the same quality.
+
+Next decisive tests: use a supported current resolver configuration to resolve
+both Apple song IDs via their metadata; or qualify a separately authorized
+provider against those recordings and held-out tracks. Then test fresh resource
+acquisition, seek/re-resolution and cancellation. No verified alternate free
+full-catalog lossless resolver was found in this research. Do not release the
+implementation hold on the strength of catalog-only success.

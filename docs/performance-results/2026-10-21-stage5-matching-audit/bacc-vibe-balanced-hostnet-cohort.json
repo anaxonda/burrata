@@ -1,0 +1,4976 @@
+{
+  "schema": "burrata.matching-performance-cohort/v1",
+  "qualification": false,
+  "frozen": {
+    "binarySha256": "7a95ec034871cfbd205ed022fd634e7ae8c97d71e43f0a985fbf49eb25726f6a",
+    "manifestSha256": "7202ffdf4fc69a9e927dc1b7c1cad611b7b8a0cd68608671849d4531ee58176a",
+    "sourceRevision": "9d5a4194111b023ba9252d85039aeb50e7b6fcfa",
+    "repetitions": 20,
+    "warmups": 3,
+    "levels": [
+      "balanced"
+    ],
+    "providerPolicy": "public settings fixture only; same fixture policy across modes",
+    "startedAtUtc": "2026-10-21T23:30:17.679778+00:00"
+  },
+  "cases": [
+    {
+      "caseId": "bacc-saved",
+      "trackSha256": "6703178b0ec43f2e6f6c021e4f1ee6868516302186f2c71fa98487e0d658afdd",
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "balanced": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10633.890882,
+              "wallMs": 10900.11404,
+              "firstPcmFromRequestMs": 10816.163631,
+              "helperCpuMs": 559.5819999999999,
+              "reapedChildCpuMs": 4374.233,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    442.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    6.96831,
+                    5.540112
+                  ],
+                  "canonical_search_warmup_end": [
+                    1443.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    446.0
+                  ],
+                  "extraction_end": [
+                    7111.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 353.479875,
+              "wallMs": 632.878817,
+              "firstPcmFromRequestMs": 574.025454,
+              "helperCpuMs": 124.15000000000055,
+              "reapedChildCpuMs": 77.14400000000023,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.598764,
+                    4.208306
+                  ],
+                  "mapped_direct_youtube_end": [
+                    265.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10662.86303,
+              "wallMs": 10965.23296,
+              "firstPcmFromRequestMs": 10929.164377000001,
+              "helperCpuMs": 561.9079999999999,
+              "reapedChildCpuMs": 4358.697,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    452.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.61075,
+                    2.718105
+                  ],
+                  "canonical_search_warmup_end": [
+                    1354.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    346.0
+                  ],
+                  "extraction_end": [
+                    8330.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 1021.5558609999999,
+              "wallMs": 1592.602192,
+              "firstPcmFromRequestMs": 1465.688784,
+              "helperCpuMs": 117.82600000000002,
+              "reapedChildCpuMs": 40.1820000000007,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.293754000000001,
+                    4.205349
+                  ],
+                  "mapped_direct_youtube_end": [
+                    931.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10254.023357,
+              "wallMs": 10406.040229,
+              "firstPcmFromRequestMs": 10360.890681,
+              "helperCpuMs": 496.30499999999984,
+              "reapedChildCpuMs": 4139.277999999998,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    566.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.110462,
+                    3.830305
+                  ],
+                  "canonical_search_warmup_end": [
+                    1496.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    370.0
+                  ],
+                  "extraction_end": [
+                    6171.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 452.247318,
+              "wallMs": 834.7341230000001,
+              "firstPcmFromRequestMs": 717.855198,
+              "helperCpuMs": 108.20300000000043,
+              "reapedChildCpuMs": 36.87600000000384,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.229061,
+                    3.81047
+                  ],
+                  "mapped_direct_youtube_end": [
+                    368.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10065.163634999999,
+              "wallMs": 10324.167631,
+              "firstPcmFromRequestMs": 10249.987893999998,
+              "helperCpuMs": 569.969,
+              "reapedChildCpuMs": 4051.5179999999964,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    476.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.2363,
+                    3.499107
+                  ],
+                  "canonical_search_warmup_end": [
+                    1452.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    383.0
+                  ],
+                  "extraction_end": [
+                    6377.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 443.42856,
+              "wallMs": 615.1192450000001,
+              "firstPcmFromRequestMs": 576.051892,
+              "helperCpuMs": 127.83600000000024,
+              "reapedChildCpuMs": 37.42700000000332,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.843963,
+                    3.6314810000000004
+                  ],
+                  "mapped_direct_youtube_end": [
+                    341.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9315.132808999999,
+              "wallMs": 9578.874439,
+              "firstPcmFromRequestMs": 9494.518318999999,
+              "helperCpuMs": 601.165,
+              "reapedChildCpuMs": 4068.209999999999,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "canonical_search_warmup_end": 1,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    386.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.522319,
+                    3.006736
+                  ],
+                  "canonical_search_warmup_end": [
+                    1715.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    522.0
+                  ],
+                  "extraction_end": [
+                    5822.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 371.90018200000003,
+              "wallMs": 609.3037009999999,
+              "firstPcmFromRequestMs": 557.387635,
+              "helperCpuMs": 129.13500000000022,
+              "reapedChildCpuMs": 41.705000000001746,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.2630329999999996,
+                    3.402057
+                  ],
+                  "mapped_direct_youtube_end": [
+                    274.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 7575.854126,
+              "wallMs": 7702.726383,
+              "firstPcmFromRequestMs": 7664.824896,
+              "helperCpuMs": 512.1490000000003,
+              "reapedChildCpuMs": 4328.959999999999,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    408.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.9788229999999998,
+                    3.054293
+                  ],
+                  "canonical_search_warmup_end": [
+                    1425.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    388.0
+                  ],
+                  "extraction_end": [
+                    5858.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 407.547329,
+              "wallMs": 687.522241,
+              "firstPcmFromRequestMs": 601.833614,
+              "helperCpuMs": 131.92000000000007,
+              "reapedChildCpuMs": 41.12299999999959,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.857331,
+                    4.23003
+                  ],
+                  "mapped_direct_youtube_end": [
+                    301.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10013.884672,
+              "wallMs": 10277.853071,
+              "firstPcmFromRequestMs": 10193.478206,
+              "helperCpuMs": 575.0540000000001,
+              "reapedChildCpuMs": 4079.537000000004,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    410.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.8125780000000002,
+                    4.007153000000001
+                  ],
+                  "canonical_search_warmup_end": [
+                    1427.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    421.0
+                  ],
+                  "extraction_end": [
+                    6281.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 420.777987,
+              "wallMs": 566.631943,
+              "firstPcmFromRequestMs": 523.38251,
+              "helperCpuMs": 113.48899999999958,
+              "reapedChildCpuMs": 41.663000000000466,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.386711,
+                    3.0161979999999997
+                  ],
+                  "mapped_direct_youtube_end": [
+                    339.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9218.781846,
+              "wallMs": 9361.486288,
+              "firstPcmFromRequestMs": 9328.985306999999,
+              "helperCpuMs": 540.0800000000008,
+              "reapedChildCpuMs": 3845.290000000008,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "canonical_search_warmup_end": 1,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    416.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.226771,
+                    3.466576
+                  ],
+                  "canonical_search_warmup_end": [
+                    1643.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    518.0
+                  ],
+                  "extraction_end": [
+                    5772.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 441.463334,
+              "wallMs": 707.411768,
+              "firstPcmFromRequestMs": 638.4164129999999,
+              "helperCpuMs": 143.76199999999972,
+              "reapedChildCpuMs": 110.69899999999325,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.515714,
+                    2.833828
+                  ],
+                  "mapped_direct_youtube_end": [
+                    351.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10305.752364,
+              "wallMs": 10592.841928,
+              "firstPcmFromRequestMs": 10559.914167,
+              "helperCpuMs": 489.637999999999,
+              "reapedChildCpuMs": 4240.294000000009,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "canonical_search_warmup_end": 1,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    392.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.260855,
+                    3.538345
+                  ],
+                  "canonical_search_warmup_end": [
+                    1604.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    363.0
+                  ],
+                  "extraction_end": [
+                    8220.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 667.276939,
+              "wallMs": 832.681219,
+              "firstPcmFromRequestMs": 800.790453,
+              "helperCpuMs": 113.30899999999929,
+              "reapedChildCpuMs": 42.43099999999686,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.141015,
+                    2.746596
+                  ],
+                  "mapped_direct_youtube_end": [
+                    587.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9874.80712,
+              "wallMs": 10096.033274,
+              "firstPcmFromRequestMs": 10046.467713,
+              "helperCpuMs": 476.5670000000009,
+              "reapedChildCpuMs": 4428.483999999997,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    508.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.935074999999999,
+                    2.683939
+                  ],
+                  "canonical_search_warmup_end": [
+                    1370.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    627.0
+                  ],
+                  "extraction_end": [
+                    6202.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 427.071437,
+              "wallMs": 695.613933,
+              "firstPcmFromRequestMs": 614.735581,
+              "helperCpuMs": 126.28200000000106,
+              "reapedChildCpuMs": 41.24300000000221,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.521884,
+                    5.334961
+                  ],
+                  "mapped_direct_youtube_end": [
+                    328.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10564.072100000001,
+              "wallMs": 10814.472716,
+              "firstPcmFromRequestMs": 10760.814531000002,
+              "helperCpuMs": 602.491,
+              "reapedChildCpuMs": 4177.6159999999945,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 37,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "verified_source_transport_recovery_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "verified_source_transport_recovery_end": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    695.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.132116,
+                    5.1935210000000005
+                  ],
+                  "canonical_search_warmup_end": [
+                    1375.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    507.0
+                  ],
+                  "extraction_end": [
+                    6493.0
+                  ],
+                  "mapped_direct_youtube_end": [
+                    324.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 2,
+                "nativeEventCount": 37,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 461.615264,
+              "wallMs": 837.3639579999999,
+              "firstPcmFromRequestMs": 716.42268,
+              "helperCpuMs": 121.6830000000009,
+              "reapedChildCpuMs": 59.53599999999278,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.759667,
+                    2.914345
+                  ],
+                  "mapped_direct_youtube_end": [
+                    372.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10045.940847,
+              "wallMs": 10276.866413,
+              "firstPcmFromRequestMs": 10225.282717,
+              "helperCpuMs": 514.7219999999998,
+              "reapedChildCpuMs": 4294.578000000009,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    447.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    6.597844,
+                    4.912062
+                  ],
+                  "canonical_search_warmup_end": [
+                    1642.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    673.0
+                  ],
+                  "extraction_end": [
+                    6139.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 378.279845,
+              "wallMs": 506.24465799999996,
+              "firstPcmFromRequestMs": 471.04258600000003,
+              "helperCpuMs": 110.11599999999999,
+              "reapedChildCpuMs": 35.754000000000815,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.303401,
+                    2.9802079999999997
+                  ],
+                  "mapped_direct_youtube_end": [
+                    295.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10390.490297999999,
+              "wallMs": 10619.183997,
+              "firstPcmFromRequestMs": 10569.726708999999,
+              "helperCpuMs": 520.4270000000015,
+              "reapedChildCpuMs": 4284.309999999998,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    484.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    6.092077000000001,
+                    5.248231
+                  ],
+                  "canonical_search_warmup_end": [
+                    1473.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    406.0
+                  ],
+                  "extraction_end": [
+                    6616.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 375.34531300000003,
+              "wallMs": 748.2931120000001,
+              "firstPcmFromRequestMs": 630.0732370000001,
+              "helperCpuMs": 140.6910000000007,
+              "reapedChildCpuMs": 47.45700000000943,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.294519,
+                    4.635171000000001
+                  ],
+                  "mapped_direct_youtube_end": [
+                    280.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9562.452599,
+              "wallMs": 9708.280064,
+              "firstPcmFromRequestMs": 9673.529545,
+              "helperCpuMs": 576.2659999999996,
+              "reapedChildCpuMs": 4007.1359999999986,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    379.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    6.4839970000000005,
+                    3.718036
+                  ],
+                  "canonical_search_warmup_end": [
+                    1393.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    722.0
+                  ],
+                  "extraction_end": [
+                    5862.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 424.501724,
+              "wallMs": 619.430033,
+              "firstPcmFromRequestMs": 564.069427,
+              "helperCpuMs": 138.88600000000042,
+              "reapedChildCpuMs": 47.27499999999418,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.16091,
+                    2.83232
+                  ],
+                  "mapped_direct_youtube_end": [
+                    326.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 11455.418979,
+              "wallMs": 11712.824352,
+              "firstPcmFromRequestMs": 11629.661945,
+              "helperCpuMs": 531.0229999999992,
+              "reapedChildCpuMs": 4160.772000000012,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    416.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    7.252284,
+                    5.032032
+                  ],
+                  "canonical_search_warmup_end": [
+                    1458.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    509.0
+                  ],
+                  "extraction_end": [
+                    9427.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 471.951096,
+              "wallMs": 702.0398730000001,
+              "firstPcmFromRequestMs": 651.807476,
+              "helperCpuMs": 135.75,
+              "reapedChildCpuMs": 39.762999999991735,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.098915,
+                    3.600031
+                  ],
+                  "mapped_direct_youtube_end": [
+                    363.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 7913.877336,
+              "wallMs": 8201.340261000001,
+              "firstPcmFromRequestMs": 8107.818509999999,
+              "helperCpuMs": 532.9220000000005,
+              "reapedChildCpuMs": 4320.687999999995,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    413.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.315439,
+                    3.446761
+                  ],
+                  "canonical_search_warmup_end": [
+                    1425.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    468.0
+                  ],
+                  "extraction_end": [
+                    6110.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 354.353484,
+              "wallMs": 717.6692869999999,
+              "firstPcmFromRequestMs": 640.598247,
+              "helperCpuMs": 118.07200000000012,
+              "reapedChildCpuMs": 56.58900000000722,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.530694,
+                    3.43853
+                  ],
+                  "mapped_direct_youtube_end": [
+                    268.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 11251.779815999998,
+              "wallMs": 11667.502525,
+              "firstPcmFromRequestMs": 11580.420300999998,
+              "helperCpuMs": 588.1729999999989,
+              "reapedChildCpuMs": 4418.979999999981,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    450.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.810763,
+                    3.0355469999999998
+                  ],
+                  "canonical_search_warmup_end": [
+                    1480.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    573.0
+                  ],
+                  "extraction_end": [
+                    8979.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 850.752242,
+              "wallMs": 1224.352311,
+              "firstPcmFromRequestMs": 1148.7313060000001,
+              "helperCpuMs": 150.61000000000058,
+              "reapedChildCpuMs": 45.677000000025146,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.751044,
+                    2.808509
+                  ],
+                  "mapped_direct_youtube_end": [
+                    744.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 11543.374721,
+              "wallMs": 11792.433645,
+              "firstPcmFromRequestMs": 11713.326433,
+              "helperCpuMs": 325.137999999999,
+              "reapedChildCpuMs": 4203.783999999985,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "canonical_search_warmup_end": [
+                    1323.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    423.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2000.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.362986,
+                    2.55944
+                  ],
+                  "extraction_end": [
+                    6358.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 374.04593800000004,
+              "wallMs": 537.16548,
+              "firstPcmFromRequestMs": 487.203228,
+              "helperCpuMs": 83.0619999999999,
+              "reapedChildCpuMs": 108.71700000000419,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.005367,
+                    2.648859
+                  ],
+                  "mapped_direct_youtube_end": [
+                    336.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10743.446629999999,
+              "wallMs": 10896.051019999999,
+              "firstPcmFromRequestMs": 10849.468023,
+              "helperCpuMs": 527.5660000000007,
+              "reapedChildCpuMs": 4388.389999999985,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    529.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.720929,
+                    3.9169549999999997
+                  ],
+                  "canonical_search_warmup_end": [
+                    1480.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    830.0
+                  ],
+                  "extraction_end": [
+                    8869.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 424.369401,
+              "wallMs": 563.1087110000001,
+              "firstPcmFromRequestMs": 530.772477,
+              "helperCpuMs": 117.27300000000105,
+              "reapedChildCpuMs": 38.58100000000559,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.6922669999999997,
+                    3.325865
+                  ],
+                  "mapped_direct_youtube_end": [
+                    339.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9625.546864,
+              "wallMs": 9766.521800999999,
+              "firstPcmFromRequestMs": 9723.273603,
+              "helperCpuMs": 571.5470000000005,
+              "reapedChildCpuMs": 4365.9679999999935,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    421.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.190391,
+                    4.847326
+                  ],
+                  "canonical_search_warmup_end": [
+                    1371.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    348.0
+                  ],
+                  "extraction_end": [
+                    6157.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 389.289194,
+              "wallMs": 709.723062,
+              "firstPcmFromRequestMs": 653.814175,
+              "helperCpuMs": 142.77299999999923,
+              "reapedChildCpuMs": 46.77599999998347,
+              "providerId": "youtube:rpCswezRrLs",
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.6296150000000003,
+                    4.766362
+                  ],
+                  "mapped_direct_youtube_end": [
+                    288.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 20,
+              "successes": 20,
+              "failures": 0,
+              "resolveMsP50": 10065.163634999999,
+              "resolveMsP95": 11455.418979,
+              "p95SampleCount": 20
+            },
+            "warm": {
+              "attempts": 20,
+              "successes": 20,
+              "failures": 0,
+              "resolveMsP50": 424.369401,
+              "resolveMsP95": 850.752242,
+              "p95SampleCount": 20
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "catalog_alias_preparation_end": 20,
+                "alias_cache_lookup_end": 40,
+                "provider_start": 40,
+                "search_start": 40,
+                "canonical_search_warmup_end": 20,
+                "bandcamp_fallback_start": 20,
+                "search_end": 40,
+                "candidate_gate_evidence": 40,
+                "candidate_gate_evidence_rows": 59,
+                "candidate_gate": 40,
+                "extract_and_validate_start": 20,
+                "preview_audio_lookup_start": 40,
+                "extraction_start": 20,
+                "bandcamp_fallback_end": 20,
+                "extraction_end": 20,
+                "preview_audio_lookup_end": 40,
+                "full_identity_check": 20,
+                "extract_and_validate_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20,
+                "verified_source_transport_recovery_start": 1,
+                "mapped_direct_youtube_start": 1,
+                "mapped_direct_youtube_end": 1,
+                "verified_source_transport_recovery_end": 1
+              },
+              "logicalExtractionStartEvents": 20,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 40,
+                  "p50": 4.007153000000001,
+                  "p95": 6.597844
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 20,
+                  "p50": 446.0,
+                  "p95": 722.0
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 20,
+                  "p50": 1443.0,
+                  "p95": 1643.0
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 20,
+                  "p50": 442.0,
+                  "p95": 695.0
+                },
+                "extraction_end": {
+                  "sampleCount": 20,
+                  "p50": 6281.0,
+                  "p95": 8979.0
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 1,
+                  "p50": 324.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 2,
+                "p50": 0,
+                "p95": 0,
+                "max": 2
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "alias_cache_lookup_end": 40,
+                "provider_start": 40,
+                "search_start": 20,
+                "search_end": 20,
+                "candidate_gate_evidence": 20,
+                "candidate_gate_evidence_rows": 39,
+                "candidate_gate": 20,
+                "mapping_resolve_start": 20,
+                "mapped_direct_youtube_start": 20,
+                "mapped_direct_youtube_end": 20,
+                "mapping_resolve_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 40,
+                  "p50": 3.530694,
+                  "p95": 5.334961
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 20,
+                  "p50": 336.0,
+                  "p95": 744.0
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 20,
+                "p50": 1,
+                "p95": 1,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 1198,
+            "directNativeEvents": 1198,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 0,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "caseId": "vibe-saved",
+      "trackSha256": "99604787c9f87835f25a543fe4bf71d2e0402770c771bd27b4b42aece7c3a1e4",
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "balanced": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9822.961253000001,
+              "wallMs": 10054.866238,
+              "firstPcmFromRequestMs": 10005.410543000002,
+              "helperCpuMs": 331.56899999999996,
+              "reapedChildCpuMs": 4902.773000000001,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    521.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.81471,
+                    5.160095
+                  ],
+                  "canonical_search_warmup_end": [
+                    827.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    653.0
+                  ],
+                  "extraction_end": [
+                    7053.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 3,
+              "iteration": 0,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 327.790306,
+              "wallMs": 550.206725,
+              "firstPcmFromRequestMs": 504.38507500000003,
+              "helperCpuMs": 82.14099999999985,
+              "reapedChildCpuMs": 36.564000000002125,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.213065,
+                    3.7279560000000003
+                  ],
+                  "mapped_direct_youtube_end": [
+                    273.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 11679.464245000001,
+              "wallMs": 11803.72968,
+              "firstPcmFromRequestMs": 11778.789087000001,
+              "helperCpuMs": 242.99599999999987,
+              "reapedChildCpuMs": 4463.635000000002,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    485.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.812732,
+                    2.766909
+                  ],
+                  "canonical_search_warmup_end": [
+                    685.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    970.0
+                  ],
+                  "extraction_end": [
+                    10279.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 4,
+              "iteration": 1,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 384.922812,
+              "wallMs": 633.936846,
+              "firstPcmFromRequestMs": 558.641617,
+              "helperCpuMs": 79.15299999999979,
+              "reapedChildCpuMs": 38.690999999998894,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.0789210000000002,
+                    5.348455
+                  ],
+                  "mapped_direct_youtube_end": [
+                    332.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 7345.038646,
+              "wallMs": 7702.351062,
+              "firstPcmFromRequestMs": 7590.006443,
+              "helperCpuMs": 254.90999999999985,
+              "reapedChildCpuMs": 4241.322,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    511.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.5630010000000003,
+                    3.4057229999999996
+                  ],
+                  "canonical_search_warmup_end": [
+                    845.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    522.0
+                  ],
+                  "extraction_end": [
+                    6078.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 5,
+              "iteration": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 392.115463,
+              "wallMs": 690.326158,
+              "firstPcmFromRequestMs": 603.604216,
+              "helperCpuMs": 78.30799999999999,
+              "reapedChildCpuMs": 84.5590000000011,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.942312,
+                    2.8371009999999997
+                  ],
+                  "mapped_direct_youtube_end": [
+                    347.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 7820.985742,
+              "wallMs": 8058.934439,
+              "firstPcmFromRequestMs": 8005.62139,
+              "helperCpuMs": 283.5840000000003,
+              "reapedChildCpuMs": 4700.572,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    534.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.694288,
+                    2.9310199999999997
+                  ],
+                  "canonical_search_warmup_end": [
+                    808.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    463.0
+                  ],
+                  "extraction_end": [
+                    6720.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 6,
+              "iteration": 3,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 353.01530599999995,
+              "wallMs": 583.847865,
+              "firstPcmFromRequestMs": 532.042961,
+              "helperCpuMs": 78.42000000000007,
+              "reapedChildCpuMs": 38.029999999998836,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.8551530000000005,
+                    3.492527
+                  ],
+                  "mapped_direct_youtube_end": [
+                    302.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9503.367397,
+              "wallMs": 9825.492381,
+              "firstPcmFromRequestMs": 9754.654183,
+              "helperCpuMs": 250.30099999999993,
+              "reapedChildCpuMs": 4351.763000000006,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    516.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.260333,
+                    3.691481
+                  ],
+                  "canonical_search_warmup_end": [
+                    877.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    392.0
+                  ],
+                  "extraction_end": [
+                    6806.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 7,
+              "iteration": 4,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 439.034593,
+              "wallMs": 687.121061,
+              "firstPcmFromRequestMs": 630.716595,
+              "helperCpuMs": 88.48899999999958,
+              "reapedChildCpuMs": 76.83599999999569,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.318741,
+                    3.832492
+                  ],
+                  "mapped_direct_youtube_end": [
+                    388.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9834.74504,
+              "wallMs": 10086.935807,
+              "firstPcmFromRequestMs": 10006.436647,
+              "helperCpuMs": 287.82000000000016,
+              "reapedChildCpuMs": 4462.233999999997,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    517.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.744116,
+                    3.578831
+                  ],
+                  "canonical_search_warmup_end": [
+                    766.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    912.0
+                  ],
+                  "extraction_end": [
+                    8471.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 8,
+              "iteration": 5,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 362.923719,
+              "wallMs": 749.686709,
+              "firstPcmFromRequestMs": 624.862395,
+              "helperCpuMs": 90.69200000000001,
+              "reapedChildCpuMs": 42.096000000005006,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.195668,
+                    2.927234
+                  ],
+                  "mapped_direct_youtube_end": [
+                    314.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9798.537858,
+              "wallMs": 10063.070400999999,
+              "firstPcmFromRequestMs": 9980.85336,
+              "helperCpuMs": 189.3130000000001,
+              "reapedChildCpuMs": 4632.293999999994,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    453.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.780899,
+                    3.1684970000000003
+                  ],
+                  "canonical_search_warmup_end": [
+                    958.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    411.0
+                  ],
+                  "extraction_end": [
+                    7123.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 9,
+              "iteration": 6,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 312.04714,
+              "wallMs": 544.977355,
+              "firstPcmFromRequestMs": 497.78807700000004,
+              "helperCpuMs": 60.41600000000017,
+              "reapedChildCpuMs": 41.92500000000291,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.903564,
+                    4.022211
+                  ],
+                  "mapped_direct_youtube_end": [
+                    280.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9616.292983,
+              "wallMs": 9888.249003,
+              "firstPcmFromRequestMs": 9811.060737,
+              "helperCpuMs": 203.39799999999968,
+              "reapedChildCpuMs": 4497.495999999999,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    1.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.362763,
+                    0.415381
+                  ],
+                  "canonical_search_warmup_end": [
+                    957.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    774.0
+                  ],
+                  "extraction_end": [
+                    8997.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 10,
+              "iteration": 7,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 328.2504,
+              "wallMs": 497.330918,
+              "firstPcmFromRequestMs": 458.866913,
+              "helperCpuMs": 45.460000000000036,
+              "reapedChildCpuMs": 39.08999999999651,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.19674499999999998,
+                    0.279733
+                  ],
+                  "mapped_direct_youtube_end": [
+                    313.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8702.738596,
+              "wallMs": 8862.23342,
+              "firstPcmFromRequestMs": 8832.888429999999,
+              "helperCpuMs": 193.125,
+              "reapedChildCpuMs": 4408.463000000003,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.43194099999999996,
+                    0.33715900000000004
+                  ],
+                  "canonical_search_warmup_end": [
+                    718.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    393.0
+                  ],
+                  "extraction_end": [
+                    6506.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 11,
+              "iteration": 8,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 335.229946,
+              "wallMs": 521.607096,
+              "firstPcmFromRequestMs": 467.91561,
+              "helperCpuMs": 47.511999999999716,
+              "reapedChildCpuMs": 58.2329999999929,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.200211,
+                    0.269943
+                  ],
+                  "mapped_direct_youtube_end": [
+                    320.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8994.427537,
+              "wallMs": 9135.913085,
+              "firstPcmFromRequestMs": 9094.240317,
+              "helperCpuMs": 240.60699999999997,
+              "reapedChildCpuMs": 4585.116000000009,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    3.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.671585,
+                    0.375064
+                  ],
+                  "canonical_search_warmup_end": [
+                    699.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    468.0
+                  ],
+                  "extraction_end": [
+                    6658.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 12,
+              "iteration": 9,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 321.521354,
+              "wallMs": 629.2963219999999,
+              "firstPcmFromRequestMs": 526.844992,
+              "helperCpuMs": 49.251000000000204,
+              "reapedChildCpuMs": 58.578999999997905,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.198563,
+                    0.404803
+                  ],
+                  "mapped_direct_youtube_end": [
+                    305.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 13573.533375,
+              "wallMs": 13831.937290000002,
+              "firstPcmFromRequestMs": 13759.158243000002,
+              "helperCpuMs": 177.54400000000078,
+              "reapedChildCpuMs": 4302.603999999992,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    2.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.392063,
+                    0.21763
+                  ],
+                  "canonical_search_warmup_end": [
+                    729.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    517.0
+                  ],
+                  "extraction_end": [
+                    12925.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 13,
+              "iteration": 10,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 391.85238,
+              "wallMs": 613.569394,
+              "firstPcmFromRequestMs": 563.072919,
+              "helperCpuMs": 45.228000000000065,
+              "reapedChildCpuMs": 36.120000000009895,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.377141,
+                    0.379523
+                  ],
+                  "mapped_direct_youtube_end": [
+                    373.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8951.034999000001,
+              "wallMs": 9446.119331,
+              "firstPcmFromRequestMs": 9309.751664000001,
+              "helperCpuMs": 210.22400000000016,
+              "reapedChildCpuMs": 4578.581999999995,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    1.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.22737000000000002,
+                    0.45018199999999997
+                  ],
+                  "canonical_search_warmup_end": [
+                    804.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    308.0
+                  ],
+                  "extraction_end": [
+                    6673.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 14,
+              "iteration": 11,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 292.65463600000004,
+              "wallMs": 440.495566,
+              "firstPcmFromRequestMs": 411.84595600000006,
+              "helperCpuMs": 53.82099999999991,
+              "reapedChildCpuMs": 43.18499999999767,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    0.234906,
+                    0.301763
+                  ],
+                  "mapped_direct_youtube_end": [
+                    276.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 7871.201259,
+              "wallMs": 8138.411669,
+              "firstPcmFromRequestMs": 8052.8354070000005,
+              "helperCpuMs": 270.40200000000004,
+              "reapedChildCpuMs": 4625.830000000002,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    517.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.508526,
+                    6.888694
+                  ],
+                  "canonical_search_warmup_end": [
+                    984.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    731.0
+                  ],
+                  "extraction_end": [
+                    6759.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 15,
+              "iteration": 12,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 421.282805,
+              "wallMs": 553.914803,
+              "firstPcmFromRequestMs": 517.128885,
+              "helperCpuMs": 72.70100000000002,
+              "reapedChildCpuMs": 37.021000000007916,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.690966,
+                    2.643424
+                  ],
+                  "mapped_direct_youtube_end": [
+                    381.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8107.97801,
+              "wallMs": 8427.960341,
+              "firstPcmFromRequestMs": 8343.253775,
+              "helperCpuMs": 299.4519999999993,
+              "reapedChildCpuMs": 5087.883000000002,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    563.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.696129,
+                    2.758918
+                  ],
+                  "canonical_search_warmup_end": [
+                    718.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    342.0
+                  ],
+                  "extraction_end": [
+                    6908.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 16,
+              "iteration": 13,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 1312.816939,
+              "wallMs": 1753.939124,
+              "firstPcmFromRequestMs": 1716.378559,
+              "helperCpuMs": 120.93099999999959,
+              "reapedChildCpuMs": 39.647999999986496,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    15.750917,
+                    2.740336
+                  ],
+                  "mapped_direct_youtube_end": [
+                    1218.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9304.294120999999,
+              "wallMs": 9433.496742,
+              "firstPcmFromRequestMs": 9399.497957,
+              "helperCpuMs": 274.41399999999976,
+              "reapedChildCpuMs": 4480.864999999991,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    626.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    6.250681999999999,
+                    5.1744319999999995
+                  ],
+                  "canonical_search_warmup_end": [
+                    1100.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    780.0
+                  ],
+                  "extraction_end": [
+                    7742.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 17,
+              "iteration": 14,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 364.498895,
+              "wallMs": 522.203983,
+              "firstPcmFromRequestMs": 476.48665600000004,
+              "helperCpuMs": 91.77400000000034,
+              "reapedChildCpuMs": 45.24700000000303,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.442851999999999,
+                    4.02846
+                  ],
+                  "mapped_direct_youtube_end": [
+                    303.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8103.762225,
+              "wallMs": 8417.704256,
+              "firstPcmFromRequestMs": 8398.575129,
+              "helperCpuMs": 331.7300000000005,
+              "reapedChildCpuMs": 4498.543000000005,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    486.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.8931780000000002,
+                    2.882467
+                  ],
+                  "canonical_search_warmup_end": [
+                    865.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    360.0
+                  ],
+                  "extraction_end": [
+                    6878.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 18,
+              "iteration": 15,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 341.686057,
+              "wallMs": 623.5228569999999,
+              "firstPcmFromRequestMs": 538.965988,
+              "helperCpuMs": 91.13900000000012,
+              "reapedChildCpuMs": 85.4659999999858,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.9103660000000002,
+                    3.086579
+                  ],
+                  "mapped_direct_youtube_end": [
+                    296.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10889.123929,
+              "wallMs": 11480.191952000001,
+              "firstPcmFromRequestMs": 11365.246760999999,
+              "helperCpuMs": 333.8209999999999,
+              "reapedChildCpuMs": 4647.356,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 36,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "canonical_search_warmup_end": 1,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "verified_source_transport_recovery_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "verified_source_transport_recovery_end": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    486.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.906207,
+                    4.981726
+                  ],
+                  "canonical_search_warmup_end": [
+                    960.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    326.0
+                  ],
+                  "extraction_end": [
+                    6796.0
+                  ],
+                  "mapped_direct_youtube_end": [
+                    978.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 2,
+                "nativeEventCount": 36,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 19,
+              "iteration": 16,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 843.9327049999999,
+              "wallMs": 1139.600856,
+              "firstPcmFromRequestMs": 1101.012953,
+              "helperCpuMs": 109.51199999999972,
+              "reapedChildCpuMs": 78.94500000000698,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.26004,
+                    3.7967370000000003
+                  ],
+                  "mapped_direct_youtube_end": [
+                    777.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9922.604487999999,
+              "wallMs": 10081.093418,
+              "firstPcmFromRequestMs": 10037.254057999999,
+              "helperCpuMs": 296.442,
+              "reapedChildCpuMs": 4395.474999999977,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 36,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "verified_source_transport_recovery_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "verified_source_transport_recovery_end": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    608.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.142594,
+                    3.9729010000000002
+                  ],
+                  "canonical_search_warmup_end": [
+                    995.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    673.0
+                  ],
+                  "extraction_end": [
+                    6596.0
+                  ],
+                  "mapped_direct_youtube_end": [
+                    345.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 2,
+                "nativeEventCount": 36,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 20,
+              "iteration": 17,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 388.558164,
+              "wallMs": 666.564654,
+              "firstPcmFromRequestMs": 575.471834,
+              "helperCpuMs": 108.16300000000047,
+              "reapedChildCpuMs": 59.9890000000014,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.653555,
+                    3.387898
+                  ],
+                  "mapped_direct_youtube_end": [
+                    313.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 8552.102906,
+              "wallMs": 8733.451432,
+              "firstPcmFromRequestMs": 8685.697123,
+              "helperCpuMs": 269.0680000000002,
+              "reapedChildCpuMs": 4792.57699999999,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    499.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.525182,
+                    2.922456
+                  ],
+                  "canonical_search_warmup_end": [
+                    866.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    501.0
+                  ],
+                  "extraction_end": [
+                    7394.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 21,
+              "iteration": 18,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 385.418043,
+              "wallMs": 542.723017,
+              "firstPcmFromRequestMs": 494.202554,
+              "helperCpuMs": 112.88899999999921,
+              "reapedChildCpuMs": 39.80600000001141,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    7.32533,
+                    2.981871
+                  ],
+                  "mapped_direct_youtube_end": [
+                    309.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10508.698766,
+              "wallMs": 11014.073204,
+              "firstPcmFromRequestMs": 10948.590634,
+              "helperCpuMs": 298.85599999999977,
+              "reapedChildCpuMs": 4730.831000000006,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    478.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.239859,
+                    2.5093680000000003
+                  ],
+                  "canonical_search_warmup_end": [
+                    844.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    532.0
+                  ],
+                  "extraction_end": [
+                    7131.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 22,
+              "iteration": 19,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 1133.7895350000001,
+              "wallMs": 1607.156079,
+              "firstPcmFromRequestMs": 1529.6310130000002,
+              "helperCpuMs": 78.07799999999952,
+              "reapedChildCpuMs": 54.154999999998836,
+              "providerId": "youtube:ExdT24gJngk",
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.624407,
+                    2.987893
+                  ],
+                  "mapped_direct_youtube_end": [
+                    1088.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 20,
+              "successes": 20,
+              "failures": 0,
+              "resolveMsP50": 9304.294120999999,
+              "resolveMsP95": 11679.464245000001,
+              "p95SampleCount": 20
+            },
+            "warm": {
+              "attempts": 20,
+              "successes": 20,
+              "failures": 0,
+              "resolveMsP50": 364.498895,
+              "resolveMsP95": 1133.7895350000001,
+              "p95SampleCount": 20
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairIndexes": [],
+          "providerShutdownOk": true,
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "catalog_alias_preparation_end": 20,
+                "alias_cache_lookup_end": 40,
+                "provider_start": 40,
+                "search_start": 40,
+                "canonical_search_warmup_end": 20,
+                "search_end": 40,
+                "candidate_gate_evidence": 40,
+                "candidate_gate_evidence_rows": 40,
+                "candidate_gate": 40,
+                "extract_and_validate_start": 20,
+                "preview_audio_lookup_start": 40,
+                "extraction_start": 20,
+                "bandcamp_fallback_start": 20,
+                "bandcamp_fallback_end": 20,
+                "extraction_end": 20,
+                "preview_audio_lookup_end": 40,
+                "full_identity_check": 20,
+                "extract_and_validate_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20,
+                "verified_source_transport_recovery_start": 2,
+                "mapped_direct_youtube_start": 2,
+                "mapped_direct_youtube_end": 2,
+                "verified_source_transport_recovery_end": 2
+              },
+              "logicalExtractionStartEvents": 20,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 40,
+                  "p50": 2.9310199999999997,
+                  "p95": 5.81471
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 20,
+                  "p50": 501.0,
+                  "p95": 912.0
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 20,
+                  "p50": 844.0,
+                  "p95": 995.0
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 20,
+                  "p50": 486.0,
+                  "p95": 608.0
+                },
+                "extraction_end": {
+                  "sampleCount": 20,
+                  "p50": 6878.0,
+                  "p95": 10279.0
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 2,
+                  "p50": 345.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 4,
+                "p50": 0,
+                "p95": 2,
+                "max": 2
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 20,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 20,
+                "settings_read_start": 20,
+                "settings_read_end": 20,
+                "alias_cache_lookup_end": 40,
+                "provider_start": 40,
+                "search_start": 20,
+                "search_end": 20,
+                "candidate_gate_evidence": 20,
+                "candidate_gate_evidence_rows": 20,
+                "candidate_gate": 20,
+                "mapping_resolve_start": 20,
+                "mapped_direct_youtube_start": 20,
+                "mapped_direct_youtube_end": 20,
+                "mapping_resolve_end": 20,
+                "alias_lookup_skipped": 20,
+                "resolution_end": 20
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 40,
+                  "p50": 3.0789210000000002,
+                  "p95": 5.653555
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 20,
+                  "p50": 313.0,
+                  "p95": 1088.0
+                },
+                "settings_read_end": {
+                  "sampleCount": 20,
+                  "p50": 0.0,
+                  "p95": 0.0
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 20,
+                "sum": 20,
+                "p50": 1,
+                "p95": 1,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 1158,
+            "directNativeEvents": 1158,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "traceParserVersion": "native-and-unique-shared-lookup-v2",
+          "traceMeasurementNote": "observedResolverExtractionBudgetCounter is the maximum of emitted cumulative counter snapshots, not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when logical extraction_start events are present. Shared lookup events are joined only when one native operation owns the lookup; ambiguous consumers are left unassigned.",
+          "processExitCode": 0,
+          "failure": null,
+          "diagnosticSourceSha256": "02abc81d239dc70f713a61d06f170964cad6bf06bc05ee0432bbc680b00e85fe",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "note": "Failures remain in attempt denominators; p95 is withheld unless >=20 measured timing samples. Trace fields count allowlisted logical events and observed resolver counter snapshots only; they do not represent HTTP request totals. Concurrent phase duration samples are not additive. Per-attempt RSS is omitted because available child RSS is a lifetime high-water mark.",
+  "executionContextAssessment": {
+    "networkContext": "exec_command require_escalated (host network)",
+    "preflight": "Same-binary Vibe cold/warm smoke passed before the full run",
+    "caseScheduling": "Two cases run serially by the coordinator; each case contains 20 paired cold/warm measured repetitions and 3 warmups per scenario.",
+    "resultValidity": "All measured attempts succeeded; timing is resolver-diagnostic timing, not playback UI or current/new download-route performance."
+  }
+}

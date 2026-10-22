@@ -7,7 +7,9 @@ use burrata_lib::{
     connections::ConnectionManager,
     models::{Candidate, Settings, Track},
     native_output::AudioSource,
-    playback_sources, tools,
+    playback_sources,
+    recording_match::MatchLevel,
+    tools,
     youtube_support::YouTubeSupportManager,
     Store,
 };
@@ -76,7 +78,7 @@ impl Options {
         if warmups > 10 || (!smoke && warmups < 3) {
             return Err("INVALID_WARMUPS");
         }
-        if !matches!(scenario.as_str(), "cold" | "warm" | "both") {
+        if !matches!(scenario.as_str(), "cold" | "warm" | "both" | "paired") {
             return Err("INVALID_SCENARIO");
         }
         if !position.is_finite() || position < 0. {
@@ -111,6 +113,7 @@ impl Options {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 struct PublicSettings {
     resources: Option<PathBuf>,
+    matching_level: Option<MatchLevel>,
     preferred_streaming_source: Option<String>,
     streaming_fallback_enabled: Option<bool>,
     streaming_fallback_sources: Option<Vec<String>>,
@@ -124,6 +127,9 @@ struct PublicSettings {
 impl PublicSettings {
     fn apply(self) -> Result<(Settings, Option<PathBuf>), &'static str> {
         let mut settings = Settings::default();
+        if let Some(value) = self.matching_level {
+            settings.matching_level = value;
+        }
         if let Some(value) = self.preferred_streaming_source {
             settings.preferred_streaming_source = value;
         }
@@ -227,6 +233,10 @@ fn validate_public_track(track: &Track) -> Result<(), &'static str> {
             "soundcloud.com",
             "bandcamp.com",
             "tidal.com",
+            "discogs.com",
+            "musicbrainz.org",
+            "beatport.com",
+            "traxsource.com",
         ]
         .iter()
         .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
@@ -254,7 +264,13 @@ fn expected_video_matches(candidate: &Candidate, expected: &str) -> bool {
 }
 fn error_category(error: &str) -> &'static str {
     let value = error.to_ascii_lowercase();
-    if value.contains("cancel") {
+    if value.contains("429")
+        || value.contains("rate limit")
+        || value.contains("rate-limit")
+        || value.contains("cooldown")
+    {
+        "RATE_LIMITED"
+    } else if value.contains("cancel") {
         "CANCELLED"
     } else if ["deadline", "budget", "timed out", "timeout"]
         .iter()
@@ -441,9 +457,20 @@ async fn attempt(
     };
 
     let mut row = json!({"ok":false,"resolved":false,"positionSeconds":options.position,"budgetMs":settings.playback_startup_timeout().as_millis()});
+    let native_operation_id = format!("diagnostic:{}", uuid::Uuid::new_v4());
+    row["nativeOperationId"] = json!(native_operation_id);
     let result = tokio::time::timeout_at(
         deadline,
-        playback_sources::resolve(&ctx.store, &ctx.acquisition, track, None, cancel.clone()),
+        playback_sources::resolve_with_trace_context(
+            &ctx.store,
+            &ctx.acquisition,
+            track,
+            None,
+            cancel.clone(),
+            Some(native_operation_id.clone()),
+            None,
+            None,
+        ),
     )
     .await;
     let resolve_ms = started.elapsed().as_secs_f64() * 1000.;
@@ -505,15 +532,31 @@ fn summarize(rows: &[Value]) -> Vec<Value> {
     ["cold", "warm"].into_iter().filter_map(|scenario| {
         let group = rows.iter().filter(|row| row["scenario"] == scenario && row["warmup"] == false).collect::<Vec<_>>();
         if group.is_empty() { return None; }
-        let mut summary = json!({"scenario":scenario,"attempts":group.len(),"successes":group.iter().filter(|r|r["ok"]==true).count()});
+        let successes=group.iter().filter(|row|row["ok"]==true).count();
+        let mut failures=serde_json::Map::new();
+        for row in group.iter().filter(|row|row["ok"]!=true) {
+            let code=row["failure"].as_str().unwrap_or("UNKNOWN");
+            let count=failures.get(code).and_then(Value::as_u64).unwrap_or(0)+1;
+            failures.insert(code.to_owned(),json!(count));
+        }
+        let mut summary = json!({"scenario":scenario,"attempts":group.len(),"successes":successes,"failureCount":group.len()-successes,"failures":failures});
         for key in ["resolveMs", "firstPcmFromRequestMs", "wallMs", "helperCpuMs", "reapedChildCpuMs"] {
-            let mut values = group.iter().filter(|row|row["ok"]==true).filter_map(|row|row[key].as_f64()).collect::<Vec<_>>();
+            let successful_pcm=key=="firstPcmFromRequestMs";
+            let mut values=group.iter().filter(|row| !successful_pcm || row["ok"]==true)
+                .filter_map(|row|row[key].as_f64()).filter(|value|value.is_finite()).collect::<Vec<_>>();
             values.sort_by(f64::total_cmp);
-            if !values.is_empty() { let n=values.len(); summary[key]=json!({"median":if n%2==0 {(values[n/2-1]+values[n/2])/2.}else{values[n/2]},"p95":values[((n as f64*0.95).ceil()as usize)-1],"worst":values[n-1]}); }
+            let n=values.len();
+            if n>0 {
+                summary[key]=json!({"n":n,"cohort":if successful_pcm{"successful_attempts_only"}else{"all_measured_attempts"},
+                    "p50":if n%2==0{(values[n/2-1]+values[n/2])/2.}else{values[n/2]},
+                    "p95":if n>=20{Some(values[((n as f64*0.95).ceil()as usize)-1])}else{None},
+                    "p95UnavailableReason":if n<20{Some("fewer_than_20_observations")}else{None},"worst":values[n-1]});
+            }
         }
         Some(summary)
     }).collect()
 }
+
 fn save(path: &Path, report: &Value) -> Result<(), &'static str> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|_| "OUTPUT_UNAVAILABLE")?;
@@ -567,54 +610,78 @@ async fn run(options: Options) -> Result<bool, &'static str> {
         "inputHashes":{"trackSha256":format!("{:x}",Sha256::digest(&track_bytes)),"publicSettingsSha256":format!("{:x}",Sha256::digest(&settings_bytes)),"exampleSourceSha256":format!("{:x}",Sha256::digest(include_bytes!("playback_reliability.rs")))},
         "expectedVideoId":options.expected_video_id,"providerPrewarmEnabled":options.prewarm_provider,"smoke":options.smoke,"repetitions":options.repetitions,"warmupsPerScenario":options.warmups,
         "resolverBudgetMs":settings.playback_startup_timeout().as_millis(),"commandBudgetScope":"one shared absolute budget for resolver and five seconds PCM decode",
-        "streamingPolicy":{"preferred":settings.preferred_streaming_source,"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources},
+        "streamingPolicy":{"matchingLevel":settings.matching_level,"preferred":settings.preferred_streaming_source,"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources},
         "coldScope":"new disposable Store/AcquisitionManager and stopped BgUtils helper; OS and packaged tool caches are not flushed",
+        "warmScope":if options.scenario=="paired"{"same Store/AcquisitionManager immediately after its paired cold attempt"}else{"one reused Store/AcquisitionManager per warm scenario; warmups excluded"},
         "identityScope":"production resolver evidence gate; explicit video ID invariant only when supplied; no acoustic verification",
         "attempts":[],"unexpectedSourceIds":[],"summary":[]});
     let before_children = usage(true);
     let before_helper = usage(false);
     let mut rows = Vec::new();
     let operation: Result<(), &'static str> = async {
-        for scenario in ["cold", "warm"] {
-            if options.scenario != "both" && options.scenario != scenario {
-                continue;
+        let paired = options.scenario == "paired";
+        let total = options.warmups + options.repetitions;
+        let schedule: Vec<(&str, usize)> = if paired {
+            (0..total)
+                .flat_map(|index| [("cold", index), ("warm", index)])
+                .collect()
+        } else {
+            ["cold", "warm"]
+                .into_iter()
+                .filter(|scenario| options.scenario == "both" || options.scenario == *scenario)
+                .flat_map(|scenario| (0..total).map(move |index| (scenario, index)))
+                .collect()
+        };
+        let mut retained: Option<Context> = None;
+        for (scenario, index) in schedule {
+            if *cancel.borrow() {
+                report["cancelled"] = json!(true);
+                break;
             }
-            let warm = if scenario == "warm" {
-                Some(context(&settings, &track)?)
-            } else {
-                None
-            };
-            for index in 0..options.warmups + options.repetitions {
-                if *cancel.borrow() {
-                    report["cancelled"] = json!(true);
-                    break;
-                }
-                let cold;
-                let ctx = if let Some(ctx) = warm.as_ref() {
-                    ctx
-                } else {
+            if paired && scenario == "cold" || !paired && scenario == "warm" && retained.is_none() {
+                if paired {
                     manager
                         .shutdown()
                         .await
                         .map_err(|_| "PROVIDER_RESET_FAILED")?;
-                    cold = context(&settings, &track)?;
-                    &cold
-                };
-                let mut row =
-                    attempt(ctx, &track, &settings, &options, &manager, cancel.clone()).await;
-                row["scenario"] = json!(scenario);
-                row["warmup"] = json!(index < options.warmups);
-                row["iteration"] = json!(index.saturating_sub(options.warmups));
-                if row["failure"] == "UNEXPECTED_SOURCE_ID" {
-                    report["unexpectedSourceIds"]
-                        .as_array_mut()
-                        .unwrap()
-                        .push(row.clone());
                 }
-                rows.push(row);
-                report["attempts"] = json!(rows);
-                report["summary"] = json!(summarize(&rows));
-                save(&options.output, &report)?;
+                retained = Some(context(&settings, &track)?);
+            }
+            let cold;
+            let ctx = if paired || scenario == "warm" {
+                retained.as_ref().ok_or("CONTEXT_UNAVAILABLE")?
+            } else {
+                manager
+                    .shutdown()
+                    .await
+                    .map_err(|_| "PROVIDER_RESET_FAILED")?;
+                cold = context(&settings, &track)?;
+                &cold
+            };
+            let mut row = attempt(ctx, &track, &settings, &options, &manager, cancel.clone()).await;
+            row["scenario"] = json!(scenario);
+            row["matchingLevel"] = json!(settings.matching_level);
+            if paired {
+                row["pairIndex"] = json!(index);
+            }
+            row["warmup"] = json!(index < options.warmups);
+            row["iteration"] = json!(index.saturating_sub(options.warmups));
+            if row["failure"] == "UNEXPECTED_SOURCE_ID" {
+                report["unexpectedSourceIds"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(row.clone());
+            }
+            rows.push(row);
+            report["attempts"] = json!(rows);
+            report["summary"] = json!(summarize(&rows));
+            save(&options.output, &report)?;
+            if rows
+                .last()
+                .is_some_and(|row| row["failure"] == "RATE_LIMITED")
+            {
+                report["stoppedEarly"] = json!("RATE_LIMITED");
+                break;
             }
         }
         Ok(())
@@ -631,7 +698,12 @@ async fn run(options: Options) -> Result<bool, &'static str> {
     if let Err(code) = operation {
         report["harnessFailure"] = json!(code);
     }
-    let expected = options.repetitions * if options.scenario == "both" { 2 } else { 1 };
+    let expected = options.repetitions
+        * if matches!(options.scenario.as_str(), "both" | "paired") {
+            2
+        } else {
+            1
+        };
     let measured = rows
         .iter()
         .filter(|r| r["warmup"] == false)
@@ -650,7 +722,7 @@ async fn run(options: Options) -> Result<bool, &'static str> {
 }
 fn main() {
     if std::env::args().any(|arg| arg == "--help") {
-        println!("playback_reliability --track PUBLIC_TRACK.json --settings PUBLIC_SETTINGS.json --output REPORT.json [--resources DIR] [--repetitions 20] [--warmups 3] [--scenario cold|warm|both] [--expected-video-id ID] [--position SECONDS] [--prewarm-provider] [--smoke]");
+        println!("playback_reliability --track PUBLIC_TRACK.json --settings PUBLIC_SETTINGS.json --output REPORT.json [--resources DIR] [--repetitions 20] [--warmups 3] [--scenario cold|warm|both|paired] [--expected-video-id ID] [--position SECONDS] [--prewarm-provider] [--smoke]");
         return;
     }
     // Set child-runtime cache/config/data roots before starting any async threads.
@@ -747,6 +819,46 @@ mod tests {
         let output = summarize(&rows);
         assert_eq!(output[0]["attempts"], 2);
         assert_eq!(output[0]["successes"], 1);
-        assert_eq!(output[0]["resolveMs"]["worst"], 2.);
+        assert_eq!(output[0]["resolveMs"]["worst"], 8.);
+        assert_eq!(output[0]["resolveMs"]["p50"], 5.);
+        assert_eq!(output[0]["resolveMs"]["n"], 2);
+        assert_eq!(output[0]["failureCount"], 1);
+        assert!(output[0]["resolveMs"]["p95"].is_null());
+    }
+    #[test]
+    fn all_matching_modes_are_explicit_and_unknown_settings_stay_rejected() {
+        for (name, level) in [
+            ("exact", MatchLevel::Exact),
+            ("balanced", MatchLevel::Balanced),
+            ("flexible", MatchLevel::Flexible),
+        ] {
+            let settings = serde_json::from_value::<PublicSettings>(json!({"matchingLevel":name}))
+                .unwrap()
+                .apply()
+                .unwrap()
+                .0;
+            assert_eq!(settings.matching_level, level);
+        }
+        assert!(
+            serde_json::from_value::<PublicSettings>(json!({"matchingLevel":"automatic"})).is_err()
+        );
+        assert!(serde_json::from_value::<PublicSettings>(
+            json!({"matchingLevel":"exact","credentials":{}})
+        )
+        .is_err());
+    }
+    #[test]
+    fn successful_pcm_has_its_own_denominator_and_small_samples_have_no_p95() {
+        let rows = vec![
+            json!({"scenario":"cold","warmup":false,"ok":true,"resolveMs":2,"wallMs":4,"firstPcmFromRequestMs":3}),
+            json!({"scenario":"cold","warmup":false,"ok":false,"resolveMs":20,"wallMs":21,"firstPcmFromRequestMs":19,"failure":"DECODE_FAILED"}),
+        ];
+        let summary = summarize(&rows);
+        assert_eq!(summary[0]["wallMs"]["p50"], 12.5);
+        assert_eq!(summary[0]["firstPcmFromRequestMs"]["n"], 1);
+        assert_eq!(summary[0]["firstPcmFromRequestMs"]["p50"], 3.);
+        assert!(summary[0]["firstPcmFromRequestMs"]["p95"].is_null());
+        let large=(0..20).map(|index|json!({"scenario":"cold","warmup":false,"ok":false,"resolveMs":index,"failure":"TIMEOUT"})).collect::<Vec<_>>();
+        assert_eq!(summarize(&large)[0]["resolveMs"]["p95"], 18.);
     }
 }

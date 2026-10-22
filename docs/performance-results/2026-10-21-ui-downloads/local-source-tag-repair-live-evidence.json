@@ -1,0 +1,383 @@
+{
+  "evidence_type": "read_only_local_source_tag_repair_verification",
+  "created_at_utc": "2026-10-22T06:37:23+00:00",
+  "app_build_hash": "ac2f229fe672aa6a0f8449b5b5b6d3e69c54649e543c1762c122c8a095e5edab",
+  "repair_count": 6,
+  "repair_results_all_changed_artist_and_album": true,
+  "checks_summary": {
+    "saved_artist_album_and_file_tags_match_manifest": true,
+    "database_hash_matches_live_file": true,
+    "full_pcm_hash_unchanged_for_all_six": true,
+    "manual_fields_unchanged_for_all_six": true,
+    "recording_identity_preserved_for_all_six": true,
+    "local_only_verification_no_external_calls": true
+  },
+  "directory_browser_fingerprint_note": "All six saved directoryBrowserFingerprint values are present but stale against post-repair live mtime/size; media retagging changed file stat. This evidence does not claim folder-browser fingerprint freshness.",
+  "limitations": [
+    "Source-reported artist/album remain unverified source metadata, not catalog-verified recording identity.",
+    "No audio or library files were modified during this verification; repair was performed before this read-only audit.",
+    "Verification used only local manifest/job snapshots, read-only SQLite, ffprobe and bounded/full decoded PCM through ffmpeg; no network calls were made."
+  ],
+  "assets": [
+    {
+      "asset_id": "7765a6eb-250c-4e71-9c68-4f6c0d4abd89",
+      "job_id": "8b044db4-405c-48d3-ae7c-fb867d1782ee",
+      "file_name": "Unknown - La Rumba de Tato.opus",
+      "repair": {
+        "changed": true,
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "identity_status": "source_reported_unverified"
+      },
+      "expected_and_saved_tags": {
+        "title": "La Rumba de Tato",
+        "artist": "Antoine Tato Garcia",
+        "album": "Rumbason"
+      },
+      "file_tags_match_database_and_expected": true,
+      "database_hash_matches_live_file": true,
+      "full_decoded_pcm_sha256_matches_pre_repair_manifest": true,
+      "decoded_pcm_format_for_comparison": "ffmpeg s16le using default decoded sample rate and channel layout",
+      "decode_exit_code": 0,
+      "audio_probe": {
+        "codec": "opus",
+        "duration_seconds": 215.5805,
+        "sample_rate_hz": 48000,
+        "channels": 2
+      },
+      "recording_identity": {
+        "before": {
+          "id": "youtube:jWsEP2f9LAY",
+          "provider": "youtube",
+          "providerId": "jWsEP2f9LAY",
+          "sourceUrl": "https://www.youtube.com/watch?v=jWsEP2f9LAY"
+        },
+        "after": {
+          "id": "youtube:jWsEP2f9LAY",
+          "provider": "youtube",
+          "providerId": "jWsEP2f9LAY",
+          "sourceUrl": "https://www.youtube.com/watch?v=jWsEP2f9LAY"
+        },
+        "asset_recording_id_matches_track_id": true
+      },
+      "manual_fields_before": {},
+      "manual_fields_after": {},
+      "manual_fields_unchanged": true,
+      "source_reported_metadata": {
+        "identity_status": "source_reported_unverified",
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "provider": "youtube",
+        "provider_id_matches_track": true,
+        "source_url_matches_track": true,
+        "origin": "ytDlpFullInfo"
+      },
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": false
+    },
+    {
+      "asset_id": "54687441-f2be-4d67-904c-604c306fb4bd",
+      "job_id": "04ad4bcd-91ef-4421-8631-33097a0bfe40",
+      "file_name": "Unknown - Luna.opus",
+      "repair": {
+        "changed": true,
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "identity_status": "source_reported_unverified"
+      },
+      "expected_and_saved_tags": {
+        "title": "Luna",
+        "artist": "Kaloomé",
+        "album": "De Otro Color"
+      },
+      "file_tags_match_database_and_expected": true,
+      "database_hash_matches_live_file": true,
+      "full_decoded_pcm_sha256_matches_pre_repair_manifest": true,
+      "decoded_pcm_format_for_comparison": "ffmpeg s16le using default decoded sample rate and channel layout",
+      "decode_exit_code": 0,
+      "audio_probe": {
+        "codec": "opus",
+        "duration_seconds": 215.3205,
+        "sample_rate_hz": 48000,
+        "channels": 2
+      },
+      "recording_identity": {
+        "before": {
+          "id": "youtube:aC2Ph-DMZPw",
+          "provider": "youtube",
+          "providerId": "aC2Ph-DMZPw",
+          "sourceUrl": "https://www.youtube.com/watch?v=aC2Ph-DMZPw"
+        },
+        "after": {
+          "id": "youtube:aC2Ph-DMZPw",
+          "provider": "youtube",
+          "providerId": "aC2Ph-DMZPw",
+          "sourceUrl": "https://www.youtube.com/watch?v=aC2Ph-DMZPw"
+        },
+        "asset_recording_id_matches_track_id": true
+      },
+      "manual_fields_before": {},
+      "manual_fields_after": {},
+      "manual_fields_unchanged": true,
+      "source_reported_metadata": {
+        "identity_status": "source_reported_unverified",
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "provider": "youtube",
+        "provider_id_matches_track": true,
+        "source_url_matches_track": true,
+        "origin": "ytDlpFullInfo"
+      },
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": false
+    },
+    {
+      "asset_id": "b72cc961-56ff-4045-bf3d-14d92dc20d30",
+      "job_id": "dda88d6e-fb28-4483-9611-466106024973",
+      "file_name": "Unknown - Vagabundo.opus",
+      "repair": {
+        "changed": true,
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "identity_status": "source_reported_unverified"
+      },
+      "expected_and_saved_tags": {
+        "title": "Vagabundo",
+        "artist": "Los Niños de Sara",
+        "album": "Gipsyolé"
+      },
+      "file_tags_match_database_and_expected": true,
+      "database_hash_matches_live_file": true,
+      "full_decoded_pcm_sha256_matches_pre_repair_manifest": true,
+      "decoded_pcm_format_for_comparison": "ffmpeg s16le using default decoded sample rate and channel layout",
+      "decode_exit_code": 0,
+      "audio_probe": {
+        "codec": "opus",
+        "duration_seconds": 225.0405,
+        "sample_rate_hz": 48000,
+        "channels": 2
+      },
+      "recording_identity": {
+        "before": {
+          "id": "youtube:3B2oQjjMw_Q",
+          "provider": "youtube",
+          "providerId": "3B2oQjjMw_Q",
+          "sourceUrl": "https://www.youtube.com/watch?v=3B2oQjjMw_Q"
+        },
+        "after": {
+          "id": "youtube:3B2oQjjMw_Q",
+          "provider": "youtube",
+          "providerId": "3B2oQjjMw_Q",
+          "sourceUrl": "https://www.youtube.com/watch?v=3B2oQjjMw_Q"
+        },
+        "asset_recording_id_matches_track_id": true
+      },
+      "manual_fields_before": {},
+      "manual_fields_after": {},
+      "manual_fields_unchanged": true,
+      "source_reported_metadata": {
+        "identity_status": "source_reported_unverified",
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "provider": "youtube",
+        "provider_id_matches_track": true,
+        "source_url_matches_track": true,
+        "origin": "ytDlpFullInfo"
+      },
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": false
+    },
+    {
+      "asset_id": "34bfa7b9-df3c-4add-9890-62e88ab47810",
+      "job_id": "de14c692-f463-4159-8bbd-d45e0cc604a4",
+      "file_name": "Unknown - Gitano Te Vas.opus",
+      "repair": {
+        "changed": true,
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "identity_status": "source_reported_unverified"
+      },
+      "expected_and_saved_tags": {
+        "title": "Gitano Te Vas",
+        "artist": "Kaloomé",
+        "album": "De Otro Color"
+      },
+      "file_tags_match_database_and_expected": true,
+      "database_hash_matches_live_file": true,
+      "full_decoded_pcm_sha256_matches_pre_repair_manifest": true,
+      "decoded_pcm_format_for_comparison": "ffmpeg s16le using default decoded sample rate and channel layout",
+      "decode_exit_code": 0,
+      "audio_probe": {
+        "codec": "opus",
+        "duration_seconds": 211.8605,
+        "sample_rate_hz": 48000,
+        "channels": 2
+      },
+      "recording_identity": {
+        "before": {
+          "id": "youtube:k07tf4GI24o",
+          "provider": "youtube",
+          "providerId": "k07tf4GI24o",
+          "sourceUrl": "https://www.youtube.com/watch?v=k07tf4GI24o"
+        },
+        "after": {
+          "id": "youtube:k07tf4GI24o",
+          "provider": "youtube",
+          "providerId": "k07tf4GI24o",
+          "sourceUrl": "https://www.youtube.com/watch?v=k07tf4GI24o"
+        },
+        "asset_recording_id_matches_track_id": true
+      },
+      "manual_fields_before": {},
+      "manual_fields_after": {},
+      "manual_fields_unchanged": true,
+      "source_reported_metadata": {
+        "identity_status": "source_reported_unverified",
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "provider": "youtube",
+        "provider_id_matches_track": true,
+        "source_url_matches_track": true,
+        "origin": "ytDlpFullInfo"
+      },
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": false
+    },
+    {
+      "asset_id": "d0b51715-b0b1-4fe6-84e2-3ea0558fc48d",
+      "job_id": "89f4ed82-789c-4474-9fab-8154937ec9f4",
+      "file_name": "Unknown - La Rumba Me Va.opus",
+      "repair": {
+        "changed": true,
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "identity_status": "source_reported_unverified"
+      },
+      "expected_and_saved_tags": {
+        "title": "La Rumba Me Va",
+        "artist": "Tato Garcia, Jeff the Fish",
+        "album": "Sol Vibrations: Latin Dance Movements"
+      },
+      "file_tags_match_database_and_expected": true,
+      "database_hash_matches_live_file": true,
+      "full_decoded_pcm_sha256_matches_pre_repair_manifest": true,
+      "decoded_pcm_format_for_comparison": "ffmpeg s16le using default decoded sample rate and channel layout",
+      "decode_exit_code": 0,
+      "audio_probe": {
+        "codec": "opus",
+        "duration_seconds": 282.4605,
+        "sample_rate_hz": 48000,
+        "channels": 2
+      },
+      "recording_identity": {
+        "before": {
+          "id": "youtube:4Wd3Q0VDqAI",
+          "provider": "youtube",
+          "providerId": "4Wd3Q0VDqAI",
+          "sourceUrl": "https://www.youtube.com/watch?v=4Wd3Q0VDqAI"
+        },
+        "after": {
+          "id": "youtube:4Wd3Q0VDqAI",
+          "provider": "youtube",
+          "providerId": "4Wd3Q0VDqAI",
+          "sourceUrl": "https://www.youtube.com/watch?v=4Wd3Q0VDqAI"
+        },
+        "asset_recording_id_matches_track_id": true
+      },
+      "manual_fields_before": {},
+      "manual_fields_after": {},
+      "manual_fields_unchanged": true,
+      "source_reported_metadata": {
+        "identity_status": "source_reported_unverified",
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "provider": "youtube",
+        "provider_id_matches_track": true,
+        "source_url_matches_track": true,
+        "origin": "ytDlpFullInfo"
+      },
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": false
+    },
+    {
+      "asset_id": "ea2fb2a5-bbdf-4697-84dd-9ebb0cb47ba9",
+      "job_id": "1f6c4880-aa94-4dd7-90cf-6eb9b88f926a",
+      "file_name": "Unknown - Vivire Para Ti.opus",
+      "repair": {
+        "changed": true,
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "identity_status": "source_reported_unverified"
+      },
+      "expected_and_saved_tags": {
+        "title": "Vivire Para Ti",
+        "artist": "Los Niños de Sara",
+        "album": "La Cubanita"
+      },
+      "file_tags_match_database_and_expected": true,
+      "database_hash_matches_live_file": true,
+      "full_decoded_pcm_sha256_matches_pre_repair_manifest": true,
+      "decoded_pcm_format_for_comparison": "ffmpeg s16le using default decoded sample rate and channel layout",
+      "decode_exit_code": 0,
+      "audio_probe": {
+        "codec": "opus",
+        "duration_seconds": 228.8205,
+        "sample_rate_hz": 48000,
+        "channels": 2
+      },
+      "recording_identity": {
+        "before": {
+          "id": "youtube:CSedSHEx-f0",
+          "provider": "youtube",
+          "providerId": "CSedSHEx-f0",
+          "sourceUrl": "https://www.youtube.com/watch?v=CSedSHEx-f0"
+        },
+        "after": {
+          "id": "youtube:CSedSHEx-f0",
+          "provider": "youtube",
+          "providerId": "CSedSHEx-f0",
+          "sourceUrl": "https://www.youtube.com/watch?v=CSedSHEx-f0"
+        },
+        "asset_recording_id_matches_track_id": true
+      },
+      "manual_fields_before": {},
+      "manual_fields_after": {},
+      "manual_fields_unchanged": true,
+      "source_reported_metadata": {
+        "identity_status": "source_reported_unverified",
+        "fields": [
+          "artist",
+          "album"
+        ],
+        "provider": "youtube",
+        "provider_id_matches_track": true,
+        "source_url_matches_track": true,
+        "origin": "ytDlpFullInfo"
+      },
+      "directory_browser_fingerprint_present": true,
+      "directory_browser_fingerprint_matches_live_stat": false
+    }
+  ]
+}

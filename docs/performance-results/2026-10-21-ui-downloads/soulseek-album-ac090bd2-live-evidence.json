@@ -1,0 +1,1642 @@
+{
+  "evidenceType": "sanitized read-only operation, job, file and decode reconciliation",
+  "operationId": "ac090bd2-3773-4836-924b-2723b5b2fc88",
+  "buildHash": "aa7bc880e8f6fedd8b3b915e7ec0a35f920b7adf5229aba35c6417f913fcf045",
+  "receipt": {
+    "requestedTracks": 13,
+    "processedTracks": 13,
+    "queuedJobs": 13,
+    "skippedTracks": 0,
+    "completionScope": "selectionAndEnqueue"
+  },
+  "candidateSelection": {
+    "candidateGroupId": "ebafc50c51c25370",
+    "rank": 1,
+    "assignedTrackCount": 13,
+    "losslessCandidateCount": 13,
+    "sharedAssessment": true,
+    "sourceProvider": "slskd",
+    "candidatePeerFolderCount": 1
+  },
+  "previousBatch": {
+    "queuedJobs": 10,
+    "cancelledJobs": 10,
+    "evidenceDirectory": "/tmp/burrata-v016-title-order-cancel"
+  },
+  "jobStates": {
+    "completed": 12,
+    "failed": 1
+  },
+  "completedJobOutputs": {
+    "count": 12,
+    "filesPresent": 12,
+    "fullDecodeSucceeded": 12,
+    "containerCounts": {
+      "flac": 12
+    },
+    "sampleRateChannelsCounts": {
+      "44100Hz/2ch": 12
+    },
+    "tagCheckCountsByField": {
+      "artist": {
+        "match": 12
+      },
+      "title": {
+        "match": 12
+      },
+      "album": {
+        "match": 12
+      },
+      "date": {
+        "match": 12
+      },
+      "genre": {
+        "match": 2,
+        "no_expected_value": 10
+      },
+      "isrc": {
+        "match": 8,
+        "no_expected_value": 4
+      },
+      "label": {
+        "match": 12
+      }
+    },
+    "savedAssetFileExistsAndMatchesDbCount": 12,
+    "savedAssetFullDecodeCount": 12,
+    "outputBytesMatchTrackEmbeddedAssetIdCount": 8,
+    "trackEmbeddedAssetIdMismatchIndexes": [
+      5,
+      11,
+      12,
+      13
+    ],
+    "candidatePeerFolderCount": 1,
+    "exactOutputPathAssetRowsPresentCount": 12,
+    "exactOutputPathAssetHashesMatchLiveFilesCount": 12,
+    "exactOutputPathAssetRecordingBindingsMatchRequestedTrackCount": 12,
+    "exactOutputPathAssetSourcesMatchCandidatePeerAndFilenameCount": 12,
+    "exactOutputPathAssetPublicationJobIdPresentCount": 12,
+    "exactOutputPathAssetPublicationJobIdMatchesCurrentJobCount": 3,
+    "trackEmbeddedAssetIdPointsToDifferentAssetIndexes": [
+      5,
+      11,
+      12,
+      13
+    ]
+  },
+  "failedTransfer": {
+    "appJobId": "bbd66fd9-b877-4f21-b138-18ae5f67d853",
+    "trackNumber": 2,
+    "appJobState": "failed",
+    "appError": "optional Cover Art Archive thumbnail request returned HTTP 500",
+    "slskdTransferState": "Completed, Succeeded",
+    "slskdAttempts": 1,
+    "slskdBytesTransferred": 9599783,
+    "slskdSizeBytes": 9599783,
+    "appOutputExists": false,
+    "slskdCacheFileFound": true,
+    "cacheFileSizeMatchesTransfer": true,
+    "container": "flac",
+    "durationSeconds": 91.16,
+    "audioStreams": [
+      {
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "bitDepth": 0
+      },
+      {
+        "codec": "mjpeg",
+        "sampleRateHz": null,
+        "channels": null,
+        "bitDepth": null
+      }
+    ],
+    "fullDecodeSucceeded": true,
+    "tagChecksAgainstSavedCatalogValues": {
+      "artist": "mismatch",
+      "title": "match",
+      "album": "mismatch",
+      "date": "mismatch",
+      "isrc": "no_expected_value",
+      "label": "match"
+    },
+    "registeredAsCurrentOutput": false,
+    "actualTagKeys": [
+      "album",
+      "artist",
+      "date",
+      "label",
+      "originaldate",
+      "originalyear",
+      "title"
+    ],
+    "releaseDateTagKeys": [
+      "date",
+      "originaldate",
+      "originalyear"
+    ],
+    "releaseDateValueMatchesExpected": false,
+    "releaseDateValueRecorded": false
+  },
+  "limitations": [
+    "The selection/enqueue receipt is not equivalent to successful downloads. One job failed at optional cover-art retrieval after slskd reported its audio transfer completed. It has no app output and is not counted as a managed saved download.",
+    "Twelve app job outputs exist and decode as FLAC at 44.1 kHz stereo. Each output has exactly one local_assets row at its output path; all twelve live file hashes match that row, the asset recording identity matches the requested catalog track, and the stored source peer/filename match the selected candidate. For tracks 5, 11, 12, and 13, the job payload’s `track.assetId` points to a different asset for the same catalog recording; exact-output-path reconciliation confirms the output is registered, so this is not a missing binding.",
+    "All twelve completed app outputs match expected artist/title/album/label and release-date metadata. Release date is stored under the normalized RELEASE_DATE tag key. Expected ISRCs match where present in catalog metadata; no expected ISRC is recorded for four tracks.",
+    "The separate raw transfer and user/device identifiers are excluded. No audio or database changes, retries, or new jobs were made."
+  ],
+  "rows": [
+    {
+      "trackNumber": 1,
+      "jobId": "ef02520f-4c46-42f6-8f47-57f2bb47d8e2",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 15867280,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "match",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "GENRE",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 2,
+      "jobId": "bbd66fd9-b877-4f21-b138-18ae5f67d853",
+      "jobState": "failed",
+      "progressPercent": 92.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": false,
+      "appOutputSizeBytes": null,
+      "container": null,
+      "codec": null,
+      "sampleRateHz": null,
+      "channels": null,
+      "fullDecodeSucceeded": false,
+      "tagChecksAgainstSavedCatalogValues": {},
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": false,
+      "outputPathMatchesPersistedAssetPath": false,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": false,
+      "exactOutputPathAssetRowCount": 0,
+      "exactOutputPathAssetHashMatchesLiveFile": false,
+      "exactOutputPathAssetMatchesRequestedTrack": false,
+      "dateTagKeysNormalized": [],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": false,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": false,
+      "exactOutputPathAssetPublicationJobIdPresent": false,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false
+    },
+    {
+      "trackNumber": 3,
+      "jobId": "028bf7ce-6762-428c-b7d5-72b52e8c8c67",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 30474841,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 4,
+      "jobId": "d48a5471-cb48-42cc-a8f8-ad48de268027",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 16560484,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 5,
+      "jobId": "6002f324-c50b-49e3-8ef6-a9648ef430f4",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 12871763,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": false,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": false,
+      "trackLocalPathMatchesPersistedAssetPath": false,
+      "outputMatchesTrackEmbeddedAssetIdHash": false,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": true,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "INITIALKEY",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 6,
+      "jobId": "c55961a2-1d35-446e-8df9-1b85d85d64e2",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 16133542,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 7,
+      "jobId": "5c7fee7f-f11f-4269-b5df-967cec205815",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 10352678,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 8,
+      "jobId": "afc4f892-cb16-4c14-9279-a6c6fb0118dc",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 18868989,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "match",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "GENRE",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 9,
+      "jobId": "209eaf25-bdaf-4f03-8f27-0c0cd84acbf7",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 28632289,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 10,
+      "jobId": "03b363c3-438c-40b7-9bd6-2dd72751bfeb",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 18537745,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": true,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": true,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "INITIALKEY",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 11,
+      "jobId": "ed8ed019-1a87-4d74-9262-6480ce857ff9",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 21633607,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": true,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": false,
+      "outputPathMatchesPersistedAssetPath": false,
+      "trackLocalPathMatchesPersistedAssetPath": true,
+      "outputMatchesTrackEmbeddedAssetIdHash": false,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": false,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "ISRC",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 12,
+      "jobId": "6de1df96-3ba1-4c32-85a6-ea3d000cf306",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 10330665,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": false,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": false,
+      "trackLocalPathMatchesPersistedAssetPath": false,
+      "outputMatchesTrackEmbeddedAssetIdHash": false,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": true,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    },
+    {
+      "trackNumber": 13,
+      "jobId": "2f420e86-8e17-4272-b9b2-89949140d048",
+      "jobState": "completed",
+      "progressPercent": 100.0,
+      "sourceProvider": "slskd",
+      "appOutputExists": true,
+      "appOutputSizeBytes": 23323143,
+      "container": "flac",
+      "codec": "flac",
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "fullDecodeSucceeded": true,
+      "tagChecksAgainstSavedCatalogValues": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "date": "match",
+        "genre": "no_expected_value",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "trackLocalPathBytesMatchSavedAssetHash": false,
+      "savedAssetFileExistsAndHashMatchesDatabase": true,
+      "savedAssetFullDecodeSucceeded": true,
+      "outputPathMatchesTrackLocalPath": true,
+      "outputPathMatchesPersistedAssetPath": false,
+      "trackLocalPathMatchesPersistedAssetPath": false,
+      "outputMatchesTrackEmbeddedAssetIdHash": false,
+      "exactOutputPathAssetRowCount": 1,
+      "exactOutputPathAssetHashMatchesLiveFile": true,
+      "exactOutputPathAssetMatchesRequestedTrack": true,
+      "dateTagKeysNormalized": [
+        "releasedate"
+      ],
+      "exactOutputPathAssetSourcePeerMatchesCandidate": true,
+      "exactOutputPathAssetSourceFilenameMatchesCandidate": true,
+      "exactOutputPathAssetPublicationJobIdPresent": true,
+      "exactOutputPathAssetPublicationJobIdMatchesCurrentJob": true,
+      "actualTagKeys": [
+        "ALBUM",
+        "ARTIST",
+        "CATALOGNUMBER",
+        "LABEL",
+        "RELEASEDATE",
+        "TITLE"
+      ],
+      "releaseDateTagKeys": [
+        "RELEASEDATE"
+      ],
+      "releaseDateValueMatchesExpected": true,
+      "releaseDateValueRecorded": false
+    }
+  ],
+  "retryChronology": {
+    "originalBuildHash": "aa7bc880e8f6fedd8b3b915e7ec0a35f920b7adf5229aba35c6417f913fcf045",
+    "originalAttempt": {
+      "jobId": "bbd66fd9-b877-4f21-b138-18ae5f67d853",
+      "state": "failed",
+      "error": "optional Cover Art Archive thumbnail request returned HTTP 500",
+      "audioTransferSucceeded": true,
+      "managedOutputPresent": false
+    },
+    "sameJobRetryBuildHash": "55a641ae2a9e01aaea587fb6fe7ce812e922bdbe9726bb960d2aff2bfc706cc7",
+    "sameJobRetryJobId": "bbd66fd9-b877-4f21-b138-18ae5f67d853",
+    "sameJobRetryFinalState": "completed",
+    "sameJobRetryError": null,
+    "sameJobRetryOutputPresent": true,
+    "coverArtFailureRetriedOrRecovered": null,
+    "coverArtFailureInterpretation": "The initial attempt reported the optional thumbnail HTTP 500. This audit does not establish whether that failure path was retried, whether the request later succeeded, or why the retry completed."
+  },
+  "finalCurrentAudit": {
+    "buildHash": "55a641ae2a9e01aaea587fb6fe7ce812e922bdbe9726bb960d2aff2bfc706cc7",
+    "jobStates": {
+      "completed": 13,
+      "failed": 0
+    },
+    "outputCount": 13,
+    "allExist": true,
+    "allFlac": true,
+    "allFullDecodeSucceeded": true,
+    "exactOutputPathAssetRowsPresent": 13,
+    "exactOutputPathAssetHashesMatchLiveFiles": 13,
+    "exactOutputPathAssetRecordingBindingsMatchRequestedTrack": 13,
+    "sourcePeerMatchesCandidate": 13,
+    "sourceFilenameMatchesCandidate": 13,
+    "tagCheckCountsByField": {
+      "artist": {
+        "match": 13
+      },
+      "title": {
+        "match": 13
+      },
+      "album": {
+        "match": 13
+      },
+      "albumartist": {
+        "no_expected_value": 13
+      },
+      "date": {
+        "match": 13
+      },
+      "label": {
+        "match": 13
+      },
+      "genre": {
+        "match": 2,
+        "no_expected_value": 11
+      },
+      "isrc": {
+        "match": 8,
+        "no_expected_value": 5
+      },
+      "catalognumber": {
+        "match": 13
+      }
+    },
+    "rows": [
+      {
+        "trackNumber": 1,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 15867280,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 146.373333,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "224c47160ed23aea807d5fd09587829f4e9ba2b85e9c4ba77d325d279e6a532a",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "GENRE": [
+            "folk"
+          ],
+          "TITLE": [
+            "Pilentze Pee"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "ISRC": [
+            "USNO18716501"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "match",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 2,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 9565423,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 91.16,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "2ba8d42af5538ca7dfe1c68a7d2cf65d8774a2471b2b1f35cf2c8c3ac075fc5e",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": false,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": true,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Svatba"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "no_expected_value",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 3,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 30474841,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 311.2,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "0e354faf6e4745acd95a9c9ef30427092441c4e0d21ecfe4e2e1dcbdda82c728",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Kalimankou Denkou"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "ISRC": [
+            "USNO18716503"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 4,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 16560484,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 161.2,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "81997f389d85e4717b11e04b04548078ae16b99d976c8298d8a23d0d4e455cdd",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Strati na Angelaki Doumasche"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "ISRC": [
+            "USNO18716504"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 5,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 12871763,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 124.4,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "c460d3ee2a7ef27aa1e3c8330344fdc34e073d2c08f894b89f1a751f153403fe",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": false,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": true,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "INITIALKEY": [
+            "Gm"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Polegnala e Pschenitza"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "no_expected_value",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 6,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 16133542,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 154.8,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "f4a4e92ebc5c0b605c3896db4e741ebd48daf802af7f54af84a2c6e6485da181",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Messetschinko lio Greïlivko"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "ISRC": [
+            "USNO18716506"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 7,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 10352678,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 94.933333,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "90c886d1af9674be9c70c47d3d6108d0d3ec9e1c5c02004d148c2ceb1979282a",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Breï Yvane"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "ISRC": [
+            "USNO18716507"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 8,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 18868989,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 174.0,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "1ba0b5485d1dbdb767b10c0258c0b143d0ff2d56d47d1557a101fdb2cc212253",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "GENRE": [
+            "folk"
+          ],
+          "TITLE": [
+            "Erghen Diado"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "Bulgarian State Radio & Television Female Vocal Choir"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "match",
+          "isrc": "no_expected_value",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 9,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 28632289,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 275.306667,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "2318cd593056738cd75da0ded28c6a4789629b2e95850cf335e2d2b97a754cfc",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Sableyalo mi Agontze"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "ISRC": [
+            "USNO18716509"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 10,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 18537745,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 170.333333,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "731d9b6e73ef45bac28a12996667ce47f0cbde14bd39d17b02e5de01f1266391",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": true,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "INITIALKEY": [
+            "A"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Prïtourïtze Planinata"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "Le Mystère des voix bulgares"
+          ],
+          "ISRC": [
+            "USNO18716510"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 11,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 21633607,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 197.026667,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "13d6b9ae2e840021e745d29e83020e10e3273294f05f906b44c9fd6046438496",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": false,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": false,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Mir Stanke Le"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ],
+          "ISRC": [
+            "USNO18716511"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "match",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 12,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 10330665,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 90.8,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "1622e2f3cb8015abc331639fcf73c57f7b0838ce7ed82f7b05d1ac0cc9287c26",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": false,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": true,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Schopska Pesen"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "no_expected_value",
+          "catalognumber": "match"
+        }
+      },
+      {
+        "trackNumber": 13,
+        "jobState": "completed",
+        "progressPercent": 100.0,
+        "appOutputExists": true,
+        "appOutputSizeBytes": 23323143,
+        "container": "flac",
+        "codec": "flac",
+        "sampleRateHz": 44100,
+        "channels": 2,
+        "durationSeconds": 217.706667,
+        "fullDecodeSucceeded": true,
+        "outputSha256": "9f966d504f7d3bc49e90130ec871ec21a798418c5c9c2592333cbaeac7b1e27d",
+        "exactOutputPathAssetRowCount": 1,
+        "exactOutputPathAssetHashMatchesLiveFile": true,
+        "exactOutputPathAssetMatchesRequestedTrack": true,
+        "exactOutputPathAssetIdMatchesPayloadAssetId": false,
+        "publicationJobIdPresent": true,
+        "publicationJobIdMatchesThisJob": true,
+        "sourceProvider": "slskd",
+        "sourcePeerMatchesSelectedCandidate": true,
+        "sourceFilenameMatchesSelectedCandidate": true,
+        "actualTags": {
+          "ALBUM": [
+            "Le Mystère des voix bulgares"
+          ],
+          "RELEASEDATE": [
+            "1986"
+          ],
+          "TITLE": [
+            "Polegnala e Todora"
+          ],
+          "LABEL": [
+            "4AD"
+          ],
+          "CATALOGNUMBER": [
+            "CAD 603 CD"
+          ],
+          "ARTIST": [
+            "The Bulgarian State Radio and Television Female Vocal Choir"
+          ]
+        },
+        "tagChecksAgainstSavedCatalogValues": {
+          "artist": "match",
+          "title": "match",
+          "album": "match",
+          "albumartist": "no_expected_value",
+          "date": "match",
+          "label": "match",
+          "genre": "no_expected_value",
+          "isrc": "no_expected_value",
+          "catalognumber": "match"
+        }
+      }
+    ],
+    "limitations": [
+      "This verifies file existence, container/codec, full decoder traversal, saved-row lineage and embedded tags; it does not establish audibility or independent acoustic identity.",
+      "The earlier HTTP 500 was logged for optional artwork during the first attempt. The later same-job retry completed; this evidence does not identify whether that HTTP 500 path triggered or recurred.",
+      "Tag values shown are the embedded file metadata and are compared with the saved job track fields; no catalog claim beyond those stored values is made.",
+      "Exact output path, live SHA-256, recording identity and selected peer/filename agree for all thirteen rows. However, only four exact-path asset payloads have publicationJobId equal to the corresponding app job ID; nine point to another publication job. The output-to-asset/file binding is established, but same-job publication lineage is not established for those nine rows."
+    ],
+    "publicationJobIdPresent": 13,
+    "publicationJobIdMatchesCurrentJob": 4,
+    "exactOutputPathAssetIdMatchesPayloadAssetId": 8
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "schema": "burrata.runtime-two-entry-batch-observation/v1",
+  "observedAtUtc": "2026-10-22T08:16:14.561Z",
+  "app": {
+    "pid": 1386800,
+    "binarySha256": "55a641ae2a9e01aaea587fb6fe7ce812e922bdbe9726bb960d2aff2bfc706cc7",
+    "repositoryHead": "9d5a4194111b023ba9252d85039aeb50e7b6fcfa",
+    "worktreeDirtyPathCountAtCapture": 241,
+    "sourceTreeToBinaryBinding": "not independently established"
+  },
+  "policy": {
+    "matchingLevel": "balanced",
+    "changedSettings": false,
+    "engine": "webview"
+  },
+  "operation": {
+    "operationId": "741e24c5-a05f-4579-8f0c-0ba0b13d264a",
+    "accepted": true,
+    "requestedEntryCount": 2,
+    "queueEntryIds": [
+      "c5d18b7d-2535-4e92-ad4f-4d6753e92235",
+      "3111376a-71c2-49ca-a477-ad4ec4e580d8"
+    ],
+    "finalRegistryStatus": "cancelled"
+  },
+  "entries": [
+    {
+      "caseId": "bacc",
+      "queueEntryId": "c5d18b7d-2535-4e92-ad4f-4d6753e92235",
+      "fiveSecondPositionProgress": true,
+      "positionSecondsAtThreshold": 5.73377,
+      "wallSecondsSinceEntryPlaying": 5.269,
+      "positionDeltaSecondsAtThreshold": 5.239625
+    },
+    {
+      "caseId": "vibe_with_me",
+      "queueEntryId": "3111376a-71c2-49ca-a477-ad4ec4e580d8",
+      "fiveSecondPositionProgress": true,
+      "positionSecondsAtObservation": 36.493011,
+      "wallSecondsSinceProgressStart": 5.152,
+      "positionDeltaSecondsAtThreshold": 5.001495000000002,
+      "currentIndexAtObservation": 1
+    }
+  ],
+  "trace": {
+    "windowStartUtc": "2026-10-22T08:13:43.675Z",
+    "windowEndUtc": "2026-10-22T08:17:44.104Z",
+    "sourceTraceEventCount": 52,
+    "phaseEventCounts": {
+      "alias_cache_lookup_end": 4,
+      "alias_lookup_skipped": 2,
+      "candidate_gate": 1,
+      "candidate_gate_evidence": 1,
+      "candidate_gate_evidence_rows": 1,
+      "dns_stream_end": 2,
+      "dns_stream_start": 2,
+      "mapped_direct_youtube_end": 2,
+      "mapped_direct_youtube_start": 2,
+      "mapping_resolve_end": 2,
+      "mapping_resolve_start": 2,
+      "next_preparation_identity_end": 1,
+      "playback_candidate_search_cache_miss": 1,
+      "provider_start": 4,
+      "resolution_end": 2,
+      "resolution_start": 2,
+      "search_end": 1,
+      "search_start": 2,
+      "settings_read_end": 2,
+      "settings_read_start": 2,
+      "stream_probe_body_end": 4,
+      "stream_probe_end": 4,
+      "stream_probe_start": 4,
+      "upcoming_candidate_search_end": 1,
+      "upcoming_candidate_search_start": 1
+    },
+    "eventsWithoutNativeOperationId": 51,
+    "logicalExtractionStartEvents": 0,
+    "extractAndValidateStartEvents": 0,
+    "mappingResolveStartEvents": 2,
+    "mappedDirectYoutubeStartEvents": 2,
+    "nativeOperationCorrelation": "51 of 52 events had no nativeOperationId; aggregate phases are attributable to the bounded test window, not individually joinable to each accepted queue entry",
+    "httpRequestCountClaim": false
+  },
+  "limitations": [
+    "One actual queue operation with two accepted entries was observed; two within-run outcomes are not a cohort or population performance estimate.",
+    "Five-second queue position advance is not an acoustic/audibility test.",
+    "The playback operation registry later reported cancelled while the second accepted entry was still playing at queue index 1; report entry progress from playback_state and preserve this lifecycle discrepancy.",
+    "The application log provided logical trace phases only; phase counts are not physical HTTP request totals."
+  ],
+  "privateRawEvidence": [
+    ".cache/matching-batch-runtime-20261022/batch-raw.json",
+    ".cache/matching-batch-runtime-20261022/second-observer-raw.json"
+  ]
+}

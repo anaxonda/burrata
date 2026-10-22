@@ -1,0 +1,62 @@
+baseline Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+baseline Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+baseline Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song (Live) Exact: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song (Live) Balanced: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song (Live) Flexible: Alternative/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song (Live) (Official Audio) Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song (Live) (Official Audio) Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song (Live) (Official Audio) Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [Live] Exact: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [Live] Balanced: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [Live] Flexible: Alternative/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [432Hz] Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [432Hz] Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [432Hz] Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [Remastered 2024] Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [Remastered 2024] Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Artist - Song [Remastered 2024] Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+missing catalog runtime Exact: Unresolved/Inspect MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Unknown, isrc: Unknown, work: Unknown }
+missing catalog runtime Balanced: Probable/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Unknown, isrc: Unknown, work: Unknown }
+missing catalog runtime Flexible: Probable/Enrich MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Unknown, isrc: Unknown, work: Unknown }
+explicit Original Mix Exact: Exact/Inspect MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+explicit Original Mix Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+explicit Original Mix Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+punctuation-only title Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+punctuation-only title Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+punctuation-only title Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+Unicode expansion Exact: PANIC
+Unicode expansion Balanced: PANIC
+Unicode expansion Flexible: PANIC
+nested ISRC conflict Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+nested ISRC conflict Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+nested ISRC conflict Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+extra complete performer Exact: Unresolved/Reject MatchDimensions { title: Agree, artists: Conflict, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+extra complete performer Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+extra complete performer Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata preserves live Exact: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata preserves live Balanced: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata preserves live Flexible: Alternative/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+clean structured title hides live caption Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+clean structured title hides live caption Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+clean structured title hides live caption Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata unknown bracket Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata unknown bracket Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata unknown bracket Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata unknown bracket slowed Exact: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata unknown bracket slowed Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+full caption metadata unknown bracket slowed Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+request title live explicit original conflict Exact: Exact/Inspect MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+request title live explicit original conflict Balanced: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+request title live explicit original conflict Flexible: Exact/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Agree, isrc: Unknown, work: Unknown }
+same catalog missing both runtimes Exact: Unresolved/Inspect MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Unknown, isrc: Unknown, work: Unknown }
+same catalog missing both runtimes Balanced: Probable/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Unknown, isrc: Unknown, work: Unknown }
+same catalog missing both runtimes Flexible: Probable/Enrich MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Unknown, runtime: Unknown, isrc: Unknown, work: Unknown }
+legacy mismatch score 0.49 confidence low
+legacy mismatch scored candidate Exact: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+legacy mismatch scored candidate Balanced: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+legacy mismatch scored candidate Flexible: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+original versus remix legacy score 0.49 confidence low
+original versus remix policy Exact: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+original versus remix policy Balanced: Unresolved/Reject MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }
+original versus remix policy Flexible: Alternative/Accept MatchDimensions { title: Agree, artists: Agree, guests: Unknown, version: Conflict, runtime: Agree, isrc: Unknown, work: Unknown }

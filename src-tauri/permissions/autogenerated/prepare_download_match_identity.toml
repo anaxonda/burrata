@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prepare-download-match-identity"
+description = "Enables the prepare_download_match_identity command without any pre-configured scope."
+commands.allow = ["prepare_download_match_identity"]
+
+[[permission]]
+identifier = "deny-prepare-download-match-identity"
+description = "Denies the prepare_download_match_identity command without any pre-configured scope."
+commands.deny = ["prepare_download_match_identity"]

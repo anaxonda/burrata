@@ -13,7 +13,7 @@
   type BrowserImport = { id: string; provider: string; title: string; collectionId: string; sourceUrl: string; ownerName?: string | null; ownerId?: string | null };
 
   let {
-    view, favoritesPlaylistId = "",
+    view, inert = false, favoritesPlaylistId = "",
     call, showAccountPlaylists = {}, onRemotePlaylist = () => {},
     onDirectoryBrowser = () => {},
     selectedFolder = null, rootsRevision = 0, onSelectFolder = () => {}, onRootsChanged = () => {},
@@ -37,6 +37,7 @@
     compact = false,
     onWidthChange,
   }: {
+    inert?: boolean;
     favoritesPlaylistId?: string;
     call?: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     showAccountPlaylists?: {spotify?: boolean; youtube?: boolean};
@@ -150,7 +151,7 @@
 
 <svelte:window onkeydown={(event) => { if (event.key === "Escape" && drawerOpen) closeDrawer(); }} />
 
-<aside class:drawer-open={drawerOpen} class:resizing class:compact class="library-sidebar" style={`--sidebar-width:${Math.max(minWidth, Math.min(maxWidth, width))}px`} aria-label="Library navigation">
+<aside {inert} class:drawer-open={drawerOpen} class:resizing class:compact class="library-sidebar" style={`--sidebar-width:${Math.max(minWidth, Math.min(maxWidth, width))}px`} aria-label="Library navigation">
   <div class="library-brand" aria-label="Burrata">
     <img class="brand-mark" src={burrataLogo} alt="" width="30" height="30" /><span>burrata</span>
   </div>

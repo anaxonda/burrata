@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
-  import type { ArtistRef, ArtistReleaseRef } from "./lib/artist-types";
+  import type { ArtistRef, ArtistReleaseRef, ArtistSearchResult } from "./lib/artist-types";
   import type { Candidate, Chapter, Track } from "./lib/types";
   import { validChapterRange } from "./lib/chapters";
   import { call, desktop } from "./lib/api";
@@ -14,6 +14,7 @@
   import { searchNavigationScopes, publicSearchNavigationScope } from "./lib/search-navigation-scope";
   import { takeCollectionRows } from "./lib/search-collection";
   import { searchUiControlExpired, searchUiControlFingerprint } from "./lib/search-ui-control-revision";
+  import { addSearchHistoryEntry, readSearchHistory, removeSearchHistoryEntry, writeSearchHistory, type SearchHistoryEntry } from "./lib/search-history";
   import type { AutomationSearchErrorCode, AutomationSearchKind, AutomationSearchReport, AutomationSearchRequest, AutomationSearchSourceId } from "./lib/search-ui-automation";
 
   export type SearchKind = "all" | "tracks" | "artists" | "albums" | "videos" | "playlists" | "profiles" | "channels";
@@ -34,7 +35,7 @@
   ];
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset,
-    onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onArtist = () => {}, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
+    onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onQueueTracks, onArtist = () => {}, searchArtists, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {},
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
@@ -44,10 +45,11 @@
     searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number }) => Promise<SearchPage>;
     enrichSource?: (url: string) => Promise<Candidate>;
     enrichTrack?: (track: Track) => Promise<Track>;
-    onArtist?: (artist: ArtistRef) => void; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track) => void | Promise<void>;
+    onArtist?: (artist: ArtistRef) => void; searchArtists?: (query: string) => Promise<ArtistSearchResult[]>; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track) => void | Promise<void>;
     onRemoteResult?: (row: SearchRow) => void;
     onAddRemotePlaylist?: (row: SearchRow, options: { signal: AbortSignal; onProgress: (message: string) => void }) => Promise<{ partial?: boolean; cancelled?: boolean } | void> | void;
     onPlaylistTracks?: (tracks: Track[]) => Promise<void> | void;
+    onQueueTracks?: (tracks: Track[], mode: "append" | "next") => void;
     onQueryChange?: (query: string) => void;
     onPlay?: (track: Track, displayedTracks?: Track[], index?: number) => void; onDownload?: (track: Track) => void; onFavorite?: (track: Track) => void; onNext?: (track: Track) => void; onQueue?: (track: Track) => void; onContext?: (track: Track, event: MouseEvent) => void;
     onPlayChapter?: (parent: Track, candidate: Candidate, chapter: Chapter) => void;
@@ -69,11 +71,20 @@
   let navigationNotice = $state("");
   let searchElement: HTMLElement | null = null;
   let text = $state("");
+  let artistSuggestions = $state<ArtistSearchResult[]>([]);
+  let artistSuggestionsOpen = $state(false);
+  let artistSuggestionIndex = $state(-1);
+  let artistSuggestionRequest = 0;
+  let artistSuggestionTimer: ReturnType<typeof setTimeout> | null = null;
+  let searchHistory = $state<SearchHistoryEntry[]>(readSearchHistory());
+  let searchHistoryOpen = $state(false);
+  let searchHistoryIndex = $state(-1);
   let submitted = $state("");
   let kind = $state<SearchKind>("all");
   const sources = $derived(availableSources?.length ? availableSources : DEFAULT_SOURCES);
   let searchMode = $state<"online" | "library">("online");
   let sourceChoice = $state("all");
+  let customSourceIds = $state<string[]>([]);
   let rowsBySource = $state<Record<string, SearchRow[]>>({});
   let selectedTrackRows = $state<SearchRow[]>([]);
   let searchSelectionMode = $state(false);
@@ -129,18 +140,22 @@
       text = initialQuery;
       lastQueryProp = initialQuery;
       const available = new Set(sources.map(source => source.id));
-      const validOnline = (ids: unknown) => Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string" && ONLINE_SOURCE_IDS.includes(id) && available.has(id) && sourceEnabled(id)) : [];
+      const validOnline = (ids: unknown) => Array.isArray(ids) ? [...new Set(ids.filter((id): id is string => typeof id === "string" && ONLINE_SOURCE_IDS.includes(id) && available.has(id) && sourceEnabled(id)))] : [];
       if (initial) {
         const initialOnline = validOnline(initial);
         if (initial.includes("library") && !initialOnline.length) searchMode = "library";
+        else if (initialOnline.length > 1) { searchMode = "online"; sourceChoice = "custom"; customSourceIds = initialOnline; }
         else if (initialOnline.length) { searchMode = "online"; sourceChoice = initialOnline[0]!; }
       } else {
         let restored = false;
         try {
-          const saved = JSON.parse(localStorage.getItem(PREF_KEY) ?? "null") as { mode?: unknown; sourceId?: unknown } | null;
+          const saved = JSON.parse(localStorage.getItem(PREF_KEY) ?? "null") as { mode?: unknown; sourceId?: unknown; sourceIds?: unknown } | null;
           if (saved && (saved.mode === "online" || saved.mode === "library")) {
             if (saved.mode === "library" && available.has("library") && sourceEnabled("library")) { searchMode = "library"; restored = true; }
-            else if (saved.mode === "online" && (saved.sourceId === "all" || (typeof saved.sourceId === "string" && validOnline([saved.sourceId]).length))) {
+            else if (saved.mode === "online" && saved.sourceId === "custom") {
+              customSourceIds = validOnline(saved.sourceIds);
+              sourceChoice = "custom"; searchMode = "online"; restored = true;
+            } else if (saved.mode === "online" && (saved.sourceId === "all" || (typeof saved.sourceId === "string" && validOnline([saved.sourceId]).length))) {
               searchMode = "online"; sourceChoice = saved.sourceId as string; restored = true;
             }
           }
@@ -154,13 +169,13 @@
         }
       }
       if (searchMode === "library" && (!available.has("library") || !sourceEnabled("library"))) searchMode = "online";
-      if (sourceChoice !== "all" && !validOnline([sourceChoice]).length) sourceChoice = "all";
+      if (sourceChoice !== "all" && sourceChoice !== "custom" && !validOnline([sourceChoice]).length) sourceChoice = "all";
     }
     if (initialQuery !== lastQueryProp) { lastQueryProp = initialQuery; text = initialQuery; }
   });
   $effect(() => {
     if (!initialized) return;
-    try { localStorage.setItem(PREF_KEY, JSON.stringify({ mode: searchMode, sourceId: sourceChoice })); } catch { /* storage can be unavailable in private contexts */ }
+    try { localStorage.setItem(PREF_KEY, JSON.stringify({ mode: searchMode, sourceId: sourceChoice, ...(sourceChoice === "custom" ? { sourceIds: customSourceIds } : {}) })); } catch { /* storage can be unavailable in private contexts */ }
   });
   $effect(() => {
     if (!continuePreferenceLoaded) return;
@@ -182,7 +197,96 @@
       if (text.trim()) void runSearch();
     });
   });
-  onDestroy(() => { navigationDestroyed = true; navigationRestoreEpoch++; cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); for (const controller of playlistImportControllers.values()) controller.abort(); });
+  onDestroy(() => { navigationDestroyed = true; navigationRestoreEpoch++; cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); if (artistSuggestionTimer) clearTimeout(artistSuggestionTimer); artistSuggestionRequest++; providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); for (const controller of playlistImportControllers.values()) controller.abort(); });
+
+  function scheduleArtistSuggestions(query: string) {
+    if (artistSuggestionTimer) clearTimeout(artistSuggestionTimer);
+    const request = ++artistSuggestionRequest;
+    artistSuggestions = [];
+    artistSuggestionIndex = -1;
+    artistSuggestionsOpen = false;
+    searchHistoryOpen = !query.trim() && searchInputFocused && searchHistory.length > 0;
+    if (!searchArtists || query.trim().length < 2) return;
+    artistSuggestionTimer = setTimeout(async () => {
+      try {
+        const results = await searchArtists(query.trim());
+        if (request !== artistSuggestionRequest) return;
+        artistSuggestions = results.slice(0, 6);
+        artistSuggestionsOpen = artistSuggestions.length > 0;
+      } catch {
+        if (request === artistSuggestionRequest) artistSuggestions = [];
+      }
+    }, 300);
+  }
+
+  function chooseArtistSuggestion(result: ArtistSearchResult) {
+    if (artistSuggestionTimer) clearTimeout(artistSuggestionTimer);
+    artistSuggestionRequest++;
+    artistSuggestionsOpen = false;
+    artistSuggestions = [];
+    onArtist(result.artist);
+  }
+
+  let searchInputFocused = false;
+  function rememberCompletedSearch(query: string) {
+    searchHistory = addSearchHistoryEntry(searchHistory, { query, kind, mode: searchMode, sourceChoice, customSourceIds: [...customSourceIds], savedAt: Date.now() });
+    writeSearchHistory(searchHistory);
+  }
+  function restoreSearchHistory(entry: SearchHistoryEntry) {
+    searchHistoryOpen = false;
+    searchHistoryIndex = -1;
+    text = entry.query;
+    onQueryChange(text);
+    if (kinds.some(option => option.id === entry.kind)) kind = entry.kind as SearchKind;
+    if (entry.mode === "library") {
+      if (sourceEnabled("library")) searchMode = "library";
+    } else {
+      const configured = validConfiguredSources(entry.customSourceIds);
+      if (entry.sourceChoice === "custom" && configured.length) { searchMode = "online"; sourceChoice = "custom"; customSourceIds = configured; }
+      else if (entry.sourceChoice === "all") { searchMode = "online"; sourceChoice = "all"; }
+      else if (sourceEnabled(entry.sourceChoice) && ONLINE_SOURCE_IDS.includes(entry.sourceChoice)) { searchMode = "online"; sourceChoice = entry.sourceChoice; }
+    }
+  }
+  function removeHistoryEntry(entry: SearchHistoryEntry) {
+    searchHistory = removeSearchHistoryEntry(searchHistory, entry.query);
+    writeSearchHistory(searchHistory);
+    searchHistoryIndex = Math.min(searchHistoryIndex, searchHistory.length - 1);
+  }
+  function clearSearchHistory() {
+    searchHistory = [];
+    searchHistoryOpen = false;
+    searchHistoryIndex = -1;
+    writeSearchHistory(searchHistory);
+  }
+  function closeSearchPopupsOnBlur(event: FocusEvent) {
+    const input = event.currentTarget as HTMLInputElement;
+    setTimeout(() => {
+      if (input.parentElement?.contains(document.activeElement)) return;
+      searchInputFocused = false;
+      searchHistoryOpen = false;
+      artistSuggestionsOpen = false;
+      artistSuggestionRequest++;
+      if (artistSuggestionTimer) clearTimeout(artistSuggestionTimer);
+    }, 0);
+  }
+
+  function handleArtistSuggestionKeys(event: KeyboardEvent) {
+    if (!artistSuggestionsOpen && searchHistoryOpen && !text.trim() && searchHistory.length) {
+      if (event.key === "ArrowDown") { event.preventDefault(); searchHistoryIndex = (searchHistoryIndex + 1) % searchHistory.length; }
+      else if (event.key === "ArrowUp") { event.preventDefault(); searchHistoryIndex = (searchHistoryIndex - 1 + searchHistory.length) % searchHistory.length; }
+      else if (event.key === "Enter" && searchHistoryIndex >= 0) { event.preventDefault(); restoreSearchHistory(searchHistory[searchHistoryIndex]!); }
+      else if (event.key === "Escape") { event.preventDefault(); searchHistoryOpen = false; }
+      return;
+    }
+    if (!artistSuggestionsOpen || !artistSuggestions.length) {
+      if (event.key === "Escape") artistSuggestionsOpen = false;
+      return;
+    }
+    if (event.key === "ArrowDown") { event.preventDefault(); artistSuggestionIndex = (artistSuggestionIndex + 1) % artistSuggestions.length; }
+    else if (event.key === "ArrowUp") { event.preventDefault(); artistSuggestionIndex = (artistSuggestionIndex - 1 + artistSuggestions.length) % artistSuggestions.length; }
+    else if (event.key === "Escape") { event.preventDefault(); artistSuggestionsOpen = false; }
+    else if (event.key === "Enter" && artistSuggestionIndex >= 0) { event.preventDefault(); chooseArtistSuggestion(artistSuggestions[artistSuggestionIndex]!); }
+  }
   onMount(async () => {
     if (navigationSnapshotKey) return; // App owns the awaited history restoration.
     navigationReady = true;
@@ -196,7 +300,7 @@
 
   // Capture only on explicit route navigation, never on playback/scroll ticks.
   function searchNavigationSnapshot() {
-    return { controls:{text,submitted,kind,searchMode,sourceChoice,collectedSort,collectedDirection,minimumDuration,maximumDuration,continueSearch},
+    return { controls:{text,submitted,kind,searchMode,sourceChoice,customSourceIds:[...customSourceIds],collectedSort,collectedDirection,minimumDuration,maximumDuration,continueSearch},
       rowsBySource:{...rowsBySource},overflowRows:{...overflowRows},cursors:{...cursors},
       consumed:Object.fromEntries(Object.entries(consumedPageCursors).map(([id,values])=>[id,[...values]])),
       statuses:{...statuses},errors:{...errors},warnings:{...warnings},incompleteSources:{...incompleteSources},
@@ -252,6 +356,7 @@
       const scopes=await searchNavigationScopes(call,ids);
       if(!current())return;
       ({text,submitted,kind,searchMode,sourceChoice,collectedSort,collectedDirection,minimumDuration,maximumDuration,continueSearch}=saved.controls);
+      customSourceIds = validConfiguredSources(saved.controls.customSourceIds);
       lastQueryProp=initialQuery;continuePreferenceLoaded=true;
       const invalid=new Set(ids.filter(id=>!scopes[id]||!saved.accountScopes[id]||scopes[id]!==saved.accountScopes[id]));
       const retained=<T,>(values:Record<string,T>)=>Object.fromEntries(Object.entries(values).filter(([id])=>!invalid.has(id)));
@@ -276,6 +381,7 @@
   }
 
   function sourceEnabled(id: string) { const source = sources.find(item => item.id === id); return Boolean(source) && (id !== "spotify" || source?.enabled === true) && source?.enabled !== false && sourceCapabilities[id] !== false && sourceCapabilities[id] !== "disconnected"; }
+  function validConfiguredSources(ids: unknown) { return Array.isArray(ids) ? [...new Set(ids.filter((id): id is string => typeof id === "string" && ONLINE_SOURCE_IDS.includes(id) && sourceEnabled(id)))] : []; }
   function kindsForKind(value: SearchKind): string[] {
     if (value === "all") return ["track", "artist", "album", "video", "set", "playlist", "profile", "channel"];
     if (value === "videos") return ["video", "set"];
@@ -291,23 +397,23 @@
   }
   const trackControlsApplicable = $derived(!["artists", "albums", "playlists", "profiles", "channels"].includes(kind));
   const enabledOnlineSources = $derived(sources.filter(source => ONLINE_SOURCE_IDS.includes(source.id) && sourceEnabled(source.id)));
-  const selectedSource = $derived(searchMode === "library" ? sources.find(source => source.id === "library" && sourceEnabled(source.id)) : sourceChoice === "all" ? null : enabledOnlineSources.find(source => source.id === sourceChoice) ?? null);
+  const selectedSource = $derived(searchMode === "library" || sourceChoice === "all" || sourceChoice === "custom" ? null : enabledOnlineSources.find(source => source.id === sourceChoice) ?? null);
   const visibleKinds = $derived(searchMode === "library" ? kinds.filter(item => item.id === "all" || item.id === "tracks") : kinds);
-  const selectedSourceUnsupportedKinds = $derived(searchMode === "online" && sourceChoice !== "all" && selectedSource
+  const selectedSourceUnsupportedKinds = $derived(searchMode === "online" && sourceChoice !== "all" && sourceChoice !== "custom" && selectedSource
     ? visibleKinds.filter(item => !sourceSupportsKind(selectedSource.id, item.id))
     : []);
-  const selectedSourceUnsupported = $derived(searchMode === "online" && sourceChoice !== "all" && selectedSource && !sourceSupports(selectedSource.id) ? selectedSource : null);
+  const selectedSourceUnsupported = $derived(searchMode === "online" && sourceChoice !== "all" && sourceChoice !== "custom" && selectedSource && !sourceSupports(selectedSource.id) ? selectedSource : null);
   // This changes only provider section order. Each provider keeps its own relevance order;
   // loadedOccurrences also follows this same displayed order for continuation playback.
   const displayedSources = $derived.by(() => {
     const available = searchMode === "library"
       ? sources.filter(source => source.id === "library" && sourceEnabled(source.id))
-      : (sourceChoice === "all" ? enabledOnlineSources : enabledOnlineSources.filter(source => source.id === sourceChoice)).filter(source => sourceSupports(source.id));
+      : (sourceChoice === "all" ? enabledOnlineSources : enabledOnlineSources.filter(source => sourceChoice === "custom" ? customSourceIds.includes(source.id) : source.id === sourceChoice)).filter(source => sourceSupports(source.id));
     return [...available].sort((left, right) => Number(left.id === "musicbrainz") - Number(right.id === "musicbrainz"));
   });
   function activeSourceIds() {
     if (searchMode === "library") return sourceEnabled("library") ? ["library"] : [];
-    return (sourceChoice === "all" ? enabledOnlineSources.map(source => source.id) : [sourceChoice]).filter(id => sourceEnabled(id));
+    return (sourceChoice === "all" ? enabledOnlineSources.map(source => source.id) : sourceChoice === "custom" ? customSourceIds : [sourceChoice]).filter(id => sourceEnabled(id));
   }
   const automationSourceIds = new Set<AutomationSearchSourceId>(["all", "library", ...ONLINE_SOURCE_IDS as AutomationSearchSourceId[]]);
   const automationKinds = new Set<AutomationSearchKind>(["all", "tracks", "artists", "albums", "videos", "playlists", "profiles", "channels"]);
@@ -571,7 +677,17 @@
           : page.nextCursor ? "More results available" : "Complete" };
       } catch (error) {
         if (request !== generation || (collection && collectionRun !== collectionRequest)) return;
-        errors = { ...errors, [sourceId]: error instanceof Error ? error.message : String(error) };
+        const message = error instanceof Error ? error.message : String(error);
+        if (sourceId === "soulseek" && /unknown or expired slskd search/i.test(message)) {
+          // Keep already loaded rows, but discard the unusable native cursor.
+          // Retry then starts a fresh Soulseek search and appends its results.
+          cursors = { ...cursors, [sourceId]: null };
+          soulseekSessions = { ...soulseekSessions, [sourceId]: "" };
+          errors = { ...errors, [sourceId]: "This Soulseek search expired. Loaded results are kept; Retry starts a fresh search." };
+          statuses = { ...statuses, [sourceId]: "Search expired" };
+          return;
+        }
+        errors = { ...errors, [sourceId]: message };
         statuses = { ...statuses, [sourceId]: "Unavailable" };
       } finally {
         if (collection && collectionRun === collectionRequest && collectionSoulseekSource === sourceId) collectionSoulseekSource = null;
@@ -580,6 +696,7 @@
         }
       }
     }));
+    if (!appendSource && !collection && !automationRequestId && request === generation && sourceIds.some(id => !errors[id] && statuses[id] !== "Unavailable")) rememberCompletedSearch(term);
   }
   function cancel() {
     cancelAutomationSearch();
@@ -712,8 +829,10 @@
     const tracksForSource = loadedOccurrences.filter(item => item.sourceId === source.id).map(item => item.row);
     return [source.id, [...rows.filter(row => !row.track), ...tracksForSource]];
   })));
-  const selectedSearchTracks = $derived(selectedTrackRows.flatMap(row => row.track ? [row.track] : []));
   const loadedSearchTrackRows = $derived(Object.values(displayedRowsBySource).flat().filter(row => row.track));
+  const selectedSearchTracks = $derived(loadedSearchTrackRows
+    .filter(row => selectedTrackRows.includes(row))
+    .flatMap(row => row.track ? [row.track] : []));
   async function playSearchResult(track: Track, sourceId?: string, row?: SearchRow) {
     if (!continueSearch) { onPlay?.(track); return; }
     let queue = playableOccurrences.map(item => item.track);
@@ -889,7 +1008,16 @@
 <section class="search-panel" aria-label="Discovery search" bind:this={searchElement}>
   {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
   <form class="search-form" onsubmit={(event) => { event.preventDefault(); void runSearch(); }}>
-    <input aria-label="Search music" bind:value={text} oninput={(event) => { text = event.currentTarget.value; if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); if (collectionSoulseekSource) { void cancelSoulseek(collectionSoulseekSource); collectionSoulseekSource = null; } statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
+    <div class="search-input-wrap">
+      <input aria-label="Search music" role="combobox" aria-autocomplete="list" aria-expanded={artistSuggestionsOpen || searchHistoryOpen} aria-controls={artistSuggestionsOpen ? "artist-search-suggestions" : searchHistoryOpen ? "search-history-menu" : undefined} aria-activedescendant={artistSuggestionsOpen ? artistSuggestionIndex >= 0 ? `artist-search-suggestion-${artistSuggestionIndex}` : undefined : searchHistoryOpen && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined} onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }} onblur={closeSearchPopupsOnBlur} onkeydown={handleArtistSuggestionKeys} bind:value={text} oninput={(event) => { text = event.currentTarget.value; searchHistoryIndex = -1; scheduleArtistSuggestions(text); if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); if (collectionSoulseekSource) { void cancelSoulseek(collectionSoulseekSource); collectionSoulseekSource = null; } statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
+      {#if artistSuggestionsOpen}<ul id="artist-search-suggestions" class="artist-search-suggestions" role="listbox" aria-label="Artist suggestions">
+        {#each artistSuggestions as result, index (result.artist.provider + ":" + result.artist.id)}<li role="option" aria-selected={artistSuggestionIndex === index}><button id={`artist-search-suggestion-${index}`} type="button" tabindex="-1" onclick={() => chooseArtistSuggestion(result)}><span>{result.name}</span>{#if result.disambiguation}<small>{result.disambiguation}</small>{:else if result.country}<small>{result.country}</small>{/if}</button></li>{/each}
+      </ul>{/if}
+      {#if searchHistoryOpen && !text.trim() && searchHistory.length}<div id="search-history-menu" class="artist-search-suggestions search-history-menu" role="listbox" aria-label="Recent searches">
+        <div class="search-history-heading"><strong>Recent searches</strong><button type="button" class="clear-search-history" onclick={clearSearchHistory}>Clear history</button></div>
+        {#each searchHistory as entry, index (entry.query.toLocaleLowerCase())}<div class="search-history-row" role="option" aria-selected={searchHistoryIndex === index}><button id={`search-history-item-${index}`} class="history-query" type="button" tabindex="-1" onclick={() => restoreSearchHistory(entry)}>{entry.query}<small>{entry.mode === "library" ? "My library" : entry.sourceChoice === "custom" ? "Selected sources" : entry.sourceChoice === "all" ? "All online sources" : sources.find(source => source.id === entry.sourceChoice)?.name ?? "Online"} · {kinds.find(option => option.id === entry.kind)?.label ?? "All"}</small></button><button class="remove-search-history" type="button" aria-label={`Remove ${entry.query} from search history`} title="Remove recent search" onclick={() => removeHistoryEntry(entry)}>×</button></div>{/each}
+      </div>{/if}
+    </div>
     <button class="primary" type="submit" disabled={!text.trim() || !activeSourceIds().length}>Search</button>
     {#if Object.values(statuses).some(status => status === "Searching…" || status === "Loading more…" || status.endsWith("…"))}<button type="button" onclick={cancel}>Cancel</button>{/if}
   </form>
@@ -905,15 +1033,25 @@
       <label class="search-in-label" for="discovery-source-select">Search in</label>
       <select id="discovery-source-select" aria-label="Search in" value={sourceChoice} onchange={(event) => changeSource(event.currentTarget.value)}>
         <option value="all">All online sources</option>
+        <option value="custom">Choose sources…</option>
         {#each enabledOnlineSources as source (source.id)}
           <option value={source.id} disabled={!sourceSupports(source.id)}>{source.name}{sourceSupports(source.id) ? "" : " — not available for this result type"}</option>
         {/each}
       </select>
+      {#if sourceChoice === "custom"}
+        <fieldset class="custom-source-picker" aria-label="Choose online sources">
+          <legend>Choose online sources</legend>
+          {#each enabledOnlineSources as source (source.id)}
+            <label><input type="checkbox" checked={customSourceIds.includes(source.id)} onchange={(event) => { customSourceIds = event.currentTarget.checked ? [...customSourceIds, source.id] : customSourceIds.filter(id => id !== source.id); void restartSearch(); }} />{source.name}</label>
+          {/each}
+          {#if !activeSourceIds().length}<p role="status">Choose at least one enabled source to search.</p>{/if}
+        </fieldset>
+      {/if}
     {/if}
   </div>
   <div class="filters" aria-label="Result type">
     {#each visibleKinds as item}
-      {@const unsupported = selectedSource && searchMode === "online" && sourceChoice !== "all" && !sourceSupportsKind(selectedSource.id, item.id)}
+      {@const unsupported = selectedSource && searchMode === "online" && sourceChoice !== "all" && sourceChoice !== "custom" && !sourceSupportsKind(selectedSource.id, item.id)}
       <button class:active={kind === item.id} aria-pressed={kind === item.id} disabled={Boolean(unsupported)} aria-describedby={unsupported ? "unsupported-result-kinds" : undefined} title={unsupported ? `${item.label} search is not supported by ${selectedSource?.name}` : undefined} onclick={() => { if (kind !== item.id) cancelSearchTrackSelection(); kind = item.id; if (submitted) void runSearch(); }}>{item.label}</button>
     {/each}
   </div>
@@ -936,7 +1074,7 @@
     </fieldset>
       {#if trackControlsApplicable && (Object.values(cursors).some(Boolean) || Object.values(overflowRows).some(rows => rows.length > 0))}<button type="button" class="collect-more" onclick={() => void collectMoreSearchResults()} disabled={collectingSearch}>Collect more tracks</button>{/if}
     {#if onPlaylistTracks && loadedSearchTrackRows.length}<div class="search-playlist-selection" role="group" aria-label="Search track selection">
-      {#if searchSelectionMode}<span>{selectedSearchTracks.length ? `${selectedSearchTracks.length} tracks selected` : `${loadedSearchTrackRows.length} tracks loaded`}</span><button type="button" onclick={() => selectedTrackRows = loadedSearchTrackRows}>Select loaded</button>{#if selectedSearchTracks.length}<button type="button" onclick={() => selectedTrackRows = []}>Clear selection</button><button type="button" class="add-search-selected" onclick={() => void onPlaylistTracks?.(selectedSearchTracks)}>Add selected to playlist</button>{/if}<button type="button" class="cancel-search-selection" onclick={cancelSearchTrackSelection}>Cancel</button>
+      {#if searchSelectionMode}<span>{selectedSearchTracks.length ? `${selectedSearchTracks.length} tracks selected` : `${loadedSearchTrackRows.length} tracks loaded`}</span><button type="button" onclick={() => selectedTrackRows = loadedSearchTrackRows}>Select loaded</button>{#if selectedSearchTracks.length}<button type="button" onclick={() => selectedTrackRows = []}>Clear selection</button>{#if onQueueTracks}<button type="button" class="add-search-queue" onclick={() => onQueueTracks(selectedSearchTracks, "append")}>Add to queue</button>{/if}<button type="button" class="add-search-selected" onclick={() => void onPlaylistTracks?.(selectedSearchTracks)}>Add selected to playlist</button>{/if}<button type="button" class="cancel-search-selection" onclick={cancelSearchTrackSelection}>Cancel</button>
       {:else}<span>{loadedSearchTrackRows.length} tracks loaded</span><button type="button" class="start-search-selection" aria-label="Select search tracks" onclick={() => searchSelectionMode = true}>Select</button>{/if}
     </div>{/if}
   </div>{/if}
@@ -1005,14 +1143,14 @@
 <style>
   .source-toggle{border:0;padding:.15rem .25rem;background:transparent;color:inherit;font:inherit;font-weight:650;text-align:left;cursor:pointer}.source-toggle:focus-visible{outline:2px solid var(--accent,#9dbfff);outline-offset:2px}
   .search-panel{--panel:var(--surface,#17191c);--border:var(--line,#454a50);display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
-  .search-form,.source-group>header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0}.source-group>header h3,.source-group>header span{min-width:0;overflow-wrap:anywhere}.source-group>header span,.subtitle,.search-empty,.result-details{color:var(--muted,#a3a8ae);font-size:.82rem}.track-controls{display:contents;border:0;margin:0;padding:0;min-width:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.continue-setting{display:flex;align-items:center;gap:.45rem;font-size:.8rem;color:var(--muted,#a3a8ae)}.continue-setting input{accent-color:var(--accent,#4c78c8)}.collection-controls{display:flex;align-items:end;gap:.5rem;flex-wrap:wrap}.collection-controls label{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.collection-controls select{max-width:100%;font-size:.78rem}.collection-status{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted,#a3a8ae)}
+  .search-form,.source-group>header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0}.search-input-wrap{position:relative;flex:1;min-width:0}.search-form .search-input-wrap input{box-sizing:border-box;width:100%;min-width:0}.artist-search-suggestions{position:absolute;z-index:60;top:calc(100% + 4px);left:0;right:0;max-height:300px;overflow:auto;margin:0;padding:4px;list-style:none;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--surface,#202328);box-shadow:0 8px 24px #0008}.artist-search-suggestions li{margin:0}.artist-search-suggestions button{display:flex;width:100%;flex-direction:column;align-items:flex-start;gap:2px;padding:8px;text-align:left;border:0;background:transparent}.artist-search-suggestions button:hover,.artist-search-suggestions [aria-selected="true"] button,.search-history-row[aria-selected="true"] .history-query{background:var(--raised,#2a2e34)}.artist-search-suggestions small{color:var(--muted,#a3a8ae);font-size:.75rem}.search-history-heading,.search-history-row{display:flex;align-items:center;gap:4px}.search-history-heading{justify-content:space-between;padding:4px 6px 6px;color:var(--muted,#a3a8ae);font-size:.78rem}.search-history-heading .clear-search-history{padding:3px 6px;border:0;background:transparent;color:var(--accent,#9dbfff);font-size:.74rem}.search-history-row{border-radius:6px}.search-history-row .history-query{flex:1;min-width:0}.search-history-row .remove-search-history{flex:none;width:30px;height:30px;justify-content:center;align-items:center;padding:0;border:0;background:transparent;color:var(--muted,#a3a8ae);font-size:18px}.search-history-row .remove-search-history:hover{color:var(--text,#eee)}.source-group>header h3,.source-group>header span{min-width:0;overflow-wrap:anywhere}.source-group>header span,.subtitle,.search-empty,.result-details{color:var(--muted,#a3a8ae);font-size:.82rem}.track-controls{display:contents;border:0;margin:0;padding:0;min-width:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.continue-setting{display:flex;align-items:center;gap:.45rem;font-size:.8rem;color:var(--muted,#a3a8ae)}.continue-setting input{accent-color:var(--accent,#4c78c8)}.collection-controls{display:flex;align-items:end;gap:.5rem;flex-wrap:wrap}.collection-controls label{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.collection-controls select{max-width:100%;font-size:.78rem}.collection-status{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted,#a3a8ae)}
   .continue-setting{flex-direction:row;margin:0}.continue-setting input{width:auto;flex:none;margin:0;padding:0}.collection-controls label{margin:0}.search-in-label{margin:0}
   button,input,select{font:inherit;color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}button{cursor:pointer}button:disabled,select:disabled{opacity:.55;cursor:default}.primary{background:var(--accent,#4c78c8);border-color:var(--accent,#4c78c8);color:var(--base,#fff)}.search-form input{flex:1;min-width:0;height:36px;padding:.35rem .6rem}.search-form button{min-height:36px;padding:.35rem .6rem}.filters{display:flex;gap:.4rem;flex-wrap:wrap}.filters button{font-size:.84rem}.filters button.active{border-color:var(--accent,#9dbfff);color:var(--accent,#9dbfff)}
   .scope-controls{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:.55rem;min-width:0}.search-mode{display:flex;min-width:0;padding:3px;gap:2px;border:1px solid var(--border,#454a50);border-radius:9px;background:var(--surface,#202328)}.search-mode button{min-width:0;padding:.4rem .65rem;border:0;background:transparent;font-size:.82rem;white-space:nowrap}.search-mode button.active{background:var(--accent,#4c78c8);color:var(--base,#fff)}.search-in-label{font-size:.8rem;color:var(--muted,#a3a8ae);white-space:nowrap}.scope-controls select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:34px;padding:0 .55rem;line-height:normal;overflow:visible;font-size:.82rem}.scope-controls select option{background:var(--panel,#17191c);color:var(--text,#eee)}.library-helper{grid-column:2/-1;min-width:0;margin:0;color:var(--muted,#a3a8ae);font-size:.76rem;line-height:1.35}.scope-hint{margin:0;color:var(--muted,#a3a8ae);font-size:.8rem;line-height:1.4}
   .source-results{display:flex;flex-direction:column;gap:.65rem;min-width:0}.source-group{min-width:0;max-width:100%;border:1px solid var(--border,#383d43);border-radius:10px;padding:.55rem}.source-group>header{padding:0 .15rem .35rem}.source-group h3{margin:0;font-size:.93rem}.result-row{min-width:0;border-top:1px solid var(--border,#30343a);padding:.5rem .15rem}.result-main{min-width:0;overflow-wrap:anywhere}.result-title{display:flex;align-items:center;gap:.5rem;min-width:0}.result-title strong{font-size:.92rem;min-width:0;overflow-wrap:anywhere}.result-row-title{flex:1 1 auto}.spotify-identity-art{position:relative;display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;overflow:hidden;border-radius:50%;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}.spotify-identity-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kind-badge{display:inline-flex;flex:none;border-radius:999px;background:var(--surface,#202328);padding:.18rem .48rem;color:var(--muted,#a3a8ae);font-size:.69rem}.subtitle{margin:.2rem 0 0 .1rem;overflow-wrap:anywhere}.open-result{display:inline-flex;align-items:baseline;flex:1 1 auto;gap:.45rem;max-width:100%;min-width:0;border:0;padding:.2rem 0;background:none;text-align:left;color:inherit;font-weight:600;white-space:normal;overflow-wrap:anywhere}.open-result strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-result span{flex:none;color:var(--accent,#9dbfff);font-size:.76rem}.result-main>a{display:inline-block;margin-top:.35rem;color:var(--accent,#9dbfff);font-size:.78rem;overflow-wrap:anywhere}.details-toggle{margin-top:.4rem;padding:.3rem .45rem;font-size:.75rem}.result-details{margin:.35rem 0;overflow-wrap:anywhere}.chapter-details{margin-top:.4rem;max-width:100%}.chapter-badge{display:inline-flex;margin-top:.4rem;border-radius:999px;background:var(--surface,#202328);padding:.2rem .55rem;color:var(--muted,#a3a8ae);font-size:.72rem;white-space:normal;overflow-wrap:anywhere}.chapter-badge.available{color:var(--accent,#9dbfff);cursor:pointer}.chapter-check{margin:.25rem 0;padding:.2rem .4rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.chapter-lookup-status{margin:.25rem;color:var(--muted,#a3a8ae);font-size:.72rem}.chapter-list{margin-top:.55rem;padding:.45rem;border-left:2px solid var(--accent,#9dbfff);min-width:0}.chapter-row{display:flex;align-items:center;gap:.3rem;margin-top:.35rem;min-width:0;flex-wrap:wrap}.chapter-row span{flex:1 1 10rem;min-width:0;font-size:.78rem;overflow-wrap:anywhere}.chapter-row button{font-size:.76rem;padding:.35rem .5rem}.notice{margin:.35rem 0;font-size:.8rem;color:var(--muted,#a3a8ae);overflow-wrap:anywhere}.error{color:#ff9b9b}.load-more{margin:.4rem}.search-empty{padding:.25rem;overflow-wrap:anywhere}.source-group a{color:var(--accent,#9dbfff)}
   .search-playlist-selection{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border:1px solid var(--border,#454a50);border-radius:8px;margin:.4rem 0}.search-playlist-selection span{margin-right:auto}.search-track-select{display:inline-flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--muted,#a3a8ae)}.add-playlist-result{margin:.4rem .45rem 0 0}
   .result-row:has(.compact-track){padding:.15rem}
-  @media(max-width:640px){.search-panel{padding:.7rem}.search-form{flex-wrap:wrap}.search-form input{flex-basis:100%}.scope-controls{grid-template-columns:auto minmax(0,1fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.search-mode button{padding:.4rem .5rem}.chapter-row{flex-wrap:wrap}.chapter-row span{flex-basis:100%}}
+  @media(max-width:640px){.search-panel{padding:.7rem}.search-form{flex-wrap:wrap}.search-form .search-input-wrap{flex:1 1 100%}.search-form input{flex-basis:100%}.scope-controls{grid-template-columns:auto minmax(0,1fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.search-mode button{padding:.4rem .5rem}.chapter-row{flex-wrap:wrap}.chapter-row span{flex-basis:100%}}
   @media(max-width:640px){.result-row:has(.compact-track){padding:0 .15rem}}
   @container search-pane (max-width:640px){.search-form{align-items:flex-start;flex-wrap:wrap}.search-form input{flex:1 1 100%}.scope-controls{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}.search-mode{grid-column:1/-1;justify-self:start}.search-in-label{grid-column:1}.scope-controls select{grid-column:2}.library-helper{grid-column:1/-1}.source-group>header{align-items:flex-start;flex-wrap:wrap}.result-title{align-items:flex-start}.chapter-row span{flex-basis:100%}}
   @media(min-width:641px){.search-panel{gap:.45rem;padding:.75rem}.scope-controls{display:flex;justify-content:flex-start;gap:.45rem;min-width:0;flex-wrap:wrap}.scope-controls select{width:260px;max-width:min(260px,45vw);flex:0 1 260px}.library-helper{margin:0}.filters{gap:.3rem}.filters button{padding:.32rem .55rem;font-size:.78rem}.track-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.track-toolbar .collection-controls{align-items:center;gap:.4rem}.track-toolbar .collection-controls label{display:flex;flex-direction:row;align-items:center;gap:.35rem;font-size:.76rem;white-space:nowrap}.track-toolbar .collection-controls select{box-sizing:border-box;height:34px;min-height:34px;padding:0 .55rem;font-size:.78rem;line-height:normal;overflow:visible}.track-toolbar .collection-controls button{min-height:32px;padding:.25rem .55rem;font-size:.76rem}.loaded-track-filters{flex:none;min-width:0}.loaded-track-filters[open]{flex:1 1 100%}.loaded-track-filters>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid var(--border,#454a50);border-radius:7px;padding:.35rem .55rem;font-size:.78rem;color:var(--muted,#a3a8ae)}.loaded-track-filters>summary::-webkit-details-marker{display:none}.loaded-track-filters>summary::after{content:" ▾"}.loaded-track-filters[open]>summary::after{content:" ▴"}.active-filter-indicator{color:var(--accent,#9dbfff)}.loaded-filter-fields{display:flex;align-items:end;gap:.6rem;flex-wrap:wrap;max-width:100%;margin-top:.45rem;padding:.65rem;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--panel,#17191c)}.loaded-filter-fields>label:not(.continue-setting){display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.loaded-filter-fields input:not([type="checkbox"]){box-sizing:border-box;width:132px;min-width:0;height:32px;padding:.25rem .45rem;font-size:.76rem}.loaded-filter-fields .continue-setting{max-width:250px;line-height:1.3}.track-toolbar .collect-more{flex:none;margin:0;min-height:32px;padding:.3rem .6rem;font-size:.78rem}.collection-status{flex-wrap:wrap}}

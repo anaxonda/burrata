@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "page_observed_sanitized_network",
+  "startedAt": "2026-10-21T20:05:57.204Z",
+  "stopped": false,
+  "responses": [
+    {
+      "observedAt": "2026-10-21T20:06:49.179Z",
+      "endpoint": "https://music-api.geeked.wtf/api/v2/track/",
+      "status": 200,
+      "kind": "resolver",
+      "response": {
+        "schema_version": "2.0",
+        "request_id": "[REDACTED]",
+        "intent": "[REDACTED]",
+        "quality_requested": "HI_RES_LOSSLESS",
+        "selected_source": "amazon",
+        "track": {
+          "id": "B0H46SRVK1",
+          "title": "Count On You",
+          "artists": [
+            "Nipsey Hussle & Bino Rideaux"
+          ],
+          "album": "PROLIFIC [Explicit]",
+          "isrc": "USAT22604034",
+          "duration_ms": null,
+          "artwork_url": "[REDACTED]"
+        },
+        "playback": [
+          {
+            "id": "amazon:B0H46SRVK1:ULTRA_HD",
+            "source": "amazon",
+            "kind": "audio",
+            "delivery": "direct",
+            "url": "[REDACTED]",
+            "mime_type": "audio/mp4",
+            "container": "mp4",
+            "codec": "flac",
+            "quality": "HI_RES_LOSSLESS",
+            "lossless": true,
+            "bit_depth": 24,
+            "sample_rate_hz": 48000,
+            "bitrate_kbps": 1866,
+            "channels": 2,
+            "channel_layout": "[REDACTED]",
+            "replay_gain": {
+              "track_gain_db": null,
+              "track_peak": null,
+              "album_gain_db": null,
+              "album_peak": null,
+              "program_loudness_lufs": -7.9,
+              "anchor_loudness_lufs": -6.7,
+              "true_peak_db": null
+            },
+            "encryption": {
+              "scheme": "cenc-aes-ctr",
+              "key": {
+                "encoding": "[REDACTED]",
+                "value": "[REDACTED]"
+              },
+              "iv_source": "[REDACTED]"
+            }
+          }
+        ],
+        "sources": [
+          {
+            "source": "amazon",
+            "status": "ok",
+            "cached": true,
+            "latency_ms": 0,
+            "track": {
+              "id": "B0H46SRVK1",
+              "title": "Count On You",
+              "artists": [
+                "Nipsey Hussle & Bino Rideaux"
+              ],
+              "album": "PROLIFIC [Explicit]",
+              "isrc": "USAT22604034",
+              "duration_ms": null,
+              "artwork_url": "[REDACTED]"
+            },
+            "resources": [
+              {
+                "id": "amazon:B0H46SRVK1:ULTRA_HD",
+                "source": "amazon",
+                "kind": "audio",
+                "delivery": "direct",
+                "url": "[REDACTED]",
+                "mime_type": "audio/mp4",
+                "container": "mp4",
+                "codec": "flac",
+                "quality": "HI_RES_LOSSLESS",
+                "lossless": true,
+                "bit_depth": 24,
+                "sample_rate_hz": 48000,
+                "bitrate_kbps": 1866,
+                "channels": 2,
+                "channel_layout": "[REDACTED]",
+                "replay_gain": {
+                  "track_gain_db": null,
+                  "track_peak": null,
+                  "album_gain_db": null,
+                  "album_peak": null,
+                  "program_loudness_lufs": -7.9,
+                  "anchor_loudness_lufs": -6.7,
+                  "true_peak_db": null
+                },
+                "encryption": {
+                  "scheme": "cenc-aes-ctr",
+                  "key": {
+                    "encoding": "[REDACTED]",
+                    "value": "[REDACTED]"
+                  },
+                  "iv_source": "[REDACTED]"
+                }
+              }
+            ],
+            "error": null
+          },
+          {
+            "source": "tidal",
+            "status": "not_attempted",
+            "cached": false,
+            "latency_ms": 0,
+            "track": null,
+            "resources": [],
+            "error": {
+              "code": "[REDACTED]",
+              "message": "[REDACTED]"
+            }
+          },
+          {
+            "source": "mono",
+            "status": "not_attempted",
+            "cached": false,
+            "latency_ms": 0,
+            "track": null,
+            "resources": [],
+            "error": {
+              "code": "[REDACTED]",
+              "message": "[REDACTED]"
+            }
+          }
+        ],
+        "waveform": null
+      }
+    },
+    {
+      "observedAt": "2026-10-21T20:06:56.411Z",
+      "endpoint": "https://music-api.geeked.wtf/api/v2/track/",
+      "status": 200,
+      "kind": "resolver",
+      "response": {
+        "schema_version": "2.0",
+        "request_id": "[REDACTED]",
+        "intent": "[REDACTED]",
+        "quality_requested": "HI_RES_LOSSLESS",
+        "selected_source": "amazon",
+        "track": {
+          "id": "B0H478G7LV",
+          "title": "Bacc of the Bach",
+          "artists": [
+            "Nipsey Hussle & Bino Rideaux"
+          ],
+          "album": "PROLIFIC [Explicit]",
+          "isrc": "USAT22604044",
+          "duration_ms": null,
+          "artwork_url": "[REDACTED]"
+        },
+        "playback": [
+          {
+            "id": "amazon:B0H478G7LV:ULTRA_HD",
+            "source": "amazon",
+            "kind": "audio",
+            "delivery": "direct",
+            "url": "[REDACTED]",
+            "mime_type": "audio/mp4",
+            "container": "mp4",
+            "codec": "flac",
+            "quality": "HI_RES_LOSSLESS",
+            "lossless": true,
+            "bit_depth": 24,
+            "sample_rate_hz": 48000,
+            "bitrate_kbps": 1887,
+            "channels": 2,
+            "channel_layout": "[REDACTED]",
+            "replay_gain": {
+              "track_gain_db": null,
+              "track_peak": null,
+              "album_gain_db": null,
+              "album_peak": null,
+              "program_loudness_lufs": -7.4,
+              "anchor_loudness_lufs": -6.7,
+              "true_peak_db": null
+            },
+            "encryption": {
+              "scheme": "cenc-aes-ctr",
+              "key": {
+                "encoding": "[REDACTED]",
+                "value": "[REDACTED]"
+              },
+              "iv_source": "[REDACTED]"
+            }
+          }
+        ],
+        "sources": [
+          {
+            "source": "amazon",
+            "status": "ok",
+            "cached": true,
+            "latency_ms": 0,
+            "track": {
+              "id": "B0H478G7LV",
+              "title": "Bacc of the Bach",
+              "artists": [
+                "Nipsey Hussle & Bino Rideaux"
+              ],
+              "album": "PROLIFIC [Explicit]",
+              "isrc": "USAT22604044",
+              "duration_ms": null,
+              "artwork_url": "[REDACTED]"
+            },
+            "resources": [
+              {
+                "id": "amazon:B0H478G7LV:ULTRA_HD",
+                "source": "amazon",
+                "kind": "audio",
+                "delivery": "direct",
+                "url": "[REDACTED]",
+                "mime_type": "audio/mp4",
+                "container": "mp4",
+                "codec": "flac",
+                "quality": "HI_RES_LOSSLESS",
+                "lossless": true,
+                "bit_depth": 24,
+                "sample_rate_hz": 48000,
+                "bitrate_kbps": 1887,
+                "channels": 2,
+                "channel_layout": "[REDACTED]",
+                "replay_gain": {
+                  "track_gain_db": null,
+                  "track_peak": null,
+                  "album_gain_db": null,
+                  "album_peak": null,
+                  "program_loudness_lufs": -7.4,
+                  "anchor_loudness_lufs": -6.7,
+                  "true_peak_db": null
+                },
+                "encryption": {
+                  "scheme": "cenc-aes-ctr",
+                  "key": {
+                    "encoding": "[REDACTED]",
+                    "value": "[REDACTED]"
+                  },
+                  "iv_source": "[REDACTED]"
+                }
+              }
+            ],
+            "error": null
+          },
+          {
+            "source": "tidal",
+            "status": "not_attempted",
+            "cached": false,
+            "latency_ms": 0,
+            "track": null,
+            "resources": [],
+            "error": {
+              "code": "[REDACTED]",
+              "message": "[REDACTED]"
+            }
+          },
+          {
+            "source": "mono",
+            "status": "not_attempted",
+            "cached": false,
+            "latency_ms": 0,
+            "track": null,
+            "resources": [],
+            "error": {
+              "code": "[REDACTED]",
+              "message": "[REDACTED]"
+            }
+          }
+        ],
+        "waveform": null
+      }
+    }
+  ],
+  "pageOrigin": "https://monochrome.samidy.com",
+  "serviceWorker": "https://monochrome.samidy.com/sw.js",
+  "endpoints": [
+    "https://monochrome.samidy.com/assets/index-DzEjdnId.js",
+    "https://monochrome.samidy.com/assets/index-Ls7uxqq-.js",
+    "https://music-api.geeked.wtf/api/v2/track/",
+    "https://music-api.geeked.wtf/api/auth/turnstile"
+  ],
+  "evidenceNotes": [
+    "Observed in the authorized Firefox page after clicking the research extension action.",
+    "Responses are sanitized copies of real page fetch/XHR responses, not synthetic fixtures.",
+    "Endpoint resource timing establishes earlier requests, not their status or response body.",
+    "No request headers, cookies, tokens, media keys, or full playback URLs were exported.",
+    "No resource expiry or reuse contract is present in these captured resolver response bodies."
+  ]
+}

@@ -15,8 +15,11 @@ use serde_json::{json, Value};
 #[path = "failed_track_traversal.rs"]
 mod failed_track_traversal;
 use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 use tauri::Emitter;
@@ -26,12 +29,148 @@ const SESSION_KEY: &str = "nativePlaybackSession.v1";
 const QUEUE_KEY: &str = "nativePlaybackQueue.v1";
 const ENGINE_KEY: &str = "playbackEngine.v1";
 const STEADY_BUFFERING_RECOVERY_DELAY: Duration = Duration::from_secs(5);
+const MAX_PENDING_NATIVE_SOURCES: usize = 4;
+const PENDING_NATIVE_SOURCE_TTL: Duration = Duration::from_secs(30);
 
 fn preparation_window_seconds(override_value: Option<&str>) -> f64 {
     match override_value {
         Some("45") => 45.,
         _ => 30.,
     }
+}
+
+/// Queue-owned preparation only: stable identity facts and anonymous search
+/// rows. It never resolves an expiring URL, extracts audio or starts a decoder.
+pub(crate) async fn warm_upcoming_playback_identity(
+    acquisition: &AcquisitionManager,
+    store: &Store,
+    track: &Track,
+    settings: &crate::models::Settings,
+    providers: &[String],
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    trace: &crate::playback_sources::SourceTrace,
+) -> Result<usize, String> {
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.remaining().is_zero() {
+        return Err("Playback candidate preparation deadline expired".into());
+    }
+    if track.local_path.is_some()
+        || track.playback_range.is_some()
+        || crate::playback_sources::source_resolution_is_pinned(track, false, settings, true)
+    {
+        return Ok(0);
+    }
+    let identity = crate::recording_identity::RecordingIdentity::from_track(track);
+    let aliases_missing =
+        !crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
+            .has_verified_credit_sets();
+    let alias_eligible = crate::artist_alias_lookup::enabled()
+        && aliases_missing
+        && (track.provider == "spotify"
+            || track.provider == "catalog"
+                && matches!(
+                    track.provenance["catalogProvider"].as_str(),
+                    Some("musicbrainz" | "discogs")
+                )
+            || matches!(
+                track.provider.as_str(),
+                "beatport" | "traxsource" | "local" | "radio_song"
+            ) && identity.isrc.is_some()
+                && !identity.identifier_conflict);
+    let duration_missing = track.duration_seconds.is_none()
+        && track.provenance["manualFields"]["durationSeconds"].as_bool() != Some(true);
+    let raw_search = async {
+        let mut count = 0;
+        // Keep the configured provider order; each provider warms just its
+        // canonical query so late aliases retain the existing expansion slot.
+        for provider in providers {
+            if !matches!(provider.as_str(), "youtube" | "soundcloud" | "monochrome") {
+                continue;
+            }
+            count += acquisition
+                .warm_canonical_playback_query_cancelled(
+                    track,
+                    provider,
+                    settings,
+                    cancel.clone(),
+                    deadline,
+                )
+                .await?;
+        }
+        Ok(count)
+    };
+    let identity_preparation = async {
+        let alias_work = async {
+            if alias_eligible {
+                let completed = crate::artist_alias_lookup::lookup(
+                    acquisition,
+                    track,
+                    cancel.clone(),
+                    deadline,
+                    trace,
+                )
+                .await
+                .is_ok();
+                completed
+                    && crate::artist_credit_aliases::cached_verified_playback_artist_aliases(
+                        store, track,
+                    )
+                    .has_verified_credit_sets()
+            } else {
+                !aliases_missing
+            }
+        };
+        let duration_work = async {
+            if duration_missing {
+                matches!(
+                    acquisition
+                        .prepare_catalog_duration_track(track, cancel.clone(), deadline.instant())
+                        .await,
+                    Ok(Some(_))
+                )
+            } else {
+                false
+            }
+        };
+        let (alias_ready, duration_ready) = tokio::join!(alias_work, duration_work);
+        if !*cancel.borrow() && !deadline.remaining().is_zero() {
+            trace.event("next_preparation_identity_end",&track.provider,json!({"aliasesRequested":alias_eligible,"aliasesReady":alias_ready,"durationRequested":duration_missing,"durationReady":duration_ready}));
+        }
+    };
+    finish_upcoming_preparation(cancel.clone(), deadline, raw_search, identity_preparation).await
+}
+
+async fn finish_upcoming_preparation(
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    raw_search: impl std::future::Future<Output = Result<usize, String>>,
+    identity_preparation: impl std::future::Future<Output = ()>,
+) -> Result<usize, String> {
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.remaining().is_zero() {
+        return Err("Playback candidate preparation deadline expired".into());
+    }
+    let result = tokio::select! {
+        biased;
+        _=crate::playback_sources::wait_for_cancellation(cancel.clone())=>return Err("Cancelled".into()),
+        _=tokio::time::sleep_until(deadline.instant())=>return Err("Playback candidate preparation deadline expired".into()),
+        result=async { let (raw,())=tokio::join!(raw_search,identity_preparation);raw }=>result,
+    };
+    // Optional identity services validate their own app-owned fingerprints and
+    // cancellation before retaining proof. This fence also prevents a stale
+    // occurrence from reporting readiness to its owner.
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.remaining().is_zero() {
+        return Err("Playback candidate preparation deadline expired".into());
+    }
+    result
 }
 
 fn configured_preparation_window_seconds() -> f64 {
@@ -113,6 +252,196 @@ async fn wait_for_ready_seek_audio(
         }
 }
 const MAX_PLAYBACK_QUEUE_PAGE: usize = 200;
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WebViewPlaybackHandoff {
+    pub handoff_id: String,
+    pub source_generation: u64,
+    pub seek_serial: u64,
+    pub target_position: f64,
+    pub tracks: Vec<Track>,
+    pub entry_ids: Vec<String>,
+    pub index: usize,
+    pub session_id: String,
+    pub entry_id: String,
+    pub paused: bool,
+    pub volume: f64,
+    pub repeat: String,
+    pub shuffle: bool,
+    pub candidate: Candidate,
+    pub recorded: bool,
+}
+
+/// One-use handoff envelope for a source already resolved and retained in Rust.
+/// It intentionally carries no URL, headers, key, or serialized AudioSource.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolvedSourceHandoff {
+    pub handoff_id: String,
+    pub source_handle: String,
+    pub source_generation: u64,
+    pub seek_serial: u64,
+    pub target_position: f64,
+    pub tracks: Vec<Track>,
+    pub entry_ids: Vec<String>,
+    pub index: usize,
+    pub session_id: String,
+    pub entry_id: String,
+    pub paused: bool,
+    pub volume: f64,
+    pub repeat: String,
+    pub shuffle: bool,
+    pub recorded: bool,
+}
+
+struct PendingNativeSource {
+    source_generation: u64,
+    request_track: Track,
+    matching_level: crate::recording_match::MatchLevel,
+    expires_at: Instant,
+    resolved: crate::playback_sources::ResolvedSource,
+}
+
+fn pending_source_owner_matches(
+    source: &PendingNativeSource,
+    handoff: &ResolvedSourceHandoff,
+    target_track: &Track,
+    now: Instant,
+) -> bool {
+    source.expires_at > now
+        && source.source_generation == handoff.source_generation
+        && native_handoff_track_identity_matches(&source.request_track, target_track)
+}
+
+fn native_handoff_track_identity_matches(expected: &Track, actual: &Track) -> bool {
+    expected.id == actual.id
+        && expected.provider == actual.provider
+        && expected.provider_id == actual.provider_id
+        && expected.source_url == actual.source_url
+        && expected.artist == actual.artist
+        && expected.title == actual.title
+        && expected.version == actual.version
+        && expected.album == actual.album
+        && expected.album_artist == actual.album_artist
+        && expected.recording_date == actual.recording_date
+        && expected.track_number == actual.track_number
+        && expected.track_total == actual.track_total
+        && expected.disc_number == actual.disc_number
+        && expected.disc_total == actual.disc_total
+        && expected.remixers == actual.remixers
+        && expected.label == actual.label
+        && expected.release_date == actual.release_date
+        && expected.catalog_number == actual.catalog_number
+        && expected.duration_seconds == actual.duration_seconds
+        && expected.isrc == actual.isrc
+        && expected.playback_range == actual.playback_range
+        && expected.asset_id == actual.asset_id
+        && expected.local_path == actual.local_path
+        // Provenance carries the authority and source context for identity
+        // evidence. Other mutable library state (favorite/local availability,
+        // artwork, play count) is intentionally outside this binding.
+        && expected.provenance == actual.provenance
+}
+
+fn resolved_match_level(
+    resolved: &crate::playback_sources::ResolvedSource,
+) -> Option<crate::recording_match::MatchLevel> {
+    let value = resolved.quality.get("matchLevel")?.as_str()?;
+    match value {
+        "exact" => Some(crate::recording_match::MatchLevel::Exact),
+        "balanced" => Some(crate::recording_match::MatchLevel::Balanced),
+        "flexible" => Some(crate::recording_match::MatchLevel::Flexible),
+        _ => None,
+    }
+}
+
+fn pending_source_policy_matches(
+    source: &PendingNativeSource,
+    current: crate::recording_match::MatchLevel,
+) -> bool {
+    source.matching_level == current && resolved_match_level(&source.resolved) == Some(current)
+}
+
+fn validate_resolved_handoff_occurrence(handoff: &ResolvedSourceHandoff) -> Result<&Track, String> {
+    if uuid::Uuid::parse_str(&handoff.handoff_id).is_err()
+        || uuid::Uuid::parse_str(&handoff.source_handle).is_err()
+        || handoff.session_id.trim().is_empty()
+        || handoff.session_id.len() > 128
+        || handoff.session_id.chars().any(char::is_control)
+        || handoff.entry_id.trim().is_empty()
+        || handoff.entry_id.len() > 200
+        || handoff.entry_id.chars().any(char::is_control)
+    {
+        return Err("Invalid native source handoff identity".into());
+    }
+    if handoff.index >= handoff.tracks.len()
+        || handoff.entry_ids.len() != handoff.tracks.len()
+        || handoff.entry_ids.get(handoff.index) != Some(&handoff.entry_id)
+        || handoff
+            .entry_ids
+            .iter()
+            .any(|id| id.trim().is_empty() || id.len() > 200 || id.chars().any(char::is_control))
+        || handoff.entry_ids.iter().collect::<HashSet<_>>().len() != handoff.entry_ids.len()
+    {
+        return Err("Playback queue occurrence identity is inconsistent".into());
+    }
+    handoff
+        .tracks
+        .get(handoff.index)
+        .ok_or_else(|| "Playback queue position is out of range".to_owned())
+}
+
+fn take_pending_native_source(
+    pending: &mut HashMap<String, PendingNativeSource>,
+    handle: &str,
+    now: Instant,
+) -> Option<PendingNativeSource> {
+    pending.retain(|_, source| source.expires_at > now);
+    pending.remove(handle)
+}
+
+fn purge_pending_native_sources_older_than(
+    pending: &mut HashMap<String, PendingNativeSource>,
+    generation: u64,
+) -> usize {
+    let previous_len = pending.len();
+    pending.retain(|_, source| source.source_generation >= generation);
+    previous_len - pending.len()
+}
+
+fn exact_handoff_youtube_id<'a>(
+    track: &Track,
+    candidate: &'a Candidate,
+    target_position: f64,
+) -> Option<&'a str> {
+    let id = candidate.id.strip_prefix("youtube:")?;
+    let duration = track.duration_seconds?;
+    (track.provider == "youtube"
+        && track.provider_id == id
+        && track.local_path.is_none()
+        && track.asset_id.is_none()
+        && track.playback_range.is_none()
+        && track.version.as_deref().is_none_or(str::is_empty)
+        && track.provenance["chapters"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+        && candidate.provider == "youtube"
+        && candidate.source.is_none()
+        && candidate.chapters.as_ref().is_none_or(Vec::is_empty)
+        && duration.is_finite()
+        && (5.0..=86_400.0).contains(&duration)
+        && target_position.is_finite()
+        && target_position >= 0.0
+        && target_position < duration
+        && crate::acquisition::youtube_video_id(&track.source_url).as_deref() == Some(id)
+        && crate::acquisition::youtube_video_id(&candidate.url).as_deref() == Some(id))
+    .then_some(id)
+}
+
+fn handoff_stop_is_owned(expected: &str, current: Option<&str>) -> bool {
+    current == Some(expected)
+}
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -254,6 +583,8 @@ struct State {
     last_source_failure: Option<Value>,
     last_skipped_track_failure: Option<Value>,
     recent_track_failures: Vec<Value>,
+    handoff_id: Option<String>,
+    pause_when_ready: bool,
     seek_serial: u64,
     pending_seek_generation: Option<u64>,
     seek_watchdog_epoch: u64,
@@ -331,6 +662,8 @@ impl Default for State {
             last_source_failure: None,
             last_skipped_track_failure: None,
             recent_track_failures: Vec::new(),
+            handoff_id: None,
+            pause_when_ready: false,
             seek_serial: 0,
             pending_seek_generation: None,
             seek_watchdog_epoch: 0,
@@ -401,6 +734,10 @@ impl State {
         .flatten()
         .collect::<Vec<_>>();
         let mut value = json!({"engine":if native{"native"}else{"webview"},"revision":self.revision,"queueRevision":self.queue_revision,"queuedOperationId":self.queued_operation_id,"generation":self.generation,"status":self.status,"trackId":self.track().map(|t|&t.id),"track":self.track(),"entryId":self.entries.get(self.index),"candidate":self.candidate,"currentIndex":if self.queue.is_empty(){-1}else{self.index as i64},"position":self.position,"duration":self.duration,"volume":self.volume,"repeat":self.repeat,"shuffle":self.shuffle,"paused":self.status!="playing","canSeek":self.station.is_none()&&self.duration>0.,"canVolume":true,"playerMessage":self.message,"quality":self.quality,"chapter":self.chapter(),"radioNowPlaying":self.radio_now,"radioHistory":self.radio_history,"seekSerial":self.seek_serial,"previewKind":"native","diagnostics":{"firstAudioMs":self.first_audio_ms,"sourceReadyMs":self.source_ready_ms,"seekFirstAudioMs":self.seek_first_audio_ms,"operationId":self.operation_id,"operationKind":self.operation_kind,"operationTrace":operation_trace,"clientStartedAtMs":self.operation_client_started_at_ms,"clickToIpcMs":self.operation_click_to_ipc_ms,"commandSerializedBytes":self.operation_command_bytes,"seekOperationId":self.seek_operation_id,"seekTrace":seek_trace,"seekClientStartedAtMs":self.seek_client_started_at_ms,"seekClickToIpcMs":self.seek_click_to_ipc_ms,"seekCommandSerializedBytes":self.seek_command_bytes,"seekOperationFirstAudioMs":self.seek_operation_first_audio_ms,"recoveryCount":self.recovery,"bufferingCount":self.buffering_count,"decoder":self.decoder_diagnostics,"lastBuffering":self.last_buffering,"lastRecovery":self.last_recovery,"lastLocalStorageFailure":self.last_local_storage_failure,"lastSourceFailure":self.last_source_failure,"lastSkippedTrackFailure":self.last_skipped_track_failure}});
+        value["handoffId"] = self
+            .handoff_id
+            .as_ref()
+            .map_or(Value::Null, |handoff_id| json!(handoff_id));
         value["naturalQueueEnd"] = json!(self.natural_queue_end);
         value["failure"] = if self.status == "failed" {
             json!(crate::playback_failure::classify(&self.message))
@@ -498,6 +835,39 @@ fn reorder_queue_state(
     s.entries.insert(to, entry);
     mark_queue_changed(s);
     s.index = s.entries.iter().position(|id| *id == selected).unwrap_or(0);
+    Ok(())
+}
+
+/// Remove a selected set of occurrences in one revision, retaining the playing occurrence.
+fn remove_queue_occurrences(
+    s: &mut State,
+    indices: &[usize],
+    expected: Option<u64>,
+) -> Result<(), String> {
+    if expected.is_some_and(|revision| revision != s.queue_revision) {
+        return Err("Queue revision changed before removal".into());
+    }
+    let mut indices = indices.to_vec();
+    indices.sort_unstable();
+    indices.dedup();
+    if indices
+        .iter()
+        .any(|&index| index >= s.queue.len() || index == s.index)
+    {
+        return Err("Queue removal must reference existing non-playing occurrences".into());
+    }
+    if indices.is_empty() {
+        return Ok(());
+    }
+    let selected = s.entries.get(s.index).cloned();
+    for index in indices.into_iter().rev() {
+        s.queue.remove(index);
+        s.entries.remove(index);
+    }
+    s.index = selected
+        .and_then(|id| s.entries.iter().position(|entry| *entry == id))
+        .unwrap_or(0);
+    mark_queue_changed(s);
     Ok(())
 }
 
@@ -677,9 +1047,10 @@ struct Inner {
     acquisition: Arc<AcquisitionManager>,
     history: Arc<PlaybackHistory>,
     state: Mutex<State>,
+    pending_native_sources: Mutex<HashMap<String, PendingNativeSource>>,
     persistence: Mutex<()>,
     commands: tokio::sync::Mutex<()>,
-    native: bool,
+    native: AtomicBool,
     output: NativeOutput,
     updates: watch::Sender<Value>,
     audible: watch::Sender<bool>,
@@ -754,9 +1125,10 @@ impl PlaybackService {
                 acquisition,
                 history,
                 state: Mutex::new(state),
+                pending_native_sources: Mutex::new(HashMap::new()),
                 persistence: Mutex::new(()),
                 commands: tokio::sync::Mutex::new(()),
-                native,
+                native: AtomicBool::new(native),
                 output,
                 updates,
                 audible,
@@ -782,21 +1154,45 @@ impl PlaybackService {
         Ok(service)
     }
     pub fn native_enabled(&self) -> bool {
-        self.inner.native
+        self.inner.native.load(Ordering::Acquire)
+    }
+
+    /// Release unresolved CENC source leases owned by superseded requests.
+    /// A new playback generation or pause/stop invalidation should call this
+    /// alongside cancellation of resolver and WebView transport work.
+    pub(crate) fn cancel_pending_native_sources_older_than(&self, generation: u64) -> usize {
+        self.inner
+            .pending_native_sources
+            .lock()
+            .map(|mut pending| purge_pending_native_sources_older_than(&mut pending, generation))
+            .unwrap_or(0)
+    }
+
+    /// Provider-session changes invalidate every pending resolved source.
+    pub(crate) fn cancel_all_pending_native_sources(&self) -> usize {
+        self.inner
+            .pending_native_sources
+            .lock()
+            .map(|mut pending| {
+                let count = pending.len();
+                pending.clear();
+                count
+            })
+            .unwrap_or(0)
     }
     pub fn snapshot(&self) -> Value {
         self.inner
             .state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .snapshot_with_failure_history(self.inner.native, true)
+            .snapshot_with_failure_history(self.native_enabled(), true)
     }
     fn snapshot_without_queue(&self) -> Value {
         self.inner
             .state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .snapshot(self.inner.native, false)
+            .snapshot(self.native_enabled(), false)
     }
     /// A bounded queued command has at most 500 tracks; capture all occurrence IDs
     /// atomically rather than accidentally truncating its receipt to a 200-row page.
@@ -804,15 +1200,290 @@ impl PlaybackService {
         let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         json!({"queuedOperationId":state.queued_operation_id,"queueRevision":state.queue_revision,"queueEntryIds":state.entries,"generation":state.generation,"trackIds":state.queue.iter().map(|t|t.id.as_str()).collect::<Vec<_>>()})
     }
+
+    /// Keep a CENC-capable resolved source in Rust and return only a short-lived
+    /// opaque handle to the UI. Dropping expired/evicted source records releases
+    /// their relay leases and key material.
+    pub(crate) fn register_native_resolved_source(
+        self: &Arc<Self>,
+        source_generation: u64,
+        track: &Track,
+        resolved: crate::playback_sources::ResolvedSource,
+    ) -> Result<String, String> {
+        let candidate = resolved
+            .candidate
+            .as_ref()
+            .ok_or("Native lossless source has no verified candidate")?;
+        let matching_level = self
+            .inner
+            .store
+            .settings()
+            .map_err(|_| "Playback matching policy unavailable")?
+            .matching_level;
+        if source_generation == 0
+            || track.id.trim().is_empty()
+            || track.id.len() > 200
+            || track.id.chars().any(char::is_control)
+            || resolved_match_level(&resolved) != Some(matching_level)
+            || candidate.provider != "monochrome"
+            || !resolved
+                .source
+                .cenc
+                .as_ref()
+                .is_some_and(|cenc| cenc.has_registered_lease_for_input(&resolved.source.input))
+            || resolved.station.is_some()
+        {
+            return Err("Resolved source is not eligible for native lossless handoff".into());
+        }
+        let now = Instant::now();
+        let mut pending = self
+            .inner
+            .pending_native_sources
+            .lock()
+            .map_err(|_| "Native playback source registry unavailable")?;
+        pending.retain(|_, source| source.expires_at > now);
+        if pending.len() >= MAX_PENDING_NATIVE_SOURCES {
+            return Err("Native playback source handoff capacity is full".into());
+        }
+        let handle = uuid::Uuid::new_v4().to_string();
+        let expires_at = now + PENDING_NATIVE_SOURCE_TTL;
+        pending.insert(
+            handle.clone(),
+            PendingNativeSource {
+                source_generation,
+                request_track: track.clone(),
+                matching_level,
+                expires_at,
+                resolved,
+            },
+        );
+        let weak = Arc::downgrade(self);
+        let expiry_handle = handle.clone();
+        let expiry_generation = source_generation;
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(PENDING_NATIVE_SOURCE_TTL).await;
+            let Some(service) = weak.upgrade() else {
+                return;
+            };
+            if let Ok(mut pending) = service.inner.pending_native_sources.lock() {
+                if pending.get(&expiry_handle).is_some_and(|source| {
+                    source.expires_at == expires_at && source.source_generation == expiry_generation
+                }) {
+                    pending.remove(&expiry_handle);
+                }
+            };
+        });
+        Ok(handle)
+    }
+
+    /// Transfer the exact currently owned WebView occurrence to the native
+    /// decoder using the source held under `source_handle`. The handle is
+    /// consumed once and the queue/session/entry envelope is validated before
+    /// any native ownership change.
+    pub async fn handoff_webview_resolved_source(
+        &self,
+        handoff: ResolvedSourceHandoff,
+        source_is_current: impl FnOnce(&ResolvedSourceHandoff, &str) -> bool,
+    ) -> Result<Value, String> {
+        let _command = self.inner.commands.lock().await;
+        if self.native_enabled() {
+            return Err("Playback ownership has already transferred".into());
+        }
+        let track = validate_resolved_handoff_occurrence(&handoff)?;
+        self.validate_tracks(&handoff.tracks)?;
+        if !(0.0..=1.0).contains(&handoff.volume)
+            || !matches!(handoff.repeat.as_str(), "off" | "all" | "one")
+            || !handoff.target_position.is_finite()
+            || handoff.target_position < 0.0
+            || track
+                .duration_seconds
+                .is_some_and(|duration| handoff.target_position >= duration)
+        {
+            return Err("Native source handoff position or playback settings are invalid".into());
+        }
+        let now = Instant::now();
+        let (owner_matches, eligible, matching_level) = {
+            let mut pending = self
+                .inner
+                .pending_native_sources
+                .lock()
+                .map_err(|_| "Native playback source registry unavailable")?;
+            pending.retain(|_, source| source.expires_at > now);
+            let source = pending
+                .get(&handoff.source_handle)
+                .ok_or("Native playback source handle expired or was already used")?;
+            let eligible = source.resolved.source.cenc.as_ref().is_some_and(|cenc| {
+                cenc.has_registered_lease_for_input(&source.resolved.source.input)
+            }) && source.resolved.station.is_none()
+                && source
+                    .resolved
+                    .candidate
+                    .as_ref()
+                    .is_some_and(|candidate| candidate.provider == "monochrome")
+                && source
+                    .resolved
+                    .duration
+                    .or(track.duration_seconds)
+                    .is_some_and(|duration| {
+                        duration.is_finite() && duration > 0.0 && handoff.target_position < duration
+                    });
+            let owner_matches = pending_source_owner_matches(source, &handoff, track, now)
+                && pending_source_policy_matches(source, source.matching_level);
+            (owner_matches, eligible, source.matching_level)
+        };
+        let current_matching_level = self
+            .inner
+            .store
+            .settings()
+            .map_err(|_| "Playback matching policy unavailable")?
+            .matching_level;
+        if !eligible
+            || !owner_matches
+            || current_matching_level != matching_level
+            || !source_is_current(&handoff, &track.id)
+        {
+            return Err("Native source handoff no longer owns this playback occurrence".into());
+        }
+        let mut pending = self
+            .inner
+            .pending_native_sources
+            .lock()
+            .map_err(|_| "Native playback source registry unavailable")?;
+        let source =
+            take_pending_native_source(&mut pending, &handoff.source_handle, Instant::now())
+                .ok_or("Native playback source handle expired or was already used")?;
+        let candidate = source.resolved.candidate.clone();
+        {
+            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.queue = handoff.tracks;
+            state.entries = handoff.entry_ids;
+            state.index = handoff.index;
+            state.queue_revision = state.queue_revision.wrapping_add(1);
+            state.published_queue_revision = None;
+            state.session = handoff.session_id;
+            state.recorded = handoff.recorded;
+            state.volume = handoff.volume;
+            state.repeat = handoff.repeat;
+            state.shuffle = handoff.shuffle;
+            state.candidate = candidate.clone();
+            state.explicit_source = true;
+            state.handoff_id = Some(handoff.handoff_id);
+            state.pause_when_ready = handoff.paused;
+            state.request_started = Instant::now();
+            state.first_audio_ms = None;
+            state.source_ready_ms = None;
+            state.operation_source_ready_ms = None;
+            state.operation_first_audio_ms = None;
+            state.seek_serial = handoff.seek_serial;
+            state.seek_requested = Some(Instant::now());
+            state.seek_first_audio_ms = None;
+            state.recovery_deadline = None;
+            state.recovery = 0;
+            state.queued_operation_id = None;
+            state.queued_intent_epoch = state.queued_intent_epoch.wrapping_add(1);
+            state.revision = state.revision.wrapping_add(1);
+        }
+        drop(pending);
+        self.inner.native.store(true, Ordering::Release);
+        self.start_with_resolved_source(source.resolved, handoff.target_position, handoff.paused);
+        Ok(self.snapshot())
+    }
     pub fn snapshot_page(&self, offset: usize, limit: usize) -> Value {
         self.inner
             .state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .snapshot_page(self.inner.native, offset, limit)
+            .snapshot_page(self.native_enabled(), offset, limit)
     }
     pub fn subscribe(&self) -> watch::Receiver<Value> {
         self.inner.updates.subscribe()
+    }
+
+    /// Transfer a verified, currently playing WebView YouTube occurrence to the
+    /// native resolver without changing the queue/session identity.
+    pub async fn handoff_webview(
+        &self,
+        handoff: WebViewPlaybackHandoff,
+        source_is_current: impl FnOnce(u64, &str) -> bool,
+    ) -> Result<Value, String> {
+        let _command = self.inner.commands.lock().await;
+        if self.native_enabled() {
+            return Err("Playback ownership has already transferred".into());
+        }
+        let handoff_id = handoff.handoff_id.trim();
+        if handoff_id.is_empty()
+            || handoff_id.len() > 128
+            || handoff_id.chars().any(char::is_control)
+        {
+            return Err("Invalid playback handoff ID".into());
+        }
+        if handoff.session_id.trim().is_empty()
+            || handoff.session_id.len() > 128
+            || handoff.session_id.chars().any(char::is_control)
+            || handoff.entry_id.trim().is_empty()
+            || handoff.entry_id.len() > 200
+            || handoff.entry_id.chars().any(char::is_control)
+        {
+            return Err("Invalid playback session or queue occurrence".into());
+        }
+        if handoff.index >= handoff.tracks.len()
+            || handoff.entry_ids.len() != handoff.tracks.len()
+            || handoff.entry_ids.get(handoff.index) != Some(&handoff.entry_id)
+            || handoff.entry_ids.iter().any(|id| {
+                id.trim().is_empty() || id.len() > 200 || id.chars().any(char::is_control)
+            })
+            || handoff.entry_ids.iter().collect::<HashSet<_>>().len() != handoff.entry_ids.len()
+        {
+            return Err("Playback queue occurrence identity is inconsistent".into());
+        }
+        self.validate_tracks(&handoff.tracks)?;
+        let track = &handoff.tracks[handoff.index];
+        if exact_handoff_youtube_id(track, &handoff.candidate, handoff.target_position).is_none()
+            || !(0.0..=1.0).contains(&handoff.volume)
+            || !matches!(handoff.repeat.as_str(), "off" | "all" | "one")
+            || !source_is_current(handoff.source_generation, &track.id)
+        {
+            return Err(
+                "Playback handoff source does not match the current full YouTube recording".into(),
+            );
+        }
+        {
+            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.queue = handoff.tracks;
+            state.entries = handoff.entry_ids;
+            state.index = handoff.index;
+            state.queue_revision = state.queue_revision.wrapping_add(1);
+            state.published_queue_revision = None;
+            state.session = handoff.session_id;
+            state.recorded = handoff.recorded;
+            state.volume = handoff.volume;
+            state.repeat = handoff.repeat;
+            state.shuffle = handoff.shuffle;
+            state.candidate = Some(handoff.candidate.clone());
+            state.handoff_id = Some(handoff.handoff_id);
+            state.pause_when_ready = handoff.paused;
+            state.request_started = Instant::now();
+            state.first_audio_ms = None;
+            state.source_ready_ms = None;
+            state.operation_source_ready_ms = None;
+            state.operation_first_audio_ms = None;
+            state.seek_serial = handoff.seek_serial;
+            state.seek_requested = Some(Instant::now());
+            state.seek_first_audio_ms = None;
+            state.recovery_deadline = None;
+            state.recovery = 0;
+            state.queued_operation_id = None;
+            state.queued_intent_epoch = state.queued_intent_epoch.wrapping_add(1);
+            state.revision = state.revision.wrapping_add(1);
+        }
+        self.inner.native.store(true, Ordering::Release);
+        self.start_with_pause(
+            Some(handoff.candidate),
+            handoff.target_position,
+            true,
+            handoff.paused,
+        );
+        Ok(self.snapshot())
     }
     fn publish(&self) {
         let (full, lite, queue_revision, include_queue) = {
@@ -820,14 +1491,14 @@ impl PlaybackService {
             let include_queue = s.published_queue_revision != Some(s.queue_revision);
             let revision = s.queue_revision;
             (
-                s.snapshot(self.inner.native, include_queue),
-                s.snapshot(self.inner.native, false),
+                s.snapshot(self.native_enabled(), include_queue),
+                s.snapshot(self.native_enabled(), false),
                 revision,
                 include_queue,
             )
         };
         self.inner.updates.send_replace(lite);
-        if self.inner.native {
+        if self.native_enabled() {
             if self.inner.app.emit("native-playback-state", full).is_ok() && include_queue {
                 let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
                 if s.queue_revision == queue_revision {
@@ -984,7 +1655,7 @@ impl PlaybackService {
                 return Err("Queued playback operation was cancelled or superseded".into());
             }
         }
-        if !self.inner.native {
+        if !self.native_enabled() {
             return Err("Native playback is not enabled".into());
         }
         let action = command["action"]
@@ -1012,6 +1683,18 @@ impl PlaybackService {
                 return Ok(self.snapshot_without_queue());
             }
         }
+        if let Some(expected) = command.get("expectedHandoffId").and_then(Value::as_str) {
+            if action != "stop" {
+                return Err("Expected handoff owner is supported only for stop".into());
+            }
+            if !handoff_stop_is_owned(
+                expected,
+                self.inner.state.lock().unwrap().handoff_id.as_deref(),
+            ) {
+                return Ok(self.snapshot_without_queue());
+            }
+        }
+        self.inner.state.lock().unwrap().handoff_id = None;
         let queued_operation_id = parse_operation_id(command.get("queuedOperationId"))?;
         let client_operation_id = parse_operation_id(command.get("operationId"))?;
         let client_started_at_ms = parse_client_started_at_ms(command.get("clientStartedAtMs"))?;
@@ -1024,6 +1707,7 @@ impl PlaybackService {
             action,
             "queue"
                 | "remove"
+                | "remove_many"
                 | "reorder"
                 | "sort_upcoming"
                 | "shuffle"
@@ -1225,6 +1909,7 @@ impl PlaybackService {
                             Instant::now() + self.inner.state.lock().unwrap().startup_budget,
                         );
                     }
+                    self.record_started();
                 } else {
                     let failed_resume = status == "failed";
                     if failed_resume {
@@ -1258,7 +1943,7 @@ impl PlaybackService {
             }
             "seek" => {
                 let position = positive(command.get("position"), 0.)?;
-                let (duration, offset, station, ready, status, candidate) = {
+                let (duration, offset, station, ready, status, candidate, pause_when_ready) = {
                     let s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
                     (
                         s.duration,
@@ -1267,6 +1952,7 @@ impl PlaybackService {
                         s.output_ready,
                         s.status.clone(),
                         s.candidate.clone(),
+                        s.pause_when_ready,
                     )
                 };
                 if station {
@@ -1320,7 +2006,7 @@ impl PlaybackService {
                         s.seek_first_audio_ms = None;
                         s.seek_operation_first_audio_ms = None;
                     });
-                    self.start(candidate, position, true);
+                    self.start_with_pause(candidate, position, true, pause_when_ready);
                 } else if deferred_seek {
                     // Retained stopped/ended output must not restart from a seek. Invalidate old callbacks now,
                     // retain this request while paused, and resolve only on Resume.
@@ -1447,6 +2133,17 @@ impl PlaybackService {
                     self.start(None, 0., false);
                 }
             }
+            "remove_many" => {
+                let indices: Vec<usize> = serde_json::from_value(command["indices"].clone())
+                    .map_err(|_| "Queue positions missing or invalid")?;
+                let expected = command.get("expectedQueueRevision").and_then(Value::as_u64);
+                {
+                    let mut s = self.inner.state.lock().unwrap();
+                    remove_queue_occurrences(&mut s, &indices, expected)?;
+                    s.revision += 1;
+                }
+                self.publish();
+            }
             "reorder" => {
                 let from = command["from"].as_u64().ok_or("Queue position missing")? as usize;
                 let to = command["to"].as_u64().ok_or("Queue position missing")? as usize;
@@ -1474,7 +2171,14 @@ impl PlaybackService {
         }
         if matches!(
             action,
-            "queue" | "remove" | "reorder" | "sort_upcoming" | "shuffle" | "repeat" | "resume"
+            "queue"
+                | "remove"
+                | "remove_many"
+                | "reorder"
+                | "sort_upcoming"
+                | "shuffle"
+                | "repeat"
+                | "resume"
         ) {
             self.prepare_next();
         }
@@ -1505,6 +2209,46 @@ impl PlaybackService {
         Ok(())
     }
     fn start(&self, candidate: Option<Candidate>, position: f64, resume: bool) {
+        self.start_with_pause(candidate, position, resume, false);
+    }
+    fn start_with_pause(
+        &self,
+        candidate: Option<Candidate>,
+        position: f64,
+        resume: bool,
+        pause_when_ready: bool,
+    ) {
+        self.start_with_pause_and_resolved_source(
+            candidate,
+            position,
+            resume,
+            pause_when_ready,
+            None,
+        );
+    }
+    fn start_with_resolved_source(
+        &self,
+        resolved: crate::playback_sources::ResolvedSource,
+        position: f64,
+        pause_when_ready: bool,
+    ) {
+        let candidate = resolved.candidate.clone();
+        self.start_with_pause_and_resolved_source(
+            candidate,
+            position,
+            true,
+            pause_when_ready,
+            Some(resolved),
+        );
+    }
+    fn start_with_pause_and_resolved_source(
+        &self,
+        candidate: Option<Candidate>,
+        position: f64,
+        resume: bool,
+        pause_when_ready: bool,
+        resolved_source: Option<crate::playback_sources::ResolvedSource>,
+    ) {
         let startup_budget = self
             .inner
             .store
@@ -1531,6 +2275,7 @@ impl PlaybackService {
                 return;
             };
             s.startup_budget = startup_budget;
+            s.pause_when_ready = pause_when_ready;
             s.cancel = Some(tx);
             s.last_buffering = None;
             s.status = "resolving".into();
@@ -1613,7 +2358,9 @@ impl PlaybackService {
         });
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
-            let result = if recovery > 0 {
+            let result = if let Some(resolved) = resolved_source {
+                Ok(resolved)
+            } else if recovery > 0 {
                 if let Some(candidate) = candidate.as_ref() {
                     let (operation_id, seek_operation_id) = {
                         let state = service.inner.state.lock().unwrap();
@@ -1699,7 +2446,11 @@ impl PlaybackService {
                     let (offset, end) = service.source_bounds(&track);
                     let volume = {
                         let s = service.inner.state.lock().unwrap();
-                        s.volume
+                        if s.pause_when_ready {
+                            0.0
+                        } else {
+                            s.volume
+                        }
                     };
                     let chapter_candidate = origin
                         .permits_automatic_chapter_inspection()
@@ -2024,12 +2775,14 @@ impl PlaybackService {
                     return;
                 }
                 let mut s = self.inner.state.lock().unwrap();
-                if s.generation != generation
-                    || matches!(s.status.as_str(), "paused" | "idle" | "failed")
-                {
+                if s.generation != generation || matches!(s.status.as_str(), "idle" | "failed") {
                     return;
                 }
-                self.inner.audible.send_replace(s.volume > 0.);
+                let pause_on_ready = s.pause_when_ready;
+                let restore_volume = s.volume;
+                self.inner
+                    .audible
+                    .send_replace(!pause_on_ready && s.volume > 0.);
                 {
                     s.output_ready = true;
                     s.pending_seek_generation = None;
@@ -2043,12 +2796,18 @@ impl PlaybackService {
                             .operation_received_at
                             .map(|at| at.elapsed().as_millis() as u64);
                     }
-                    s.status = "playing".into();
+                    s.status = if pause_on_ready { "paused" } else { "playing" }.into();
                     if s.recovery > 0 && s.recovered_audio_since.is_none() {
                         let position = s.position;
                         s.recovered_audio_since = Some((Instant::now(), position));
                     }
-                    s.message = "Playing audio".into();
+                    s.message = if pause_on_ready {
+                        "Paused"
+                    } else {
+                        "Playing audio"
+                    }
+                    .into();
+                    s.pause_when_ready = false;
                     if s.end.is_none() {
                         if let Some(duration) = duration {
                             s.duration = duration;
@@ -2065,12 +2824,21 @@ impl PlaybackService {
                         s.decoder_diagnostics = Some(decoder);
                     }
                 }
+                if pause_on_ready {
+                    let _ = self.inner.output.send(OutputCommand::Pause);
+                    let _ = self
+                        .inner
+                        .output
+                        .send(OutputCommand::Volume(restore_volume as f32));
+                }
                 s.revision += 1;
                 drop(s);
                 self.publish();
-                self.record_started();
-                self.cache_current_artwork(generation);
-                self.prepare_next();
+                if !pause_on_ready {
+                    self.record_started();
+                    self.cache_current_artwork(generation);
+                    self.prepare_next();
+                }
             }
             OutputEvent::Position {
                 generation,
@@ -2102,7 +2870,7 @@ impl PlaybackService {
                         s.duration,
                         s.revision,
                         save,
-                        s.snapshot(self.inner.native, false),
+                        s.snapshot(self.native_enabled(), false),
                     )
                 };
                 let _=self.inner.app.emit("native-playback-position",json!({"generation":generation,"revision":revision,"position":position,"duration":duration,"buffering":false,"chapter":lite["chapter"]}));
@@ -2320,26 +3088,17 @@ impl PlaybackService {
                     }
                     let mut seen = HashSet::new();
                     providers.retain(|provider| seen.insert(provider.clone()));
-                    let aliases =
-                        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(
-                            &service.inner.store,
-                            &track,
-                        );
-                    let alternate_artists = aliases.search_artist_candidates();
-                    let discovery = service
-                        .inner
-                        .acquisition
-                        .warm_playback_candidates_cancelled(
-                            &track,
-                            &alternate_artists,
-                            &providers,
-                            &settings,
-                            cancel.clone(),
-                            crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(
-                                3,
-                            )),
-                        )
-                        .await;
+                    let discovery = warm_upcoming_playback_identity(
+                        &service.inner.acquisition,
+                        &service.inner.store,
+                        &track,
+                        &settings,
+                        &providers,
+                        cancel.clone(),
+                        crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(3)),
+                        &trace,
+                    )
+                    .await;
                     trace.event(
                         "next_preparation_discovery_end",
                         "other",
@@ -2505,7 +3264,7 @@ impl PlaybackService {
             if state.generation != generation {
                 return;
             }
-            let value = state.snapshot(self.inner.native, false);
+            let value = state.snapshot(self.native_enabled(), false);
             let Some(url) = value["track"]["artworkUrl"]
                 .as_str()
                 .filter(|u| u.starts_with("https://"))
@@ -2529,7 +3288,7 @@ impl PlaybackService {
             };
             let mut state = service.inner.state.lock().unwrap();
             if state.generation != generation
-                || state.snapshot(service.inner.native, false)["track"]["artworkUrl"].as_str()
+                || state.snapshot(service.native_enabled(), false)["track"]["artworkUrl"].as_str()
                     != Some(url.as_str())
             {
                 return;
@@ -2816,7 +3575,7 @@ impl PlaybackService {
         &self,
         caller_id: Option<String>,
     ) -> Result<PlayingTrackIdentification, String> {
-        if !self.inner.native {
+        if !self.native_enabled() {
             return Err("Native playback identification is unavailable".into());
         }
         let job = self.inner.playing_track_identifications.begin(caller_id)?;
@@ -4020,6 +4779,301 @@ fn shuffle_upcoming(state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn youtube_handoff_fixture() -> (Track, Candidate) {
+        let track = Track {
+            id: "youtube:6MAzUT1YhWE".into(),
+            provider: "youtube".into(),
+            provider_id: "6MAzUT1YhWE".into(),
+            source_url: "https://www.youtube.com/watch?v=6MAzUT1YhWE".into(),
+            title: "Rooftop Live".into(),
+            duration_seconds: Some(6128.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:6MAzUT1YhWE".into(),
+            provider: "youtube".into(),
+            url: track.source_url.clone(),
+            title: track.title.clone(),
+            ..Candidate::default()
+        };
+        (track, candidate)
+    }
+
+    fn resolved_handoff_fixture() -> ResolvedSourceHandoff {
+        let track = Track {
+            id: "spotify:recording-1".into(),
+            provider: "spotify".into(),
+            provider_id: "recording-1".into(),
+            title: "Fixture recording".into(),
+            duration_seconds: Some(240.0),
+            ..Track::default()
+        };
+        ResolvedSourceHandoff {
+            handoff_id: uuid::Uuid::new_v4().to_string(),
+            source_handle: uuid::Uuid::new_v4().to_string(),
+            source_generation: 12,
+            seek_serial: 3,
+            target_position: 120.0,
+            tracks: vec![track],
+            entry_ids: vec!["occurrence-1".into()],
+            index: 0,
+            session_id: "session-1".into(),
+            entry_id: "occurrence-1".into(),
+            paused: false,
+            volume: 0.8,
+            repeat: "off".into(),
+            shuffle: false,
+            recorded: false,
+        }
+    }
+
+    fn pending_source_fixture(
+        generation: u64,
+        request_track: &Track,
+        expires_at: Instant,
+    ) -> PendingNativeSource {
+        PendingNativeSource {
+            source_generation: generation,
+            request_track: request_track.clone(),
+            matching_level: crate::recording_match::MatchLevel::Balanced,
+            expires_at,
+            resolved: crate::playback_sources::ResolvedSource {
+                origin: crate::playback_sources::ResolvedSourceOrigin::Existing,
+                source: crate::native_output::AudioSource {
+                    input: "http://127.0.0.1/fixture".into(),
+                    ffmpeg: "ffmpeg".into(),
+                    headers: vec![],
+                    decoder_hint: None,
+                    cenc: None,
+                },
+                candidate: None,
+                quality: serde_json::json!({"matchLevel":"balanced"}),
+                station: None,
+                duration: Some(240.0),
+            },
+        }
+    }
+
+    #[test]
+    fn resolved_source_handoff_binds_generation_track_expiry_and_one_use_handle() {
+        let handoff = resolved_handoff_fixture();
+        let now = Instant::now();
+        let track = &handoff.tracks[0];
+        let current = pending_source_fixture(12, track, now + Duration::from_secs(1));
+        assert!(pending_source_owner_matches(&current, &handoff, track, now));
+
+        let stale_generation = pending_source_fixture(11, track, now + Duration::from_secs(1));
+        assert!(!pending_source_owner_matches(
+            &stale_generation,
+            &handoff,
+            track,
+            now
+        ));
+        let mut changed_track = track.clone();
+        changed_track.artist = "Changed artist".into();
+        let stale_track = pending_source_fixture(12, &changed_track, now + Duration::from_secs(1));
+        assert!(!pending_source_owner_matches(
+            &stale_track,
+            &handoff,
+            track,
+            now
+        ));
+        let mut mutable_library_fields = track.clone();
+        mutable_library_fields.favorite = true;
+        mutable_library_fields.local_availability = "available".into();
+        let retained =
+            pending_source_fixture(12, &mutable_library_fields, now + Duration::from_secs(1));
+        assert!(pending_source_owner_matches(
+            &retained, &handoff, track, now
+        ));
+        let expired = pending_source_fixture(12, track, now);
+        assert!(!pending_source_owner_matches(
+            &expired, &handoff, track, now
+        ));
+
+        let mut registry = HashMap::new();
+        registry.insert(handoff.source_handle.clone(), current);
+        assert!(take_pending_native_source(&mut registry, &handoff.source_handle, now).is_some());
+        assert!(take_pending_native_source(&mut registry, &handoff.source_handle, now).is_none());
+        assert!(registry.is_empty());
+
+        registry.insert(
+            handoff.source_handle.clone(),
+            pending_source_fixture(12, track, now),
+        );
+        assert!(take_pending_native_source(&mut registry, &handoff.source_handle, now).is_none());
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn pending_native_source_purge_releases_only_superseded_generations() {
+        let now = Instant::now();
+        let track = Track {
+            id: "monochrome:purge-test".into(),
+            ..Track::default()
+        };
+        let mut registry = HashMap::new();
+        registry.insert(
+            "old".into(),
+            pending_source_fixture(7, &track, now + Duration::from_secs(1)),
+        );
+        registry.insert(
+            "current".into(),
+            pending_source_fixture(8, &track, now + Duration::from_secs(1)),
+        );
+        registry.insert(
+            "future".into(),
+            pending_source_fixture(9, &track, now + Duration::from_secs(1)),
+        );
+
+        assert_eq!(purge_pending_native_sources_older_than(&mut registry, 8), 1);
+        assert!(!registry.contains_key("old"));
+        assert!(registry.contains_key("current"));
+        assert!(registry.contains_key("future"));
+        assert_eq!(
+            purge_pending_native_sources_older_than(&mut registry, 10),
+            2
+        );
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn native_handoff_track_binding_covers_identity_evidence_not_library_state() {
+        let expected = Track {
+            id: "monochrome:recording-1".into(),
+            provider: "monochrome".into(),
+            provider_id: "recording-1".into(),
+            source_url: "https://media.example/recording".into(),
+            artist: "Artist".into(),
+            title: "Recording".into(),
+            version: Some("Live".into()),
+            duration_seconds: Some(240.0),
+            isrc: Some("USAAA0000001".into()),
+            provenance: serde_json::json!({"recordingContext":{"authority":"catalog","isrc":"USAAA0000001"}}),
+            ..Track::default()
+        };
+        let mut changed = expected.clone();
+        changed.title = "Different recording".into();
+        assert!(!native_handoff_track_identity_matches(&expected, &changed));
+        changed = expected.clone();
+        changed.duration_seconds = Some(241.0);
+        assert!(!native_handoff_track_identity_matches(&expected, &changed));
+        changed = expected.clone();
+        changed.provenance["recordingContext"]["authority"] = serde_json::json!("unverified");
+        assert!(!native_handoff_track_identity_matches(&expected, &changed));
+        changed = expected.clone();
+        changed.favorite = true;
+        changed.local_availability = "available".into();
+        changed.artwork_url = Some("https://img.example/cover".into());
+        assert!(native_handoff_track_identity_matches(&expected, &changed));
+    }
+
+    #[test]
+    fn native_handoff_rejects_missing_unknown_or_changed_matching_level() {
+        let make = |level: &str| crate::playback_sources::ResolvedSource {
+            origin: crate::playback_sources::ResolvedSourceOrigin::Existing,
+            source: crate::native_output::AudioSource {
+                input: String::new(),
+                ffmpeg: Default::default(),
+                headers: vec![],
+                decoder_hint: None,
+                cenc: None,
+            },
+            candidate: None,
+            quality: serde_json::json!({"matchLevel":level}),
+            station: None,
+            duration: None,
+        };
+        assert_eq!(
+            resolved_match_level(&make("exact")),
+            Some(crate::recording_match::MatchLevel::Exact)
+        );
+        assert_eq!(
+            resolved_match_level(&make("balanced")),
+            Some(crate::recording_match::MatchLevel::Balanced)
+        );
+        assert_eq!(
+            resolved_match_level(&make("flexible")),
+            Some(crate::recording_match::MatchLevel::Flexible)
+        );
+        assert_eq!(resolved_match_level(&make("strict")), None);
+        assert_eq!(resolved_match_level(&make("")), None);
+        assert_eq!(
+            resolved_match_level(&make("balanced")),
+            Some(crate::recording_match::MatchLevel::Balanced)
+        );
+        assert_ne!(
+            resolved_match_level(&make("balanced")),
+            Some(crate::recording_match::MatchLevel::Exact)
+        );
+        let source = pending_source_fixture(
+            1,
+            &Track::default(),
+            Instant::now() + Duration::from_secs(1),
+        );
+        assert!(pending_source_policy_matches(
+            &source,
+            crate::recording_match::MatchLevel::Balanced
+        ));
+        assert!(!pending_source_policy_matches(
+            &source,
+            crate::recording_match::MatchLevel::Exact
+        ));
+    }
+
+    #[test]
+    fn resolved_source_handoff_rejects_queue_occurrence_mismatch() {
+        let mut handoff = resolved_handoff_fixture();
+        assert_eq!(
+            validate_resolved_handoff_occurrence(&handoff)
+                .unwrap()
+                .id
+                .as_str(),
+            handoff.tracks[0].id.as_str()
+        );
+        handoff.entry_id = "different-occurrence".into();
+        assert!(validate_resolved_handoff_occurrence(&handoff).is_err());
+        handoff.entry_id = "occurrence-1".into();
+        let duplicate_track = handoff.tracks[0].clone();
+        handoff.tracks.push(duplicate_track);
+        handoff.entry_ids.push("occurrence-1".into());
+        assert!(validate_resolved_handoff_occurrence(&handoff).is_err());
+    }
+
+    #[test]
+    fn webview_handoff_requires_same_full_youtube_video_and_valid_seek_position() {
+        let (track, candidate) = youtube_handoff_fixture();
+        assert_eq!(
+            exact_handoff_youtube_id(&track, &candidate, 1800.0),
+            Some("6MAzUT1YhWE")
+        );
+
+        let mut mismatched = candidate.clone();
+        mismatched.url = "https://www.youtube.com/watch?v=aaaaaaaaaaa".into();
+        assert!(exact_handoff_youtube_id(&track, &mismatched, 1800.0).is_none());
+
+        let mut excerpt = track.clone();
+        excerpt.playback_range = Some(crate::models::PlaybackRange {
+            parent_track_id: track.id.clone(),
+            chapter_id: "excerpt".into(),
+            source_url: track.source_url.clone(),
+            start_time: 100.0,
+            end_time: 200.0,
+            parent_title: track.title.clone(),
+            parent_duration_seconds: track.duration_seconds,
+        });
+        assert!(exact_handoff_youtube_id(&excerpt, &candidate, 150.0).is_none());
+        assert!(exact_handoff_youtube_id(&track, &candidate, 6128.0).is_none());
+        assert!(exact_handoff_youtube_id(&track, &candidate, f64::NAN).is_none());
+    }
+
+    #[test]
+    fn stale_frontend_stop_cannot_stop_a_different_handoff_owner() {
+        assert!(handoff_stop_is_owned("handoff-a", Some("handoff-a")));
+        assert!(!handoff_stop_is_owned("handoff-a", Some("handoff-b")));
+        assert!(!handoff_stop_is_owned("handoff-a", None));
+    }
 
     #[test]
     fn next_preparation_diagnostic_window_is_bounded_to_thirty_or_forty_five_seconds() {
@@ -5307,6 +6361,29 @@ mod tests {
         assert_eq!(snapshot["diagnostics"]["seekTrace"][1]["atMs"], 16);
         assert_eq!(snapshot["diagnostics"]["seekFirstAudioMs"], 12);
         assert_eq!(snapshot["diagnostics"]["seekOperationFirstAudioMs"], 16);
+    }
+
+    #[test]
+    fn bulk_removal_preserves_occurrence_and_rejects_stale_or_invalid_sets_atomically() {
+        let mut state = State::default();
+        state.queue = vec![Track::default(); 5];
+        state.entries = ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        state.index = 2;
+        remove_queue_occurrences(&mut state, &[4, 0, 4, 3], Some(0)).unwrap();
+        assert_eq!(state.entries, ["b", "c"]);
+        assert_eq!(state.index, 1);
+        assert_eq!(state.queue_revision, 1);
+        let before = state.snapshot(true, true);
+        assert!(remove_queue_occurrences(&mut state, &[0], Some(0)).is_err());
+        assert!(remove_queue_occurrences(&mut state, &[0, 1], Some(1)).is_err());
+        assert!(remove_queue_occurrences(&mut state, &[0, 99], Some(1)).is_err());
+        assert_eq!(state.snapshot(true, true), before);
+        remove_queue_occurrences(&mut state, &[0], Some(1)).unwrap();
+        assert_eq!(state.entries, ["c"]);
+        assert_eq!(state.index, 0);
     }
 
     #[test]
@@ -6844,5 +7921,139 @@ mod reliability_policy_tests {
         assert!(should_skip_failed_track(
             crate::playback_sources::SOURCE_NO_RESULTS
         ));
+    }
+}
+
+#[cfg(test)]
+mod upcoming_identity_preparation_tests {
+    use super::*;
+    use crate::playback_sources::PlaybackDeadline;
+    struct Dropped(Arc<AtomicBool>);
+    impl Drop for Dropped {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    #[tokio::test]
+    async fn queue_identity_and_raw_search_are_polled_concurrently() {
+        let (_stop, cancel) = watch::channel(false);
+        let (raw_started, raw_seen) = tokio::sync::oneshot::channel();
+        let (identity_started, identity_seen) = tokio::sync::oneshot::channel();
+        let raw = async move {
+            raw_started.send(()).unwrap();
+            identity_seen.await.unwrap();
+            Ok(3)
+        };
+        let identity = async move {
+            raw_seen.await.unwrap();
+            identity_started.send(()).unwrap();
+        };
+        assert_eq!(
+            finish_upcoming_preparation(
+                cancel,
+                PlaybackDeadline::after(Duration::from_secs(1)),
+                raw,
+                identity
+            )
+            .await
+            .unwrap(),
+            3
+        );
+    }
+    #[tokio::test]
+    async fn queue_identity_and_search_share_one_absolute_deadline_and_drop_both() {
+        let (_stop, cancel) = watch::channel(false);
+        let raw_dropped = Arc::new(AtomicBool::new(false));
+        let identity_dropped = Arc::new(AtomicBool::new(false));
+        let raw = {
+            let dropped = raw_dropped.clone();
+            async move {
+                let _drop = Dropped(dropped);
+                std::future::pending::<Result<usize, String>>().await
+            }
+        };
+        let identity = {
+            let dropped = identity_dropped.clone();
+            async move {
+                let _drop = Dropped(dropped);
+                std::future::pending::<()>().await
+            }
+        };
+        let error = finish_upcoming_preparation(
+            cancel,
+            PlaybackDeadline::after(Duration::from_millis(20)),
+            raw,
+            identity,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("deadline"));
+        assert!(raw_dropped.load(Ordering::SeqCst));
+        assert!(identity_dropped.load(Ordering::SeqCst));
+    }
+    #[tokio::test]
+    async fn cancellation_fences_a_ready_result_and_drops_identity_waiter() {
+        let (stop, cancel) = watch::channel(false);
+        let identity_dropped = Arc::new(AtomicBool::new(false));
+        let identity = {
+            let dropped = identity_dropped.clone();
+            async move {
+                let _drop = Dropped(dropped);
+                std::future::pending::<()>().await
+            }
+        };
+        let raw = async move {
+            stop.send_replace(true);
+            Ok(3)
+        };
+        assert_eq!(
+            finish_upcoming_preparation(
+                cancel,
+                PlaybackDeadline::after(Duration::from_secs(1)),
+                raw,
+                identity
+            )
+            .await
+            .unwrap_err(),
+            "Cancelled"
+        );
+        assert!(identity_dropped.load(Ordering::SeqCst));
+    }
+    #[tokio::test]
+    async fn expired_or_cancelled_queue_preparation_does_not_poll_any_work() {
+        let (stop, cancel) = watch::channel(true);
+        let raw = async {
+            panic!("cancelled preparation polled raw search");
+            #[allow(unreachable_code)]
+            Ok(0)
+        };
+        let identity = async {
+            panic!("cancelled preparation polled identity");
+        };
+        assert_eq!(
+            finish_upcoming_preparation(
+                cancel.clone(),
+                PlaybackDeadline::after(Duration::from_secs(1)),
+                raw,
+                identity
+            )
+            .await
+            .unwrap_err(),
+            "Cancelled"
+        );
+        stop.send_replace(false);
+        let expired = PlaybackDeadline::at(tokio::time::Instant::now() - Duration::from_millis(1));
+        let raw = async {
+            panic!("expired preparation polled raw search");
+            #[allow(unreachable_code)]
+            Ok(0)
+        };
+        let identity = async {
+            panic!("expired preparation polled identity");
+        };
+        assert!(finish_upcoming_preparation(cancel, expired, raw, identity)
+            .await
+            .unwrap_err()
+            .contains("deadline"));
     }
 }

@@ -54,6 +54,20 @@ describe("PlayingInfo internet-radio links", () => {
 });
 
 describe("PlayingInfo compact metadata", () => {
+  it("shows a tempo alternative only for the current non-manual analysis", async () => {
+    const provenance = { bpmAnalysis: { bpm: 60.2, relatedTempoAlternativeBpm: 120 } };
+    const target = render({...radioTrack, bpm: 60.2, provenance}); await settle();
+    expect(target.textContent).toContain("60.2 BPM · estimated · alternative 120 BPM");
+  });
+
+  it("does not label a manual value using stale analysis", async () => {
+    const target = render({...radioTrack, bpm: 124, key: "Gm", provenance: {
+      manualFields: {bpm: true}, bpmAnalysis: {bpm: 124, relatedTempoAlternativeBpm: 62}, keyAnalysis: {key: "Am"},
+    }}); await settle();
+    expect(target.textContent).not.toContain("estimated");
+    expect(target.textContent).not.toContain("alternative");
+  });
+
   it("shows source view and play counts, including zero, without fetching metadata", async () => {
     const candidate = {
       id: "candidate-1", provider: "youtube", url: "https://youtube.com/watch?v=one", title: "A video",

@@ -228,3 +228,10 @@ export function planQueueSelectionMove(length: number, selected: readonly number
   desired.forEach((value,to)=>{ const from=current.indexOf(value); if(from!==to){moves.push([from,to]);current.splice(to,0,current.splice(from,1)[0]!);} });
   return {moves,selected:indices.map((_,index)=>insertion+index)};
 }
+
+/** Stable descending indexes let callers remove occurrences without index shifts. */
+export function queueRemovalIndexes(length: number, selected: readonly number[]): number[] {
+  return [...new Set(selected)]
+    .filter(index => Number.isInteger(index) && index >= 0 && index < length)
+    .sort((a, b) => b - a);
+}

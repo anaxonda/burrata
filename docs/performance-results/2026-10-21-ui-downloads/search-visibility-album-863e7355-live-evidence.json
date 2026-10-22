@@ -1,0 +1,530 @@
+{
+  "evidenceType": "sanitized local read-only verification; no media or database writes",
+  "operationId": "863e7355-aea9-48eb-ac03-91d67326aaba",
+  "buildHash": "b069808",
+  "runReceipt": {
+    "requested": 13,
+    "processed": 13,
+    "queued": 10,
+    "skipped": 3,
+    "completionScope": "selectionAndEnqueue",
+    "queuedJobCount": 10,
+    "skippedCount": 3
+  },
+  "sourceProvider": "slskd",
+  "groups": {
+    "firstFiveAlbumGroupIndexes": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "fallbackOtherFiveIndexes": [
+      8,
+      9,
+      11,
+      12,
+      13
+    ]
+  },
+  "peerFolderHashIsConsistentAcrossTen": true,
+  "uniquePeerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+  "rows": [
+    {
+      "index": 1,
+      "trackNumber": 1,
+      "candidateGroup": "firstFiveAlbumGroup",
+      "jobId": "885e1c28-2ea2-4cd2-b704-def6cb2716a0",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "slskd",
+      "storedAssetOriginPeerFolderSha256": "fdf549c8241b3e77e7ada9509fa90ab34dc78daa6fe9d729cb81a31966d66344",
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 146.373333,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "match",
+        "isrc": "match",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 2,
+      "trackNumber": 2,
+      "candidateGroup": "firstFiveAlbumGroup",
+      "jobId": "e9080a0c-07ad-4594-8081-7e9df607b463",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "monochrome",
+      "storedAssetOriginPeerFolderSha256": null,
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 87.226667,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 3,
+      "trackNumber": 3,
+      "candidateGroup": "firstFiveAlbumGroup",
+      "jobId": "fe77a790-65cc-46a4-bf85-7f34f33510dc",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "slskd",
+      "storedAssetOriginPeerFolderSha256": "fdf549c8241b3e77e7ada9509fa90ab34dc78daa6fe9d729cb81a31966d66344",
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 311.2,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 4,
+      "trackNumber": 4,
+      "candidateGroup": "firstFiveAlbumGroup",
+      "jobId": "df36a303-7155-4759-a150-d7483f3e5405",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "slskd",
+      "storedAssetOriginPeerFolderSha256": "fdf549c8241b3e77e7ada9509fa90ab34dc78daa6fe9d729cb81a31966d66344",
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 161.2,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 5,
+      "trackNumber": 5,
+      "candidateGroup": "firstFiveAlbumGroup",
+      "jobId": "8049bd62-5aa4-4977-b4e3-0de872693706",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "monochrome",
+      "storedAssetOriginPeerFolderSha256": null,
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 121.6,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 6,
+      "trackNumber": 8,
+      "candidateGroup": "fallbackOtherFive",
+      "jobId": "5c115428-bc8c-4435-b598-cecb8cd2052c",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "slskd",
+      "storedAssetOriginPeerFolderSha256": "fdf549c8241b3e77e7ada9509fa90ab34dc78daa6fe9d729cb81a31966d66344",
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 174.0,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "match",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 7,
+      "trackNumber": 9,
+      "candidateGroup": "fallbackOtherFive",
+      "jobId": "a969a6b8-a6f7-498b-8410-e84f566cc6b1",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "slskd",
+      "storedAssetOriginPeerFolderSha256": "fdf549c8241b3e77e7ada9509fa90ab34dc78daa6fe9d729cb81a31966d66344",
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 275.306667,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "match",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 8,
+      "trackNumber": 11,
+      "candidateGroup": "fallbackOtherFive",
+      "jobId": "f3c0bb31-5d6b-4f49-a758-4b7d8d94db65",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "youtube",
+      "storedAssetOriginPeerFolderSha256": null,
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "ogg",
+        "durationSeconds": 197.3005,
+        "streams": [
+          {
+            "codec": "opus",
+            "sampleRateHz": 48000,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "missing",
+        "title": "missing",
+        "album": "missing",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "missing",
+        "label": "missing"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 9,
+      "trackNumber": 12,
+      "candidateGroup": "fallbackOtherFive",
+      "jobId": "1afaa8c2-3f2b-4220-aca4-2a82368eb7de",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "monochrome",
+      "storedAssetOriginPeerFolderSha256": null,
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 87.6,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    },
+    {
+      "index": 10,
+      "trackNumber": 13,
+      "candidateGroup": "fallbackOtherFive",
+      "jobId": "fc0397f7-bb58-47f2-93bc-15abd5a8406b",
+      "jobState": "waiting_for_peer",
+      "jobOutputPathPresent": false,
+      "sourceProvider": "slskd",
+      "assetPublicationJobIdMatchesCurrentJob": false,
+      "currentJobHasOutputPath": false,
+      "storedAssetOriginProvider": "monochrome",
+      "storedAssetOriginPeerFolderSha256": null,
+      "storedAssetFromCurrentCandidate": false,
+      "localFileExists": true,
+      "assetIdPresent": true,
+      "liveFileHashMatchesDatabase": true,
+      "ffprobe": {
+        "format": "flac",
+        "durationSeconds": 217.706667,
+        "streams": [
+          {
+            "codec": "flac",
+            "sampleRateHz": 44100,
+            "channels": 2,
+            "bitDepth": 0
+          },
+          {
+            "codec": "mjpeg",
+            "sampleRateHz": null,
+            "channels": null,
+            "bitDepth": null
+          }
+        ]
+      },
+      "fullDecodeSucceeded": true,
+      "savedTagChecks": {
+        "artist": "match",
+        "title": "match",
+        "album": "match",
+        "albumartist": "no_expected_value",
+        "date": "missing",
+        "genre": "no_expected_value",
+        "isrc": "no_expected_value",
+        "label": "match"
+      },
+      "peerFolderSha256": "1838e5e4959f77d6677cedab21748c910d4280f0b6d3bd545ee052b92b9f8ced",
+      "peerFolderPartsCount": 3,
+      "managedPathUnderRegisteredLibrary": true
+    }
+  ],
+  "limitations": [
+    "All ten job rows remain waiting_for_peer with outputPath unset. The ten local files are pre-existing managed assets, not outputs of these current jobs: their stored acquisition lineage points to different prior batches/peer folders.",
+    "A common candidate peer folder hash proves shared folder-path provenance, not acoustic recording identity. First five candidates are album-group rows; the other five are fallback rows. Existing local assets came from different peer-folder lineage.",
+    "Only saved tag values with expected catalog values are compared; absence of expected metadata is not treated as failure."
+  ]
+}

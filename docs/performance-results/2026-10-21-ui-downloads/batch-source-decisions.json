@@ -1,0 +1,29 @@
+[
+  {
+    "trackId": "spotify:1npXx6gwd9ZLUPHmjUo5cR",
+    "provider": "monochrome",
+    "candidateId": "monochrome:184551272379174912",
+    "legacyConfidence": "review",
+    "failures": [],
+    "action": "accept",
+    "relationship": "exact"
+  },
+  {
+    "trackId": "spotify:3xcMsaYrlt9P8dXRFvPnKC",
+    "provider": "monochrome",
+    "candidateId": "monochrome:184551276380540928",
+    "legacyConfidence": "review",
+    "failures": [],
+    "action": "accept",
+    "relationship": "exact"
+  },
+  {
+    "trackId": "spotify:2iG3k3Xd7mlatWOVvH7HqE",
+    "provider": "monochrome",
+    "candidateId": "monochrome:184551279949893632",
+    "legacyConfidence": "review",
+    "failures": [],
+    "action": "accept",
+    "relationship": "exact"
+  }
+]

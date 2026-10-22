@@ -22,6 +22,14 @@ type Result<T> = std::result::Result<T, String>;
 const MAX_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ENTRIES: usize = 10_000;
 static PLAYLIST_SYNC_LOCK: Mutex<()> = Mutex::new(());
+static PLAYLIST_EXPORT_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NamedExportIndexEntry {
+    filename: String,
+    sha256: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -700,10 +708,15 @@ pub fn export_playlist_path(
         .ok_or("Collection not found")?;
     let tracks = current_collection_tracks(store, collection_id)?;
     let group = mirror_group(&read_state(store)?, collection_id, &tracks);
-    let path = mirrors_dir(settings)
-        .ok_or("Choose a music directory first")?
-        .join(group)
-        .join(format!("{}.m3u8", collection.id));
+    let mirrors = mirrors_dir(settings).ok_or("Choose a music directory first")?;
+    let mirror_path = mirrors.join(group).join(format!("{}.m3u8", collection.id));
+    let body = fs::read(&mirror_path).map_err(|e| format!("Cannot read playlist mirror: {e}"))?;
+    let path = write_named_export(
+        &mirrors.join("Exports"),
+        &collection.id,
+        &collection.name,
+        &body,
+    )?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -730,7 +743,6 @@ pub fn export_mixxx_playlist(
         .join("Playlists")
         .join("Mixxx");
     fs::create_dir_all(&root).map_err(|e| format!("Cannot create Mixxx export directory: {e}"))?;
-    let path = root.join(format!("{}.m3u8", collection.id));
     let title = collection.name.replace(['\r', '\n'], " ");
     let mut body = format!("#EXTM3U\n#BURRATA-MIRROR\n#PLAYLIST:{title}\n");
     let mut exported = 0;
@@ -766,13 +778,157 @@ pub fn export_mixxx_playlist(
         ));
         exported += 1;
     }
-    atomic_write(&path, body.as_bytes())?;
+    let path = write_named_export(&root, &collection.id, &collection.name, body.as_bytes())?;
     Ok(MixxxPlaylistExport {
         path: path.to_string_lossy().into_owned(),
         exported,
         missing,
         total: tracks.len(),
     })
+}
+
+/// Write a user-facing export using a portable title while retaining distinct files
+/// for collections whose names collide on case-insensitive filesystems.
+fn write_named_export(root: &Path, owner_id: &str, title: &str, body: &[u8]) -> Result<PathBuf> {
+    let _guard = PLAYLIST_EXPORT_LOCK
+        .lock()
+        .map_err(|_| "Playlist export lock is unavailable")?;
+    fs::create_dir_all(root)
+        .map_err(|e| format!("Cannot create playlist export directory: {e}"))?;
+    let base = safe_playlist_filename(title);
+    let index_path = root.join(".burrata-exports.json");
+    let mut index: HashMap<String, NamedExportIndexEntry> = fs::read(&index_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    if let Some(entry) = index.get(owner_id) {
+        let entry = entry.clone();
+        let path = root.join(&entry.filename);
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let safe_component = Path::new(&entry.filename).components().count() == 1
+            && Path::new(&entry.filename).file_name().is_some();
+        let valid_extension = path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("m3u8"));
+        if safe_component
+            && valid_extension
+            && (stem == base
+                || stem
+                    .strip_prefix(&base)
+                    .is_some_and(|tail| tail.starts_with(" (")))
+        {
+            match fs::symlink_metadata(&path) {
+                Ok(metadata)
+                    if metadata.file_type().is_file()
+                        && digest(&fs::read(&path).unwrap_or_default()) == entry.sha256 =>
+                {
+                    atomic_write(&path, body)?;
+                    index.insert(
+                        owner_id.to_owned(),
+                        NamedExportIndexEntry {
+                            filename: entry.filename.clone(),
+                            sha256: digest(body),
+                        },
+                    );
+                    write_export_index(&index_path, &index)?;
+                    return Ok(path);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    atomic_write(&path, body)?;
+                    index.insert(
+                        owner_id.to_owned(),
+                        NamedExportIndexEntry {
+                            filename: entry.filename.clone(),
+                            sha256: digest(body),
+                        },
+                    );
+                    write_export_index(&index_path, &index)?;
+                    return Ok(path);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut suffix = 1usize;
+    loop {
+        if suffix > 10_000 {
+            return Err("Too many playlists share this title".into());
+        }
+        let filename = if suffix == 1 {
+            base.clone()
+        } else {
+            format!("{base} ({suffix})")
+        };
+        let candidate = root.join(format!("{filename}.m3u8"));
+        let folded = format!("{filename}.m3u8").to_lowercase();
+        let existing = fs::read_dir(root)
+            .map_err(|e| format!("Cannot inspect playlist export directory: {e}"))?
+            .filter_map(std::result::Result::ok)
+            .find(|entry| entry.file_name().to_string_lossy().to_lowercase() == folded);
+        if existing.is_some() {
+            suffix += 1;
+            continue;
+        }
+        atomic_write(&candidate, body)?;
+        index.insert(
+            owner_id.to_owned(),
+            NamedExportIndexEntry {
+                filename: candidate
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                sha256: digest(body),
+            },
+        );
+        write_export_index(&index_path, &index)?;
+        return Ok(candidate);
+    }
+}
+
+fn write_export_index(path: &Path, index: &HashMap<String, NamedExportIndexEntry>) -> Result<()> {
+    let bytes = serde_json::to_vec(index).map_err(|error| error.to_string())?;
+    atomic_write(path, &bytes)
+}
+
+fn safe_playlist_filename(title: &str) -> String {
+    let mut safe = String::new();
+    let mut pending_space = false;
+    for ch in title.trim().chars() {
+        if ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+            pending_space = !safe.is_empty();
+            continue;
+        }
+        if ch.is_whitespace() {
+            pending_space = !safe.is_empty();
+            continue;
+        }
+        if pending_space && !safe.ends_with(' ') {
+            safe.push(' ');
+        }
+        pending_space = false;
+        safe.push(ch);
+        if safe.len() >= 120 {
+            break;
+        }
+    }
+    let safe = safe.trim().trim_matches('.').trim().to_owned();
+    let safe = if safe.is_empty() {
+        "Playlist".to_owned()
+    } else {
+        safe
+    };
+    let stem = safe.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0');
+    if reserved {
+        format!("_{safe}")
+    } else {
+        safe
+    }
 }
 
 fn current_collection_tracks(store: &Store, collection_id: &str) -> Result<Vec<Track>> {
@@ -2517,15 +2673,16 @@ mod tests {
         let result = export_mixxx_playlist(&store, &settings, &collection.id).unwrap();
         assert_eq!(
             PathBuf::from(&result.path),
-            music
-                .join("Playlists")
-                .join("Mixxx")
-                .join(format!("{}.m3u8", collection.id))
+            music.join("Playlists").join("Mixxx").join("Mixxx set.m3u8")
         );
         assert_eq!((result.exported, result.total), (2, 3));
         assert_eq!(result.missing.len(), 1);
         assert_eq!(result.missing[0].id, remote.id);
         let contents = fs::read_to_string(&result.path).unwrap();
+        assert!(contents.starts_with("#EXTM3U\n#BURRATA-MIRROR\n#PLAYLIST:Mixxx set\n"));
+        assert!(!Path::new(&result.path)
+            .to_string_lossy()
+            .contains(&collection.id));
         assert_eq!(
             contents
                 .matches(
@@ -2545,5 +2702,74 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn named_exports_are_portable_readable_and_do_not_overwrite_case_collisions() {
+        assert_eq!(safe_playlist_filename("  Café / CON.  "), "Café CON");
+        assert_eq!(safe_playlist_filename("../NUL"), "_NUL");
+        assert_eq!(safe_playlist_filename("..."), "Playlist");
+
+        let dir = tempfile::tempdir().unwrap();
+        let first = write_named_export(dir.path(), "one", "Summer / Set", b"first").unwrap();
+        let second = write_named_export(dir.path(), "two", "summer : set", b"second").unwrap();
+        assert_eq!(first.file_name().unwrap(), "Summer Set.m3u8");
+        assert_eq!(second.file_name().unwrap(), "summer set (2).m3u8");
+        assert_eq!(fs::read(&first).unwrap(), b"first");
+        assert_eq!(fs::read(&second).unwrap(), b"second");
+        write_named_export(dir.path(), "one", "Summer / Set", b"updated").unwrap();
+        assert_eq!(fs::read(&first).unwrap(), b"updated");
+
+        let same_title_one =
+            write_named_export(dir.path(), "same-one", "Identical", b"same").unwrap();
+        let same_title_two =
+            write_named_export(dir.path(), "same-two", "Identical", b"same").unwrap();
+        assert_ne!(same_title_one, same_title_two);
+
+        fs::write(&first, b"edited outside Burrata").unwrap();
+        let preserved_replacement =
+            write_named_export(dir.path(), "one", "Summer / Set", b"new export").unwrap();
+        assert_ne!(preserved_replacement, first);
+        assert_eq!(fs::read(&first).unwrap(), b"edited outside Burrata");
+    }
+
+    #[test]
+    fn named_export_index_rejects_paths_outside_export_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("outside.m3u8"), b"must stay untouched").unwrap();
+        fs::write(
+            dir.path().join(".burrata-exports.json"),
+            r#"{"owner":{"filename":"../outside.m3u8","sha256":"bad"}}"#,
+        )
+        .unwrap();
+        let result = write_named_export(dir.path(), "owner", "Safe", b"export").unwrap();
+        assert_eq!(result.file_name().unwrap(), "Safe.m3u8");
+        assert_eq!(
+            fs::read(dir.path().join("outside.m3u8")).unwrap(),
+            b"must stay untouched"
+        );
+    }
+
+    #[test]
+    fn playlist_export_uses_title_in_a_separate_user_facing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+        let collection = store.create_collection("Crème / Brûlée").unwrap();
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+
+        let exported =
+            PathBuf::from(export_playlist_path(&store, &settings, &collection.id).unwrap());
+
+        assert_eq!(exported.file_name().unwrap(), "Crème Brûlée.m3u8");
+        assert!(exported.starts_with(music.join("Playlists").join("Exports")));
+        assert!(!exported.to_string_lossy().contains(&collection.id));
+        assert!(fs::read_to_string(exported)
+            .unwrap()
+            .contains("#PLAYLIST:Crème / Brûlée"));
     }
 }

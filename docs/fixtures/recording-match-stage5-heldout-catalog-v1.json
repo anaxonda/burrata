@@ -1,0 +1,297 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "burrata.stage5.heldout-catalog-identity.v1",
+  "status": "labels-frozen-before-evaluator-run",
+  "frozenOn": "2026-10-21",
+  "purpose": "Small source-grounded held-out catalog-identity check for stage 5. Not a representative precision/recall sample.",
+  "provenance": {
+    "primarySource": "MusicBrainz public recording-series pages",
+    "sources": [
+      {
+        "id": "seven-nation-army-recording",
+        "url": "https://musicbrainz.org/series/33061f6b-6553-4d61-851b-71b790bf1460",
+        "supports": "Seven Nation Army \u2014 The White Stripes \u2014 ISRC USVT10300001 \u2014 3:52."
+      },
+      {
+        "id": "smells-like-teen-spirit-recording",
+        "url": "https://musicbrainz.org/series/355b26c9-001e-4728-852e-82b4379adb82",
+        "supports": "Smells Like Teen Spirit \u2014 Nirvana \u2014 ISRC USGF19942501 \u2014 5:01; same page lists the Seven Nation Army recording separately."
+      }
+    ],
+    "labelMethod": "Catalog metadata and shared/conflicting ISRCs; no listening, waveform comparison, or provider-source binding. Labels were fixed from these source records and product contract before any matcher run. The request-side identifier is represented under remoteCatalog provenance and the candidate-side identifier under sourceMetadata, matching supported production metadata shapes."
+  },
+  "limitations": [
+    "MusicBrainz records are community-maintained catalog metadata.",
+    "A matching ISRC supports catalog recording identity only; it does not bind an arbitrary provider URL or verify decoded audio.",
+    "Only one positive, one known-conflict negative, and one synthetic missing-identifier probe: no population accuracy estimate.",
+    "No independently sourced same-title/different-performer, guest-credit, edition-variant, or duration-only ambiguous pair is labeled in this set."
+  ],
+  "cases": [
+    {
+      "id": "same-isrc-seven-nation-army",
+      "evidenceClass": "sourceBackedCatalogIdentity",
+      "synthetic": false,
+      "groundTruth": "sameCatalogRecording",
+      "sourceRecords": [
+        "seven-nation-army-recording"
+      ],
+      "request": {
+        "title": "Seven Nation Army",
+        "durationSeconds": 232,
+        "version": null,
+        "isrc": "USVT10300001",
+        "artist": "The White Stripes"
+      },
+      "candidate": {
+        "title": "The White Stripes - Seven Nation Army",
+        "provider": "fixture",
+        "id": "fixture-same-isrc-seven-nation-army",
+        "url": "",
+        "uploader": "The White Stripes",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Seven Nation Army",
+          "artistNames": [
+            "The White Stripes"
+          ],
+          "artistCount": 1,
+          "duration": 232,
+          "isrc": "USVT10300001"
+        },
+        "durationSeconds": 232
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          }
+        }
+      },
+      "rationale": "The cited MusicBrainz recording-series entry assigns this ISRC to Seven Nation Army by The White Stripes and lists length 3:52. The shared ISRC supports a same-catalog-recording label; it does not prove that any provider audio stream is bound to it.",
+      "catalogFacts": {
+        "title": "Seven Nation Army",
+        "performerCredits": [
+          "The White Stripes"
+        ],
+        "versionAnnotation": null,
+        "versionNote": "No semantic version annotation appears in the cited series row.",
+        "durationSeconds": 232,
+        "isrc": "USVT10300001",
+        "requestIsrc": "USVT10300001"
+      },
+      "candidateCarrierSynthetic": true
+    },
+    {
+      "id": "known-isrc-conflict-seven-vs-smells",
+      "evidenceClass": "sourceBackedCatalogIdentityPair",
+      "synthetic": false,
+      "groundTruth": "differentCatalogRecordings",
+      "sourceRecords": [
+        "seven-nation-army-recording",
+        "smells-like-teen-spirit-recording"
+      ],
+      "request": {
+        "title": "Seven Nation Army",
+        "durationSeconds": 232,
+        "version": null,
+        "isrc": "USVT10300001",
+        "artist": "The White Stripes"
+      },
+      "candidate": {
+        "title": "Nirvana - Smells Like Teen Spirit",
+        "provider": "fixture",
+        "id": "fixture-known-isrc-conflict-seven-vs-smells",
+        "url": "",
+        "uploader": "Nirvana",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Smells Like Teen Spirit",
+          "artistNames": [
+            "Nirvana"
+          ],
+          "artistCount": 1,
+          "duration": 301,
+          "isrc": "USGF19942501"
+        },
+        "durationSeconds": 301
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "Both records have distinct titles, performers, ISRCs and durations in the same MusicBrainz recording series. The request/candidate identifiers conflict, which grounds a known different-recording contrast; this is not a close same-title false-positive claim.",
+      "catalogFacts": {
+        "title": "Smells Like Teen Spirit",
+        "performerCredits": [
+          "Nirvana"
+        ],
+        "versionAnnotation": null,
+        "versionNote": "No semantic version annotation appears in the cited series row.",
+        "durationSeconds": 301,
+        "isrc": "USGF19942501",
+        "requestIsrc": "USVT10300001"
+      },
+      "candidateCarrierSynthetic": true
+    },
+    {
+      "id": "missing-id-agreement-seven-nation-army",
+      "evidenceClass": "syntheticMetadataMutation",
+      "synthetic": true,
+      "groundTruth": "undeterminedWithoutIdentifier",
+      "sourceRecords": [
+        "seven-nation-army-recording"
+      ],
+      "request": {
+        "title": "Seven Nation Army",
+        "durationSeconds": 232,
+        "version": null,
+        "artist": "The White Stripes"
+      },
+      "candidate": {
+        "title": "The White Stripes - Seven Nation Army",
+        "provider": "fixture",
+        "id": "fixture-missing-id-agreement-seven-nation-army",
+        "url": "",
+        "uploader": "The White Stripes",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Seven Nation Army",
+          "artistNames": [
+            "The White Stripes"
+          ],
+          "artistCount": 1,
+          "duration": 232
+        },
+        "durationSeconds": 232
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Enrich",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "A deterministic mutation of the source-backed row removes both ISRC fields. Matching title, performer and runtime remain, but absent identifier evidence cannot be counted as a confirmed recording match. This mutation is a policy probe, not an observed provider item.",
+      "catalogFacts": {
+        "title": "Seven Nation Army",
+        "performerCredits": [
+          "The White Stripes"
+        ],
+        "versionAnnotation": null,
+        "versionNote": "No semantic version annotation appears in the cited series row.",
+        "durationSeconds": 232,
+        "isrc": null,
+        "requestIsrc": null
+      },
+      "candidateCarrierSynthetic": true
+    }
+  ]
+}

@@ -16,6 +16,10 @@ use std::{
 };
 use uuid::Uuid;
 
+pub use crate::recording_filename::validate_remote_path;
+pub(crate) use crate::recording_filename::verified_filename_observations;
+use crate::recording_filename::{audio_extension, filename_observations};
+
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone)]
@@ -122,6 +126,12 @@ pub struct SearchStatus {
     pub is_complete: Option<bool>,
     #[serde(default)]
     pub responses: Vec<SearchResponse>,
+    /// Some slskd versions expose these counters before their response rows
+    /// become visible from the dedicated `/responses` endpoint.
+    #[serde(default)]
+    pub response_count: Option<usize>,
+    #[serde(default)]
+    pub file_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1481,6 +1491,7 @@ pub fn candidates_from_responses(
                 .map(|(stem, _)| stem)
                 .unwrap_or(&file.filename)
                 .to_owned();
+            let filename_observations = filename_observations(&file.filename, &stem);
             let mut digest = Sha256::new();
             digest.update(response.username.as_bytes());
             digest.update([0]);
@@ -1510,6 +1521,10 @@ pub fn candidates_from_responses(
             let bit_depth = file_attribute_u32(file, &["bitdepth", "bit_depth", "bits_per_sample"]);
             let channels = file_attribute_u32(file, &["channels", "channel_count"]);
             candidates.push(crate::models::Candidate {
+                source_metadata: Some(serde_json::json!({
+                    "sourceMetadataOrigin": "slskdFilename",
+                    "filenameObservations": filename_observations,
+                })),
                 id: stable_id,
                 provider: "slskd".into(),
                 url: String::new(),
@@ -1621,36 +1636,6 @@ fn is_loopback_host(host: &str) -> bool {
         || host
             .parse::<std::net::IpAddr>()
             .is_ok_and(|ip| ip.is_loopback())
-}
-
-pub fn validate_remote_path(path: &str) -> Result<(), String> {
-    let path = path.replace('\\', "/");
-    if path.trim().is_empty()
-        || path.starts_with('/')
-        || path.as_bytes().get(1) == Some(&b':')
-        || path.split('/').any(|part| part == ".." || part.is_empty())
-        || path.contains('\0')
-    {
-        return Err("Invalid Soulseek remote filename".into());
-    }
-    Ok(())
-}
-
-fn audio_extension(path: &str) -> Result<&str, String> {
-    let basename = path.rsplit('/').next().ok_or("Invalid Soulseek filename")?;
-    let extension = basename
-        .rsplit_once('.')
-        .map(|(_, extension)| extension)
-        .ok_or("Selected Soulseek file has no extension")?;
-    if ![
-        "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "aiff", "wma",
-    ]
-    .iter()
-    .any(|allowed| extension.eq_ignore_ascii_case(allowed))
-    {
-        return Err("Selected Soulseek file is not a supported audio format".into());
-    }
-    Ok(extension)
 }
 
 fn decode_search_responses(value: Value) -> Result<Vec<SearchResponse>, String> {
@@ -2043,6 +2028,14 @@ mod tests {
         assert_eq!(first[0].id, second[0].id);
         assert_eq!(first[0].provider, "slskd");
         assert_eq!(first[0].title, "Artist Name - Night Drive");
+        assert_eq!(
+            first[0].source_metadata.as_ref().unwrap()["sourceMetadataOrigin"],
+            "slskdFilename"
+        );
+        assert_eq!(
+            first[0].source_metadata.as_ref().unwrap()["filenameObservations"]["normalizedTitle"],
+            "Artist Name - Night Drive"
+        );
         assert_eq!(first[0].uploader.as_deref(), Some("peer-account"));
         assert_eq!(first[0].confidence, "review");
         assert!(first[0]
@@ -2149,7 +2142,7 @@ mod tests {
             .route(
                 "/api/v0/searches/{id}",
                 get(|Path(id): Path<String>| async move {
-                    Json(json!({"id":id,"state":"InProgress","isComplete":false}))
+                    Json(json!({"id":id,"state":"InProgress","isComplete":false,"responseCount":2,"fileCount":7}))
                 })
                 .put({
                     let observed = observed_cancel.clone();
@@ -2184,10 +2177,10 @@ mod tests {
 
         let client = SlskdClient::new(&format!("http://{address}"), "mock-api-key").unwrap();
         let id = client.start_search("Artist Track", 30).await.unwrap();
-        assert_eq!(
-            client.search_status(&id).await.unwrap().is_complete,
-            Some(false)
-        );
+        let status = client.search_status(&id).await.unwrap();
+        assert_eq!(status.is_complete, Some(false));
+        assert_eq!(status.response_count, Some(2));
+        assert_eq!(status.file_count, Some(7));
         let responses = client.search_responses(&id).await.unwrap();
         assert_eq!(responses[0].username, "peer");
         assert_eq!(responses[0].files[0].bit_rate, Some(320));

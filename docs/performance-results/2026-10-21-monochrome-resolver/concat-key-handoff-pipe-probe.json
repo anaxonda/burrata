@@ -1,0 +1,94 @@
+{
+  "purpose": "Synthetic-only test of sending ffconcat CENC decryption options over stdin or an inherited pipe FD, with no key file and no raw key in FFmpeg argv",
+  "ffmpeg": "n9.0.2",
+  "synthetic_input": "Three-second 440 Hz, 44100 Hz mono FLAC in ordinary MP4 and fragmented MP4, encrypted locally using synthetic CENC AES-CTR key and KID; no real media or credentials",
+  "manifest_shape": [
+    "ffconcat version 1.0",
+    "file 'file:/absolute/path/to/synthetic-encrypted.mp4'",
+    "option decryption_key <synthetic hex>"
+  ],
+  "duration_directive": "omitted; duration was detected from each MP4",
+  "transports": [
+    {
+      "name": "stdin",
+      "ffmpeg_input": "pipe:0",
+      "protocol_whitelist": "file,pipe,crypto",
+      "manifest_on_disk": false
+    },
+    {
+      "name": "inherited_pipe_fd",
+      "ffmpeg_input": "pipe:N",
+      "manifest_on_disk": false
+    }
+  ],
+  "results": [
+    {
+      "container": "ordinary_mp4",
+      "transport": "stdin",
+      "full_decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "input_side_ss_1_exit": 0,
+      "input_side_seek_bytes": 176400,
+      "input_side_seek_matches_clear": true,
+      "output_side_ss_1_exit": 0,
+      "output_side_seek_bytes": 176400,
+      "output_side_seek_matches_clear": true,
+      "diagnostic": ""
+    },
+    {
+      "container": "ordinary_mp4",
+      "transport": "inherited_pipe_fd",
+      "full_decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "input_side_ss_1_exit": 0,
+      "input_side_seek_bytes": 176400,
+      "input_side_seek_matches_clear": true,
+      "output_side_ss_1_exit": 0,
+      "output_side_seek_bytes": 176400,
+      "output_side_seek_matches_clear": true,
+      "diagnostic": ""
+    },
+    {
+      "container": "fragmented_mp4",
+      "transport": "stdin",
+      "full_decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "input_side_ss_1_exit": 0,
+      "input_side_seek_bytes": 176400,
+      "input_side_seek_matches_clear": true,
+      "output_side_ss_1_exit": 0,
+      "output_side_seek_bytes": 176400,
+      "output_side_seek_matches_clear": true,
+      "diagnostic": ""
+    },
+    {
+      "container": "fragmented_mp4",
+      "transport": "inherited_pipe_fd",
+      "full_decode_exit": 0,
+      "decoded_pcm_bytes": 264600,
+      "pcm_matches_reference": true,
+      "input_side_ss_1_exit": 0,
+      "input_side_seek_bytes": 176400,
+      "input_side_seek_matches_clear": true,
+      "output_side_ss_1_exit": 0,
+      "output_side_seek_bytes": 176400,
+      "output_side_seek_matches_clear": true,
+      "diagnostic": ""
+    }
+  ],
+  "key_handling": {
+    "key_in_ffmpeg_argv": false,
+    "key_on_disk": false,
+    "key_in_stderr": false,
+    "manifest_contains_synthetic_key_only_in_pipe_buffer": true
+  },
+  "implementation_implication": "Send the ffconcat script through stdin or an inherited pipe FD and use a fully qualified child URL such as `file:/absolute/path` for local files (or an already-qualified https URL for remote media). A bare absolute filesystem path is resolved relative to `pipe:0` by this invocation and becomes an invalid `pipe:/...` URL. This avoids writing the key to disk and works for full decode plus both input-side and output-side one-second seeks without a duration directive. The probe does not validate real provider URLs, credentials, remote authorization, or device playback.",
+  "official_reference": {
+    "title": "FFmpeg Formats Documentation, concat demuxer syntax",
+    "url": "https://www.ffmpeg.org/ffmpeg-formats.html#concat",
+    "note": "Documents per-file `option key value` and `duration` directives."
+  }
+}

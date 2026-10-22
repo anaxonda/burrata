@@ -850,6 +850,8 @@ pub(crate) async fn resolve(
                     content_length: audio.expected_content_length,
                     has_video: false,
                 }),
+
+                cenc: None,
             },
             candidate: Some(candidate),
             quality: json!({"codec":"mp3","bitrateKbps":128,"bitrateOrigin":"provider","source":"bandcamp"}),

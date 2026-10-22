@@ -16,5 +16,6 @@
   onpointerdown={(event) => { clearTimeout(timer); dragging = true; event.currentTarget.setPointerCapture(event.pointerId); }}
   oninput={(event) => { target = Number(event.currentTarget.value); clearTimeout(timer); if (!dragging) timer = setTimeout(commit, 150); }}
   onpointerup={() => { dragging = false; commit(); }}
+  onlostpointercapture={() => { if (dragging) { dragging = false; commit(); } }}
   onpointercancel={() => { dragging = false; clearTimeout(timer); target = null; }}
   onblur={() => { dragging = false; commit(); }} />

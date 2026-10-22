@@ -1,0 +1,131 @@
+{
+  "analysisGeneration": "burrata-media-analysis-v1-keyfinder-2.2.8-bpm-v3",
+  "productionAppSha256": "ed0564326b3724f7a14e4f971bc0ccb7a19ddb13320d0bc7488aad5ca7424755",
+  "corpusAnalyzerExecutableSha256": "9786aa5abe65293d4c06ab4127c8e8f4532c1381822662ca460f7e488c04d4ea",
+  "packagedFfmpegSha256": "e17253d50522cf5f9b52aabd9faba42cac164c1682a61029b53c957c6f2b1f33",
+  "runKind": "separate duration-qualified held-out subset",
+  "selectionManifestSha256": "48278f0869444912e64d1bfec95ff97a6e563ecfe5c31596420bedc31bf1a604",
+  "rawResultSha256": "c6bca5a881062b70c463165b8f8ae41944e2750021a0834c7c91ad49a3a9f0bd",
+  "datasetSelection": {
+    "dataset": "Freesound Loop Dataset (FSL10K)",
+    "dataset_doi": "10.5281/zenodo.3967852",
+    "archive_record": "https://zenodo.org/records/3967852",
+    "archive_published_md5": "c260a1203a82c1dda80ec1de75e5e23f",
+    "archive_full_md5_verified": false,
+    "annotation_archive_md5_expected": "3920ee437802cf047a990b2968fa066c",
+    "annotation_archive_md5_verified": true,
+    "selection_is_separate_from_original_frozen_ten": true,
+    "preselection_before_analyzer_results": true,
+    "selection_criteria": "Both FSLD annotators 5 and 10 mark discard=false and agree on nonempty BPM, key and mode; per-item archived metadata license is CC BY or CC0; exact decoded WAV duration is 40-120 seconds. Stable numeric ID order; all eligible candidates selected (three total), with genre diversity recorded but not used to omit candidates.",
+    "screen_summary": {
+      "paired_annotation_ids_reviewed": 327,
+      "agreement_nonempty_key_mode_and_allowed_archive_license": 56,
+      "size_prefilter_threshold_bytes": 3528000,
+      "size_prefilter_count": 3,
+      "duration_verified_eligible_count": 3,
+      "size_threshold_rationale": "Observed FSL10K WAV members are mono 44.1 kHz, 16-bit PCM (88,200 data bytes/sec); 3,528,000 bytes is a conservative 40-second preliminary bound. All three candidates were fully decoded to verify exact duration."
+    },
+    "acquisition": {
+      "method": "Validated HTTP 206 byte ranges; only ZIP64 central directory, annotation archive and exact selected audio members read.",
+      "range_transfer_bytes_for_selected_audio": 14163219,
+      "combined_range_transfer_across_prior_and_current_corpus_reads_below_100MiB": true,
+      "selected_audio_members_crc32_verified": true,
+      "full_archive_downloaded": false
+    },
+    "license_note": "The archived FSL10K per-item license is recorded for these archive-derived bytes. Provide attribution for CC BY clips; CC0 clips do not require attribution. The frozen original ten labels/manifest were not modified."
+  },
+  "counts": {
+    "clips": 3,
+    "allSelectedEligibleItemsIncluded": true,
+    "allDurationsAtLeast40Seconds": true,
+    "bpmEstimated": 3,
+    "bpmWithin1Of3": 0,
+    "octaveEquivalentWithin1Of3": 2,
+    "keyEstimated": 0,
+    "keyAbstained": 3
+  },
+  "keyInterpretation": "All clips pass the 40-second minimum implied by five 8-second windows, but no key was returned. The result does not include profile-fit, profile-margin, or window-consensus diagnostics; do not infer an infrastructure failure or the specific rejection gate.",
+  "items": [
+    {
+      "id": "78694",
+      "title": "DISTOPIA LOOPZ 023 60 BPM.flac",
+      "uploader": "Jovica",
+      "attribution": "DISTOPIA LOOPZ 023 60 BPM.flac by Jovica (CC BY 3.0)",
+      "sourceUrl": "https://freesound.org/s/78694/",
+      "durationSeconds": 80.0,
+      "sampleRate": 44100,
+      "channels": 1,
+      "sha256": "91067696cb38fcf7c7ae979f6349567a34e99892954e05e1a235ef3e78db5735",
+      "annotatorRecordSha256": {
+        "annotator_5": "1b46cddb46021e1704d916cfd07c06bd6847fb7bc5dd94ba37a44213c8fbe57c",
+        "annotator_10": "c02c1a7934fb756ff90c660974061e8a49430e77220911c194c9c6e10ebdca10"
+      },
+      "expectedBpm": 60.0,
+      "bpmEstimate": 120.0,
+      "bpmConfidence": 0.6963908525901321,
+      "relatedTempoBpm": 60.1,
+      "within1Bpm": false,
+      "octaveEquivalentWithin1Bpm": true,
+      "bpmStatus": "estimated",
+      "expectedKey": "f major",
+      "keyEstimate": null,
+      "keyStatus": "abstained: no estimate",
+      "resultMessage": "key analyzer returned no estimate",
+      "archiveLicense": "http://creativecommons.org/licenses/by/3.0/"
+    },
+    {
+      "id": "315848",
+      "title": "Nitrous PD_004.wav",
+      "uploader": "AlienXXX",
+      "attribution": "Nitrous PD_004.wav by AlienXXX (CC BY 3.0)",
+      "sourceUrl": "https://freesound.org/s/315848/",
+      "durationSeconds": 48.0,
+      "sampleRate": 44100,
+      "channels": 1,
+      "sha256": "e2c19342745a561eee8e72a54a1315e5ee7e6dae3ba6a688bfb14e78152041c6",
+      "annotatorRecordSha256": {
+        "annotator_5": "d2d9fc1f835795643132089a096fa53737965a575ce55e32b86f2aaf4853f577",
+        "annotator_10": "73c6c0b3f6d17fc20496a19e660c5f35d7bd0eb6245216d73451b85287aee494"
+      },
+      "expectedBpm": 120.0,
+      "bpmEstimate": 60.0,
+      "bpmConfidence": 0.7321856482712907,
+      "relatedTempoBpm": null,
+      "within1Bpm": false,
+      "octaveEquivalentWithin1Bpm": true,
+      "bpmStatus": "estimated",
+      "expectedKey": "d minor",
+      "keyEstimate": null,
+      "keyStatus": "abstained: no estimate",
+      "resultMessage": "key analyzer returned no estimate",
+      "archiveLicense": "http://creativecommons.org/licenses/by/3.0/"
+    },
+    {
+      "id": "418630",
+      "title": "bassline c fsharpc120bpm-01.wav",
+      "uploader": "@realdavidfloat",
+      "attribution": "bassline c fsharpc120bpm-01.wav by @realdavidfloat (CC BY 3.0)",
+      "sourceUrl": "https://freesound.org/s/418630/",
+      "durationSeconds": 56.25,
+      "sampleRate": 44100,
+      "channels": 1,
+      "sha256": "8aa8154a32cb6bbfe0f0b7f5913f006ba2bc28c5a3fced94f43809bfb4a74c62",
+      "annotatorRecordSha256": {
+        "annotator_5": "97813df0f77f92cd63d4a12ce5f6abc9d062116e184b0b1ea167056efc726b9f",
+        "annotator_10": "9e41c0573948d093668f4c8f2f7924333019baa6c635cb2f0fbd38eb5cd8eec0"
+      },
+      "expectedBpm": 120.0,
+      "bpmEstimate": 80.0,
+      "bpmConfidence": 0.6949629753342234,
+      "relatedTempoBpm": null,
+      "within1Bpm": false,
+      "octaveEquivalentWithin1Bpm": false,
+      "bpmStatus": "estimated",
+      "expectedKey": "f# major",
+      "keyEstimate": null,
+      "keyStatus": "abstained: no estimate",
+      "resultMessage": "key analyzer returned no estimate",
+      "archiveLicense": "http://creativecommons.org/licenses/by/3.0/"
+    }
+  ]
+}

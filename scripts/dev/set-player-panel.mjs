@@ -3,8 +3,8 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { writeFile } from 'node:fs/promises';
 const [automationFile, panel, outputFile] = process.argv.slice(2);
-if (!automationFile || !['queue', 'info', 'closed'].includes(panel) || !outputFile) {
-  console.error('usage: set-player-panel.mjs AUTOMATION_FILE queue|info|closed OUTPUT_JSON');
+if (!automationFile || !['queue', 'info', 'now-playing', 'now-playing-details', 'closed'].includes(panel) || !outputFile) {
+  console.error('usage: set-player-panel.mjs AUTOMATION_FILE queue|info|now-playing|now-playing-details|closed OUTPUT_JSON');
   process.exit(2);
 }
 const root = new URL('../../', import.meta.url).pathname;

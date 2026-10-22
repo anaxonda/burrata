@@ -1,0 +1,49 @@
+{
+  "qualification": "read-only verification of terminal Bulgaria album download operation",
+  "recordedAt": "2026-10-21 America/Denver",
+  "application": {
+    "binary": ".cache/qualification-mb-codes-soulseek-20261021/bin/burrata",
+    "sha256": "5eb5b9c55fb36af11f5ca24c6b1bb70b272a4218463ea2d99cceff2fb31e57ce"
+  },
+  "operation": {
+    "id": "a6941d88-3e60-421a-828a-b790ecdee88a",
+    "terminalStatus": "completed",
+    "requestedCount": 13,
+    "receiptCompletedCount": 13,
+    "receiptFailureCount": 0,
+    "queuedJobCount": 9,
+    "skippedCount": 4,
+    "jobRecordReconciliation": {
+      "completed": 1,
+      "failed": 8,
+      "note": "The operation receipt reports completedCount 13 and no failures, but the nine referenced download job records resolve to one completed and eight failed jobs. Receipt completion is not equivalent to completed downloads."
+    }
+  },
+  "jobs": [
+    {"index": 0, "title": "Pilentze Pee", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"},
+    {"index": 1, "title": "Svatba", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"},
+    {"index": 2, "title": "Kalimankou Denkou", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"},
+    {"index": 3, "title": "Strati na Angelaki Doumasche", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"},
+    {"index": 4, "title": "Polegnala e Pschenitza", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"},
+    {"index": 5, "state": "skipped", "jobCreated": false},
+    {"index": 6, "state": "skipped", "jobCreated": false},
+    {"index": 7, "title": "Erghen Diado", "state": "completed", "provider": "slskd", "outputProfile": "source", "formatId": null, "candidateFormat": "mp3", "sizeBytes": 4630684, "actualFile": {"codec": "mp3", "sampleRate": 44100, "channels": 2, "durationSeconds": 174.132208, "sizeBytes": 4195467}, "tagChecks": {"artist": "match", "title": "match", "album": "match", "date": "match", "genre": "match", "label": "match", "albumArtist": "no saved value to compare", "isrc": "no saved value to compare"}, "sourceMetadataSnapshotRecorded": false},
+    {"index": 8, "state": "skipped", "jobCreated": false},
+    {"index": 9, "state": "skipped", "jobCreated": false},
+    {"index": 10, "title": "Mir Stanke Le", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"},
+    {"index": 11, "title": "Schopska Pesen", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"},
+    {"index": 12, "title": "Polegnala e Todora", "state": "failed", "provider": "monochrome", "candidateFormat": "flac", "outputProfile": "source", "failure": "existing-source-conflict; no output file"}
+  ],
+  "completedJob": {
+    "id": "21a49f7d-1639-43e6-a811-2d5da207d2cd",
+    "assetId": "f366e0e7-bae1-40d6-b4e7-cbec4af34672",
+    "title": "Erghen Diado",
+    "durationSeconds": 174.0,
+    "candidateDurationSeconds": 174.0,
+    "candidateFormat": "mp3",
+    "outputProfile": "source",
+    "state": "completed",
+    "progress": 100
+  },
+  "privacy": "Peer names, remote paths, URLs, and local filesystem paths are omitted."
+}

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "probe": "webkitgtk_connection",
+  "started_at": "2026-10-21T20:26:59Z",
+  "url_origin": "https://music-api.geeked.wtf",
+  "webkit_version": {
+    "major": 2,
+    "minor": 54,
+    "micro": 1
+  },
+  "load_events": [
+    "started",
+    "committed",
+    "finished"
+  ],
+  "failures": [],
+  "api_resources": [
+    {
+      "host": "ipv4-check-perf.radar.cloudflare.com",
+      "path": "/api/info"
+    },
+    {
+      "host": "ipv6-check-perf.radar.cloudflare.com",
+      "path": "/api/info"
+    },
+    {
+      "host": "performance.radar.cloudflare.com",
+      "path": "/api/beacon"
+    }
+  ],
+  "main_response_status": 530,
+  "page": {
+    "origin": "https://music-api.geeked.wtf",
+    "title": "Origin DNS error amz.binimum.org Cloudflare",
+    "has_turnstile_script": false,
+    "has_challenge_frame": false,
+    "indicators": {
+      "blocked": false,
+      "signature": false,
+      "captcha": false,
+      "login": false
+    }
+  }
+}

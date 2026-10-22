@@ -80,7 +80,7 @@ describe("PlaybackQueuePanel", () => {
     menu.dispatchEvent(new KeyboardEvent("keydown",{key:"Home",bubbles:true,cancelable:true}));
     expect(document.activeElement?.textContent?.trim()).toBe("Move up");
     menu.dispatchEvent(new KeyboardEvent("keydown",{key:"End",bubbles:true,cancelable:true}));
-    expect(document.activeElement?.textContent?.trim()).toBe("Move down");
+    expect(document.activeElement?.textContent?.trim()).toBe("Clear below");
     menu.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));await tick();
     expect(target.querySelector("dialog.action-menu")).toBeNull();
     expect(summary.getAttribute("aria-expanded")).toBe("false");
@@ -217,6 +217,37 @@ describe("PlaybackQueuePanel", () => {
     more.click(); await tick();
     more.closest("details")!.querySelector<HTMLButtonElement>('.queue-more-menu button[title="Remove from queue"]')!.click();
     expect(onRemove).toHaveBeenCalledWith(1);
+  });
+
+  it("supports modifier selection, inverse selection, and removing exact selected occurrences", async () => {
+    const onRemoveMany = vi.fn();
+    const rows = [track, { ...track, title: "Duplicate occurrence" }, { ...track, title: "Last occurrence" }];
+    const target = render({ tracks: rows, onRemoveMany });
+    await tick();
+    const tracks = target.querySelectorAll<HTMLButtonElement>(".queue-list article .queue-drag-select");
+    tracks[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    await tick();
+    const selects = target.querySelectorAll<HTMLButtonElement>(".queue-list article .queue-drag-select");
+    expect(selects[1]!.getAttribute("aria-pressed")).toBe("true");
+    target.querySelector<HTMLButtonElement>('.queue-selection button')!.click();
+    await tick();
+    expect([...target.querySelectorAll<HTMLElement>(".queue-list article")].map(row => row.classList.contains("queue-selected"))).toEqual([true, false, true]);
+    target.querySelector<HTMLButtonElement>('.queue-selection button:last-child')!.click();
+    expect(onRemoveMany).toHaveBeenCalledWith([2]);
+  });
+
+  it("clears all occurrences and clears only rows below the chosen row", async () => {
+    const onRemoveMany = vi.fn();
+    const rows = [track, { ...track, id: "queue-2", title: "Next" }, { ...track, id: "queue-3", title: "Last" }];
+    const target = render({ tracks: rows, onRemoveMany });
+    target.querySelector<HTMLButtonElement>(".clear-queue")!.click();
+    expect(onRemoveMany).toHaveBeenLastCalledWith([2, 1]);
+
+    const more = target.querySelector<HTMLElement>('[aria-label="More actions for Queued Track"]')!;
+    more.click(); await tick();
+    const clearBelow = [...target.querySelectorAll<HTMLButtonElement>(".queue-more-menu button")].find(button => button.textContent?.trim() === "Clear below")!;
+    clearBelow.click();
+    expect(onRemoveMany).toHaveBeenLastCalledWith([2, 1]);
   });
 
   it("dispatches an explicit upcoming sort using the selected shared sort field and direction", async () => {
@@ -413,8 +444,8 @@ it("stops a normal selected-block move on stale or missing native acknowledgemen
 });
 it("uses captured native revision for overflow moves and surfaces an external stale rejection",async()=>{
  const onMove=vi.fn().mockRejectedValue(new Error('Queue revision changed before reorder'));const target=render({tracks:[track,track],queueRevision:10,onMove});await tick();
- target.querySelector<HTMLElement>('.queue-list article:nth-child(2) summary')!.click();await tick();
- const buttons=target.querySelectorAll<HTMLButtonElement>('.queue-list article:nth-child(2) .queue-more-menu button');[...buttons].find(button=>button.textContent?.trim()==='Move up')!.click();for(let i=0;i<12;i++)await Promise.resolve();await tick();
+ const row=target.querySelectorAll<HTMLElement>('.queue-list article')[1]!;row.querySelector<HTMLElement>('summary')!.click();await tick();
+ const buttons=row.querySelectorAll<HTMLButtonElement>('.queue-more-menu button');[...buttons].find(button=>button.textContent?.trim()==='Move up')!.click();for(let i=0;i<12;i++)await Promise.resolve();await tick();
  expect(onMove).toHaveBeenCalledExactlyOnceWith(1,0,10);expect(target.querySelector('[role="alert"]')?.textContent).toContain('Could not finish');
 });
 

@@ -20,13 +20,51 @@ type NativeCommandPayload =
   | { action: "next" | "previous" }
   | { action: "select" | "remove"; index: number }
   | { action: "sort_upcoming"; field: TrackSortField; direction: SortDirection }
+  | { action: "remove_many"; indices: number[]; expectedQueueRevision?: number }
   | { action: "reorder"; from: number; to: number; expectedQueueRevision?: number }
-  | { action: "pause" | "resume" | "stop" }
+  | { action: "pause" | "resume" | "stop"; expectedHandoffId?: string }
   | { action: "seek"; position: number }
   | { action: "volume"; volume: number }
   | { action: "shuffle"; enabled: boolean }
   | { action: "repeat"; mode: "off" | "all" | "one" }
   | { action: "restore"; tracks: Track[]; index: number; position: number; volume: number; repeat: string; shuffle: boolean };
+
+export interface WebviewPlaybackHandoff {
+  handoffId: string;
+  sourceGeneration: number;
+  seekSerial: number;
+  targetPosition: number;
+  tracks: Track[];
+  entryIds: string[];
+  index: number;
+  sessionId: string;
+  entryId: string;
+  paused: boolean;
+  volume: number;
+  repeat: "off" | "all" | "one";
+  shuffle: boolean;
+  candidate: Candidate;
+  recorded: boolean;
+}
+
+/** Opaque Rust-retained source handoff. The source URL, headers, and keys stay native. */
+export interface ResolvedSourceHandoff {
+  handoffId: string;
+  sourceHandle: string;
+  sourceGeneration: number;
+  seekSerial: number;
+  targetPosition: number;
+  tracks: Track[];
+  entryIds: string[];
+  index: number;
+  sessionId: string;
+  entryId: string;
+  paused: boolean;
+  volume: number;
+  repeat: "off" | "all" | "one";
+  shuffle: boolean;
+  recorded: boolean;
+}
 
 export interface NativePositionEvent {
   generation: number;
@@ -124,6 +162,14 @@ export class NativePlaybackBridge {
 
   command(command: NativeCommand): Promise<NativePlaybackSnapshot | void> {
     return this.invoke<NativePlaybackSnapshot | void>("playback_command", { command });
+  }
+
+  handoffWebview(request: WebviewPlaybackHandoff): Promise<NativePlaybackSnapshot> {
+    return this.invoke<NativePlaybackSnapshot>("handoff_webview_playback", {handoff:request as unknown as Record<string, unknown>});
+  }
+
+  handoffResolvedSource(request: ResolvedSourceHandoff): Promise<NativePlaybackSnapshot> {
+    return this.invoke<NativePlaybackSnapshot>("handoff_resolved_playback_source", {handoff:request as unknown as Record<string, unknown>});
   }
 
   dispose(): void {

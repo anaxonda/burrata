@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { planQueueSelectionMove } from "./lib/playback-queue";
+  import { planQueueSelectionMove, queueRemovalIndexes } from "./lib/playback-queue";
+  import { invertSelection } from "./lib/selection";
   import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
   import ActionMenu from "./ActionMenu.svelte";
   import type { MenuAnchorRect } from "./lib/menu-geometry";
@@ -28,6 +29,7 @@
     onInteractionMove,
     onSortUpcoming,
     onRemove,
+    onRemoveMany,
     onSeek,
     onInspectChapters,
     chaptersByTrack = {},
@@ -72,6 +74,7 @@
     onMove: (from: number, to: number, expectedQueueRevision?:number) => void | {queueRevision?:number} | Promise<void|{queueRevision?:number}>;
     onSortUpcoming?: (field: TrackSortField, direction: SortDirection) => void;
     onRemove: (index: number) => void;
+    onRemoveMany?: (indices: number[]) => void | Promise<void>;
     onSeek: (seconds: number) => void;
     onToggleShuffle: () => void;
     onCycleRepeat: () => void;
@@ -122,6 +125,19 @@
       selectedRows=selectedRows.includes(index)?selectedRows.filter(at=>at!==index):[...selectedRows,index].sort((a,b)=>a-b);
       selectionAnchor=index;
     } else { selectedRows=[index]; selectionAnchor=index; }
+  }
+  function removeQueueRows(indices: number[]) {
+    const ordered = queueRemovalIndexes(tracks.length, indices).filter(index => index !== currentIndex);
+    if (!ordered.length || movingRows) return;
+    selectedRows = [];
+    selectionAnchor = -1;
+    if (onRemoveMany) void onRemoveMany(ordered);
+    else for (const index of ordered) onRemove(index);
+  }
+  function invertQueueRows() {
+    const scope = Array.from({ length: tracks.length }, (_, index) => String(index));
+    selectedRows = invertSelection(scope, selectedRows.map(String)).map(Number);
+    selectionAnchor = selectedRows[0] ?? -1;
   }
   async function moveSelection(indices: number[], target: number, focusOrigin?: HTMLElement, synthetic=false,baseRevision=queueRevision) {
     if(movingRows)return;
@@ -225,6 +241,7 @@
   <header class="queue-header">
     <div><p class="eyebrow">PLAYER</p><h2>Queue <span>{tracks.length}</span></h2></div>
     {#if onIdentifyCurrent}<button class="identify" aria-label={identifyingCurrentAudio ? "Cancel current audio capture" : "Identify currently playing audio"} disabled={identifyingCurrentAudio && !onCancelIdentifyCurrent} onclick={identifyingCurrentAudio ? onCancelIdentifyCurrent ?? onIdentifyCurrent : onIdentifyCurrent}>{identifyingCurrentAudio ? onCancelIdentifyCurrent ? `Cancel capture · ${Math.floor(radioIdentifyProgress)} / 8 s` : "Identifying…" : "Identify audio"}</button>{/if}
+    {#if tracks.length}<button class="clear-queue" title="Keeps the currently playing track" disabled={movingRows || !tracks.some((_,index)=>index!==currentIndex)} onclick={() => removeQueueRows(tracks.map((_, index) => index))}>Clear queue</button>{/if}
     <button class="close" aria-label="Close playback queue" onclick={onClose}>✕</button>
   </header>
 
@@ -232,6 +249,11 @@
     {#if tracks.length}
       <section class="queue-list" aria-label="Queued tracks">
         {#if moveError}<p role="alert">{moveError}</p>{/if}
+        <div class="queue-selection" aria-label="Queue selection actions">
+          <span>{selectedRows.length} selected</span>
+          <button type="button" onclick={invertQueueRows} disabled={movingRows}>Invert selection</button>
+          <button type="button" onclick={() => removeQueueRows(selectedRows)} title="Keeps the currently playing track" disabled={movingRows || !selectedRows.some(index=>index!==currentIndex)}>Remove selected</button>
+        </div>
         {#if onSortUpcoming && upcomingTracks.length > 1}
           <div class="queue-sort-upcoming">
             <label>Sort upcoming
@@ -271,6 +293,7 @@
               <button disabled={index === tracks.length - 1} onclick={(event) => runMenuAction(event, () => moveSelection([index], index + 1))}><MenuIcon name="arrow-down"/><span>Move down</span></button>
               {#if onInfoTrack}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onInfoTrack?.(track))}><MenuIcon name="info"/><span>Track information</span></button>{/if}
               <button class="menu-section" disabled={index === currentIndex} title={index === currentIndex ? "Current track" : "Remove from queue"} onclick={(event) => runMenuAction(event, () => onRemove(index))}><MenuIcon name="remove"/><span>Remove from queue</span></button>
+              <button class="menu-section" disabled={index === tracks.length - 1} title={index === tracks.length - 1 ? "No tracks below" : "Clear tracks below this one"} onclick={(event) => runMenuAction(event, () => removeQueueRows(Array.from({ length: tracks.length - index - 1 }, (_, offset) => index + offset + 1)))}><MenuIcon name="remove"/><span>Clear below</span></button>
               {#if trackChapters.length}<button class="menu-section" aria-expanded={!!expanded[track.id]} onclick={(event) => runMenuAction(event, () => toggleChapters(track))}><MenuIcon name="queue"/><span>{expanded[track.id] ? "Hide chapters" : "Show chapters"}</span></button>
                 {#if onAppendChapters}<button onclick={(event) => runMenuAction(event, () => onAppendChapters?.(track, trackChapters))}><MenuIcon name="queue"/><span>Append chapters</span></button>{/if}
                 {#if onQueueAllChapters}<button onclick={(event) => runMenuAction(event, () => onQueueAllChapters?.(track, trackChapters))}><MenuIcon name="queue"/><span>Queue all chapters</span></button>{/if}
@@ -413,9 +436,16 @@
   .eyebrow { margin: 0 0 4px; color: var(--muted); font-size: 9px; font-weight: 650; letter-spacing: .13em; }
   .queue-header h2,.chapter-list h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; letter-spacing: -.02em; }
   .queue-header h2 span { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--raised); color: var(--muted); font-size: 10px; }
+  .clear-queue { min-height: 32px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 10px; }
+  .clear-queue:hover:not(:disabled) { border-color: var(--danger, #d35d5d); color: var(--danger, #d35d5d); }
+  .clear-queue:disabled { opacity: .55; }
   .close { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 8px; background: transparent; color: var(--muted); }
   .queue-content { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
   .queue-list { padding: 5px 9px 8px; }
+  .queue-selection { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 2px 3px 6px; }
+  .queue-selection span { flex: 1; color: var(--muted); font-size: 10px; }
+  .queue-selection button { min-height: 28px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised, var(--surface)); color: var(--text); font-size: 10px; }
+  .queue-selection button:disabled { opacity: .5; }
   .queue-list article { display: flex; align-items: center; gap: 3px; min-width: 0; padding: 4px 3px; border-bottom: 1px solid color-mix(in srgb, var(--line) 66%, transparent); border-radius: 7px; }
   .queue-list article.current { background: color-mix(in srgb, var(--accent) 10%, transparent); }
   .queue-list article.paused .track-index,.queue-list article.buffering .track-index { color: var(--accent); }

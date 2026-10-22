@@ -359,6 +359,8 @@ mod tests {
                 ffmpeg: PathBuf::from("ffmpeg-unavailable-for-wav"),
                 headers: Vec::new(),
                 decoder_hint: None,
+
+                cenc: None,
             },
             path,
         )

@@ -1,0 +1,31 @@
+{
+  "scope": "Linux cold isolated resolver and bounded PCM checks; not macOS device verification",
+  "bacc": {
+    "sourceId": "youtube:rpCswezRrLs",
+    "durationSeconds": 198,
+    "resolveMs": 10272,
+    "firstPcmMs": 10575,
+    "result": "pass"
+  },
+  "sacrifices": {
+    "sourceId": "youtube:FrKgnaj_Ums",
+    "durationSeconds": 279,
+    "resolveMs": 11403,
+    "firstPcmMs": 11595,
+    "sampledAudioWindowsSeconds": [
+      0,
+      30,
+      139
+    ],
+    "result": "pass; not full-content or physical-audibility proof"
+  },
+  "vibeWithMe": {
+    "sourceId": "youtube:ExdT24gJngk",
+    "durationSeconds": 231,
+    "resolveMs": 8560,
+    "firstPcmMs": 8692,
+    "result": "pass after literal-with and complete-caption parsing corrections",
+    "extraWindowSeconds": 115,
+    "extraWindowResult": "nonsilent; separate 0s/30s requests received HTTP403, not counted as silence or passing windows"
+  }
+}

@@ -134,6 +134,9 @@ async fn dispatch_event(
     event: souvlaki::MediaControlEvent,
 ) -> Result<(), String> {
     use souvlaki::{MediaControlEvent as Event, SeekDirection};
+    if !playback.native_enabled() {
+        return Ok(());
+    }
     let snapshot = playback.snapshot();
     match event {
         Event::Play => execute(playback, "resume", None, None).await,
@@ -205,6 +208,10 @@ async fn execute(
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn update_controls(controls: &mut souvlaki::MediaControls, snapshot: JsonValue) {
     use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
+
+    if snapshot["engine"].as_str() != Some("native") {
+        return;
+    }
 
     let metadata = track_metadata(&snapshot);
     let _ = controls.set_metadata(MediaMetadata {

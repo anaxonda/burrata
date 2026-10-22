@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "observedAtDate": "2026-10-21",
+  "evidenceKind": "user_supplied_firefox_network_request",
+  "recording": {
+    "title": "Alvafro",
+    "artists": ["LATIN MAFIA", "Fred again.."],
+    "libraryIsrc": "GBAHS2600508",
+    "libraryDurationSeconds": 238.05
+  },
+  "request": {
+    "origin": "https://monochrome.samidy.com",
+    "path": "/api/decrypt-stream",
+    "codecParameter": "flac-hls-segment",
+    "segment": 7,
+    "start": 8261720,
+    "end": 9438804,
+    "nestedSourceDomain": "cloudfront.net",
+    "nestedSourceExtension": ".mp4",
+    "keyParameterPresent": true
+  },
+  "omitted": ["media_key", "full_nested_source_url", "full_request_url"],
+  "notObserved": ["preceding_resolver_origin", "resolver_response", "http_status", "decoded_codec", "decoded_bit_depth", "decoded_sample_rate"],
+  "qualification": "Request shape only; not a resolver response fixture or independent playback verification."
+}

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "probe": "webkitgtk_connection",
+  "started_at": "2026-10-21T20:32:36Z",
+  "url_origin": "https://tracks.monochrome.st",
+  "webkit_version": {
+    "major": 2,
+    "minor": 54,
+    "micro": 1
+  },
+  "load_events": [
+    "started",
+    "committed",
+    "finished"
+  ],
+  "failures": [],
+  "api_resources": [],
+  "main_response_status": 200,
+  "page": {
+    "origin": "https://tracks.monochrome.st",
+    "title": null,
+    "has_turnstile_script": false,
+    "has_challenge_frame": false,
+    "response_api_error": false,
+    "api_error_category": null,
+    "catalog_summary": {
+      "count": 3,
+      "tracks": [
+        {
+          "id": "206931778626535424",
+          "title": "Hecho para ti",
+          "isrc": "QMDA62527257",
+          "duration": 152734,
+          "artist": null
+        },
+        {
+          "id": "171681912320950272",
+          "title": "Afro Jazz",
+          "isrc": "USUS12400410",
+          "duration": 107833,
+          "artist": null
+        },
+        {
+          "id": "304291163886686208",
+          "title": "AFRO",
+          "isrc": "GBBPW2602391",
+          "duration": 128236,
+          "artist": null
+        }
+      ]
+    },
+    "indicators": {
+      "blocked": false,
+      "origin_dns_error": false,
+      "signature": false,
+      "captcha": false,
+      "login": false
+    }
+  },
+  "response_api_error": false
+}

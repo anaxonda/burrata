@@ -22,7 +22,7 @@ use std::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AudioSource {
     pub input: String,
     pub ffmpeg: PathBuf,
@@ -31,6 +31,133 @@ pub struct AudioSource {
     /// a container duration that Rodio/Symphonia estimates incorrectly, so they
     /// are decoded through FFmpeg while retaining the extractor's verified duration.
     pub decoder_hint: Option<AudioSourceDecoderHint>,
+    /// Ephemeral key for an explicitly resolved encrypted MP4. This is never
+    /// serialized or included in diagnostics; normal sources leave it unset.
+    pub cenc: Option<EncryptedMp4Audio>,
+}
+
+impl std::fmt::Debug for AudioSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AudioSource")
+            .field("input", &"[REDACTED]")
+            .field("ffmpeg", &"[REDACTED]")
+            .field("headers", &"[REDACTED]")
+            .field("decoder_hint", &self.decoder_hint)
+            .field("cenc", &self.cenc.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
+/// A validated 128-bit CENC key. The key is intentionally not `Debug` and is
+/// cleared from this owned buffer when its final clone is dropped.
+pub struct CencDecryptionKey([u8; 16]);
+
+impl Clone for CencDecryptionKey {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
+impl CencDecryptionKey {
+    pub fn from_hex(value: &str) -> Result<Self, &'static str> {
+        if value.len() != 32 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("CENC key must be exactly 32 hexadecimal characters");
+        }
+        let mut key = [0; 16];
+        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+            let digit = |byte: u8| match byte {
+                b'0'..=b'9' => byte - b'0',
+                b'a'..=b'f' => byte - b'a' + 10,
+                b'A'..=b'F' => byte - b'A' + 10,
+                _ => unreachable!("validated hexadecimal key"),
+            };
+            key[index] = (digit(pair[0]) << 4) | digit(pair[1]);
+        }
+        Ok(Self(key))
+    }
+
+    fn append_hex(&self, encoded: &mut String) {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        for byte in self.0 {
+            encoded.push(HEX[(byte >> 4) as usize] as char);
+            encoded.push(HEX[(byte & 15) as usize] as char);
+        }
+    }
+
+    fn redact_hex_from(&self, bytes: &mut Vec<u8>) {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut needle = [0; 32];
+        for (index, byte) in self.0.iter().copied().enumerate() {
+            needle[index * 2] = HEX[(byte >> 4) as usize];
+            needle[index * 2 + 1] = HEX[(byte & 15) as usize];
+        }
+        let replacement = b"[REDACTED CENC KEY]";
+        let mut index = 0;
+        while index + needle.len() <= bytes.len() {
+            if bytes[index..].starts_with(&needle) {
+                bytes.splice(index..index + needle.len(), replacement.iter().copied());
+                index += replacement.len();
+            } else {
+                index += 1;
+            }
+        }
+        for byte in &mut needle {
+            unsafe { std::ptr::write_volatile(byte, 0) };
+        }
+    }
+}
+
+impl std::fmt::Debug for CencDecryptionKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("CencDecryptionKey([REDACTED])")
+    }
+}
+
+impl Drop for CencDecryptionKey {
+    fn drop(&mut self) {
+        for byte in &mut self.0 {
+            // Volatile writes keep the compiler from eliding this best-effort
+            // cleanup when the key's owner is disposed.
+            unsafe { std::ptr::write_volatile(byte, 0) };
+        }
+    }
+}
+
+/// Explicit encrypted-MP4 transport context. It is constructed only after a
+/// caller has independently obtained a legitimate key for this media resource.
+#[derive(Clone)]
+pub struct EncryptedMp4Audio {
+    key: CencDecryptionKey,
+    lease: Option<crate::webview_audio_transport::RegisteredNativeAudioLease>,
+}
+
+impl EncryptedMp4Audio {
+    pub fn new(key: CencDecryptionKey) -> Self {
+        Self { key, lease: None }
+    }
+
+    pub(crate) fn with_registered_lease(
+        key: CencDecryptionKey,
+        lease: crate::webview_audio_transport::RegisteredNativeAudioLease,
+    ) -> Self {
+        Self {
+            key,
+            lease: Some(lease),
+        }
+    }
+
+    pub(crate) fn has_registered_lease_for_input(&self, input: &str) -> bool {
+        self.lease
+            .as_ref()
+            .is_some_and(|lease| lease.matches_input(input))
+    }
+}
+
+impl std::fmt::Debug for EncryptedMp4Audio {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("EncryptedMp4Audio { key: [REDACTED], lease: [REDACTED] }")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2550,7 +2677,8 @@ fn is_finite_remote_opus_webm(source: &AudioSource) -> bool {
 fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
     // Symphonia scans every MP4 atom before starting a seekable stream. For
     // verified finite remote AAC, use the existing incremental FFmpeg path.
-    source.input.to_ascii_lowercase().contains(".m3u8")
+    source.cenc.is_some()
+        || source.input.to_ascii_lowercase().contains(".m3u8")
         || is_finite_remote_aac_mp4(source)
         // The default Symphonia registry has no Opus decoder. Avoid opening a
         // seekable WebM reader only to fail codec creation and reopen via FFmpeg.
@@ -2559,6 +2687,111 @@ fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
             .decoder_hint
             .as_ref()
             .is_some_and(|hint| hint.has_video && hint.mime_type.as_deref() == Some("audio/mp4"))
+}
+
+const MAX_CENC_FFCONCAT_MANIFEST: usize = 2048;
+
+struct CencManifest(Vec<u8>);
+
+impl Drop for CencManifest {
+    fn drop(&mut self) {
+        for byte in &mut self.0 {
+            unsafe { std::ptr::write_volatile(byte, 0) };
+        }
+    }
+}
+
+fn ffconcat_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn build_cenc_manifest(source: &AudioSource) -> Result<CencManifest, String> {
+    let context = source
+        .cenc
+        .as_ref()
+        .ok_or_else(|| "missing encrypted MP4 context".to_owned())?;
+    if source.input.chars().any(|character| {
+        character == '\r'
+            || character == '\n'
+            || character == '\0'
+            || character == '\\'
+            || character == '\''
+    }) {
+        return Err("encrypted MP4 URL contains unsupported concat syntax".into());
+    }
+    let url =
+        url::Url::parse(&source.input).map_err(|_| "encrypted MP4 URL is invalid".to_owned())?;
+    let lease_matches = context
+        .lease
+        .as_ref()
+        .is_some_and(|lease| lease.matches_input(&source.input));
+    if context.lease.is_some() && !lease_matches {
+        return Err("encrypted MP4 URL does not match its registered relay".into());
+    }
+    if context.lease.is_some() && !source.headers.is_empty() {
+        return Err("registered encrypted media must use relay-owned headers".into());
+    }
+    if !cfg!(test) && !lease_matches {
+        return Err("encrypted MP4 requires a registered native relay".into());
+    }
+    let scheme_allowed = (lease_matches
+        && url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "[::1]")))
+        || url.scheme() == "https"
+        || (cfg!(test)
+            && (url.scheme() == "file"
+                || (url.scheme() == "http"
+                    && matches!(url.host_str(), Some("127.0.0.1" | "[::1]")))));
+    if !scheme_allowed || !url.username().is_empty() || url.password().is_some() {
+        return Err("encrypted MP4 URL uses an unsupported transport".into());
+    }
+    if url.scheme() == "https" {
+        crate::acquisition::validate_source_url(url.as_str(), "direct")
+            .map_err(|_| "encrypted MP4 URL failed source validation".to_owned())?;
+    }
+    let mut custom_header_count = 0;
+    let mut header_options = String::new();
+    for (name, value) in &source.headers {
+        if name.eq_ignore_ascii_case("authorization")
+            || name.eq_ignore_ascii_case("proxy-authorization")
+        {
+            return Err("encrypted media headers may not carry authorization tokens".into());
+        }
+        if name.is_empty()
+            || name.bytes().any(|byte| {
+                byte <= 0x20 || byte >= 0x7f || matches!(byte, b':' | b'\\' | b'\'' | b'"')
+            })
+            || value
+                .bytes()
+                .any(|byte| matches!(byte, b'\r' | b'\n' | b'\0' | b'\\' | b'\''))
+        {
+            return Err("encrypted media headers contain unsupported concat syntax".into());
+        }
+        if name.eq_ignore_ascii_case("user-agent") {
+            header_options.push_str(&format!("option user_agent {}\n", ffconcat_quote(value)));
+        } else {
+            custom_header_count += 1;
+            if custom_header_count > 1 {
+                return Err("multiple custom encrypted media headers are not supported".into());
+            }
+            header_options.push_str(&format!(
+                "option headers {}\n",
+                ffconcat_quote(&format!("{name}: {value}"))
+            ));
+        }
+    }
+    let file_line = format!(
+        "ffconcat version 1.0\nfile {}\noption decryption_key ",
+        ffconcat_quote(url.as_str())
+    );
+    if file_line.len() + 33 + header_options.len() >= MAX_CENC_FFCONCAT_MANIFEST {
+        return Err("encrypted MP4 manifest exceeds its size limit".into());
+    }
+    let mut manifest = file_line;
+    context.key.append_hex(&mut manifest);
+    manifest.push('\n');
+    manifest.push_str(&header_options);
+    Ok(CencManifest(manifest.into_bytes()))
 }
 
 /// All exit paths, including a disconnected PCM queue, must reap the child.
@@ -2671,6 +2904,11 @@ fn decode_ffmpeg_with_diagnostics(
     use std::process::{Command, Stdio};
     // Phase timing starts here; only first PCM keeps the original decode origin.
     let ffmpeg_setup_started = Instant::now();
+    let cenc_manifest = if source.cenc.is_some() {
+        Some(build_cenc_manifest(&source)?)
+    } else {
+        None
+    };
     let mut command = Command::new(&source.ffmpeg);
     crate::tools::configure_no_console(&mut command);
     command.args([
@@ -2683,35 +2921,47 @@ fn decode_ffmpeg_with_diagnostics(
     ]);
     // Offline TCP fixtures must stay on the bound loopback socket even when
     // the host environment supplies an HTTP proxy. Production is unchanged.
-    #[cfg(test)]
-    if url::Url::parse(&source.input).ok().is_some_and(|url| {
-        url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
-    }) {
+    if source
+        .cenc
+        .as_ref()
+        .and_then(|cenc| cenc.lease.as_ref())
+        .is_some()
+    {
         command.args(["-http_proxy", ""]);
     }
     // A finite AAC transport must not turn a truncated response into clean EOF.
     // FFmpeg otherwise permits some demux/read errors and can exit successfully.
-    if is_finite_remote_aac_mp4(&source) {
+    if is_finite_remote_aac_mp4(&source) || cenc_manifest.is_some() {
         command.arg("-xerror");
     }
     if position > 0.0 {
         command.arg("-ss").arg(position.to_string());
     }
-    for (name, value) in &source.headers {
-        if name.eq_ignore_ascii_case("user-agent") {
-            command.arg("-user_agent").arg(value);
+    if cenc_manifest.is_some() {
+        let protocols = if cfg!(test) {
+            "file,pipe,crypto,data,http,https,tcp,tls"
+        } else {
+            "pipe,crypto,data,http,tcp"
+        };
+        command.args(["-protocol_whitelist", protocols]);
+        command.args(["-f", "concat", "-safe", "0", "-i", "pipe:0"]);
+    } else {
+        for (name, value) in &source.headers {
+            if name.eq_ignore_ascii_case("user-agent") {
+                command.arg("-user_agent").arg(value);
+            }
         }
+        let header_block = source
+            .headers
+            .iter()
+            .filter(|(name, _)| !name.eq_ignore_ascii_case("user-agent"))
+            .map(|(name, value)| format!("{name}: {value}\r\n"))
+            .collect::<String>();
+        if !header_block.is_empty() {
+            command.arg("-headers").arg(header_block);
+        }
+        command.arg("-i").arg(&source.input);
     }
-    let header_block = source
-        .headers
-        .iter()
-        .filter(|(name, _)| !name.eq_ignore_ascii_case("user-agent"))
-        .map(|(name, value)| format!("{name}: {value}\r\n"))
-        .collect::<String>();
-    if !header_block.is_empty() {
-        command.arg("-headers").arg(header_block);
-    }
-    command.arg("-i").arg(&source.input);
     if let Some(end) = end {
         let duration = (end - position).max(0.0);
         command.arg("-t").arg(duration.to_string());
@@ -2729,7 +2979,11 @@ fn decode_ffmpeg_with_diagnostics(
         .arg("pipe:1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null())
+        .stdin(if cenc_manifest.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .spawn()
         .map_err(|e| format!("could not start ffmpeg ({:?}): {e}", source.ffmpeg))?;
     let child = Arc::new(std::sync::Mutex::new(child));
@@ -2740,6 +2994,7 @@ fn decode_ffmpeg_with_diagnostics(
         .stderr
         .take();
     let stderr = stderr.and_then(|mut pipe| {
+        let cenc_key = source.cenc.as_ref().map(|context| context.key.clone());
         thread::Builder::new()
             .name("burrata-decoder-diagnostics".into())
             .spawn(move || {
@@ -2756,10 +3011,11 @@ fn decode_ffmpeg_with_diagnostics(
                         tail.push_back(*byte);
                     }
                 }
-                crate::playback::safe_failure_text(
-                    &String::from_utf8_lossy(&tail.into_iter().collect::<Vec<_>>()),
-                    512,
-                )
+                let mut diagnostic = tail.into_iter().collect::<Vec<_>>();
+                if let Some(key) = cenc_key.as_ref() {
+                    key.redact_hex_from(&mut diagnostic);
+                }
+                crate::playback::safe_failure_text(&String::from_utf8_lossy(&diagnostic), 512)
             })
             .ok()
     });
@@ -2768,6 +3024,26 @@ fn decode_ffmpeg_with_diagnostics(
         watcher_done: watcher_done.clone(),
         stderr,
     };
+    if let Some(mut manifest) = cenc_manifest {
+        let write_result = child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stdin
+            .take()
+            .ok_or_else(|| "ffmpeg did not provide a manifest pipe".to_owned())
+            .and_then(|mut stdin| {
+                use std::io::Write;
+                stdin
+                    .write_all(&manifest.0)
+                    .map_err(|error| error.to_string())
+            });
+        manifest.0.fill(0);
+        if let Err(error) = write_result {
+            return Err(format!(
+                "could not provide encrypted media manifest: {error}"
+            ));
+        }
+    }
     let mut stdout = child
         .lock()
         .map_err(|_| "ffmpeg process lock was poisoned".to_owned())?
@@ -3047,6 +3323,8 @@ mod tests {
                 ffmpeg: "unused".into(),
                 headers: vec![],
                 decoder_hint: None,
+
+                cenc: None,
             },
             end: None,
             activation_tx,
@@ -3628,6 +3906,8 @@ mod tests {
                     ffmpeg: "not-used-by-wav-fixture".into(),
                     headers: vec![],
                     decoder_hint: None,
+
+                    cenc: None,
                 },
                 0.,
                 None,
@@ -3837,6 +4117,8 @@ mod tests {
                     ffmpeg: "unused-for-wav-fixture".into(),
                     headers: vec![],
                     decoder_hint: None,
+
+                    cenc: None,
                 },
                 0.,
                 None,
@@ -4100,6 +4382,8 @@ mod tests {
                     ffmpeg: "ffmpeg".into(),
                     headers: Vec::new(),
                     decoder_hint: None,
+
+                    cenc: None,
                 },
                 0.0,
                 None,
@@ -4234,6 +4518,8 @@ mod tests {
                 content_length: Some(10_000_000),
                 has_video: true,
             }),
+
+            cenc: None,
         };
         assert!(should_use_ffmpeg_for_source(&source));
 
@@ -4261,6 +4547,237 @@ mod tests {
     }
 
     #[test]
+    fn cenc_key_validation_debug_and_manifest_injection_guards() {
+        let key = CencDecryptionKey::from_hex("0123456789abcdef0123456789ABCDEF").unwrap();
+        assert!(!format!("{key:?}").contains("0123456789"));
+        let mut diagnostic = b"ffmpeg diagnostic key=0123456789abcdef0123456789abcdef".to_vec();
+        key.redact_hex_from(&mut diagnostic);
+        assert!(!String::from_utf8_lossy(&diagnostic).contains("0123456789abcdef"));
+        assert!(CencDecryptionKey::from_hex("0123456789abcdef").is_err());
+        assert!(CencDecryptionKey::from_hex("0123456789abcdef0123456789abcdef00").is_err());
+        assert!(CencDecryptionKey::from_hex("0123456789abcdef0123456789abcdeg").is_err());
+
+        let source = AudioSource {
+            input: "https://media.example/track.mp4?sig=synthetic".into(),
+            ffmpeg: "ffmpeg".into(),
+            headers: vec![],
+            decoder_hint: None,
+            cenc: Some(EncryptedMp4Audio::new(
+                CencDecryptionKey::from_hex("0123456789abcdef0123456789abcdef").unwrap(),
+            )),
+        };
+        let manifest = build_cenc_manifest(&source).unwrap();
+        let text = String::from_utf8(manifest.0.clone()).unwrap();
+        assert!(text.contains("option decryption_key 0123456789abcdef0123456789abcdef"));
+        assert!(text.contains("file 'https://media.example/track.mp4?sig=synthetic'"));
+        assert!(manifest.0.len() < MAX_CENC_FFCONCAT_MANIFEST);
+        let debug = format!("{source:?}");
+        assert!(!debug.contains("0123456789abcdef"));
+        assert!(!debug.contains("media.example"));
+        assert!(!debug.contains("synthetic"));
+
+        for input in [
+            "https://media.example/track.mp4'\nfile 'file:///etc/passwd",
+            "https://media.example/track.mp4\\nfile:///etc/passwd",
+            "http://media.example/track.mp4",
+        ] {
+            let mut malicious = source.clone();
+            malicious.input = input.into();
+            assert!(build_cenc_manifest(&malicious).is_err());
+        }
+        let mut api_bearer = source.clone();
+        api_bearer.headers = vec![("Authorization".into(), "Bearer synthetic".into())];
+        assert!(build_cenc_manifest(&api_bearer).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn encrypted_flac_mp4_decodes_first_audio_seeks_and_cancels_cleanly() {
+        use std::process::Command;
+
+        const KEY: &str = "0123456789abcdef0123456789abcdef";
+        const KID: &str = "abcdef0123456789abcdef0123456789";
+        let ffmpeg = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources/tools/x86_64-unknown-linux-gnu/ffmpeg");
+        if !ffmpeg.is_file() {
+            eprintln!("skipping synthetic CENC decoder test: bundled Linux FFmpeg missing");
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let clear = directory.path().join("clear.mp4");
+        let ordinary = directory.path().join("encrypted.mp4");
+        let fragmented = directory.path().join("encrypted-fragmented.mp4");
+        let generated = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=44100:duration=3",
+                "-c:a",
+                "flac",
+                "-y",
+            ])
+            .arg(&clear)
+            .status()
+            .unwrap();
+        assert!(
+            generated.success(),
+            "could not generate clear synthetic fixture"
+        );
+        for (path, fragmented_output) in [(&ordinary, false), (&fragmented, true)] {
+            let mut command = Command::new(&ffmpeg);
+            command.args(["-hide_banner", "-loglevel", "error", "-i"]);
+            command.arg(&clear).args([
+                "-c",
+                "copy",
+                "-encryption_scheme",
+                "cenc-aes-ctr",
+                "-encryption_key",
+                KEY,
+                "-encryption_kid",
+                KID,
+            ]);
+            if fragmented_output {
+                command.args(["-movflags", "frag_keyframe+empty_moov"]);
+            }
+            let status = command.arg("-y").arg(path).status().unwrap();
+            assert!(
+                status.success(),
+                "could not generate synthetic CENC fixture"
+            );
+        }
+
+        let clear_url = url::Url::from_file_path(&clear).unwrap().to_string();
+        let reference = AudioSource {
+            input: clear_url,
+            ffmpeg: ffmpeg.clone(),
+            headers: vec![],
+            decoder_hint: Some(AudioSourceDecoderHint {
+                mime_type: Some("audio/mp4".into()),
+                codec: Some("flac".into()),
+                duration_seconds: Some(3.),
+                content_length: None,
+                has_video: true,
+            }),
+            cenc: None,
+        };
+        assert!(should_use_ffmpeg_for_source(&reference));
+
+        for encrypted_path in [&ordinary, &fragmented] {
+            let encrypted = AudioSource {
+                input: url::Url::from_file_path(encrypted_path)
+                    .unwrap()
+                    .to_string(),
+                ffmpeg: ffmpeg.clone(),
+                headers: vec![],
+                decoder_hint: Some(AudioSourceDecoderHint {
+                    mime_type: Some("audio/mp4".into()),
+                    codec: Some("flac".into()),
+                    duration_seconds: Some(3.),
+                    content_length: None,
+                    has_video: false,
+                }),
+                cenc: Some(EncryptedMp4Audio::new(
+                    CencDecryptionKey::from_hex(KEY).unwrap(),
+                )),
+            };
+            assert!(should_use_ffmpeg_for_source(&encrypted));
+            let first = decode_window(
+                encrypted.clone(),
+                Arc::new(DecoderSession::default()),
+                0.,
+                1.,
+                Arc::new(AtomicBool::new(false)),
+            );
+            let expected_first = decode_window(
+                reference.clone(),
+                Arc::new(DecoderSession::default()),
+                0.,
+                1.,
+                Arc::new(AtomicBool::new(false)),
+            );
+            assert!(
+                !first.is_empty(),
+                "encrypted source did not produce first audio"
+            );
+            assert_eq!(first.len(), expected_first.len());
+            assert!(first
+                .iter()
+                .zip(&expected_first)
+                .all(|(a, b)| (a - b).abs() < 1e-6));
+
+            let sought = decode_window(
+                encrypted.clone(),
+                Arc::new(DecoderSession::default()),
+                1.,
+                2.,
+                Arc::new(AtomicBool::new(false)),
+            );
+            let expected_seek = decode_window(
+                reference.clone(),
+                Arc::new(DecoderSession::default()),
+                1.,
+                2.,
+                Arc::new(AtomicBool::new(false)),
+            );
+            assert_eq!(sought.len(), expected_seek.len());
+            assert!(sought
+                .iter()
+                .zip(&expected_seek)
+                .all(|(a, b)| (a - b).abs() < 1e-6));
+
+            let mut wrong_key = encrypted.clone();
+            wrong_key.cenc = Some(EncryptedMp4Audio::new(
+                CencDecryptionKey::from_hex("11111111111111111111111111111111").unwrap(),
+            ));
+            let (tx, rx) = std_mpsc::sync_channel(64);
+            let result = decode_with_session(
+                wrong_key,
+                0.,
+                Some(1.),
+                48_000,
+                1,
+                tx,
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(DecoderSession::default()),
+            );
+            assert!(result.is_err(), "wrong synthetic key unexpectedly decoded");
+            drop(rx);
+        }
+
+        let cancelled_source = AudioSource {
+            input: url::Url::from_file_path(&ordinary).unwrap().to_string(),
+            ffmpeg,
+            headers: vec![],
+            decoder_hint: None,
+            cenc: Some(EncryptedMp4Audio::new(
+                CencDecryptionKey::from_hex(KEY).unwrap(),
+            )),
+        };
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let started = Instant::now();
+        let output = decode_window(
+            cancelled_source,
+            Arc::new(DecoderSession::default()),
+            0.,
+            3.,
+            cancelled,
+        );
+        assert!(output.is_empty());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "cancelled child was not reaped promptly"
+        );
+    }
+
+    #[test]
     fn finite_https_opus_webm_routes_only_when_native_opus_is_disabled() {
         let source = AudioSource {
             input: "https://cdn.example/stream".into(),
@@ -4273,6 +4790,8 @@ mod tests {
                 content_length: Some(4_000_000),
                 has_video: false,
             }),
+
+            cenc: None,
         };
         assert!(is_finite_remote_opus_webm(&source));
         assert_eq!(
@@ -4381,6 +4900,8 @@ mod tests {
                     content_length: Some(bytes.len() as u64),
                     has_video: false,
                 }),
+
+                cenc: None,
             },
             requests,
             stalled_prefix_written,
@@ -4404,6 +4925,8 @@ mod tests {
             ffmpeg: "unused".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         assert!(!should_use_ffmpeg_for_source(&reference));
         assert!(should_use_ffmpeg_for_source(&fixture.source));
@@ -4592,6 +5115,8 @@ mod tests {
                 content_length: Some(byte_len),
                 has_video: true,
             }),
+
+            cenc: None,
         };
         assert!(should_use_ffmpeg_for_source(&source));
 
@@ -4652,6 +5177,8 @@ mod tests {
                 ffmpeg: "ffmpeg".into(),
                 headers: Vec::new(),
                 decoder_hint: None,
+
+                cenc: None,
             },
             0.0,
             None,
@@ -4701,6 +5228,8 @@ mod tests {
                     ffmpeg: "ffmpeg-unavailable".into(),
                     headers: Vec::new(),
                     decoder_hint: None,
+
+                    cenc: None,
                 },
                 9.0,
                 None,
@@ -4778,6 +5307,7 @@ mod tests {
             ffmpeg: "ffmpeg-unavailable".into(),
             headers: vec![],
             decoder_hint: None,
+            cenc: None,
         }
     }
 
@@ -4898,6 +5428,8 @@ mod tests {
             ffmpeg: "ffmpeg-unavailable".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         let session = Arc::new(DecoderSession::default());
         let cancel = Arc::new(AtomicBool::new(false));
@@ -5162,6 +5694,8 @@ mod tests {
                 ffmpeg: "ffmpeg-unavailable".into(),
                 headers: vec![],
                 decoder_hint: None,
+
+                cenc: None,
             },
             0.5,
             None,
@@ -5223,6 +5757,8 @@ mod tests {
             ffmpeg: "ffmpeg-unavailable".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         let session = Arc::new(DecoderSession::default());
         let cancel = Arc::new(AtomicBool::new(false));
@@ -5349,6 +5885,8 @@ mod tests {
             ffmpeg: "ffmpeg-unavailable".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         for position in [0., 25., 1., 28., 0.] {
             let output = decode_excerpt(source.clone(), session.clone(), position, cancel.clone());
@@ -5652,6 +6190,8 @@ mod tests {
             ffmpeg: "ffmpeg".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancelled = cancelled.clone();
@@ -5708,6 +6248,8 @@ mod tests {
             ffmpeg: "ffmpeg".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         let cancel = Arc::new(AtomicBool::new(false));
         let compare_opus = cfg!(feature = "experimental-opus")
@@ -5879,6 +6421,8 @@ mod tests {
                     ffmpeg: "ffmpeg".into(),
                     headers: Vec::new(),
                     decoder_hint: None,
+
+                    cenc: None,
                 },
                 0.0,
                 None,
@@ -6251,6 +6795,8 @@ mod validation_handoff_diagnostic {
             ffmpeg: "diagnostic-ffmpeg-unavailable".into(),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         let (url, length) = (fixture.url.clone(), fixture.length as u64);
         let (worker_session, worker_cancel, worker_diagnostics) =

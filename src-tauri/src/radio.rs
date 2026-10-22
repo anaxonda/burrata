@@ -236,7 +236,69 @@ pub fn get_radio_stations_saved(store: &Store) -> Result<Vec<RadioStation>, Stri
         .collect::<Vec<_>>();
     stations.extend(saved);
     apply_radio_station_name_overrides(store, &mut stations)?;
+    apply_radio_station_url_overrides(store, &mut stations)?;
     Ok(stations)
+}
+
+const RADIO_STATION_URL_OVERRIDES_KEY: &str = "radioStationStreamUrls.v1";
+
+fn load_radio_station_url_overrides(
+    store: &Store,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let Some(value) = store.get_json_preference(RADIO_STATION_URL_OVERRIDES_KEY)? else {
+        return Ok(std::collections::HashMap::new());
+    };
+    serde_json::from_value(value)
+        .map_err(|error| format!("Saved radio station URLs could not be read: {error}"))
+}
+
+fn apply_radio_station_url_overrides(
+    store: &Store,
+    stations: &mut [RadioStation],
+) -> Result<(), String> {
+    let overrides = load_radio_station_url_overrides(store)?;
+    for station in stations {
+        if let Some(url) = overrides.get(&station.id) {
+            station.stream_url.clone_from(url);
+        }
+    }
+    Ok(())
+}
+
+/// Change a station's stream while retaining its stable ID and station metadata.
+pub async fn edit_radio_station_url(
+    station_id: String,
+    url: String,
+    store: &Store,
+) -> Result<Vec<RadioStation>, String> {
+    if !get_radio_stations_saved(store)?
+        .iter()
+        .any(|station| station.id == station_id)
+    {
+        return Err("Radio station was not found".into());
+    }
+    let input_url = validate_stream_url(&url)?;
+    let stream_url = resolve_playlist_url(input_url.as_str())
+        .await?
+        .unwrap_or(input_url)
+        .to_string();
+    // A station may have been removed while a playlist URL was resolving.
+    if !get_radio_stations_saved(store)?
+        .iter()
+        .any(|station| station.id == station_id)
+    {
+        return Err("Radio station was not found".into());
+    }
+    let mut saved = load_saved_radio_stations(store)?;
+    if let Some(station) = saved.iter_mut().find(|station| station.id == station_id) {
+        station.stream_url = stream_url;
+        save_radio_stations(store, &saved)?;
+    } else {
+        let mut overrides = load_radio_station_url_overrides(store)?;
+        overrides.insert(station_id, stream_url);
+        store.set_json_preference(RADIO_STATION_URL_OVERRIDES_KEY, &json!(overrides))?;
+    }
+    get_radio_stations_saved(store)
 }
 
 fn load_hidden_built_in_radio_station_ids(store: &Store) -> Result<HashSet<String>, String> {
@@ -1576,6 +1638,127 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn editing_built_in_stream_keeps_station_id_and_name_across_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("radio.sqlite");
+        let store = Store::open(&path).unwrap();
+        rename_radio_station("main".into(), "My Main Mix".into(), &store).unwrap();
+        let edited = edit_radio_station_url(
+            "main".into(),
+            "https://radio.example/custom-live".into(),
+            &store,
+        )
+        .await
+        .unwrap();
+        let main = edited.iter().find(|station| station.id == "main").unwrap();
+        assert_eq!(main.name, "My Main Mix");
+        assert_eq!(main.stream_url, "https://radio.example/custom-live");
+        drop(store);
+        let reopened = Store::open(&path).unwrap();
+        let main = get_radio_stations_saved(&reopened)
+            .unwrap()
+            .into_iter()
+            .find(|station| station.id == "main")
+            .unwrap();
+        assert_eq!(main.name, "My Main Mix");
+        assert_eq!(main.stream_url, "https://radio.example/custom-live");
+    }
+
+    #[tokio::test]
+    async fn editing_saved_custom_and_radio_browser_streams_preserves_ids_on_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("radio.sqlite");
+        let store = Store::open(&path).unwrap();
+        let custom = add_custom_radio_station(
+            "Custom station".into(),
+            "https://radio.example/custom".into(),
+            &store,
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|station| station.name == "Custom station")
+        .unwrap();
+        let browser = station_for_search("Directory station");
+        add_radio_station(browser.clone(), &store).unwrap();
+        let edited = edit_radio_station_url(
+            custom.id.clone(),
+            "https://radio.example/custom-new".into(),
+            &store,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            edited
+                .iter()
+                .find(|item| item.id == custom.id)
+                .unwrap()
+                .stream_url,
+            "https://radio.example/custom-new"
+        );
+        let edited = edit_radio_station_url(
+            browser.id.clone(),
+            "https://radio.example/directory-new".into(),
+            &store,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            edited
+                .iter()
+                .find(|item| item.id == browser.id)
+                .unwrap()
+                .stream_url,
+            "https://radio.example/directory-new"
+        );
+        drop(store);
+        let reopened = Store::open(&path).unwrap();
+        let stations = get_radio_stations_saved(&reopened).unwrap();
+        assert_eq!(
+            stations
+                .iter()
+                .find(|item| item.id == custom.id)
+                .unwrap()
+                .stream_url,
+            "https://radio.example/custom-new"
+        );
+        assert_eq!(
+            stations
+                .iter()
+                .find(|item| item.id == browser.id)
+                .unwrap()
+                .stream_url,
+            "https://radio.example/directory-new"
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_station_url_rejects_invalid_urls_and_unknown_ids() {
+        let (_directory, store) = test_store();
+        let before = get_radio_stations_saved(&store).unwrap();
+        for url in [
+            "file:///tmp/station",
+            "https://user:password@radio.example/live",
+            "not a URL",
+        ] {
+            assert!(edit_radio_station_url("main".into(), url.into(), &store)
+                .await
+                .is_err());
+        }
+        assert_eq!(get_radio_stations_saved(&store).unwrap(), before);
+        assert_eq!(
+            edit_radio_station_url(
+                "missing".into(),
+                "https://radio.example/live".into(),
+                &store,
+            )
+            .await
+            .unwrap_err(),
+            "Radio station was not found"
+        );
+    }
+
     #[test]
     fn removing_a_built_in_station_persists_across_store_reopen() {
         let directory = tempfile::tempdir().unwrap();
@@ -1859,3 +2042,10 @@ mod secure_radio_transport_tests {
         assert!(!radio_audio_content_type(""));
     }
 }
+
+#[path = "radio_playlist.rs"]
+mod radio_playlist;
+pub use radio_playlist::{
+    auto_add_played_radio_track, get_radio_playlist_option, list_radio_playlist_targets,
+    set_radio_playlist_option, RadioPlaylistOption,
+};

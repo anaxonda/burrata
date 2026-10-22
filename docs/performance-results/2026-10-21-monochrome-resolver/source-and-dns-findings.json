@@ -1,0 +1,24 @@
+{
+  "recordedAt": "2026-10-21T19:56:19.128083+00:00",
+  "upstreamRevision": "86dc77aa5d1cfeebf78729211e87256800ff238d",
+  "sourceStatus": "Direct network retrieval, not indexed search content",
+  "findings": {
+    "unifiedEnabled": false,
+    "defaultApiBaseUrlEmpty": true,
+    "defaultApiTokenEmpty": true,
+    "oldWorkerPath": "404 at pinned revision"
+  },
+  "files": {
+    "README.md": "304417980b277456ea0f7f045afccb51f78bacfd574e0605670c031b44770438",
+    "js/api.js": "9d94a3dcd979bd548a4eeba9249d14214bef4c71742b2e4d3c234fda90364074",
+    "js/storage.js": "8b2e66cce9aebfea9510d194f7171a30c85d4aeb1ddbce247f2079b1b28fefd3",
+    "js/platform-detection.ts": "e1c663699408baaac4d5400947e5144a9b19de485d2798351246f7f6cc5073d9"
+  },
+  "dns": {
+    "hostname": "monochrome.samidy.com",
+    "googleA": "NOERROR, no Answer records",
+    "cloudflareA": "NOERROR, no Answer records",
+    "googleAAAA": "NOERROR, no Answer records"
+  },
+  "limitation": "This upstream revision does not establish the revision cached in Firefox. DNS does not establish the contents of Firefox cache."
+}

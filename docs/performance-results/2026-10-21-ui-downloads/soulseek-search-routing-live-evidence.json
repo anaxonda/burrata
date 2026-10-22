@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-21",
+  "purpose": "Verify authenticated Burrata MCP routing to the existing slskd service and bounded candidate availability; no download was initiated during these search/assessment calls.",
+  "service": {
+    "container": "burrata-slskd",
+    "observedStatus": "healthy",
+    "observedUptime": "3 days"
+  },
+  "normalProfilePreferences": {
+    "preferredDownloadSource": "monochrome",
+    "downloadFallbackEnabled": true,
+    "downloadFallbackSources": [
+      "youtube",
+      "soundcloud",
+      "slskd"
+    ]
+  },
+  "searches": [
+    {
+      "queryClass": "broad Bulgarian choir",
+      "searchId": "b8e42524-d869-403d-8220-113f52259b68",
+      "terminalState": "Completed, ResponseLimitReached",
+      "complete": true,
+      "candidateCount": 500,
+      "trackCount": 500,
+      "interpretation": "Search route works; response limit was reached, so this result set is not exhaustive."
+    },
+    {
+      "queryClass": "saved artist and Pilentze Pee",
+      "searchId": "7e559c6d-59a8-415a-bc1e-367ba7b00238",
+      "terminalState": "Completed, TimedOut",
+      "complete": true,
+      "candidateCount": 95,
+      "trackCount": 95,
+      "nearDurationFlacCandidateCount": 28,
+      "interpretation": "Targeted query returned candidates before its timed search window closed."
+    }
+  ],
+  "sharedAssessment": {
+    "savedTrack": "Pilentze Pee",
+    "selectedCandidateFormat": "FLAC",
+    "action": "reject",
+    "relationship": "unresolved",
+    "dimensions": {
+      "artists": "unknown",
+      "guests": "unknown",
+      "isrc": "unknown",
+      "runtime": "agree",
+      "title": "conflict",
+      "version": "unknown",
+      "work": "unknown"
+    },
+    "reasons": [
+      "runtimeAgrees",
+      "titleConflict"
+    ],
+    "interpretation": "The inspected near-duration candidate was rejected for title conflict. This does not show that all Soulseek candidates are unsuitable."
+  },
+  "limitations": [
+    "Peer identifiers, remote paths, and URLs are omitted.",
+    "Candidate availability is not download qualification. The inspected candidate failed shared assessment.",
+    "Soulseek is configured after YouTube and SoundCloud in this profile fallback order."
+  ]
+}

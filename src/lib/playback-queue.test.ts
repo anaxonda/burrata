@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlaybackQueue, planQueueSelectionMove, loadPlaybackQueue, savePlaybackQueue } from "./playback-queue";
+import { PlaybackQueue, planQueueSelectionMove, queueRemovalIndexes, loadPlaybackQueue, savePlaybackQueue } from "./playback-queue";
 import type { Track } from "./types";
 
 const track = (id: string) => ({ id, provider: "test", providerId: id, sourceUrl: "", artist: "A", title: id, favorite: false, provenance: {} }) as Track;
@@ -202,5 +202,9 @@ describe("queue occurrence move planning",()=>{
     expect(plan.selected).toEqual([2,3]);
     expect(planQueueSelectionMove(3,[0],-1).moves).toEqual([]);
     expect(planQueueSelectionMove(3,[99,NaN],1).moves).toEqual([]);
+  });
+  it("plans descending removal indexes by occurrence and filters invalid selections",()=>{
+    expect(queueRemovalIndexes(5,[1,3,1,99,-1,NaN])).toEqual([3,1]);
+    expect(queueRemovalIndexes(0,[0])).toEqual([]);
   });
 });

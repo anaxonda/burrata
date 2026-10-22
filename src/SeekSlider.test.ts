@@ -22,6 +22,15 @@ it("commits only the final pointer target", async () => {
   input.dispatchEvent(new Event("pointerup", {bubbles:true}));
   expect(onSeek).toHaveBeenCalledExactlyOnceWith(30);
 });
+it("commits the current drag target if pointer capture is unexpectedly lost", async () => {
+  const {input,onSeek} = render();
+  input.dispatchEvent(new Event("pointerdown", {bubbles:true}));
+  input.value = "42";
+  input.dispatchEvent(new Event("input", {bubbles:true}));
+  await tick();
+  input.dispatchEvent(new Event("lostpointercapture", {bubbles:true}));
+  expect(onSeek).toHaveBeenCalledExactlyOnceWith(42);
+});
 it("debounces keyboard scrubbing and cancels pending work on destruction", async () => {
   vi.useFakeTimers();
   const {input,onSeek} = render();

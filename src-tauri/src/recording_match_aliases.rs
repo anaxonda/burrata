@@ -6,7 +6,10 @@ use crate::{
     Store,
 };
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
 fn norm(name: &str) -> String {
     crate::matching::normalize_single_artist_name(name)
@@ -84,26 +87,47 @@ fn profile_names(profile: &Value) -> BTreeSet<String> {
 /// identified cached MusicBrainz artist profile. Caller still applies normal
 /// title/runtime/release evidence to this variant.
 pub fn scoped_name_alias(store: &Store, track: &Track, candidate: &Candidate) -> Option<Track> {
+    let mut cached = HashMap::<String, Arc<[Value]>>::new();
+    scoped_name_alias_with_lookup(track, candidate, &mut |name: &str| {
+        let key = name.trim().to_ascii_lowercase();
+        cached
+            .entry(key)
+            .or_insert_with(|| {
+                store
+                    .cached_musicbrainz_artist_profiles_for_name(name)
+                    .unwrap_or_default()
+                    .into()
+            })
+            .clone()
+    })
+    .map(|(track, _)| track)
+}
+
+/// Resolve a candidate-scoped spelling variant using caller-owned raw profile
+/// lookups. The callback may memoize rows for one enclosing matching operation;
+/// this function still requires one uniquely identified profile to carry both
+/// exact normalized names before returning a temporary track variant.
+pub(crate) fn scoped_name_alias_with_lookup<F>(
+    track: &Track,
+    candidate: &Candidate,
+    mut profiles_for_name: F,
+) -> Option<(Track, String)>
+where
+    F: FnMut(&str) -> Arc<[Value]>,
+{
     let requested = norm(&track.artist);
-    let candidate_name = norm(&candidate_primary(candidate)?);
+    let candidate_raw = candidate_primary(candidate)?;
+    let candidate_name = norm(&candidate_raw);
     if requested.is_empty() || candidate_name.is_empty() || requested == candidate_name {
         return None;
     }
 
-    let mut profiles = store
-        .cached_musicbrainz_artist_profiles_for_name(&track.artist)
-        .unwrap_or_default();
-    if let Some(candidate_raw) = candidate_primary(candidate) {
-        profiles.extend(
-            store
-                .cached_musicbrainz_artist_profiles_for_name(&candidate_raw)
-                .unwrap_or_default(),
-        );
-    }
+    let requested_profiles = profiles_for_name(&track.artist);
+    let candidate_profiles = profiles_for_name(&candidate_raw);
     // Keep only profiles whose one MB entity explicitly carries both names.
     // Deduplicate the same cached entity returned by each name lookup.
     let mut matching = std::collections::BTreeMap::<String, Value>::new();
-    for profile in profiles {
+    for profile in requested_profiles.iter().chain(candidate_profiles.iter()) {
         let artist = if profile.get("artist").is_some() {
             &profile["artist"]
         } else {
@@ -118,7 +142,9 @@ pub fn scoped_name_alias(store: &Store, track: &Track, candidate: &Candidate) ->
             .chain(profile_names(&profile))
             .collect::<BTreeSet<_>>();
         if names.contains(&requested) && names.contains(&candidate_name) {
-            matching.entry(id.to_owned()).or_insert(profile);
+            matching
+                .entry(id.to_owned())
+                .or_insert_with(|| profile.clone());
         }
     }
     if matching.len() != 1 {
@@ -126,7 +152,7 @@ pub fn scoped_name_alias(store: &Store, track: &Track, candidate: &Candidate) ->
     }
     let mut alias = track.clone();
     alias.artist = candidate_primary(candidate)?;
-    Some(alias)
+    Some((alias, matching.into_keys().next()?))
 }
 
 #[cfg(test)]

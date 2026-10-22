@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-handoff-resolved-playback-source"
+description = "Enables the handoff_resolved_playback_source command without any pre-configured scope."
+commands.allow = ["handoff_resolved_playback_source"]
+
+[[permission]]
+identifier = "deny-handoff-resolved-playback-source"
+description = "Denies the handoff_resolved_playback_source command without any pre-configured scope."
+commands.deny = ["handoff_resolved_playback_source"]

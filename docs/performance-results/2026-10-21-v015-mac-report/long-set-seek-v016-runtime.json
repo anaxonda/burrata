@@ -1,0 +1,101 @@
+{
+  "buildSha256": "ac2f229fe672aa6a0f8449b5b5b6d3e69c54649e543c1762c122c8a095e5edab",
+  "platform": "Linux normal app profile",
+  "scope": "One selection and one distant seek for each reported set; playback state position progress and entry ownership checks via authenticated app controls.",
+  "results": [
+    {
+      "case": "rooftop",
+      "trackId": "youtube:6MAzUT1YhWE",
+      "target": 1800,
+      "startupStatus": "five_second_progress_observed",
+      "acceptedEntryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+      "seekStatus": "target_progress_observed",
+      "observations": [
+        {
+          "status": "buffering",
+          "position": 1800,
+          "entryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+          "trackId": "youtube:6MAzUT1YhWE",
+          "mediaError": false
+        },
+        {
+          "status": "buffering",
+          "position": 1800,
+          "entryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+          "trackId": "youtube:6MAzUT1YhWE",
+          "mediaError": false
+        },
+        {
+          "status": "buffering",
+          "position": 1800,
+          "entryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+          "trackId": "youtube:6MAzUT1YhWE",
+          "mediaError": false
+        },
+        {
+          "status": "buffering",
+          "position": 1800,
+          "entryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+          "trackId": "youtube:6MAzUT1YhWE",
+          "mediaError": false
+        },
+        {
+          "status": "playing",
+          "position": 1800.5108390022676,
+          "entryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+          "trackId": "youtube:6MAzUT1YhWE",
+          "mediaError": false
+        },
+        {
+          "status": "playing",
+          "position": 1802.1826757369615,
+          "entryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+          "trackId": "youtube:6MAzUT1YhWE",
+          "mediaError": false
+        },
+        {
+          "status": "playing",
+          "position": 1803.8545124716554,
+          "entryId": "e5a87d74-21a9-4edf-8141-8cc5a2925aad",
+          "trackId": "youtube:6MAzUT1YhWE",
+          "mediaError": false
+        }
+      ]
+    },
+    {
+      "case": "mixtape",
+      "trackId": "youtube:mDtud5fLgFQ",
+      "target": 3500,
+      "startupStatus": "five_second_progress_observed",
+      "acceptedEntryId": "640154eb-fac9-4e73-8259-f5fb456a590e",
+      "seekStatus": "target_progress_observed",
+      "observations": [
+        {
+          "status": "buffering",
+          "position": 3500,
+          "entryId": "640154eb-fac9-4e73-8259-f5fb456a590e",
+          "trackId": "youtube:mDtud5fLgFQ",
+          "mediaError": false
+        },
+        {
+          "status": "playing",
+          "position": 3501.505045351474,
+          "entryId": "640154eb-fac9-4e73-8259-f5fb456a590e",
+          "trackId": "youtube:mDtud5fLgFQ",
+          "mediaError": false
+        },
+        {
+          "status": "playing",
+          "position": 3503.201224489796,
+          "entryId": "640154eb-fac9-4e73-8259-f5fb456a590e",
+          "trackId": "youtube:mDtud5fLgFQ",
+          "mediaError": false
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Does not establish physical Mac behavior or acoustic audibility.",
+    "Historical media failure records are not treated as active failures; current status, position and entry identity are checked."
+  ]
+}

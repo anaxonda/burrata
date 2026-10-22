@@ -1,0 +1,65 @@
+[
+  {
+    "query": "Alvafro LATIN MAFIA",
+    "status": 200,
+    "count": 5,
+    "tracks": [
+      {
+        "trackId": 6796842308,
+        "trackName": "Alvafro",
+        "artistName": "LATIN MAFIA & Fred again..",
+        "collectionName": "9 months & 50 hours",
+        "trackTimeMillis": 238053
+      },
+      {
+        "trackId": 6764443370,
+        "trackName": "MALASNOTICIAS.",
+        "artistName": "\u00c1lvaro D\u00edaz & LATIN MAFIA",
+        "collectionName": "MALASNOTICIAS. - Single",
+        "trackTimeMillis": 196920
+      },
+      {
+        "trackId": 6796842545,
+        "trackName": "Te Estoy Correteando",
+        "artistName": "LATIN MAFIA & Fred again..",
+        "collectionName": "9 months & 50 hours",
+        "trackTimeMillis": 193638
+      },
+      {
+        "trackId": 6796842525,
+        "trackName": "Quiereme",
+        "artistName": "LATIN MAFIA, Fred again.. & bby",
+        "collectionName": "9 months & 50 hours",
+        "trackTimeMillis": 175116
+      },
+      {
+        "trackId": 6796842541,
+        "trackName": "Piensas En Mi",
+        "artistName": "Fred again.. & LATIN MAFIA",
+        "collectionName": "9 months & 50 hours",
+        "trackTimeMillis": 198052
+      }
+    ]
+  },
+  {
+    "query": "Bacc of the Bach Nipsey Hussle",
+    "status": 200,
+    "count": 2,
+    "tracks": [
+      {
+        "trackId": 6801271674,
+        "trackName": "Bacc of the Bach",
+        "artistName": "Nipsey Hussle & Bino Rideaux",
+        "collectionName": "PROLIFIC",
+        "trackTimeMillis": 197900
+      },
+      {
+        "trackId": 316106337,
+        "trackName": "Bacc On Slauson",
+        "artistName": "Nipsey Hussle",
+        "collectionName": "Goodtalk Vol.6",
+        "trackTimeMillis": 113053
+      }
+    ]
+  }
+]

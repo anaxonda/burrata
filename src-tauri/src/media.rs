@@ -83,6 +83,8 @@ pub struct BpmAnalysis {
     pub bpm: f64,
     /// Normalized onset autocorrelation strength, from 0 to 1.
     pub confidence: f64,
+    /// A near-tied half/double-time candidate, retained as uncertainty rather than applied.
+    pub related_tempo_bpm: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -408,16 +410,68 @@ fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
             correlations[lag] = dot / denominator;
         }
     }
-    let strongest = *correlations[min_lag..=max_lag]
+    let (_, strongest_value) = correlations[min_lag..=max_lag]
         .iter()
-        .max_by(|a, b| a.total_cmp(b))?;
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))?;
+    let strongest = *strongest_value;
     if !strongest.is_finite() || strongest < 0.35 {
         return None;
     }
-    // Repeating half-time patterns create a second peak at twice the lag. When
-    // it is almost as strong, favor the shorter beat interval (the usual DJ
-    // tempo convention), while requiring the same regularity threshold.
-    let lag = (min_lag..=max_lag).find(|&lag| correlations[lag] >= strongest * 0.97)?;
+    // Preserve the previous conservative pick when two octave-related
+    // periods are nearly tied. Otherwise, consider supported local peaks
+    // before a longer global peak: exact high tempos can have a stronger peak
+    // at a three-beat multiple and would otherwise collapse to 60-70 BPM.
+    let conventional_lag =
+        (min_lag..=max_lag).find(|&lag| correlations[lag] >= strongest * 0.97)?;
+    let candidate_lag = (min_lag..conventional_lag)
+        .find(|&lag| {
+            let value = correlations[lag];
+            // A faster peak can explain a longer period only when that period
+            // spans a whole number of its beats. Independent rhythms (for
+            // example 32 and 43 frames) must not replace the stronger peak.
+            // Rounding each measured period to a frame permits at most
+            // (multiple + 1) / 2 frames of disagreement.
+            let multiple = (conventional_lag + lag / 2) / lag;
+            let subperiod = (2..=3).contains(&multiple)
+                && conventional_lag.abs_diff(lag * multiple) * 2 <= multiple + 1;
+            subperiod
+                && value >= 0.35
+                && value >= strongest * 0.65
+                && value >= correlations[lag.saturating_sub(1)]
+                && value >= correlations.get(lag + 1).copied().unwrap_or(0.0)
+                && onset_occupancy_per_period(envelope, lag) >= 0.70
+        })
+        .unwrap_or(conventional_lag);
+    let octave_ambiguous = candidate_lag < conventional_lag
+        && conventional_lag.abs_diff(candidate_lag.saturating_mul(2)) <= 1
+        && correlations[candidate_lag] >= correlations[conventional_lag] * 0.90;
+    let lag = if octave_ambiguous {
+        conventional_lag
+    } else {
+        candidate_lag
+    };
+    let selected_score = correlations[lag];
+    let related_lag = [lag / 2, lag.saturating_mul(2)]
+        .into_iter()
+        .filter(|related| *related >= min_lag && *related <= max_lag && *related != lag)
+        .max_by(|left, right| correlations[*left].total_cmp(&correlations[*right]));
+    let related_tempo_bpm = related_lag
+        .filter(|related| {
+            let related_score = correlations[*related];
+            related_score.min(selected_score) >= related_score.max(selected_score) * 0.90
+        })
+        .map(|lag| bpm_for_lag(&correlations, lag, frame_seconds))
+        .filter(|bpm| (60.0..=200.0).contains(bpm));
+    let bpm = bpm_for_lag(&correlations, lag, frame_seconds);
+    (60.0..=200.0).contains(&bpm).then_some(BpmAnalysis {
+        bpm,
+        confidence: correlations[lag].clamp(0.0, 1.0),
+        related_tempo_bpm,
+    })
+}
+
+fn bpm_for_lag(correlations: &[f64], lag: usize, frame_seconds: f64) -> f64 {
     let left = correlations
         .get(lag.wrapping_sub(1))
         .copied()
@@ -429,16 +483,49 @@ fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
     } else {
         0.0
     };
-    let period = (lag as f64 + shift) * frame_seconds;
-    let bpm = (60.0 / period * 10.0).round() / 10.0;
-    (60.0..=200.0).contains(&bpm).then_some(BpmAnalysis {
-        bpm,
-        confidence: strongest.clamp(0.0, 1.0),
-    })
+    (60.0 / ((lag as f64 + shift) * frame_seconds) * 10.0).round() / 10.0
+}
+
+/// Require a shorter-lag candidate to contain high-energy onset peaks in most
+/// lag-sized bins. This is a coverage gate, not independent beat-phase
+/// detection; autocorrelation still provides the periodic alignment.
+fn onset_occupancy_per_period(envelope: &[f64], lag: usize) -> f64 {
+    if lag == 0 || envelope.is_empty() {
+        return 0.0;
+    }
+    let threshold = envelope.iter().copied().fold(0.0_f64, f64::max) * 0.30;
+    if threshold <= f64::EPSILON {
+        return 0.0;
+    }
+    let full_cycles = envelope.len() / lag;
+    if full_cycles == 0 {
+        return 0.0;
+    }
+    let peaks = (0..envelope.len())
+        .filter(|index| {
+            let value = envelope[*index];
+            let previous = (*index).checked_sub(1).map_or(0.0, |at| envelope[at]);
+            let next = envelope.get(*index + 1).copied().unwrap_or(0.0);
+            value >= threshold && value >= previous && value > next
+        })
+        .collect::<Vec<_>>();
+    let mut best = 0.0_f64;
+    for phase in 0..lag {
+        let mut occupied_cycles = vec![false; full_cycles];
+        for peak in peaks.iter().copied().filter(|peak| *peak >= phase) {
+            let cycle = (peak - phase) / lag;
+            if let Some(occupied) = occupied_cycles.get_mut(cycle) {
+                *occupied = true;
+            }
+        }
+        let occupied = occupied_cycles.into_iter().filter(|value| *value).count();
+        best = best.max(occupied as f64 / full_cycles as f64);
+    }
+    best
 }
 
 fn add_bpm_analysis(track: &Track, analysis: Option<BpmAnalysis>, error: Option<&str>) -> Track {
-    if track.bpm.is_some() || (analysis.is_none() && error.is_none()) {
+    if track.bpm.is_some() {
         return track.clone();
     }
     let mut track = track.clone();
@@ -451,6 +538,9 @@ fn add_bpm_analysis(track: &Track, analysis: Option<BpmAnalysis>, error: Option<
             "source": "decoded audio",
             "method": "10ms onset autocorrelation",
             "confidence": analysis.confidence,
+            "confidenceMeaning": "normalized onset-autocorrelation strength, not a probability",
+            "relatedTempoAlternativeBpm": analysis.related_tempo_bpm,
+            "tempoAmbiguity": analysis.related_tempo_bpm.is_some(),
             "bpm": analysis.bpm
         });
     } else if let Some(error) = error {
@@ -515,18 +605,42 @@ fn add_key_analysis(track: &Track, analysis: Option<KeyAnalysis>, error: Option<
     track
 }
 
-async fn analyze_missing_fields(path: &Path, track: &Track, settings: &Settings) -> Track {
+fn is_manual_field(track: &Track, field: &str) -> bool {
+    track.provenance["manualFields"][field] == true
+}
+
+async fn analyze_missing_fields(
+    path: &Path,
+    track: &Track,
+    settings: &Settings,
+    force: bool,
+) -> Track {
+    let manual_bpm = is_manual_field(track, "bpm");
+    let manual_key = is_manual_field(track, "key");
     let mut analyzed = track.clone();
-    if analyzed.bpm.is_none() {
+    if force && !manual_bpm {
+        analyzed.bpm = None;
+        if let Some(provenance) = analyzed.provenance.as_object_mut() {
+            provenance.remove("bpmAnalysis");
+        }
+    }
+    if force && !manual_key {
+        analyzed.key = None;
+        if let Some(provenance) = analyzed.provenance.as_object_mut() {
+            provenance.remove("keyAnalysis");
+        }
+    }
+    if !manual_bpm && analyzed.bpm.is_none() {
         analyzed = match detect_bpm(path, settings).await {
             Ok(analysis) => add_bpm_analysis(&analyzed, analysis, None),
             Err(error) => add_bpm_analysis(&analyzed, None, Some(&error)),
         };
     }
-    if analyzed
-        .key
-        .as_deref()
-        .is_none_or(|key| key.trim().is_empty())
+    if !manual_key
+        && analyzed
+            .key
+            .as_deref()
+            .is_none_or(|key| key.trim().is_empty())
     {
         analyzed = match detect_key(path, settings).await {
             Ok(analysis) => add_key_analysis(&analyzed, analysis, None),
@@ -933,6 +1047,24 @@ pub(crate) async fn artwork(track: &Track) -> Result<Option<Vec<u8>>, String> {
     Ok(Some(data))
 }
 
+/// Artwork enriches a download but must not block publishing its audio or
+/// selected text tags. Keep a valid cover already embedded in the staged
+/// source when the optional remote lookup is absent or fails.
+fn optional_artwork_or_embedded(
+    fetched: Result<Option<Vec<u8>>, String>,
+    staged_audio: &Path,
+) -> Option<Vec<u8>> {
+    fn valid(bytes: Vec<u8>) -> Option<Vec<u8>> {
+        const MAX_EMBEDDED_ARTWORK: usize = 8 * 1024 * 1024;
+        (bytes.len() <= MAX_EMBEDDED_ARTWORK && artwork_extension(&bytes).is_ok()).then_some(bytes)
+    }
+    fetched
+        .ok()
+        .flatten()
+        .and_then(valid)
+        .or_else(|| embedded_artwork(staged_audio).and_then(valid))
+}
+
 pub fn artwork_extension(data: &[u8]) -> Result<&'static str, String> {
     if data.starts_with(&[0xff, 0xd8, 0xff]) {
         Ok("jpg")
@@ -1146,6 +1278,12 @@ fn merge_autotag_tags(path: &Path, track: &Track) -> Result<(), String> {
     if let Some(value) = &track.album_artist {
         tag.insert_text(ItemKey::AlbumArtist, value.clone());
     }
+    if let Some(value) = &track.isrc {
+        tag.insert_text(ItemKey::Isrc, value.clone());
+    }
+    if let Some(value) = &track.catalog_number {
+        tag.insert_text(ItemKey::CatalogNumber, value.clone());
+    }
     if let Some(value) = &track.release_date {
         tag.insert_text(ItemKey::ReleaseDate, value.clone());
     }
@@ -1180,9 +1318,71 @@ fn merge_autotag_tags(path: &Path, track: &Track) -> Result<(), String> {
 }
 
 fn autotag_field_approved(metadata: &Track, key: &str) -> bool {
-    metadata.provenance["userApprovedFields"]
-        .as_array()
-        .is_some_and(|fields| fields.iter().any(|field| field.as_str() == Some(key)))
+    let contains = |name: &str| {
+        metadata.provenance[name]
+            .as_array()
+            .is_some_and(|fields| fields.iter().any(|field| field.as_str() == Some(key)))
+    };
+    contains("userApprovedFields")
+        || (metadata.provenance["source"] == "exact_source_reported_metadata"
+            && metadata.provenance["identityStatus"] == "source_reported_unverified"
+            && ["artist", "title", "album", "albumArtist", "genre", "isrc"].contains(&key)
+            && contains("sourceReportedFields"))
+}
+
+fn source_reported_metadata_provenance(
+    asset_track: &Track,
+    metadata: &Track,
+) -> Option<serde_json::Value> {
+    const FIELDS: &[&str] = &[
+        "artist",
+        "title",
+        "album",
+        "albumArtist",
+        "version",
+        "genre",
+        "isrc",
+    ];
+    let provenance = &metadata.provenance;
+    let reported = provenance.get("sourceReportedMetadata")?;
+    let provider = reported.get("provider")?.as_str()?;
+    let provider_id = reported.get("providerId")?.as_str()?;
+    let source_url = reported.get("sourceUrl")?.as_str()?;
+    let origin = reported.get("origin")?.as_str()?;
+    let fields = reported.get("fields")?.as_array()?;
+    let repaired_fields = provenance.get("sourceReportedFields")?.as_array()?;
+    let valid_fields = |values: &[serde_json::Value]| {
+        !values.is_empty()
+            && values.len() <= FIELDS.len()
+            && values
+                .iter()
+                .all(|value| value.as_str().is_some_and(|field| FIELDS.contains(&field)))
+    };
+    if provenance.get("source").and_then(serde_json::Value::as_str)
+        != Some("exact_source_reported_metadata")
+        || provenance
+            .get("identityStatus")
+            .and_then(serde_json::Value::as_str)
+            != Some("source_reported_unverified")
+        || reported
+            .get("identityStatus")
+            .and_then(serde_json::Value::as_str)
+            != Some("source_reported_unverified")
+        || provider.is_empty()
+        || provider_id.is_empty()
+        || source_url.is_empty()
+        || !origin.starts_with("ytDlp")
+        || asset_track.id != format!("{provider}:{provider_id}")
+        || asset_track.provider != provider
+        || asset_track.provider_id != provider_id
+        || asset_track.source_url != source_url
+        || !valid_fields(fields)
+        || !valid_fields(repaired_fields)
+        || repaired_fields.iter().any(|field| !fields.contains(field))
+    {
+        return None;
+    }
+    Some(reported.clone())
 }
 
 /// Apply vetted catalog identity fields to a registered managed asset. The
@@ -1239,10 +1439,13 @@ pub async fn autotag_asset(
             return Err("Audio changed while autotagging was starting".to_string());
         }
         let mut merged = asset.track.clone();
-        if merged.artist.trim().is_empty() {
+        if merged.artist.trim().is_empty()
+            && asset.track.provenance["manualFields"]["artist"] != true
+        {
             merged.artist = metadata.artist.clone();
         }
-        if merged.title.trim().is_empty() {
+        if merged.title.trim().is_empty() && asset.track.provenance["manualFields"]["title"] != true
+        {
             merged.title = metadata.title.clone();
         }
         // Source identity is retained unless its field was marked weak during
@@ -1339,6 +1542,9 @@ pub async fn autotag_asset(
             updated.track.provenance = serde_json::json!({});
         }
         updated.track.provenance["autotag"] = metadata.provenance.clone();
+        if let Some(reported) = source_reported_metadata_provenance(&asset.track, metadata) {
+            updated.track.provenance["sourceReportedMetadata"] = reported;
+        }
         if (updated.track.album.is_none() || autotag_field_approved(metadata, "album"))
             && asset.track.provenance["manualFields"]["album"] != true
         {
@@ -1779,7 +1985,7 @@ async fn finalize_download_inner(
         }
     }
     set_finalize_diagnostic_stage(&mut failure_stage, "finalize_analysis");
-    let tagged_track = analyze_missing_fields(path, &source_track, settings).await;
+    let tagged_track = analyze_missing_fields(path, &source_track, settings, false).await;
     set_finalize_diagnostic_stage(&mut failure_stage, "finalize_staging_directory");
     let stage = staging(settings, job_id)?;
     set_finalize_diagnostic_stage(&mut failure_stage, "finalize_output_extension");
@@ -1799,7 +2005,7 @@ async fn finalize_download_inner(
                 .map_err(|e| format!("Cannot stage audio: {e}"))?;
         }
         set_finalize_diagnostic_stage(&mut failure_stage, "finalize_artwork");
-        let cover = artwork(track).await?;
+        let cover = optional_artwork_or_embedded(artwork(&source_track).await, &staged);
         let p = staged.clone();
         let t = tagged_track.clone();
         set_finalize_diagnostic_stage(&mut failure_stage, "finalize_tag");
@@ -1939,7 +2145,7 @@ pub async fn verify_asset(asset: &LocalAsset) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-pub const ANALYSIS_VERSION: &str = "burrata-media-analysis-v1-keyfinder-2.2.8-bpm-v1";
+pub const ANALYSIS_VERSION: &str = "burrata-media-analysis-v1-keyfinder-2.2.8-bpm-v3";
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct RetagJournal {
@@ -2019,6 +2225,14 @@ pub async fn analyze_and_retag_asset(
     asset: &LocalAsset,
     settings: &Settings,
 ) -> Result<LocalAsset, String> {
+    analyze_and_retag_asset_with_force(asset, settings, false).await
+}
+
+pub async fn analyze_and_retag_asset_with_force(
+    asset: &LocalAsset,
+    settings: &Settings,
+    force: bool,
+) -> Result<LocalAsset, String> {
     let _retag_guard = lock_asset_retag(&asset.id).await;
     if asset.processing == "external-readonly" {
         return Err("External audio is indexed read-only; copy it into the managed library before retagging".into());
@@ -2068,7 +2282,7 @@ pub async fn analyze_and_retag_asset(
         if hash_file(&temporary)? != asset.hash || hash_file(&target)? != asset.hash {
             return Err("Archived audio changed while analysis was starting".into());
         }
-        let track = analyze_missing_fields(&target, &asset.track, settings).await;
+        let track = analyze_missing_fields(&target, &asset.track, settings, force).await;
         let cover = embedded_artwork(&target);
         let cover = match cover {
             Some(bytes) => Some(bytes),
@@ -2192,7 +2406,8 @@ pub fn recover_retag_journals(settings: &Settings) -> Result<Vec<(String, LocalA
             .unwrap_or_default();
         if temporary.parent() != target.parent()
             || temporary.extension() != target.extension()
-            || !temporary_name.starts_with(".burrata-retag-")
+            || !(temporary_name.starts_with(".burrata-retag-")
+                || temporary_name.starts_with(".burrata-autotag-"))
             || journal.asset.track.id != journal.asset.recording_id
             || journal.asset.hash.len() != 64
             || !journal
@@ -2704,6 +2919,118 @@ mod tests {
         assert_eq!(artwork_extension(b"RIFF0000WEBP").unwrap(), "webp");
         assert!(artwork_extension(b"not an image").is_err());
     }
+    #[tokio::test]
+    async fn optional_artwork_failure_keeps_existing_cover_and_does_not_block_text_tags() {
+        if Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let cover_path = directory.path().join("cover.png");
+        let cover_result = Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=blue:s=16x16",
+                "-frames:v",
+                "1",
+            ])
+            .arg(&cover_path)
+            .output()
+            .await
+            .unwrap();
+        assert!(cover_result.status.success());
+        let cover = fs::read(&cover_path).unwrap();
+        let with_cover = directory.path().join("with-cover.flac");
+        let without_cover = directory.path().join("without-cover.flac");
+        for path in [&with_cover, &without_cover] {
+            let result = Command::new("ffmpeg")
+                .args([
+                    "-nostdin",
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=440:duration=1",
+                    "-c:a",
+                    "flac",
+                ])
+                .arg(path)
+                .output()
+                .await
+                .unwrap();
+            assert!(result.status.success());
+        }
+
+        let old_track = Track {
+            artist: "Old Artist".into(),
+            title: "Old Title".into(),
+            album: Some("Old Album".into()),
+            ..Track::default()
+        };
+        tag_media(&with_cover, &old_track, Some(cover.clone())).unwrap();
+        let selected = Track {
+            artist: "Bulgarian Choir".into(),
+            title: "Svatba".into(),
+            album: Some("Le Mystère des voix bulgares".into()),
+            ..Track::default()
+        };
+
+        // This simulates an optional artwork request returning HTTP 500.
+        let fallback =
+            optional_artwork_or_embedded(Err("HTTP 500 from artwork service".into()), &with_cover);
+        assert_eq!(fallback.as_deref(), Some(cover.as_slice()));
+        // A missing remote URL/result is also optional and retains the local cover.
+        assert_eq!(
+            optional_artwork_or_embedded(Ok(None), &with_cover).as_deref(),
+            Some(cover.as_slice())
+        );
+        tag_media(&with_cover, &selected, fallback).unwrap();
+        let read = inspect_local_file(&with_cover, &Settings::default())
+            .await
+            .unwrap();
+        assert_eq!(read.artist, selected.artist);
+        assert_eq!(read.title, selected.title);
+        assert_eq!(read.album, selected.album);
+        assert_eq!(
+            embedded_artwork(&with_cover).as_deref(),
+            Some(cover.as_slice())
+        );
+
+        // With neither remote nor embedded artwork, text tagging still succeeds.
+        let no_cover = optional_artwork_or_embedded(
+            Err("HTTP 500 from artwork service".into()),
+            &without_cover,
+        );
+        assert!(no_cover.is_none());
+        tag_media(&without_cover, &selected, no_cover).unwrap();
+        let read = inspect_local_file(&without_cover, &Settings::default())
+            .await
+            .unwrap();
+        assert_eq!(read.artist, selected.artist);
+        assert_eq!(read.title, selected.title);
+        let tagged = Probe::open(&without_cover)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        assert!(tagged
+            .tags()
+            .iter()
+            .flat_map(|tag| tag.pictures())
+            .next()
+            .is_none());
+    }
     #[test]
     fn unicode_filenames_fit_filesystem_limits() {
         assert!(safe_component(&"🎵".repeat(100)).len() <= 90);
@@ -3151,6 +3478,85 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn autotag_merge_writes_isrc_and_catalog_number_without_replacing_other_tags() {
+        if std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("autotag-merge.flac");
+        let result = Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=1",
+                "-c:a",
+                "flac",
+            ])
+            .arg(&path)
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "FLAC fixture: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let mut track = Track {
+            artist: "Curated Artist".into(),
+            title: "Curated Title".into(),
+            album: Some("Curated Album".into()),
+            isrc: Some("USABC2400001".into()),
+            catalog_number: Some("CURATED-42".into()),
+            ..Track::default()
+        };
+        tag_media(&path, &track, None).unwrap();
+        let mut tagged = Probe::open(&path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let primary_tag_type = tagged.primary_tag_type();
+        let tag = tagged
+            .tag_mut(primary_tag_type)
+            .expect("primary tag exists");
+        tag.insert_text(ItemKey::Comment, "Keep this producer note".into());
+        tagged.save_to_path(&path, WriteOptions::default()).unwrap();
+
+        // The merged Track is authoritative, including manually retained values.
+        track.provenance = serde_json::json!({"manualFields":{"isrc":true,"catalogNumber":true}});
+        merge_autotag_tags(&path, &track).unwrap();
+        let read = inspect_local_file(&path, &Settings::default())
+            .await
+            .unwrap();
+        assert_eq!(read.isrc.as_deref(), Some("USABC2400001"));
+        assert_eq!(read.catalog_number.as_deref(), Some("CURATED-42"));
+        assert_eq!(read.artist, "Curated Artist");
+        assert_eq!(read.title, "Curated Title");
+        assert_eq!(read.album.as_deref(), Some("Curated Album"));
+        let tagged = Probe::open(&path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let tag = tagged.primary_tag().or_else(|| tagged.first_tag()).unwrap();
+        assert_eq!(
+            tag.get_string(&ItemKey::Comment).as_deref(),
+            Some("Keep this producer note")
+        );
+    }
+
     #[test]
     fn key_estimate_accepts_tonal_audio_and_rejects_silence_and_clicks() {
         let sample_rate = KEY_SAMPLE_RATE as usize;
@@ -3380,6 +3786,10 @@ mod tests {
             .expect("regular 120 BPM pulses should produce an estimate");
         assert!((analysis.bpm - 120.0).abs() <= 1.0, "{analysis:?}");
         assert!(analysis.confidence >= 0.9, "{analysis:?}");
+        assert!(
+            (analysis.related_tempo_bpm.unwrap_or_default() - 60.0).abs() <= 1.0,
+            "{analysis:?}"
+        );
 
         let mut track = Track {
             artist: "Synthetic artist".into(),
@@ -3389,6 +3799,11 @@ mod tests {
         track = add_bpm_analysis(&track, Some(analysis), None);
         assert_eq!(track.bpm, Some(analysis.bpm));
         assert_eq!(track.provenance["bpmAnalysis"]["bpm"], analysis.bpm);
+        assert_eq!(
+            track.provenance["bpmAnalysis"]["relatedTempoAlternativeBpm"],
+            serde_json::json!(analysis.related_tempo_bpm)
+        );
+        assert_eq!(track.provenance["bpmAnalysis"]["tempoAmbiguity"], true);
         tag_media(&path, &track, None).unwrap();
         let inspected = inspect_local_file(&path, &Settings::default())
             .await
@@ -3407,10 +3822,294 @@ mod tests {
             Some(BpmAnalysis {
                 bpm: 128.0,
                 confidence: 0.91,
+                related_tempo_bpm: None,
             }),
             None,
         );
         assert_eq!(result.bpm, Some(123.5));
         assert!(result.provenance.get("bpmAnalysis").is_none());
+    }
+
+    fn periodic_pulse_envelope(bpm: f64, seconds: usize) -> Vec<f64> {
+        let mut envelope = vec![0.0; seconds * 100];
+        let period_frames = 6000.0 / bpm;
+        let pulses = (envelope.len() as f64 / period_frames).floor() as usize;
+        for pulse in 0..pulses {
+            let frame = (pulse as f64 * period_frames).round() as usize;
+            if let Some(value) = envelope.get_mut(frame) {
+                *value = 1.0;
+            }
+        }
+        envelope
+    }
+
+    #[test]
+    fn unrelated_fast_peak_does_not_replace_stronger_tempo() {
+        let mut envelope = vec![0.0; 3200];
+        for frame in (0..envelope.len()).step_by(43) {
+            envelope[frame] += 1.0;
+        }
+        for frame in (0..envelope.len()).step_by(32) {
+            envelope[frame] += 0.7;
+        }
+        let estimate = estimate_bpm(&envelope).expect("dominant regular tempo");
+        assert!(
+            (estimate.bpm - 6000.0 / 43.0).abs() < 1.0,
+            "an unrelated faster rhythm replaced the stronger tempo: {estimate:?}"
+        );
+    }
+
+    #[test]
+    fn bpm_local_peaks_recover_fast_periods_and_expose_octave_ambiguity() {
+        for bpm in [60.0, 63.0, 75.0, 90.0, 120.0, 150.0, 180.0, 196.0] {
+            let estimate = estimate_bpm(&periodic_pulse_envelope(bpm, 32))
+                .unwrap_or_else(|| panic!("regular {bpm} BPM pulses should be estimated"));
+            let tolerance = if bpm >= 180.0 { 3.0 } else { 1.0 };
+            assert!(
+                (estimate.bpm - bpm).abs() <= tolerance,
+                "expected {bpm}, got {estimate:?}"
+            );
+        }
+
+        let ambiguous = estimate_bpm(&periodic_pulse_envelope(120.0, 32)).unwrap();
+        assert!((ambiguous.bpm - 120.0).abs() <= 1.0, "{ambiguous:?}");
+        assert!(
+            (ambiguous.related_tempo_bpm.unwrap_or_default() - 60.0).abs() <= 1.0,
+            "{ambiguous:?}"
+        );
+
+        let mut slow_with_weak_subbeats = vec![0.0; 3200];
+        for beat in 0..32 {
+            let main = beat * 100;
+            slow_with_weak_subbeats[main] = [1.0, 0.8, 0.9, 0.7][beat % 4];
+            let jitter = [0_i32, 1, -1, 2, -2][beat % 5];
+            let subbeat = (main as i32 + 50 + jitter) as usize;
+            slow_with_weak_subbeats[subbeat] = 0.25;
+        }
+        for (index, value) in slow_with_weak_subbeats.iter_mut().enumerate() {
+            *value += ((index * 37 % 101) as f64 / 101.0) * 0.015;
+        }
+        let slow =
+            estimate_bpm(&slow_with_weak_subbeats).expect("regular main beats remain detectable");
+        assert!(
+            (slow.bpm - 60.0).abs() <= 1.0,
+            "weak jittered subdivisions became the tempo: {slow:?}"
+        );
+        assert!(
+            slow.related_tempo_bpm.is_none(),
+            "weak subdivisions should not be presented as an equally likely tempo: {slow:?}"
+        );
+    }
+
+    #[test]
+    fn automatic_source_reported_fields_are_scoped_without_claiming_user_approval() {
+        let mut metadata = Track::default();
+        metadata.provenance = serde_json::json!({"source":"exact_source_reported_metadata","identityStatus":"source_reported_unverified","sourceReportedFields":["artist","album","label"]});
+        assert!(autotag_field_approved(&metadata, "artist"));
+        assert!(autotag_field_approved(&metadata, "album"));
+        assert!(!autotag_field_approved(&metadata, "label"));
+        assert!(!autotag_field_approved(&metadata, "title"));
+        assert!(metadata.provenance.get("userApprovedFields").is_none());
+        metadata.provenance["source"] = serde_json::json!("catalog lookup");
+        assert!(!autotag_field_approved(&metadata, "artist"));
+    }
+
+    fn source_reported_test_track() -> Track {
+        Track {
+            id: "youtube:video-123".into(),
+            provider: "youtube".into(),
+            provider_id: "video-123".into(),
+            source_url: "https://youtube.com/watch?v=video-123".into(),
+            ..Track::default()
+        }
+    }
+
+    fn source_reported_test_metadata() -> Track {
+        let marker = serde_json::json!({
+            "identityStatus":"source_reported_unverified",
+            "provider":"youtube",
+            "providerId":"video-123",
+            "sourceUrl":"https://youtube.com/watch?v=video-123",
+            "origin":"ytDlpFullInfo",
+            "fields":["artist","album"]
+        });
+        Track {
+            artist: "Los Niños de Sara".into(),
+            album: Some("Gipsyolé".into()),
+            provenance: serde_json::json!({
+                "source":"exact_source_reported_metadata",
+                "identityStatus":"source_reported_unverified",
+                "sourceReportedFields":["artist","album"],
+                "sourceReportedMetadata":marker
+            }),
+            ..Track::default()
+        }
+    }
+
+    #[test]
+    fn source_reported_provenance_requires_exact_stable_source_identity() {
+        let source = source_reported_test_track();
+        let metadata = source_reported_test_metadata();
+        assert!(source_reported_metadata_provenance(&source, &metadata).is_some());
+
+        let mut stale = metadata.clone();
+        stale.provenance["sourceReportedMetadata"]["sourceUrl"] =
+            serde_json::json!("https://youtube.com/watch?v=other-video");
+        assert!(source_reported_metadata_provenance(&source, &stale).is_none());
+
+        let mut unsupported_field = metadata.clone();
+        unsupported_field.provenance["sourceReportedFields"] = serde_json::json!(["providerId"]);
+        assert!(source_reported_metadata_provenance(&source, &unsupported_field).is_none());
+
+        let mut tampered_inner_status = metadata.clone();
+        tampered_inner_status.provenance["sourceReportedMetadata"]["identityStatus"] =
+            serde_json::json!("catalog_verified");
+        assert!(source_reported_metadata_provenance(&source, &tampered_inner_status).is_none());
+    }
+
+    #[tokio::test]
+    async fn source_reported_marker_is_in_returned_asset_and_committed_recovery_journal() {
+        let directory = tempfile::tempdir().unwrap();
+        let library = fs::canonicalize(directory.path()).unwrap();
+        let settings = Settings {
+            music_directory: library.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let path = library.join("source-reported-fixture.wav");
+        let generated = Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=3",
+                "-c:a",
+                "pcm_s16le",
+            ])
+            .arg(&path)
+            .output()
+            .await
+            .unwrap();
+        assert!(generated.status.success());
+        let source_track = Track {
+            artist: String::new(),
+            title: "La Cubanita".into(),
+            local_path: Some(path.to_string_lossy().into_owned()),
+            ..source_reported_test_track()
+        };
+        let asset = LocalAsset {
+            id: "asset-source-reported".into(),
+            recording_id: source_track.id.clone(),
+            path: path.to_string_lossy().into_owned(),
+            hash: hash_file(&path).unwrap(),
+            source_codec: "wav".into(),
+            final_codec: "wav".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: Some(3.0),
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "preserved".into(),
+            track: source_track,
+        };
+        let metadata = source_reported_test_metadata();
+        let expected_marker = metadata.provenance["sourceReportedMetadata"].clone();
+        let updated = autotag_asset(&asset, &metadata, &settings).await.unwrap();
+        assert_eq!(updated.track.artist, "Los Niños de Sara");
+        assert_eq!(updated.track.album.as_deref(), Some("Gipsyolé"));
+        assert_eq!(
+            updated.track.provenance["sourceReportedMetadata"],
+            expected_marker
+        );
+
+        let recovered = recover_retag_journals(&settings).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(
+            recovered[0].1.track.provenance["sourceReportedMetadata"],
+            expected_marker
+        );
+    }
+
+    #[tokio::test]
+    async fn force_recomputes_provider_bpm_and_key_but_preserves_manual_values_and_blanks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("silence.wav");
+        let generated = Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=stereo:d=3",
+                "-c:a",
+                "pcm_s16le",
+            ])
+            .arg(&path)
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        let settings = Settings::default();
+        let provider = Track {
+            title: "Analysis fixture".into(),
+            artist: "Fixture performer".into(),
+            bpm: Some(60.2),
+            key: Some("Dm".into()),
+            provenance: serde_json::json!({"bpmAnalysis":{"source":"provider"},"keyAnalysis":{"source":"provider"}}),
+            ..Track::default()
+        };
+        let ordinary = analyze_missing_fields(&path, &provider, &settings, false).await;
+        assert_eq!(ordinary.bpm, Some(60.2));
+        assert_eq!(ordinary.key.as_deref(), Some("Dm"));
+        assert_eq!(ordinary.provenance["bpmAnalysis"]["source"], "provider");
+        assert_eq!(ordinary.provenance["keyAnalysis"]["source"], "provider");
+
+        let forced = analyze_missing_fields(&path, &provider, &settings, true).await;
+        assert_eq!(forced.bpm, None);
+        assert_eq!(forced.key, None);
+        assert_eq!(
+            forced.provenance["bpmAnalysis"]["status"],
+            "no confident estimate"
+        );
+        assert_eq!(
+            forced.provenance["keyAnalysis"]["status"],
+            "no_confident_estimate"
+        );
+        tag_media(&path, &provider, None).unwrap();
+        tag_media(&path, &forced, None).unwrap();
+        let inspected = inspect_local_file(&path, &settings).await.unwrap();
+        assert_eq!(inspected.bpm, None);
+        assert_eq!(inspected.key, None);
+
+        let manual = Track {
+            bpm: Some(133.0),
+            key: Some("F#m".into()),
+            provenance: serde_json::json!({"manualFields":{"bpm":true,"key":true}}),
+            ..Track::default()
+        };
+        let forced_manual = analyze_missing_fields(&path, &manual, &settings, true).await;
+        assert_eq!(forced_manual.bpm, Some(133.0));
+        assert_eq!(forced_manual.key.as_deref(), Some("F#m"));
+
+        let manual_blank = Track {
+            bpm: None,
+            key: Some(String::new()),
+            provenance: serde_json::json!({"manualFields":{"bpm":true,"key":true}}),
+            ..Track::default()
+        };
+        let forced_blank = analyze_missing_fields(&path, &manual_blank, &settings, true).await;
+        assert_eq!(forced_blank.bpm, None);
+        assert_eq!(forced_blank.key.as_deref(), Some(""));
     }
 }

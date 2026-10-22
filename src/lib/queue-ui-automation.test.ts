@@ -53,7 +53,7 @@ it('attributes synthetic movement separately from ordinary overflow movement',as
  const ordinary=vi.fn(async()=>{}),owned=vi.fn(async()=>{});await render(ordinary,new AbortController().signal,owned);
  await dispatchQueueUi(document,{action:'arrow',index:1,direction:'up'},new AbortController().signal,()=>true);
  expect(owned).toHaveBeenCalledExactlyOnceWith(1,0);expect(ordinary).not.toHaveBeenCalled();
- document.querySelector<HTMLElement>('.queue-list > article:nth-child(2) summary')!.click();await settle();
- const button=[...document.querySelectorAll<HTMLButtonElement>('.queue-list > article:nth-child(2) button')].find(b=>b.textContent?.trim()==='Move up');
+ document.querySelectorAll<HTMLElement>('.queue-list > article')[1]!.querySelector<HTMLElement>('summary')!.click();await settle();
+ const button=[...document.querySelectorAll<HTMLElement>('.queue-list > article')[1]!.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Move up');
  expect(button).toBeTruthy();button!.click();await settle();expect(ordinary).toHaveBeenCalledExactlyOnceWith(1,0);expect(owned).toHaveBeenCalledTimes(1);
 });

@@ -223,6 +223,8 @@ fn cached_rodio_seek_same_range_body_gap_starves_then_recovers() {
             ffmpeg: directory.path().join("absent-ffmpeg"),
             headers: vec![],
             decoder_hint: None,
+
+            cenc: None,
         };
         let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
         let (warm_mixer, mut warm_output) =

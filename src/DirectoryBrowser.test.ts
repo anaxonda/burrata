@@ -318,6 +318,36 @@ describe("DirectoryBrowser", () => {
     expect(onPlayFile).not.toHaveBeenCalled();
   });
 
+  it("enables an internal scroll viewport for a folder below the shared list threshold", async () => {
+    const files = Array.from({ length: 56 }, (_, index) => ({
+      path: `/home/test/Music/track-${index}.flac`, name: `track-${index}.flac`, track: null,
+    }));
+    const call = vi.fn(async (command: string) => {
+      if (command === "list_directory_browser_roots") return [root];
+      if (command === "browse_directory_browser") return browse({ files, total: files.length });
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const { target } = render(call); await settle();
+    expect(target.querySelector(".directory-list-scroll")?.classList.contains("virtualized")).toBe(true);
+    expect(target.querySelector(".track-list-viewport")?.classList.contains("virtualized")).toBe(true);
+  });
+
+  it("keeps a short folder scrollable when a small window leaves less room than its rows need", async () => {
+    const files = Array.from({ length: 20 }, (_, index) => ({
+      path: `/home/test/Music/short-${index}.flac`, name: `short-${index}.flac`, track: null,
+    }));
+    const call = vi.fn(async (command: string) => {
+      if (command === "list_directory_browser_roots") return [root];
+      if (command === "browse_directory_browser") return browse({ files, total: files.length });
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const { target } = render(call); target.style.cssText = "height: 260px; display: flex; flex-direction: column; overflow: hidden";
+    await settle();
+    const scrollHost = target.querySelector<HTMLElement>(".directory-list-scroll")!;
+    expect(scrollHost.classList.contains("virtualized")).toBe(false);
+    expect(getComputedStyle(scrollHost).overflowY).toBe("auto");
+  });
+
   it("uses global directory query, sort, and fractional duration bounds before paging", async () => {
     const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       if (command === "list_directory_browser_roots") return [root];

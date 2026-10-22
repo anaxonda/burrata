@@ -27,11 +27,12 @@
   };
 
   let { onPlayStation, onArtist, playingStationId = "", onNowPlaying, selectedStationId: requestedStationId = "", showAdd = false, onStationsChanged, onAddClosed, stationNames={}, savedStations,
-    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onTrackContext, onInfoTrack, onTrackAlbum, onOpenHistory, onIdentifyPlayingStation, identifyingPlayingStation = false, currentStationMetadata, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
+    onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onAddSelectedToPlaylist, onTrackContext, onInfoTrack, onTrackAlbum, onOpenHistory, onIdentifyPlayingStation, identifyingPlayingStation = false, currentStationMetadata, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
   }:
     { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; showAdd?: boolean; onStationsChanged?: (stations: RadioStation[]) => void; onAddClosed?: () => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
       onPlayTrack?: (track: Track, tracks: Track[], index: number) => void | Promise<void>; onDownloadTrack?: (track: Track) => void | Promise<void>; onFavoriteTrack?: (track: Track) => void | Promise<void>;
       onQueueTracks?: (tracks: Track[], mode: "next" | "append") => void | Promise<void>; onAddTrackToPlaylist?: (track: Track) => void | Promise<void>; onTrackContext?: (track: Track, event: MouseEvent) => void;
+      onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
       onInfoTrack?: (track: Track) => void | Promise<void>;
       onTrackAlbum?: (track: Track) => void | Promise<void>;
       onOpenHistory?: (stationId: string) => void;
@@ -40,6 +41,58 @@
       playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
       favoriteTrackIds?: string[];
     } = $props();
+  type RadioPlaylistOption = { enabled: boolean; collectionId: string | null };
+  let playlistOption = $state<RadioPlaylistOption>({enabled: false, collectionId: null});
+  let playlistTargets = $state<{id: string; name: string}[]>([]);
+  let playlistTarget = $state("");
+  let playlistSaving = $state(false);
+  let playlistLoading = $state(true);
+  let playlistError = $state("");
+  let playlistRequest = 0;
+  $effect(() => {
+    const stationId = selectedStationId;
+    const request = ++playlistRequest;
+    playlistLoading = true;
+    playlistSaving = false;
+    playlistError = "";
+    playlistOption = {enabled: false, collectionId: null};
+    playlistTarget = "";
+    void Promise.resolve().then(() => Promise.all([
+      call<RadioPlaylistOption>("get_radio_playlist_option", {stationId}),
+      call<{id: string; name: string}[]>("list_radio_playlist_targets"),
+    ])).then(([option, targets]) => {
+      if (request !== playlistRequest) return;
+      if (!option || typeof option.enabled !== "boolean" || !Array.isArray(targets)) throw new Error("Invalid playlist capture settings");
+      playlistOption = option;
+      playlistTarget = option.collectionId ?? "";
+      playlistTargets = targets;
+      if (option.enabled && !targets.some(target => target.id === option.collectionId)) playlistError = "The chosen playlist is unavailable. Choose another local playlist.";
+    }).catch(() => {
+      if (request === playlistRequest) playlistError = "Playlist capture settings are unavailable.";
+    }).finally(() => {if (request === playlistRequest) playlistLoading = false;});
+  });
+  async function savePlaylistOption(enabled: boolean) {
+    const stationId = selectedStationId;
+    const request = playlistRequest;
+    playlistSaving = true;
+    playlistError = "";
+    try {
+      const option = await call<RadioPlaylistOption>("set_radio_playlist_option", {
+        stationId, enabled, collectionId: playlistTarget,
+      });
+      const targets = await call<{id: string; name: string}[]>("list_radio_playlist_targets");
+      if (request !== playlistRequest) return;
+      if (!option || typeof option.enabled !== "boolean" || !Array.isArray(targets)) throw new Error("Invalid playlist capture settings");
+      playlistOption = option;
+      playlistTarget = option.collectionId ?? "";
+      playlistTargets = targets;
+    } catch (failure) {if (request === playlistRequest) playlistError = String(failure);}
+    finally {if (request === playlistRequest) playlistSaving = false;}
+  }
+  async function playlistSelectedHistoryTracks(tracks: Track[]) {
+    const canonical = await Promise.all(tracks.map(hydrateHistoryTrack));
+    await onAddSelectedToPlaylist?.(canonical);
+  }
   let stations = $state<RadioStation[]>([]);
   let activeStationId = $state("main");
   $effect(()=>{
@@ -72,7 +125,12 @@
   let addingStationId = $state("");
   let stationName = $state("");
   let stationUrl = $state("");
+  let editStreamOpen = $state(false);
+  let editStreamSaving = $state(false);
+  let editedStationUrl = $state("");
+  let stationEditRequest = 0;
   let stationActionError = $state("");
+  let stationActionStatus = $state("");
   let historyQuery = $state("");
   let historySort = $state<"newest" | "oldest">("newest");
   let historyTrackSort = $state<TrackSortField>("sourceOrder");
@@ -147,7 +205,16 @@
   const selectedStation = $derived(stations.find((station) => station.id === selectedStationId) ? {
     ...stations.find((station) => station.id === selectedStationId)!,
     ...(stationDetailsById[selectedStationId] ?? {}),
+    streamUrl: stations.find((station) => station.id === selectedStationId)!.streamUrl,
   } : null);
+  $effect(() => {
+    selectedStationId;
+    stationEditRequest++;
+    editStreamOpen = false;
+    editedStationUrl = "";
+    stationActionStatus = "";
+    stationActionError = "";
+  });
   const currentHistory = $derived(historyByStation[selectedStationId] ?? []);
   function newestMetadata(items: (RadioTrackMetadata | null | undefined)[]) {
     return items.filter((item): item is RadioTrackMetadata => Boolean(item)).reduce<RadioTrackMetadata | null>((latest, item) => {
@@ -439,6 +506,7 @@
   async function addCustomStation() {
     if (!stationName.trim() || !stationUrl.trim()) return;
     stationActionError = "";
+    stationActionStatus = "";
     try {
       stations = await call<RadioStation[]>("add_custom_radio_station", { name: stationName.trim(), url: stationUrl.trim() });
       onStationsChanged?.(stations);
@@ -446,6 +514,24 @@
       stationName = ""; stationUrl = ""; addOpen = false; dismissedExternalAdd = true; onAddClosed?.();
       if (added) activeStationId = added.id;
     } catch (failure) { stationActionError = String(failure); }
+  }
+  async function saveStationStreamUrl() {
+    if (!selectedStation || !editedStationUrl.trim() || editStreamSaving) return;
+    stationActionError = "";
+    stationActionStatus = "";
+    const request = ++stationEditRequest;
+    const stationId = selectedStation.id;
+    editStreamSaving = true;
+    try {
+      stations = await call<RadioStation[]>("edit_radio_station_url", { stationId, url: editedStationUrl.trim() });
+      onStationsChanged?.(stations);
+      if (request === stationEditRequest && selectedStationId === stationId) {
+        editStreamOpen = false;
+        stationActionStatus = "Stream URL saved. It will be used the next time you play this station.";
+      }
+    } catch (failure) {
+      if (request === stationEditRequest && selectedStationId === stationId) stationActionError = String(failure);
+    } finally { editStreamSaving = false; }
   }
   async function removeStation(station: RadioStation) {
     stationActionError = "";
@@ -473,7 +559,7 @@
         <StationArtwork src={selectedStationFavicon} onImageError={() => void recoverStationArtwork()} alt="" fallbackLabel={`${selectedStation.name} station artwork`} imageClass="station-favicon" placeholderClass="station-art-placeholder" />
       {/key}
     {/if}
-    <div><p class="eyebrow">LIVE RADIO</p><h1>{selectedStation?.name ?? "Radio"}</h1><p>{selectedStation?.description || (selectedStation?.country ? `Live internet radio from ${selectedStation.country}.` : "Live internet radio stream.")}</p></div></div><div class="heading-actions">{#if selectedStationWebsite}<a href={selectedStationWebsite} target="_blank" rel="noreferrer">Station website ↗</a>{/if}<button class="add-button" onclick={toggleAddPanel} aria-expanded={addPanelVisible}>{addPanelVisible ? "Close" : "＋ Add station"}</button></div></header>
+    <div><p class="eyebrow">LIVE RADIO</p><h1>{selectedStation?.name ?? "Radio"}</h1><p>{selectedStation?.description || (selectedStation?.country ? `Live internet radio from ${selectedStation.country}.` : "Live internet radio stream.")}</p></div></div><div class="heading-actions">{#if selectedStationWebsite}<a href={selectedStationWebsite} target="_blank" rel="noreferrer">Station website ↗</a>{/if}</div></header>
   {#if addPanelVisible}
     <section class="station-add" aria-label="Add radio station">
       <div class="add-tabs" role="tablist" aria-label="Add station method"><button role="tab" aria-selected={addMode === "search"} class:active={addMode === "search"} onclick={() => (addMode = "search")}>Search</button><button role="tab" aria-selected={addMode === "url"} class:active={addMode === "url"} onclick={() => (addMode = "url")}>Stream URL</button></div>
@@ -502,7 +588,10 @@
       {#if selectedStation.country || selectedStation.tags?.length || selectedStation.codec || selectedStation.bitrateKbps || selectedStation.bitrate || selectedStation.language}
         <p class="station-details">{[selectedStation.country, selectedStation.language, stationTags(selectedStation).join(" · "), selectedStation.codec, (selectedStation.bitrateKbps ?? selectedStation.bitrate) ? `${selectedStation.bitrateKbps ?? selectedStation.bitrate} kbps` : ""].filter(Boolean).join(" · ")}</p>
       {/if}
-      <div class="station-actions"><button class="add-button" onclick={() => onPlayStation(selectedStation)}>▶ Play station</button>{#if removable(selectedStation)}<button class="remove-station" aria-label={`Remove ${selectedStation.name}`} onclick={() => void removeStation(selectedStation)}>Remove station</button>{/if}</div>
+      <div class="station-actions"><button class="add-button" onclick={() => onPlayStation(selectedStation)}>▶ Play station</button><button class="remove-station" onclick={() => { editedStationUrl = selectedStation.streamUrl; editStreamOpen = !editStreamOpen; stationActionError = ""; stationActionStatus = ""; }}>{editStreamOpen ? "Cancel URL edit" : "Edit stream URL"}</button>{#if removable(selectedStation)}<button class="remove-station" aria-label={`Remove ${selectedStation.name}`} onclick={() => void removeStation(selectedStation)}>Remove station</button>{/if}</div>
+      {#if editStreamOpen}<form class="edit-station-url" onsubmit={(event) => { event.preventDefault(); void saveStationStreamUrl(); }}><label for="radio-stream-url">Stream URL</label><input id="radio-stream-url" aria-label="Edit stream URL" type="url" disabled={editStreamSaving} bind:value={editedStationUrl} maxlength="2048" required /><button class="add-button" disabled={editStreamSaving || !editedStationUrl.trim()}>{editStreamSaving ? "Saving…" : "Save stream URL"}</button><small>The new stream will be used the next time you play this station.</small></form>{/if}
+      {#if stationActionStatus}<p role="status">{stationActionStatus}</p>{/if}
+      {#if stationActionError}<p role="alert" class="error">{stationActionError}</p>{/if}
       {#if playingStationId === selectedStation.id}<button class="identify-button" disabled={recognizing || identifyingPlayingStation} onclick={() => void identifyCurrentSong(selectedStation.id)}>{recognizing || identifyingPlayingStation ? "Identifying…" : "Identify current song"}</button>{/if}
       {#if displayedNowPlaying}
         {@const item = displayedNowPlaying}
@@ -518,7 +607,13 @@
     <section class="history" aria-label={`Recently heard on ${selectedStation?.name ?? "Radio Paradise"}`}>
       <h2>Station history <small>your listening history</small></h2>
       <div class="history-tools track-browser-controls"><label>Search station history<input aria-label="Search station history" type="search" bind:value={historyQuery} placeholder="Title or artist" /></label><label>History order<select aria-label="Sort station history" bind:value={historySort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label><label>Sort tracks<select aria-label="Sort station history tracks" bind:value={historyTrackSort}><option value="sourceOrder">History order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select></label><label>Direction<select aria-label="Sort direction" bind:value={historyTrackSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><TrackDurationFilter bind:minDuration={historyMinDuration} bind:maxDuration={historyMaxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" />{#if onOpenHistory}<button class="full-history" onclick={() => onOpenHistory?.(selectedStation.id)}>Full listening history →</button>{/if}</div>
-      {#if displayedHistoryTracks.length}<TrackList presentation="playlist" position={(_track, index) => historyPage * historyPageSize + index + 1} tracks={displayedHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={onPlayTrack ? playHistoryTrack : undefined} onDownload={onDownloadTrack ? downloadHistoryTrack : undefined} onFavorite={onFavoriteTrack ? favoriteHistoryTrack : undefined} onNext={onQueueTracks ? track => queueHistoryTrack(track, "next") : undefined} onQueue={onQueueTracks ? track => queueHistoryTrack(track, "append") : undefined} onPlaylist={onAddTrackToPlaylist ? playlistHistoryTrack : undefined} onArtist={artistHistoryTrack} onAlbum={onTrackAlbum ? albumHistoryTrack : undefined} onInfo={onInfoTrack ? infoHistoryTrack : undefined} onContext={onTrackContext ? contextHistoryTrack : undefined} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="radio-empty">No recent tracks match this filter.</p>{:else}<p class="radio-empty">Songs identified while you listen will appear here.</p>{/if}
+      <section class="radio-playlist-capture" aria-label="Save played songs to playlist">
+        <label><input type="checkbox" checked={playlistOption.enabled} disabled={playlistLoading || playlistSaving} onchange={(event) => void savePlaylistOption(event.currentTarget.checked)} /> Automatically add identified songs I hear to a local playlist</label>
+        <label>Playlist<select aria-label="Radio capture playlist" bind:value={playlistTarget} disabled={playlistLoading || playlistSaving} onchange={() => {if (playlistOption.enabled) void savePlaylistOption(true);}}><option value="">New playlist: {selectedStation.name}</option>{#each playlistTargets as target (target.id)}<option value={target.id}>{target.name}</option>{/each}</select></label>
+        <p>Only newly identified songs played while listening are added. Repeated songs appear once.</p>
+        {#if playlistError}<p role="status">{playlistError}</p>{/if}
+      </section>
+      {#if displayedHistoryTracks.length}<TrackList presentation="playlist" selectionContext={`${selectedStationId}:${historyPage}:${historyQuery}`} onAddSelectedToPlaylist={onAddSelectedToPlaylist ? playlistSelectedHistoryTracks : undefined} position={(_track, index) => historyPage * historyPageSize + index + 1} tracks={displayedHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={onPlayTrack ? playHistoryTrack : undefined} onDownload={onDownloadTrack ? downloadHistoryTrack : undefined} onFavorite={onFavoriteTrack ? favoriteHistoryTrack : undefined} onNext={onQueueTracks ? track => queueHistoryTrack(track, "next") : undefined} onQueue={onQueueTracks ? track => queueHistoryTrack(track, "append") : undefined} onPlaylist={onAddTrackToPlaylist ? playlistHistoryTrack : undefined} onArtist={artistHistoryTrack} onAlbum={onTrackAlbum ? albumHistoryTrack : undefined} onInfo={onInfoTrack ? infoHistoryTrack : undefined} onContext={onTrackContext ? contextHistoryTrack : undefined} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="radio-empty">No recent tracks match this filter.</p>{:else}<p class="radio-empty">Songs identified while you listen will appear here.</p>{/if}
       {#if historyTotal > historyPageSize}
         <nav class="history-pagination" aria-label="Station history pages" aria-busy={historyBusy}>
           <button disabled={historyPage === 0 || historyBusy} onclick={() => historyPage--}>Previous</button>
@@ -536,4 +631,10 @@
   .station-identity{display:flex;align-items:center;gap:12px;min-width:0}:global(.station-favicon),:global(.station-art-placeholder){width:38px;height:38px;object-fit:contain;border-radius:7px}:global(.station-art-placeholder){display:grid;place-items:center;flex:none;background:var(--raised);color:var(--muted);font-size:20px}.station-identity>div{min-width:0}.identify-button{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}
   .history-pagination{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px;font-size:12px;color:var(--muted)}.history-pagination button{border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:var(--raised);color:var(--text)}.history-pagination button:disabled{opacity:.45}
   .radio-page .history-tools{display:flex;align-items:end;flex-wrap:wrap;gap:8px;margin:0 0 12px;min-width:0}.radio-page .history-tools>label{display:flex;flex:0 1 115px;flex-direction:column;align-items:stretch;gap:4px;min-width:0;margin:0;color:var(--muted);font-size:11px}.radio-page .history-tools>label:first-child{flex:1 1 190px}.radio-page .history-tools>label:nth-child(n+5){flex:0 1 90px}.radio-page .history-tools input,.radio-page .history-tools select{box-sizing:border-box;display:block;flex:none;width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;max-height:36px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text);font:inherit;line-height:normal}.full-history{align-self:center;margin-left:auto;border:0;padding:7px 0;background:transparent;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
+
+.radio-playlist-capture {display: grid; gap: .6rem; margin-block: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem;}
+.radio-page .radio-playlist-capture label {display:flex; flex-direction:row; justify-content:flex-start; gap:.5rem; align-items:center; flex-wrap:wrap; text-align:left; font-size:12px;}
+.radio-page .radio-playlist-capture input[type="checkbox"] {flex:0 0 16px; width:16px; height:16px; min-height:16px; margin:0; padding:0; accent-color:var(--accent);}
+.radio-page .radio-playlist-capture select {flex:1 1 190px; min-width:0; width:auto; max-width:100%; font:inherit; padding:7px 9px;}
+.radio-playlist-capture p {margin: 0; font-size: .85rem; opacity: .8;}
 </style>

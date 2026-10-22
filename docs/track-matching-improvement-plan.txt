@@ -1,0 +1,366 @@
+TRACK MATCHING: ACCURACY, ROBUSTNESS, AND SPEED PLAN
+Date: 2026-10-21
+Status: Implementation in progress; qualification remains open.
+
+Objective
+---------
+Make track parsing, candidate retrieval, matching, scoring, and source selection
+more accurate, predictable, robust, and fast across Exact, Balanced, and Flexible.
+Apply the shared behavior to automatic playback and downloads. Preserve explicit
+source selection, saved recording identity, manual fields, and actual alternative
+recording identity/provenance.
+
+This plan consolidates both reviews in the conversation. The audit inspected the
+working tree, including existing uncommitted changes; it did not implement fixes.
+Agents must check current source before changing it and coordinate ownership of
+shared files. The existing todo contains unrelated ongoing work to preserve.
+
+Current architecture and baseline
+---------------------------------
+- matching.rs uses heuristic title/artist token coverage, requested version, and
+  duration weighted 40/30/20/10 percent, plus a small official-source bonus.
+  The numeric score is not a calibrated match probability.
+- recording_match.rs compares title, artists, guests, version, runtime, ISRC,
+  and work identity, returning a relationship and an action.
+- Playback checks freshly resolved source identity. Provider retrieval/filtering
+  and legacy scoring can still affect which candidates reach that evaluator.
+- Exact requires complete structured credits and a recording anchor, which can
+  currently be matching duration alone. Ordinary runtime tolerance is the greater
+  of two seconds or two percent. Requested semantic versions must agree.
+- Balanced adds scoped aliases, credit variation, selected missing-duration
+  exceptions, and a stronger-evidence timing exception around three percent,
+  capped at eight seconds with a two-second floor.
+- Flexible adds missing-credit tolerance, timing tolerance of fifteen percent
+  with a fifteen-second floor and forty-five-second cap, and identified live,
+  remix, or cover alternatives. Those alternatives can bypass runtime and ISRC
+  conflicts that would block a same-recording claim.
+- Provider concurrency, shared alias requests, negative caching, verified source
+  mappings, and next-track preparation already exist. Extend and consolidate
+  them; do not introduce competing implementations.
+- Audit validation: 38 focused native matching tests passed. An isolated harness
+  importing production modules also passed 67 existing tests and reproduced the
+  defects below. These suites overlap and are not additive coverage.
+- The public recording-match corpus had 18 cases at review time. It is regression
+  evidence, not an estimate of real-world precision or recall.
+
+1. Establish regression cases and fix correctness defects (highest priority)
+---------------------------------------------------------------------------
+Add meaningful regressions before correcting the following behavior. Exercise
+all three levels and Search/Resolved where relevant, plus production provider
+adapters for cases involving metadata shape. Synthetic evaluator reproductions
+are not claims that a particular live upload was wrongly played.
+
+1.1 Preserve unknown annotations and semantic distinctions.
+    Observed: with matching Artist and 200-second duration, captions
+    'Artist - Song [432Hz]' and 'Artist - Song [Slowed + Reverb]' can be accepted
+    as Exact at every level, including when track/catalogTitle contain the full
+    caption. caption_track_title drops arbitrary trailing square-bracket groups
+    when the remainder matches the requested title.
+    Remove only recognized presentation labels or independently established
+    label text. Retain unrecognized groups as unresolved evidence. Never silently
+    convert tuning, speed, live, remix, or edition annotations into no version.
+
+1.2 Compare conflicting fields rather than silently choosing one.
+    Observed: structured track='Song' plus caption='Artist - Song (Live)', complete
+    matching artist credits, and matching duration yields Exact/Accept in all
+    modes. A clean structured field hides the caption's Live distinction.
+    Also observed: request title='Song (Live)' plus version='Original Mix' can
+    lose the Live evidence; Balanced/Flexible accept the unversioned candidate.
+    Collect title, caption, and explicit version observations separately. Report
+    conflicts and resolve them only with justified evidence precedence. A field's
+    presence alone must not erase contradictory recording evidence.
+    Adding Official Audio must never hide an existing semantic version.
+
+1.3 Make Unicode handling safe.
+    Observed: request title='İ feat. Å' panics in guest_from_title at every level.
+    Positions found in a Unicode-lowercased string are incorrectly applied as byte
+    indices to the original string. Audit equivalent slicing in title/credit
+    helpers. Use original-string spans or explicitly safe marker matching.
+    Arbitrary Unicode and malformed input must return bounded uncertainty or a
+    valid parse, never panic.
+
+1.4 Reject empty normalized identity matches.
+    Observed: different punctuation-only titles such as '!!!' and '???' normalize
+    to the same empty string and can be accepted with other matching evidence.
+    Empty normalized values must not establish title/artist identity. Preserve
+    legitimate punctuation-bearing names through explicit evidence handling.
+
+1.5 Use all canonical identifier evidence consistently.
+    Observed at evaluator level: an ISRC present only in remoteCatalog provenance
+    is collected by RecordingIdentity, but candidate ISRC comparison consults
+    only track.isrc. A conflicting candidate ISRC can therefore appear Unknown.
+    Consume the canonical collected identity, retain manual-field precedence,
+    and preserve the existing conflicting-request-identifier guard. Test direct
+    evaluator calls and callers that already hydrate identifiers; do not assume
+    every caller hydrates first.
+
+1.6 Make permissiveness cumulative.
+    Observed: a bound Monochrome catalog candidate with matching title/complete
+    credits and missing duration is Probable/Accept in Balanced but
+    Probable/Enrich in Flexible. Balanced-only exceptions are not inherited.
+    Make accepted-candidate eligibility cumulative: Exact -> Balanced -> Flexible
+    for the same evidence/stage, except any explicitly documented product rule.
+    More permissive modes may broaden eligibility without weakening the actual
+    relationship/proof label or preferring an alternative over the original.
+
+1.7 Eliminate contradictory early score filters.
+    Observed: an Original Mix request versus a same-artist Alice Remix candidate
+    gets 0.49/low from legacy scoring but Alternative/Accept under Flexible.
+    Monochrome filters low-confidence candidates before shared assessment.
+    Audit provider retrieval, batch downloads, and UI selection paths for similar
+    prefilters. Let shared stage-aware evidence determine eligibility. Retain
+    inspectable candidates during retrieval; final acceptance remains separate.
+
+Acceptance for stage 1:
+- The reproductions have explicit expected relationship, action, and reasons.
+- Conflicting/unknown annotations cannot become Exact through cleanup.
+- Unicode safety, nonempty identity, and cumulative eligibility tests pass.
+- Flexible alternatives can reach the evaluator regardless of provider-specific
+  legacy scores, while stronger same-recording candidates remain preferred.
+
+2. Consolidate parsing and identity evidence
+------------------------------------------
+2.1 Build one reusable parsed identity representation per request/candidate:
+    original text, base title, primary/featured performer credits and roles,
+    semantic version attributes, presentation labels, unresolved annotations,
+    normalized comparison keys, identifiers, and duration observations.
+    Preserve multiple annotations and their original spans rather than relying
+    on repeated destructive string cleanup in different layers.
+
+2.2 Retain the provenance and evidential strength of every observation. Distinguish
+    catalog fields, uploader captions, complete performer credits, verified
+    identifiers, and audio evidence. Repeated representations of the same source
+    must not become independent corroboration. Preserve whole-act names before
+    considering collaboration separators; use verified aliases rather than
+    guessed name equivalence.
+
+2.3 Separate evidence comparison from mode policy. 'Extra performer', 'runtime
+    differs by six seconds', and 'caption says Live' are facts at every level.
+    Mode selection decides the resulting action instead of changing those facts.
+    Use a clear policy table for required evidence, permitted uncertainty, and
+    alternative recording eligibility. Keep explicit conflicts distinct from
+    missing data, and explain each exception in structured reasons.
+
+2.4 Distinguish exact metadata agreement from verified recording identity.
+    Current title/credits/duration agreement can produce Exact without recording
+    identifiers or audio evidence. Define and expose proof strength separately
+    from mode and eligibility; avoid overstating what the Exact relationship
+    establishes. Keep alternative and approximate-excerpt identities explicit.
+
+2.5 Version parsing/evaluation behavior and cached evidence together. Existing
+    mappings must be re-evaluated or invalidated as appropriate after semantic
+    fixes. Exact must never reuse Flexible-only acceptance. Verify fresh and
+    restored evidence make equivalent decisions under the same evaluator.
+
+3. Unify and improve ranking
+---------------------------
+3.1 Derive retrieval ranking and final acceptance from the shared comparison
+    evidence. Search can return Inspect/Enrich candidates without pretending that
+    they already satisfy resolved acceptance.
+3.2 Rank same-recording matches before probable matches and alternatives. Within
+    a relationship tier, consider evidence strength, unresolved ambiguity,
+    recording-specific identifiers, prior successful source verification, and
+    source reliability. Never let token overlap offset a known identity conflict.
+3.3 Account for competing plausible recordings. A strong absolute score should
+    not conceal that multiple editions or performances remain indistinguishable.
+3.4 Improve selection of candidates that consume extraction slots. Current
+    playback priority returns essentially a relationship bucket with no useful
+    tie-breaker. Within comparable evidence quality, prefer candidates with lower
+    expected verification cost and prior success. Retain deterministic ordering
+    and explicit provider preferences. Measure whether fewer failed/irrelevant
+    extractions improve latency and success rate.
+3.5 Keep numeric scores labeled as heuristic unless evaluated and calibrated.
+    Tune weights and duration tolerances only against representative held-out
+    cases, with precision/recall and per-mode results, rather than anecdotes.
+
+4. Reduce discovery and verification latency
+-------------------------------------------
+Prioritize reductions in foreground external work before local micro-optimization.
+
+4.1 Increase reuse of verified recording-to-source mappings.
+    Consult stable mappings early to avoid repeated search/discovery. Scope them
+    to recording identity, evaluator/evidence version, and appropriate policy.
+    Keep stable identity proof separate from expiring stream URLs and transient
+    transport failures. Refresh transport/access as needed without repeating
+    unnecessary discovery or bypassing changed identity evidence.
+
+4.2 Overlap alias enrichment with the initial search.
+    Current catalog alias preparation can be awaited for up to two seconds before
+    ordinary resolution. Start canonical-query retrieval concurrently when safe,
+    retain results, and reassess when enrichment arrives. Only acceptance that
+    depends on new evidence must wait. Share the existing lookup owner, absolute
+    deadline, cancellation, and request budgets; avoid duplicate searches when
+    aliases arrive and do not accept a partial identity prematurely.
+
+4.3 Extend existing queue preparation to warm identity evidence.
+    Existing next-track discovery initially uses cached aliases. Prepare missing
+    credits, identifiers, and parsed identity ahead of the transition with bounded
+    background work. Keep expiring stream resolution near playback. Cancel stale
+    queue work and prioritize foreground playback; do not create an unbounded
+    library-wide discovery job.
+
+4.4 Cache raw provider responses independently of matching mode.
+    Current flat and completed search-cache keys include matching level. Cache raw
+    query/provider-context results so Exact/Balanced/Flexible can reuse them and
+    apply their rules locally. Preserve mode-dependent query expansion and cache
+    completeness separately: a partial search must not masquerade as exhaustive.
+    Keep provider/session context, expiry, query identity, and cancellation/owner
+    behavior correct. Verify mode switches cannot reuse a stale acceptance.
+
+4.5 Parse and normalize once.
+    Reuse prepared request and candidate identities across scoring, comparisons,
+    alias variants, and policy evaluation. Avoid repeated parsing, string/set
+    allocation, and full Track cloning where a scoped artist variant is enough.
+    This should be delivered with stage 2, not as a second parser implementation.
+
+4.6 Reduce repeated alias database work for batches.
+    Memoize candidate-scoped profile/alias lookup results within an operation.
+    Profile cached_musicbrainz_artist_profiles_for_name, which currently uses
+    JSON predicates over provider_cache. If significant at representative scale,
+    index normalized alias names with entity IDs, expiry, and ambiguity handling.
+    Keep normalization consistent between indexed lookup and comparison. Preserve
+    uniqueness checks and refresh/invalidation semantics.
+
+4.7 Reuse existing scheduling/concurrency mechanisms.
+    Provider searches already have preferred/fallback concurrency, and alias
+    requests already share in-flight work and negative results. Improve their
+    scheduling and reuse while retaining request caps, cancellation, and one
+    startup deadline. Avoid blanket concurrency increases that waste extraction
+    slots, contend with active playback, or raise provider request volume.
+
+5. Validation, benchmarking, and rollout
+--------------------------------------
+5.1 Expand the corpus with positive examples and closely competing negatives:
+    same-title/different-artist, named guests, single-act punctuation, different
+    remixes/live performances, radio/extended edits, unknown tuning/speed labels,
+    missing/malformed credits, nested/reordered annotations, Unicode, identifier
+    conflicts, missing duration, and equivalent provider metadata shapes.
+    Preserve independently supported labels; do not label an uncertain source
+    correct merely because the current implementation accepts it.
+
+5.2 Add property/metamorphic tests:
+    - Presentation labels cannot hide semantic conflicts.
+    - Moving equivalent evidence between supported fields preserves decisions.
+    - Adding contradictory evidence cannot strengthen a same-recording claim.
+    - Increasing permissiveness retains prior candidate eligibility.
+    - Arbitrary Unicode/malformed metadata never panics or causes unbounded work.
+    - Empty normalized values never establish identity.
+    - Fresh/cached evidence and playback/download consumers agree where their
+      operation requirements are the same.
+    Run all three modes at Search and Resolved; include provider-adapter tests,
+    cache restoration, and relevant source-selection integration tests.
+
+5.3 Measure accuracy and retrieval separately:
+    false acceptances, false refusals, unresolved/enrichment rate, retrieval of
+    the correct candidate within the budget, and correct labeling of alternatives.
+    Report by mode, provider, and missing-evidence category. Use a held-out set.
+
+5.4 Measure speed with phase traces on cold and warm requests:
+    local parsing/comparison CPU, alias/database work, provider search,
+    extraction/verification, access validation, total resolution, and first audio
+    separately. Report p50/p95, success/failure counts, cache hits, external request
+    counts, extraction attempts, and resource use for single and batch matching.
+    Retain failures; use comparable frozen builds, requests, policies, and source
+    identities. Do not confuse resolver timing with audible-start timing.
+
+5.5 Existing observations motivate priorities but are not performance guarantees:
+    - One Vibe cold trace: total resolution 8.559s, alias preparation 0.843s,
+      YouTube extraction 6.600s. Concurrent phase durations are not additive.
+    - Retained mapped-direct observations: approximately 0.450s and 0.891s for
+      direct resolver stages. These are not a matched cold/warm speedup benchmark.
+    Preserve first-time verification while increasing the share of safe warm paths.
+
+5.6 Roll out in reviewable stages. Run focused checks for each change, then the
+    required native/frontend integration checks for affected surfaces. Record
+    behavior changes, cache/evaluator versions, measured accuracy, and latency.
+    Mark work complete only after implemented behavior and relevant qualification
+    pass; analysis, passing historical tests, or live playback alone is insufficient.
+
+Stage 5 harness implementation — 2026-10-21
+-------------------------------------------
+Added scripts/performance/matching_cohort.py with a public-fixture manifest,
+sequential Exact/Balanced/Flexible paired cold/warm invocation, 20-pair/3-warmup
+defaults, and a one-pair --smoke path. The allowlisted aggregate retains failures
+in denominators, only emits p95 with at least 20 timing samples, records paired
+resolved provider-ID changes, and freezes binary/input/diagnostic-source hashes
+and provider policy. Raw reports and process logs are retained as owner-only
+files; see docs/matching-performance-cohort.md. Four focused Python tests cover
+failure accounting, p95 sample requirements, paired identity changes, secret
+setting rejection, and failed child process preservation. This implementation
+is not a live cohort result: no built-binary cohort has run, and phase/request
+counts remain unreported until diagnostic events can be correlated reliably.
+
+Suggested execution order and coordination
+-----------------------------------------
+A. Reproduce stage 1 defects and establish accuracy/performance baselines.
+B. Fix data loss, field conflicts, Unicode safety, identifiers, empty identities,
+   and cumulative mode policy; remove incompatible retrieval filters.
+C. Deliver the shared parsed-evidence model and consistent ranking/policy.
+D. Improve mapping reuse, overlap alias preparation, and extraction ordering.
+   Scheduling work may proceed alongside B/C with agreed interfaces and ownership.
+E. Extend queue evidence preparation, split raw-result/policy caches, and optimize
+   batch alias lookup if profiling supports it.
+F. Complete corpus/property/integration checks and comparative cold/warm/batch
+   measurements; update todo with evidence and any remaining qualification.
+Assign explicit ownership for recording_match.rs, recording_identity.rs,
+matching.rs, playback_match.rs, playback_sources.rs, acquisition.rs, and storage.rs
+before overlapping agent edits. Keep this plan and the todo item current.
+
+Reference locations (repository relative)
+-----------------------------------------
+src-tauri/src/recording_identity.rs
+src-tauri/src/recording_match.rs
+src-tauri/src/recording_match_context.rs
+src-tauri/src/recording_match_aliases.rs
+src-tauri/src/matching.rs
+src-tauri/src/playback_match.rs
+src-tauri/src/playback_sources.rs
+src-tauri/src/acquisition.rs
+src-tauri/src/monochrome.rs
+src-tauri/src/artist_credit_aliases.rs
+src-tauri/src/artist_alias_lookup.rs
+src-tauri/src/playback.rs (prepare_next)
+src-tauri/src/storage.rs (cached_musicbrainz_artist_profiles_for_name)
+src-tauri/tests/fixtures/recording-match-corpus.json
+docs/performance-results/2026-10-21-v015-mac-report/parsing-matrix.md
+docs/performance-results/2026-10-20-shared-matching/README.md
+docs/performance-results/2026-10-20-shared-matching/transport-candidate-direct-trace.json
+.cache/playback-v015-mac-20261021/vibe-post-caption-phases.json (local artifact)
+
+Temporary audit reproducer: /tmp/burrata-matching-audit/main.rs
+Temporary audit outputs: /tmp/burrata-matching-audit/results.txt and tests.txt
+These temporary files may disappear. Retain the cases as repository regressions;
+the plan's reproduction descriptions and production source are the durable basis.
+
+Implementation coordination — 2026-10-21
+---------------------------------------
+Current-tree stage-1 audit reproduces unknown bracket cleanup, conflicting
+version observations, Unicode slicing panic, empty normalized title agreement,
+nested identifier omission, and non-cumulative Balanced/Flexible eligibility.
+Historical green tests do not qualify these newly reproduced defects.
+
+Ownership: evaluator/parsed identity — alias_discovery_impl; matching adapters,
+provider eligibility/ranking — search_source_combinations; raw query cache and
+completeness — download_flow_audit; operation alias memoization — album_links_ui;
+corpus and measurement harness — playlist_export_names. Root owns live seek
+investigation and Cargo coordination; radio_stream_edit assists transport work.
+No agent runs Cargo concurrently or edits another owner's files without agreement.
+
+The pre-plan relay/backfill source passed 1,535 native tests (37 ignored).
+The frontend including local search history passed 1,155 tests across 93 files.
+These counts predate the plan's new stage-1 semantic changes. Current qualification
+runtime ae56b847709e03645f5659a82976184330e66144958a949026c41d82118601b1
+is frozen for live seek diagnosis while the staged matching work proceeds.
+
+Actual MusicBrainz profile-cache scale is 25 rows (8 unexpired) in the normal
+profile; public-name read-only median queries were below 1 ms. No new storage
+index is justified by that installation. Operation-scoped memoization is being
+implemented; synthetic larger-cache timings remain separate from production data.
+
+Broader lossless resolver follow-up — 2026-10-21
+----------------------------------------------
+See docs/monochrome-broader-resolver-plan.txt for the Alvafro investigation,
+upstream metadata-resolver access contract, authorization/transport integration,
+quality-aware scheduling proposal and required live acceptance evidence.
+This is a coverage/access issue in addition to matching correctness. The live
+website response remains unverified; do not mark this resolved from parser fixes.

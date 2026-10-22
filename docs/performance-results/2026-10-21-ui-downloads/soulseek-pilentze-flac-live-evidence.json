@@ -1,0 +1,89 @@
+{
+  "qualification": "single real Soulseek FLAC download",
+  "recordedAt": "2026-10-21 America/Denver",
+  "application": {
+    "binary": ".cache/qualification-mb-codes-soulseek-20261021/bin/burrata",
+    "sha256": "5eb5b9c55fb36af11f5ca24c6b1bb70b272a4218463ea2d99cceff2fb31e57ce"
+  },
+  "requestedTrack": {
+    "id": "spotify:1npXx6gwd9ZLUPHmjUo5cR",
+    "artist": "Bulgarian State Television Female Choir",
+    "title": "Pilentze Pee",
+    "album": "Le Mystere Des Voix Bulgares",
+    "durationSeconds": 141.506,
+    "isrc": "USNO18716501"
+  },
+  "search": {
+    "provider": "slskd",
+    "query": "Bulgarian State Television Female Choir Pilentze Pee",
+    "state": "Completed, TimedOut",
+    "complete": true,
+    "candidateCount": 80
+  },
+  "selectedCandidate": {
+    "id": "slskd:93444693d5000a56933690486ce15a8a39c3f46d556e01297a7c6b161b43b48f",
+    "rawTitle": "01 Pilentze Pee",
+    "normalizedFilenameTitle": "Pilentze Pee",
+    "durationSeconds": 141,
+    "durationDeltaSeconds": -0.506,
+    "sharedAssessment": {
+      "action": "accept",
+      "relationship": "probable",
+      "proofStrength": "metadataOnly",
+      "title": "agree",
+      "artists": "agree",
+      "runtime": "agree",
+      "version": "unknown",
+      "isrc": "unknown",
+      "filenameEvidence": "uploaderCaptionOnly"
+    },
+    "format": {
+      "id": "flac",
+      "codec": "flac",
+      "lossless": true,
+      "advertisedSizeBytes": 14415662,
+      "advertisedSampleRate": null,
+      "advertisedBitDepth": null
+    }
+  },
+  "download": {
+    "jobId": "e78f608e-6f56-4b96-a7a7-ad8a2ad433a2",
+    "idempotencyKey": "pilentze-soulseek-flac-qualification-2026-10-21-01",
+    "state": "completed",
+    "progress": 100,
+    "provider": "slskd",
+    "formatId": "flac",
+    "outputProfile": "source",
+    "disposition": "keep",
+    "attempts": 1,
+    "bytesReceived": 14415662,
+    "outputRegisteredAsSeparateAsset": true,
+    "newAssetId": "fa466bb7-f8bf-47c6-9daa-f4735341361e",
+    "startedAtUtc": "2026-10-22T01:52:48.146858621Z",
+    "completedAtUtc": "2026-10-22T01:52:54.214642429Z"
+  },
+  "physicalFile": {
+    "codec": "flac",
+    "sampleRate": 44100,
+    "channels": 2,
+    "bitsPerSample": 16,
+    "durationSeconds": 141.506667,
+    "sizeBytes": 14406197,
+    "tags": {
+      "artist": "match",
+      "title": "match",
+      "album": "match",
+      "isrc": "match"
+    },
+    "albumArtistDateGenreLabel": "no saved library values to compare",
+    "sourceMetadataSnapshotRecorded": false
+  },
+  "decodedPcmComparison": {
+    "reference": "pre-existing local copy of the same saved recording",
+    "equal": true,
+    "sampleRate": 44100,
+    "channels": 2,
+    "sha256": "f7d72784d98f320f7c87eddf77a32abe663a3e95aaba91a18e4d1dd912d5b5d6"
+  },
+  "privacy": "Peer names, remote paths, URLs, and local filesystem paths are omitted."
+}

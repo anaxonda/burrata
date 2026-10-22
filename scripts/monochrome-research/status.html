@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monochrome research status</title>
+<style>
+  body { box-sizing: border-box; width: 300px; margin: 0; padding: 16px; color: #222; font: 14px/1.45 system-ui, sans-serif; }
+  h1 { margin: 0 0 12px; font-size: 16px; }
+  dl { display: grid; grid-template-columns: 64px 1fr; gap: 6px 10px; margin: 0; }
+  dt { color: #666; }
+  dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+  #empty { color: #666; }
+  #grant { margin-top: 12px; padding: 7px 10px; }
+  #hint { margin: 10px 0 0; color: #666; }
+</style>
+<h1>Monochrome research</h1>
+<p id="empty" hidden>Waiting for status…</p>
+<dl id="status" hidden>
+  <dt>Stage</dt><dd id="stage"></dd>
+  <dt>Code</dt><dd id="code"></dd>
+</dl>
+<button id="grant" type="button" hidden>Allow Monochrome access</button>
+<p id="hint" hidden></p>
+<script src="status.js"></script>
+</html>
