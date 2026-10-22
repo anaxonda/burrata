@@ -1,6 +1,6 @@
 TRACK MATCHING: ACCURACY, ROBUSTNESS, AND SPEED PLAN
 Date: 2026-10-21
-Status: Implementation in progress; qualification remains open.
+Status: Implementation and bounded qualification passed; final release CI/publication pending.
 
 Objective
 ---------
@@ -364,3 +364,41 @@ upstream metadata-resolver access contract, authorization/transport integration,
 quality-aware scheduling proposal and required live acceptance evidence.
 This is a coverage/access issue in addition to matching correctness. The live
 website response remains unverified; do not mark this resolved from parser fixes.
+
+Final bounded qualification — 2026-10-22
+----------------------------------------
+Root reviewed the current shared evaluator, native provider/search and download
+batch paths, ranking competition and fresh/restored cache regressions. Legacy
+numeric score is a ranking input, not an authoritative playback/batch gate.
+The radio-seed/default-preview UI still has a plausibility recommendation
+heuristic; it does not filter displayed download candidates or govern the shared
+playback/download recording decision.
+
+The final Linux native suite passes 1,693 tests (37 ignored); frontend passes
+1,182 tests, type checking and production build. The standalone policy matrix
+passes 84 cells and three metamorphic checks. Source-backed metadata sets pass
+12 older and 30 newer stage/mode cells, with their synthetic probes separate.
+The initial newer set's two radio-edit policy-expectation errors are preserved;
+only policy expectations were corrected, not the catalog truth labels. See
+performance-results/2026-10-22-stage5-matching-final/ and its grouped selected-
+corpus outcomes. These small, correlated metadata comparisons are not population
+precision/recall or acoustic source-binding evidence.
+
+The final frozen diagnostic (SHA-256 8836c551b620a7ba4ba7b487f48d23ca93436758c748ffe543da310a02dcfc36)
+completed 20 cold and 20 warm shared-process two-entry batches, all passing,
+with stable source identities. Separate mode smoke retains Exact's four
+SOURCE_UNAVAILABLE outcomes; Balanced and Flexible each pass all four entries.
+The report separates resolver/first-PCM times, synchronous preparation/comparison
+wall and Linux thread CPU, alias/search/extraction/access phases, cache paths,
+process/child CPU and lifetime RSS. Request-work metrics are enumerated Rust
+send attempts and yt-dlp starts; opaque subprocess/automatic redirect HTTP
+traffic is not a measured physical-request total. This coverage limit is retained
+explicitly rather than replacing an unknown count with zero. See
+performance-results/2026-10-22-stage5-crossmode/shared-batch-balanced-final-cpu.md.
+
+The captures establish bounded regression/retrieval behavior and cold/warm
+measurements for the selected fixtures and configuration, not universal source
+coverage, calibrated scores, all-network request totals or production p95.
+Source digests bind the dirty build to its final production inputs; exact-commit
+cross-platform release checks and publication remain the final distribution gates.
+The broader lossless integration remains user-paused and excluded from release.

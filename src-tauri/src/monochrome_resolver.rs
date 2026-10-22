@@ -484,6 +484,7 @@ impl ResolverClient {
         {
             builder = builder.header("X-Turnstile-JWT", jwt);
         }
+        crate::diagnostic_metrics::record_http_send_attempt();
         let mut response = builder
             .send()
             .await

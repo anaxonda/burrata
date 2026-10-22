@@ -185,3 +185,34 @@ does not infer a speedup or accuracy improvement.
 5. Publish remaining blind spots and failed cases with the results. Neither the
    old 18 examples nor this 14-case contract matrix is a representative accuracy
    sample.
+
+## Expanded source-backed catalog set, v3
+
+The separate [`v3 catalog fixture`](fixtures/recording-match-stage5-heldout-catalog-v3.json)
+adds five primary-source-supported metadata cases and one synthetic missing-
+duration policy mutation. It covers same-title/different-artist identity,
+credited guests, an explicit live performance, a radio edit, a scoped artist
+spelling alias, and a shared identifier with missing duration. Every carrier is
+synthetic; this expands evaluator regression coverage but does not measure
+provider retrieval, audio identity, or population precision/recall. See
+[`v3 provenance and label notes`](track-matching-stage5-catalog-v3.md).
+
+The first v3 evaluator run is retained at
+[`v3-initial-evaluator-output.log`](performance-results/2026-10-22-stage5-heldout-v3/v3-initial-evaluator-output.log).
+It evaluated 30 held-out cells and differed in two Flexible cells for the U2
+radio edit. The fixture generator had generalized “identified alternative” to
+all Flexible alternatives, while the plan's current eligibility rule names only
+live, remix, and cover alternatives. This was a policy-label overgeneralization,
+not an audio-identity finding. The source metadata continues to identify a
+different catalog recording. No v3 label or result was overwritten.
+
+The [`v4 catalog fixture`](fixtures/recording-match-stage5-heldout-catalog-v4.json)
+keeps the same source metadata and ground-truth label: the U2 radio edit is a
+distinct catalog edit/alternative recording. Its separate
+`flexiblePolicyEligible=false` policy field records that the current written
+policy does not admit radio edits, so expected actions remain
+`Unresolved/Reject` at all levels. Expectations were corrected after observing
+v3's two differences; v4 is a policy-corrected rerun, not a first-pass held-out
+result. It still uses synthetic carriers and does not verify audio identity or
+estimate population accuracy. The v3 fixture and its initial output remain
+unchanged.

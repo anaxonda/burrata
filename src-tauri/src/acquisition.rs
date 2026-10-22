@@ -1008,6 +1008,26 @@ fn is_preserved_source(asset: &LocalAsset, candidate: &Candidate) -> bool {
         && same_source
 }
 
+/// Prefer an exact-source asset already attached to the requested catalog
+/// recording. Only fall back to a source-bound asset on another recording;
+/// that path remains subject to the stricter identifier-based reuse check.
+fn select_preserved_source_asset(
+    mut assets: Vec<LocalAsset>,
+    requested_recording_id: &str,
+    candidate: &Candidate,
+) -> Option<LocalAsset> {
+    let same_recording = assets.iter().position(|asset| {
+        asset.recording_id == requested_recording_id && is_preserved_source(asset, candidate)
+    });
+    same_recording
+        .map(|index| assets.remove(index))
+        .or_else(|| {
+            assets
+                .into_iter()
+                .find(|asset| is_preserved_source(asset, candidate))
+        })
+}
+
 /// A previously acquired source can seed a distinct managed copy only when
 /// its stored locator is still exactly the selected locator and current shared
 /// recording evidence binds that source to the requested catalog track.
@@ -1442,7 +1462,10 @@ async fn run_tool_until<F: FnMut(&str)>(
     let spawn_result = command.spawn();
     #[cfg(unix)]
     let mut child = match spawn_result {
-        Ok(child) => child,
+        Ok(child) => {
+            crate::diagnostic_metrics::record_yt_dlp_successful_spawn();
+            child
+        }
         Err(error) if error.raw_os_error() == Some(libc::ETXTBSY) => {
             let retry_at = (tokio::time::Instant::now() + Duration::from_millis(10)).min(deadline);
             wait_for_tool_spawn_retry(&mut cancel, retry_at).await?;
@@ -1452,14 +1475,20 @@ async fn run_tool_until<F: FnMut(&str)>(
             if *cancel.borrow() {
                 return Err("Cancelled".into());
             }
-            command
+            let child = command
                 .spawn()
-                .map_err(|error| format!("Could not start yt-dlp: {error}"))?
+                .map_err(|error| format!("Could not start yt-dlp: {error}"))?;
+            crate::diagnostic_metrics::record_yt_dlp_successful_spawn();
+            child
         }
         Err(error) => return Err(format!("Could not start yt-dlp: {error}")),
     };
     #[cfg(not(unix))]
-    let mut child = spawn_result.map_err(|error| format!("Could not start yt-dlp: {error}"))?;
+    let mut child = {
+        let child = spawn_result.map_err(|error| format!("Could not start yt-dlp: {error}"))?;
+        crate::diagnostic_metrics::record_yt_dlp_successful_spawn();
+        child
+    };
 
     let mut child = ToolProcess {
         child: Some(child),
@@ -4994,7 +5023,10 @@ async fn send_preview_range(
             );
         }
         let (response_result, error_class) = tokio::select! {
-            response = request.send() => match response {
+            response = async {
+                crate::diagnostic_metrics::record_http_send_attempt();
+                request.send().await
+            } => match response {
                 Ok(response) => (Ok(response), None),
                 Err(error) => (Err("Audio stream access check failed".to_owned()), Some(preview_probe_error_class(&error))),
             },
@@ -8066,18 +8098,22 @@ impl AcquisitionManager {
             &mut rx,
         )
         .await?;
-        if let Some(existing) = self
+        let requested_recording_id = self.inner.store.recording_id(&job.track.id)?;
+        let preserved_assets = self
             .inner
             .store
             .list_assets()?
             .into_iter()
-            .find(|a| Path::new(&a.path).is_file() && is_preserved_source(a, &job.candidate))
+            .filter(|asset| Path::new(&asset.path).is_file())
+            .collect();
+        if let Some(existing) =
+            select_preserved_source_asset(preserved_assets, &requested_recording_id, &job.candidate)
         {
             admission
                 .begin_processing(&self.inner.slots, &mut rx)
                 .await?;
             media::verify_asset(&existing).await?;
-            if existing.recording_id != self.inner.store.recording_id(&job.track.id)? {
+            if existing.recording_id != requested_recording_id {
                 if !matches!(job.disposition, crate::models::ReplacementDisposition::Keep) {
                     return Err(
                         "This source is already saved for another catalog entry; choose Keep to create a separate verified copy".into(),
@@ -13834,6 +13870,49 @@ mod tests {
             crate::recording_match::MatchLevel::Balanced,
         )
         .expect("the same verified recording source can be copied to the requested listing");
+
+        let mut same_recording = existing.clone();
+        same_recording.id = "same-recording-asset".into();
+        same_recording.recording_id = requested.id.clone();
+        same_recording.track.id = requested.id.clone();
+        same_recording.track.provider = requested.provider.clone();
+        same_recording.track.provider_id = requested.provider_id.clone();
+        let selected = select_preserved_source_asset(
+            vec![existing.clone(), same_recording.clone()],
+            &requested.id,
+            &candidate,
+        )
+        .expect("an exact-source asset is available");
+        assert_eq!(selected.id, same_recording.id);
+
+        let other_catalog_only =
+            select_preserved_source_asset(vec![existing.clone()], &requested.id, &candidate)
+                .expect("cross-catalog source remains discoverable as a fallback");
+        assert_eq!(other_catalog_only.id, existing.id);
+        let mut missing_identifier = requested.clone();
+        missing_identifier.id = "musicbrainz:release-track-without-isrc".into();
+        missing_identifier.provider_id = "release-track-without-isrc".into();
+        missing_identifier.isrc = None;
+        missing_identifier.provenance = serde_json::json!({});
+        let missing_identifier_directory = tempfile::tempdir().unwrap();
+        let missing_identifier_store = Store::open(
+            &missing_identifier_directory
+                .path()
+                .join("missing-isrc.sqlite"),
+        )
+        .unwrap();
+        missing_identifier_store
+            .save_track(&missing_identifier)
+            .unwrap();
+        assert!(preserved_source_reuse_assessment(
+            &missing_identifier_store,
+            &missing_identifier,
+            &other_catalog_only,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+        )
+        .is_none());
+
         let artifact =
             preserved_source_reuse_track(&requested, &existing, &candidate, &assessment, None)
                 .unwrap();

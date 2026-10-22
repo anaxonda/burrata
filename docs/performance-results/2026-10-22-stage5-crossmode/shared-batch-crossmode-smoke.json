@@ -1,0 +1,2368 @@
+{
+  "schema": "burrata.matching-performance-cohort/v1",
+  "qualification": false,
+  "frozen": {
+    "binarySha256": "8af63b4f1ccdc919826735f3fc3eec3f6eb21e487ea91a5336d7e412e057fc0b",
+    "manifestSha256": "de0cadff3f0c61eeca172c086a4127c184932b028405eb15fb0141b61952a95c",
+    "sourceRevision": "129a25bd087ec2bc89cf6129e5d24aaa8f014fe3",
+    "repetitions": 1,
+    "warmups": 0,
+    "levels": [
+      "exact",
+      "balanced",
+      "flexible"
+    ],
+    "providerPolicy": "public settings fixture only; same fixture policy across modes",
+    "startedAtUtc": "2026-10-22T10:57:00.936294+00:00"
+  },
+  "cases": [
+    {
+      "caseId": "bacc-vibe-shared-batch",
+      "trackSha256": "6703178b0ec43f2e6f6c021e4f1ee6868516302186f2c71fa98487e0d658afdd",
+      "trackSha256s": [
+        "6703178b0ec43f2e6f6c021e4f1ee6868516302186f2c71fa98487e0d658afdd",
+        "99604787c9f87835f25a543fe4bf71d2e0402770c771bd27b4b42aece7c3a1e4"
+      ],
+      "batchEntryCount": 2,
+      "settingsSha256": "b600b7115802cd2fcfa8f9df1d8f32729d0c209ad9b8ad335e88d3bb72d1d41d",
+      "modes": {
+        "exact": {
+          "runPassed": false,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "cold-0",
+              "batchEntryIndex": 0,
+              "batchEntryCount": 2,
+              "ok": false,
+              "failure": "TIMEOUT",
+              "resolveMs": 20002.361377,
+              "wallMs": 20002.384939,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 802.225,
+              "reapedChildCpuMs": 7342.823,
+              "providerId": null,
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 9,
+                "successfulYtDlpSpawns": 3,
+                "matchPrepareElapsedMs": 135.491285,
+                "matchAssessElapsedMs": 0.783832
+              },
+              "trace": {
+                "matchedEventCount": 42,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "bandcamp_fallback_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 2,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 2,
+                  "extraction_end": 2,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 4,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    867.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    11.723697,
+                    10.954273,
+                    3.11146
+                  ],
+                  "canonical_search_warmup_end": [
+                    2014.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    1206.0
+                  ],
+                  "extraction_end": [
+                    5451.0,
+                    7020.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 42,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "cold-0",
+              "batchEntryIndex": 1,
+              "batchEntryCount": 2,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 13104.175787,
+              "wallMs": 13104.188706,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 466.67499999999995,
+              "reapedChildCpuMs": 8661.163999999999,
+              "providerId": null,
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 7,
+                "successfulYtDlpSpawns": 3,
+                "matchPrepareElapsedMs": 70.927232,
+                "matchAssessElapsedMs": 0.448031
+              },
+              "trace": {
+                "matchedEventCount": 51,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "canonical_search_warmup_end": 1,
+                  "search_end": 3,
+                  "candidate_gate_evidence": 3,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 3,
+                  "extract_and_validate_start": 3,
+                  "preview_audio_lookup_start": 3,
+                  "extraction_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 2,
+                  "preview_audio_lookup_end": 3,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 6,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    127.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    9.690262,
+                    5.0932,
+                    3.035807
+                  ],
+                  "canonical_search_warmup_end": [
+                    858.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    1248.0
+                  ],
+                  "extraction_end": [
+                    4372.0,
+                    5224.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 51,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "warm-0",
+              "batchEntryIndex": 0,
+              "batchEntryCount": 2,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 5423.39153,
+              "wallMs": 5423.403474,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 261.16599999999994,
+              "reapedChildCpuMs": 3448.073000000002,
+              "providerId": null,
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 2,
+                "successfulYtDlpSpawns": 2,
+                "matchPrepareElapsedMs": 146.166178,
+                "matchAssessElapsedMs": 0.850453
+              },
+              "trace": {
+                "matchedEventCount": 46,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "candidate_gate_evidence": 3,
+                  "candidate_gate_evidence_rows": 4,
+                  "candidate_gate": 3,
+                  "extract_and_validate_start": 3,
+                  "preview_audio_lookup_start": 3,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 6,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    2.85382,
+                    2.4821639999999996,
+                    2.759882
+                  ],
+                  "bandcamp_fallback_end": [
+                    373.0
+                  ],
+                  "extraction_end": [
+                    2101.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": null,
+                "nativeEventCount": 46,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "warm-0",
+              "batchEntryIndex": 1,
+              "batchEntryCount": 2,
+              "ok": false,
+              "failure": "SOURCE_UNAVAILABLE",
+              "resolveMs": 2439.983798,
+              "wallMs": 2439.995954,
+              "firstPcmFromRequestMs": null,
+              "helperCpuMs": 148.9749999999999,
+              "reapedChildCpuMs": 1752.464,
+              "providerId": null,
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 2,
+                "successfulYtDlpSpawns": 1,
+                "matchPrepareElapsedMs": 64.685657,
+                "matchAssessElapsedMs": 0.413235
+              },
+              "trace": {
+                "matchedEventCount": 45,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 3,
+                  "provider_start": 3,
+                  "search_start": 3,
+                  "search_end": 3,
+                  "candidate_gate_evidence": 3,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 3,
+                  "extract_and_validate_start": 3,
+                  "preview_audio_lookup_start": 3,
+                  "full_identity_check": 2,
+                  "extract_and_validate_end": 6,
+                  "extraction_start": 1,
+                  "bandcamp_fallback_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "bandcamp_fallback_end": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.407102,
+                    2.9477420000000003,
+                    3.419903
+                  ],
+                  "extraction_end": [
+                    2276.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    797.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": null,
+                "nativeEventCount": 45,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 2,
+              "successes": 0,
+              "failures": 2,
+              "timingScope": "pooled track-entry resolve times; use perBatchEntry for track-specific latency",
+              "resolveMsP50": 13104.175787,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 2,
+              "successes": 0,
+              "failures": 2,
+              "timingScope": "pooled track-entry resolve times; use perBatchEntry for track-specific latency",
+              "resolveMsP50": 2439.983798,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "perBatchEntry": {
+            "0": {
+              "cold": {
+                "attempts": 1,
+                "successes": 0,
+                "failures": 1,
+                "resolveMsP50": 20002.361377,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 0,
+                  "p50": null,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 802.225,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 7342.823,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              },
+              "warm": {
+                "attempts": 1,
+                "successes": 0,
+                "failures": 1,
+                "resolveMsP50": 5423.39153,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 0,
+                  "p50": null,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 261.16599999999994,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 3448.073000000002,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              }
+            },
+            "1": {
+              "cold": {
+                "attempts": 1,
+                "successes": 0,
+                "failures": 1,
+                "resolveMsP50": 13104.175787,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 0,
+                  "p50": null,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 466.67499999999995,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 8661.163999999999,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              },
+              "warm": {
+                "attempts": 1,
+                "successes": 0,
+                "failures": 1,
+                "resolveMsP50": 2439.983798,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 0,
+                  "p50": null,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 148.9749999999999,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 1752.464,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              }
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairEntries": [],
+          "providerShutdownOk": true,
+          "batchSummary": {
+            "cold": {
+              "batches": 1,
+              "successes": 0,
+              "failures": 1,
+              "failureEntryCount": 2,
+              "wallMs": {
+                "n": 1,
+                "p50": 33111.935903000005,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "helperCpuMs": {
+                "n": 1,
+                "p50": 1275.413,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "reapedChildCpuMs": {
+                "n": 1,
+                "p50": 16003.987,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "lifetimeMaxRssObservations": [
+                {
+                  "helperMaxRssBytes": 80457728,
+                  "reapedChildMaxRssBytes": 357363712
+                }
+              ],
+              "instrumentedMetricTotals": {
+                "rustHttpSendAttempts": 16,
+                "successfulYtDlpSpawns": 6,
+                "matchPrepareElapsedMs": 206.418517,
+                "matchAssessElapsedMs": 1.231863
+              },
+              "instrumentedMetricDistributions": {
+                "rustHttpSendAttempts": {
+                  "n": 1,
+                  "p50": 16,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "successfulYtDlpSpawns": {
+                  "n": 1,
+                  "p50": 6,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchPrepareElapsedMs": {
+                  "n": 1,
+                  "p50": 206.418517,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchAssessElapsedMs": {
+                  "n": 1,
+                  "p50": 1.231863,
+                  "p95": null,
+                  "p95SampleCount": 0
+                }
+              },
+              "resourceScope": "RSS values are process lifetime high-water observations; not per-batch memory usage"
+            },
+            "warm": {
+              "batches": 1,
+              "successes": 0,
+              "failures": 1,
+              "failureEntryCount": 2,
+              "wallMs": {
+                "n": 1,
+                "p50": 7868.08512,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "helperCpuMs": {
+                "n": 1,
+                "p50": 414.799,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "reapedChildCpuMs": {
+                "n": 1,
+                "p50": 5200.537000000002,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "lifetimeMaxRssObservations": [
+                {
+                  "helperMaxRssBytes": 80457728,
+                  "reapedChildMaxRssBytes": 357363712
+                }
+              ],
+              "instrumentedMetricTotals": {
+                "rustHttpSendAttempts": 4,
+                "successfulYtDlpSpawns": 3,
+                "matchPrepareElapsedMs": 210.851835,
+                "matchAssessElapsedMs": 1.263688
+              },
+              "instrumentedMetricDistributions": {
+                "rustHttpSendAttempts": {
+                  "n": 1,
+                  "p50": 4,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "successfulYtDlpSpawns": {
+                  "n": 1,
+                  "p50": 3,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchPrepareElapsedMs": {
+                  "n": 1,
+                  "p50": 210.851835,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchAssessElapsedMs": {
+                  "n": 1,
+                  "p50": 1.263688,
+                  "p95": null,
+                  "p95SampleCount": 0
+                }
+              },
+              "resourceScope": "RSS values are process lifetime high-water observations; not per-batch memory usage"
+            }
+          },
+          "instrumentedMetricNote": "Instrumented Rust send-attempt counters cover only listed native send sites; they do not count redirect hops or yt-dlp internal HTTP and are not physical HTTP request totals. yt-dlp values count successful child starts. Match preparation/assessment are synchronous elapsed-time sums, not CPU time; site coverage is frozen in the diagnostic report.",
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 2,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 2,
+                "settings_read_start": 2,
+                "settings_read_end": 2,
+                "catalog_alias_preparation_end": 2,
+                "alias_cache_lookup_end": 6,
+                "provider_start": 6,
+                "search_start": 6,
+                "bandcamp_fallback_start": 2,
+                "canonical_search_warmup_end": 2,
+                "bandcamp_fallback_end": 2,
+                "search_end": 5,
+                "candidate_gate_evidence": 5,
+                "candidate_gate_evidence_rows": 6,
+                "candidate_gate": 5,
+                "extract_and_validate_start": 5,
+                "preview_audio_lookup_start": 5,
+                "extraction_start": 4,
+                "extraction_end": 4,
+                "preview_audio_lookup_end": 5,
+                "full_identity_check": 4,
+                "extract_and_validate_end": 10,
+                "resolution_end": 2,
+                "alias_lookup_skipped": 1
+              },
+              "logicalExtractionStartEvents": 4,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 6,
+                  "p50": 5.0932,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 2,
+                  "p50": 1206.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 2,
+                  "p50": 858.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 2,
+                  "p50": 127.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 4,
+                  "p50": 5224.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 2,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 2,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 2,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 2,
+                "settings_read_start": 2,
+                "settings_read_end": 2,
+                "alias_cache_lookup_end": 6,
+                "provider_start": 6,
+                "search_start": 6,
+                "search_end": 6,
+                "candidate_gate_evidence": 6,
+                "candidate_gate_evidence_rows": 7,
+                "candidate_gate": 6,
+                "extract_and_validate_start": 6,
+                "preview_audio_lookup_start": 6,
+                "full_identity_check": 4,
+                "extract_and_validate_end": 12,
+                "bandcamp_fallback_start": 2,
+                "bandcamp_fallback_end": 2,
+                "extraction_start": 2,
+                "extraction_end": 2,
+                "preview_audio_lookup_end": 2,
+                "alias_lookup_skipped": 2,
+                "resolution_end": 2
+              },
+              "logicalExtractionStartEvents": 2,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 6,
+                  "p50": 2.85382,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 2,
+                  "p50": 373.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 2,
+                  "p50": 2101.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 2,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 0,
+                "sum": null,
+                "p50": null,
+                "p95": null,
+                "max": null
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 184,
+            "directNativeEvents": 184,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "exact",
+          "batches": [
+            {
+              "batchId": "cold-0",
+              "entryCount": 2,
+              "failureCount": 2,
+              "helperCpuMs": 1275.413,
+              "helperMaxRssBytes": 80457728,
+              "instrumentedMetrics": {
+                "matchAssessElapsedMs": 1.231863,
+                "matchPrepareElapsedMs": 206.418517,
+                "rustHttpSendAttempts": 16,
+                "scope": "process-window delta for serial batch; counters cover only enumerated sites and are not physical HTTP request totals",
+                "successfulYtDlpSpawns": 6
+              },
+              "pairIndex": 0,
+              "reapedChildCpuMs": 16003.987,
+              "reapedChildMaxRssBytes": 357363712,
+              "resourceScope": "batch cumulative CPU deltas; maxRSS is process lifetime high-water observed at batch end, not per-entry or additive",
+              "scenario": "cold",
+              "successCount": 0,
+              "wallMs": 33111.935903000005,
+              "warmup": false
+            },
+            {
+              "batchId": "warm-0",
+              "entryCount": 2,
+              "failureCount": 2,
+              "helperCpuMs": 414.799,
+              "helperMaxRssBytes": 80457728,
+              "instrumentedMetrics": {
+                "matchAssessElapsedMs": 1.263688,
+                "matchPrepareElapsedMs": 210.851835,
+                "rustHttpSendAttempts": 4,
+                "scope": "process-window delta for serial batch; counters cover only enumerated sites and are not physical HTTP request totals",
+                "successfulYtDlpSpawns": 3
+              },
+              "pairIndex": 0,
+              "reapedChildCpuMs": 5200.537000000002,
+              "reapedChildMaxRssBytes": 357363712,
+              "resourceScope": "batch cumulative CPU deltas; maxRSS is process lifetime high-water observed at batch end, not per-entry or additive",
+              "scenario": "warm",
+              "successCount": 0,
+              "wallMs": 7868.08512,
+              "warmup": false
+            }
+          ],
+          "instrumentedMetricsCoverage": {
+            "httpSendAttempts": {
+              "excludes": [
+                "automatic reqwest redirect hops",
+                "yt-dlp internal requests, retries, and redirects",
+                "uninstrumented modules"
+              ],
+              "instrumentedModules": [
+                "acquisition",
+                "artist_alias_discovery",
+                "artists",
+                "bandcamp",
+                "bandcamp_fallback",
+                "monochrome",
+                "monochrome_resolver",
+                "youtube_direct_experiment",
+                "youtube_music",
+                "youtube_web_search",
+                "remote_playlists"
+              ],
+              "meaning": "instrumented Rust reqwest send invocations"
+            },
+            "matchingElapsed": {
+              "meaning": "synchronous wall-clock elapsed in prepare and assess_prepared",
+              "notCpuTime": true,
+              "unit": "nanoseconds"
+            },
+            "physicalOutboundRequestCount": null,
+            "scope": "process_window",
+            "scopeNote": "Any overlapping instrumented work in this process is included; windows are not exclusive operation attribution",
+            "ytDlpSuccessfulSpawns": {
+              "excludes": [
+                "HTTP requests made inside yt-dlp",
+                "other subprocess types"
+              ],
+              "meaning": "successful child process starts from acquisition run_tool_until"
+            }
+          },
+          "diagnosticSourceSha256": "1dbf667bba9c4d2f73e35d652d80ba6dc8a67e0291c16c1e8a66b30853b457f4",
+          "providerPolicy": {
+            "matchingLevel": "exact",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          },
+          "processExitCode": 1,
+          "failure": null
+        },
+        "balanced": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "cold-0",
+              "batchEntryIndex": 0,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 10695.477645,
+              "wallMs": 11025.095624,
+              "firstPcmFromRequestMs": 10934.076896,
+              "helperCpuMs": 670.163,
+              "reapedChildCpuMs": 3748.749,
+              "providerId": "youtube:rpCswezRrLs",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 13,
+                "successfulYtDlpSpawns": 1,
+                "matchPrepareElapsedMs": 138.923423,
+                "matchAssessElapsedMs": 0.854046
+              },
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    910.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    11.066491,
+                    11.725693
+                  ],
+                  "canonical_search_warmup_end": [
+                    1874.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    456.0
+                  ],
+                  "extraction_end": [
+                    6337.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "cold-0",
+              "batchEntryIndex": 1,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 7862.715468,
+              "wallMs": 8323.417639000001,
+              "firstPcmFromRequestMs": 8246.778216,
+              "helperCpuMs": 331.19999999999993,
+              "reapedChildCpuMs": 3945.6499999999996,
+              "providerId": "youtube:ExdT24gJngk",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 9,
+                "successfulYtDlpSpawns": 1,
+                "matchPrepareElapsedMs": 41.295927,
+                "matchAssessElapsedMs": 0.314976
+              },
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    146.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    13.230959,
+                    10.880766
+                  ],
+                  "canonical_search_warmup_end": [
+                    842.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    304.0
+                  ],
+                  "extraction_end": [
+                    4773.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "warm-0",
+              "batchEntryIndex": 0,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 1519.861143,
+              "wallMs": 1985.750116,
+              "firstPcmFromRequestMs": 1904.321147,
+              "helperCpuMs": 170.81899999999996,
+              "reapedChildCpuMs": 109.46600000000035,
+              "providerId": "youtube:rpCswezRrLs",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 4,
+                "successfulYtDlpSpawns": 0,
+                "matchPrepareElapsedMs": 33.208257,
+                "matchAssessElapsedMs": 0.212727
+              },
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    4.082086,
+                    2.736486
+                  ],
+                  "mapped_direct_youtube_end": [
+                    1442.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "warm-0",
+              "batchEntryIndex": 1,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 1494.508186,
+              "wallMs": 1834.031321,
+              "firstPcmFromRequestMs": 1798.852501,
+              "helperCpuMs": 130.5229999999999,
+              "reapedChildCpuMs": 60.322000000000116,
+              "providerId": "youtube:ExdT24gJngk",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 4,
+                "successfulYtDlpSpawns": 0,
+                "matchPrepareElapsedMs": 16.192505,
+                "matchAssessElapsedMs": 0.151367
+              },
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    6.450146999999999,
+                    2.82709
+                  ],
+                  "mapped_direct_youtube_end": [
+                    1437.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 2,
+              "successes": 2,
+              "failures": 0,
+              "timingScope": "pooled track-entry resolve times; use perBatchEntry for track-specific latency",
+              "resolveMsP50": 7862.715468,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 2,
+              "successes": 2,
+              "failures": 0,
+              "timingScope": "pooled track-entry resolve times; use perBatchEntry for track-specific latency",
+              "resolveMsP50": 1494.508186,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "perBatchEntry": {
+            "0": {
+              "cold": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 10695.477645,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 10934.076896,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 670.163,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 3748.749,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              },
+              "warm": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 1519.861143,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 1904.321147,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 170.81899999999996,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 109.46600000000035,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              }
+            },
+            "1": {
+              "cold": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 7862.715468,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 8246.778216,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 331.19999999999993,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 3945.6499999999996,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              },
+              "warm": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 1494.508186,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 1798.852501,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 130.5229999999999,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 60.322000000000116,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              }
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairEntries": [],
+          "providerShutdownOk": true,
+          "batchSummary": {
+            "cold": {
+              "batches": 1,
+              "successes": 1,
+              "failures": 0,
+              "failureEntryCount": 0,
+              "wallMs": {
+                "n": 1,
+                "p50": 19359.430178,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "helperCpuMs": {
+                "n": 1,
+                "p50": 1011.9610000000001,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "reapedChildCpuMs": {
+                "n": 1,
+                "p50": 7694.398999999999,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "lifetimeMaxRssObservations": [
+                {
+                  "helperMaxRssBytes": 80633856,
+                  "reapedChildMaxRssBytes": 358367232
+                }
+              ],
+              "instrumentedMetricTotals": {
+                "rustHttpSendAttempts": 22,
+                "successfulYtDlpSpawns": 2,
+                "matchPrepareElapsedMs": 180.21935,
+                "matchAssessElapsedMs": 1.169022
+              },
+              "instrumentedMetricDistributions": {
+                "rustHttpSendAttempts": {
+                  "n": 1,
+                  "p50": 22,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "successfulYtDlpSpawns": {
+                  "n": 1,
+                  "p50": 2,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchPrepareElapsedMs": {
+                  "n": 1,
+                  "p50": 180.21935,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchAssessElapsedMs": {
+                  "n": 1,
+                  "p50": 1.169022,
+                  "p95": null,
+                  "p95SampleCount": 0
+                }
+              },
+              "resourceScope": "RSS values are process lifetime high-water observations; not per-batch memory usage"
+            },
+            "warm": {
+              "batches": 1,
+              "successes": 1,
+              "failures": 0,
+              "failureEntryCount": 0,
+              "wallMs": {
+                "n": 1,
+                "p50": 3829.436871,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "helperCpuMs": {
+                "n": 1,
+                "p50": 310.68399999999997,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "reapedChildCpuMs": {
+                "n": 1,
+                "p50": 169.78800000000047,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "lifetimeMaxRssObservations": [
+                {
+                  "helperMaxRssBytes": 80633856,
+                  "reapedChildMaxRssBytes": 358367232
+                }
+              ],
+              "instrumentedMetricTotals": {
+                "rustHttpSendAttempts": 8,
+                "successfulYtDlpSpawns": 0,
+                "matchPrepareElapsedMs": 49.400762,
+                "matchAssessElapsedMs": 0.364094
+              },
+              "instrumentedMetricDistributions": {
+                "rustHttpSendAttempts": {
+                  "n": 1,
+                  "p50": 8,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "successfulYtDlpSpawns": {
+                  "n": 1,
+                  "p50": 0,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchPrepareElapsedMs": {
+                  "n": 1,
+                  "p50": 49.400762,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchAssessElapsedMs": {
+                  "n": 1,
+                  "p50": 0.364094,
+                  "p95": null,
+                  "p95SampleCount": 0
+                }
+              },
+              "resourceScope": "RSS values are process lifetime high-water observations; not per-batch memory usage"
+            }
+          },
+          "instrumentedMetricNote": "Instrumented Rust send-attempt counters cover only listed native send sites; they do not count redirect hops or yt-dlp internal HTTP and are not physical HTTP request totals. yt-dlp values count successful child starts. Match preparation/assessment are synchronous elapsed-time sums, not CPU time; site coverage is frozen in the diagnostic report.",
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 2,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 2,
+                "settings_read_start": 2,
+                "settings_read_end": 2,
+                "catalog_alias_preparation_end": 2,
+                "alias_cache_lookup_end": 4,
+                "provider_start": 4,
+                "search_start": 4,
+                "bandcamp_fallback_start": 2,
+                "canonical_search_warmup_end": 2,
+                "bandcamp_fallback_end": 2,
+                "search_end": 4,
+                "candidate_gate_evidence": 4,
+                "candidate_gate_evidence_rows": 5,
+                "candidate_gate": 4,
+                "extract_and_validate_start": 2,
+                "preview_audio_lookup_start": 4,
+                "extraction_start": 2,
+                "extraction_end": 2,
+                "preview_audio_lookup_end": 4,
+                "full_identity_check": 2,
+                "extract_and_validate_end": 2,
+                "alias_lookup_skipped": 2,
+                "resolution_end": 2
+              },
+              "logicalExtractionStartEvents": 2,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 4,
+                  "p50": 11.066491,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 2,
+                  "p50": 304.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 2,
+                  "p50": 842.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 2,
+                  "p50": 146.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 2,
+                  "p50": 4773.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 2,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 2,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 2,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 2,
+                "settings_read_start": 2,
+                "settings_read_end": 2,
+                "alias_cache_lookup_end": 4,
+                "provider_start": 4,
+                "search_start": 2,
+                "search_end": 2,
+                "candidate_gate_evidence": 2,
+                "candidate_gate_evidence_rows": 3,
+                "candidate_gate": 2,
+                "mapping_resolve_start": 2,
+                "mapped_direct_youtube_start": 2,
+                "mapped_direct_youtube_end": 2,
+                "mapping_resolve_end": 2,
+                "alias_lookup_skipped": 2,
+                "resolution_end": 2
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 4,
+                  "p50": 2.82709,
+                  "p95": null
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 2,
+                  "p50": 1437.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 2,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 2,
+                "sum": 2,
+                "p50": 1,
+                "p95": null,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 102,
+            "directNativeEvents": 102,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "balanced",
+          "batches": [
+            {
+              "batchId": "cold-0",
+              "entryCount": 2,
+              "failureCount": 0,
+              "helperCpuMs": 1011.9610000000001,
+              "helperMaxRssBytes": 80633856,
+              "instrumentedMetrics": {
+                "matchAssessElapsedMs": 1.169022,
+                "matchPrepareElapsedMs": 180.21935,
+                "rustHttpSendAttempts": 22,
+                "scope": "process-window delta for serial batch; counters cover only enumerated sites and are not physical HTTP request totals",
+                "successfulYtDlpSpawns": 2
+              },
+              "pairIndex": 0,
+              "reapedChildCpuMs": 7694.398999999999,
+              "reapedChildMaxRssBytes": 358367232,
+              "resourceScope": "batch cumulative CPU deltas; maxRSS is process lifetime high-water observed at batch end, not per-entry or additive",
+              "scenario": "cold",
+              "successCount": 2,
+              "wallMs": 19359.430178,
+              "warmup": false
+            },
+            {
+              "batchId": "warm-0",
+              "entryCount": 2,
+              "failureCount": 0,
+              "helperCpuMs": 310.68399999999997,
+              "helperMaxRssBytes": 80633856,
+              "instrumentedMetrics": {
+                "matchAssessElapsedMs": 0.364094,
+                "matchPrepareElapsedMs": 49.400762,
+                "rustHttpSendAttempts": 8,
+                "scope": "process-window delta for serial batch; counters cover only enumerated sites and are not physical HTTP request totals",
+                "successfulYtDlpSpawns": 0
+              },
+              "pairIndex": 0,
+              "reapedChildCpuMs": 169.78800000000047,
+              "reapedChildMaxRssBytes": 358367232,
+              "resourceScope": "batch cumulative CPU deltas; maxRSS is process lifetime high-water observed at batch end, not per-entry or additive",
+              "scenario": "warm",
+              "successCount": 2,
+              "wallMs": 3829.436871,
+              "warmup": false
+            }
+          ],
+          "instrumentedMetricsCoverage": {
+            "httpSendAttempts": {
+              "excludes": [
+                "automatic reqwest redirect hops",
+                "yt-dlp internal requests, retries, and redirects",
+                "uninstrumented modules"
+              ],
+              "instrumentedModules": [
+                "acquisition",
+                "artist_alias_discovery",
+                "artists",
+                "bandcamp",
+                "bandcamp_fallback",
+                "monochrome",
+                "monochrome_resolver",
+                "youtube_direct_experiment",
+                "youtube_music",
+                "youtube_web_search",
+                "remote_playlists"
+              ],
+              "meaning": "instrumented Rust reqwest send invocations"
+            },
+            "matchingElapsed": {
+              "meaning": "synchronous wall-clock elapsed in prepare and assess_prepared",
+              "notCpuTime": true,
+              "unit": "nanoseconds"
+            },
+            "physicalOutboundRequestCount": null,
+            "scope": "process_window",
+            "scopeNote": "Any overlapping instrumented work in this process is included; windows are not exclusive operation attribution",
+            "ytDlpSuccessfulSpawns": {
+              "excludes": [
+                "HTTP requests made inside yt-dlp",
+                "other subprocess types"
+              ],
+              "meaning": "successful child process starts from acquisition run_tool_until"
+            }
+          },
+          "diagnosticSourceSha256": "1dbf667bba9c4d2f73e35d652d80ba6dc8a67e0291c16c1e8a66b30853b457f4",
+          "providerPolicy": {
+            "matchingLevel": "balanced",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          },
+          "processExitCode": 0,
+          "failure": null
+        },
+        "flexible": {
+          "runPassed": true,
+          "attempts": [
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "cold-0",
+              "batchEntryIndex": 0,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 9682.039299,
+              "wallMs": 9884.271584,
+              "firstPcmFromRequestMs": 9859.446371,
+              "helperCpuMs": 623.0029999999999,
+              "reapedChildCpuMs": 3643.054,
+              "providerId": "youtube:rpCswezRrLs",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 13,
+                "successfulYtDlpSpawns": 1,
+                "matchPrepareElapsedMs": 114.198295,
+                "matchAssessElapsedMs": 0.687181
+              },
+              "trace": {
+                "matchedEventCount": 33,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "bandcamp_fallback_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_end": 1,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 3,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    808.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    10.288565,
+                    5.839139
+                  ],
+                  "canonical_search_warmup_end": [
+                    1885.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    391.0
+                  ],
+                  "extraction_end": [
+                    5342.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 33,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "cold",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "cold-0",
+              "batchEntryIndex": 1,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 6732.61397,
+              "wallMs": 6881.768494,
+              "firstPcmFromRequestMs": 6833.875369,
+              "helperCpuMs": 257.90700000000004,
+              "reapedChildCpuMs": 3509.647,
+              "providerId": "youtube:ExdT24gJngk",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 10,
+                "successfulYtDlpSpawns": 1,
+                "matchPrepareElapsedMs": 44.780801,
+                "matchAssessElapsedMs": 0.298564
+              },
+              "trace": {
+                "matchedEventCount": 32,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "catalog_alias_preparation_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 2,
+                  "search_end": 2,
+                  "candidate_gate_evidence": 2,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 2,
+                  "extract_and_validate_start": 1,
+                  "preview_audio_lookup_start": 2,
+                  "extraction_start": 1,
+                  "canonical_search_warmup_end": 1,
+                  "bandcamp_fallback_start": 1,
+                  "bandcamp_fallback_end": 1,
+                  "extraction_end": 1,
+                  "preview_audio_lookup_end": 2,
+                  "full_identity_check": 1,
+                  "extract_and_validate_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "catalog_alias_preparation_end": [
+                    122.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.202095,
+                    3.158338
+                  ],
+                  "canonical_search_warmup_end": [
+                    1068.0
+                  ],
+                  "bandcamp_fallback_end": [
+                    390.0
+                  ],
+                  "extraction_end": [
+                    4505.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 0,
+                "nativeEventCount": 32,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "warm-0",
+              "batchEntryIndex": 0,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 670.228847,
+              "wallMs": 953.13456,
+              "firstPcmFromRequestMs": 878.536198,
+              "helperCpuMs": 195.68999999999994,
+              "reapedChildCpuMs": 38.56700000000001,
+              "providerId": "youtube:rpCswezRrLs",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 4,
+                "successfulYtDlpSpawns": 0,
+                "matchPrepareElapsedMs": 74.231592,
+                "matchAssessElapsedMs": 0.478665
+              },
+              "trace": {
+                "matchedEventCount": 19,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 2,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    5.345042,
+                    4.76337
+                  ],
+                  "mapped_direct_youtube_end": [
+                    525.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 19,
+                "sharedLookupLinkedEventCount": 0
+              }
+            },
+            {
+              "scenario": "warm",
+              "pairIndex": 0,
+              "iteration": 0,
+              "batchId": "warm-0",
+              "batchEntryIndex": 1,
+              "batchEntryCount": 2,
+              "ok": true,
+              "failure": null,
+              "resolveMs": 590.306248,
+              "wallMs": 889.88379,
+              "firstPcmFromRequestMs": 851.53068,
+              "helperCpuMs": 74.12999999999988,
+              "reapedChildCpuMs": 38.29500000000007,
+              "providerId": "youtube:ExdT24gJngk",
+              "instrumentedMetrics": {
+                "rustHttpSendAttempts": 4,
+                "successfulYtDlpSpawns": 0,
+                "matchPrepareElapsedMs": 16.909217,
+                "matchAssessElapsedMs": 0.171008
+              },
+              "trace": {
+                "matchedEventCount": 18,
+                "phaseEventCounts": {
+                  "resolution_start": 1,
+                  "settings_read_start": 1,
+                  "settings_read_end": 1,
+                  "alias_cache_lookup_end": 2,
+                  "provider_start": 2,
+                  "search_start": 1,
+                  "search_end": 1,
+                  "candidate_gate_evidence": 1,
+                  "candidate_gate_evidence_rows": 1,
+                  "candidate_gate": 1,
+                  "mapping_resolve_start": 1,
+                  "mapped_direct_youtube_start": 1,
+                  "mapped_direct_youtube_end": 1,
+                  "mapping_resolve_end": 1,
+                  "alias_lookup_skipped": 1,
+                  "resolution_end": 1
+                },
+                "phaseDurationsMs": {
+                  "settings_read_end": [
+                    0.0
+                  ],
+                  "alias_cache_lookup_end": [
+                    3.034321,
+                    3.6138199999999996
+                  ],
+                  "mapped_direct_youtube_end": [
+                    544.0
+                  ]
+                },
+                "observedResolverExtractionBudgetCounter": 1,
+                "nativeEventCount": 18,
+                "sharedLookupLinkedEventCount": 0
+              }
+            }
+          ],
+          "scenarios": {
+            "cold": {
+              "attempts": 2,
+              "successes": 2,
+              "failures": 0,
+              "timingScope": "pooled track-entry resolve times; use perBatchEntry for track-specific latency",
+              "resolveMsP50": 6732.61397,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            },
+            "warm": {
+              "attempts": 2,
+              "successes": 2,
+              "failures": 0,
+              "timingScope": "pooled track-entry resolve times; use perBatchEntry for track-specific latency",
+              "resolveMsP50": 590.306248,
+              "resolveMsP95": null,
+              "p95SampleCount": 0
+            }
+          },
+          "perBatchEntry": {
+            "0": {
+              "cold": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 9682.039299,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 9859.446371,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 623.0029999999999,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 3643.054,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              },
+              "warm": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 670.228847,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 878.536198,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 195.68999999999994,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 38.56700000000001,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              }
+            },
+            "1": {
+              "cold": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 6732.61397,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 6833.875369,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 257.90700000000004,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 3509.647,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              },
+              "warm": {
+                "attempts": 1,
+                "successes": 1,
+                "failures": 0,
+                "resolveMsP50": 590.306248,
+                "resolveMsP95": null,
+                "p95SampleCount": 0,
+                "firstPcmFromRequestMs": {
+                  "n": 1,
+                  "p50": 851.53068,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "successful attempts only"
+                },
+                "helperCpuMs": {
+                  "n": 1,
+                  "p50": 74.12999999999988,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                },
+                "reapedChildCpuMs": {
+                  "n": 1,
+                  "p50": 38.29500000000007,
+                  "p95": null,
+                  "p95SampleCount": 0,
+                  "scope": "all measured attempts"
+                }
+              }
+            }
+          },
+          "pairedSourceIdentityDifferenceCount": 0,
+          "pairedSourceIdentityDifferencePairEntries": [],
+          "providerShutdownOk": true,
+          "batchSummary": {
+            "cold": {
+              "batches": 1,
+              "successes": 1,
+              "failures": 0,
+              "failureEntryCount": 0,
+              "wallMs": {
+                "n": 1,
+                "p50": 16770.823037,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "helperCpuMs": {
+                "n": 1,
+                "p50": 885.6479999999999,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "reapedChildCpuMs": {
+                "n": 1,
+                "p50": 7152.701,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "lifetimeMaxRssObservations": [
+                {
+                  "helperMaxRssBytes": 80486400,
+                  "reapedChildMaxRssBytes": 358416384
+                }
+              ],
+              "instrumentedMetricTotals": {
+                "rustHttpSendAttempts": 23,
+                "successfulYtDlpSpawns": 2,
+                "matchPrepareElapsedMs": 158.979096,
+                "matchAssessElapsedMs": 0.985745
+              },
+              "instrumentedMetricDistributions": {
+                "rustHttpSendAttempts": {
+                  "n": 1,
+                  "p50": 23,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "successfulYtDlpSpawns": {
+                  "n": 1,
+                  "p50": 2,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchPrepareElapsedMs": {
+                  "n": 1,
+                  "p50": 158.979096,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchAssessElapsedMs": {
+                  "n": 1,
+                  "p50": 0.985745,
+                  "p95": null,
+                  "p95SampleCount": 0
+                }
+              },
+              "resourceScope": "RSS values are process lifetime high-water observations; not per-batch memory usage"
+            },
+            "warm": {
+              "batches": 1,
+              "successes": 1,
+              "failures": 0,
+              "failureEntryCount": 0,
+              "wallMs": {
+                "n": 1,
+                "p50": 1849.008604,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "helperCpuMs": {
+                "n": 1,
+                "p50": 275.66100000000006,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "reapedChildCpuMs": {
+                "n": 1,
+                "p50": 76.86200000000008,
+                "p95": null,
+                "p95SampleCount": 0
+              },
+              "lifetimeMaxRssObservations": [
+                {
+                  "helperMaxRssBytes": 80486400,
+                  "reapedChildMaxRssBytes": 358416384
+                }
+              ],
+              "instrumentedMetricTotals": {
+                "rustHttpSendAttempts": 8,
+                "successfulYtDlpSpawns": 0,
+                "matchPrepareElapsedMs": 91.140809,
+                "matchAssessElapsedMs": 0.649673
+              },
+              "instrumentedMetricDistributions": {
+                "rustHttpSendAttempts": {
+                  "n": 1,
+                  "p50": 8,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "successfulYtDlpSpawns": {
+                  "n": 1,
+                  "p50": 0,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchPrepareElapsedMs": {
+                  "n": 1,
+                  "p50": 91.140809,
+                  "p95": null,
+                  "p95SampleCount": 0
+                },
+                "matchAssessElapsedMs": {
+                  "n": 1,
+                  "p50": 0.649673,
+                  "p95": null,
+                  "p95SampleCount": 0
+                }
+              },
+              "resourceScope": "RSS values are process lifetime high-water observations; not per-batch memory usage"
+            }
+          },
+          "instrumentedMetricNote": "Instrumented Rust send-attempt counters cover only listed native send sites; they do not count redirect hops or yt-dlp internal HTTP and are not physical HTTP request totals. yt-dlp values count successful child starts. Match preparation/assessment are synchronous elapsed-time sums, not CPU time; site coverage is frozen in the diagnostic report.",
+          "traceByScenario": {
+            "cold": {
+              "attemptsWithCorrelatedTrace": 2,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 2,
+                "settings_read_start": 2,
+                "settings_read_end": 2,
+                "catalog_alias_preparation_end": 2,
+                "alias_cache_lookup_end": 4,
+                "provider_start": 4,
+                "search_start": 4,
+                "bandcamp_fallback_start": 2,
+                "canonical_search_warmup_end": 2,
+                "bandcamp_fallback_end": 2,
+                "search_end": 4,
+                "candidate_gate_evidence": 4,
+                "candidate_gate_evidence_rows": 5,
+                "candidate_gate": 4,
+                "extract_and_validate_start": 2,
+                "preview_audio_lookup_start": 4,
+                "extraction_start": 2,
+                "extraction_end": 2,
+                "preview_audio_lookup_end": 4,
+                "full_identity_check": 2,
+                "extract_and_validate_end": 2,
+                "alias_lookup_skipped": 2,
+                "resolution_end": 2
+              },
+              "logicalExtractionStartEvents": 2,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 4,
+                  "p50": 3.202095,
+                  "p95": null
+                },
+                "bandcamp_fallback_end": {
+                  "sampleCount": 2,
+                  "p50": 390.0,
+                  "p95": null
+                },
+                "canonical_search_warmup_end": {
+                  "sampleCount": 2,
+                  "p50": 1068.0,
+                  "p95": null
+                },
+                "catalog_alias_preparation_end": {
+                  "sampleCount": 2,
+                  "p50": 122.0,
+                  "p95": null
+                },
+                "extraction_end": {
+                  "sampleCount": 2,
+                  "p50": 4505.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 2,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 2,
+                "sum": 0,
+                "p50": 0,
+                "p95": null,
+                "max": 0
+              }
+            },
+            "warm": {
+              "attemptsWithCorrelatedTrace": 2,
+              "attemptsWithoutCorrelatedEvents": 0,
+              "phaseEventCounts": {
+                "resolution_start": 2,
+                "settings_read_start": 2,
+                "settings_read_end": 2,
+                "alias_cache_lookup_end": 4,
+                "provider_start": 4,
+                "search_start": 2,
+                "search_end": 2,
+                "candidate_gate_evidence": 2,
+                "candidate_gate_evidence_rows": 3,
+                "candidate_gate": 2,
+                "mapping_resolve_start": 2,
+                "mapped_direct_youtube_start": 2,
+                "mapped_direct_youtube_end": 2,
+                "mapping_resolve_end": 2,
+                "alias_lookup_skipped": 2,
+                "resolution_end": 2
+              },
+              "logicalExtractionStartEvents": 0,
+              "phaseDurationObservationsMs": {
+                "alias_cache_lookup_end": {
+                  "sampleCount": 4,
+                  "p50": 3.6138199999999996,
+                  "p95": null
+                },
+                "mapped_direct_youtube_end": {
+                  "sampleCount": 2,
+                  "p50": 525.0,
+                  "p95": null
+                },
+                "settings_read_end": {
+                  "sampleCount": 2,
+                  "p50": 0.0,
+                  "p95": null
+                }
+              },
+              "observedResolverExtractionBudgetCounter": {
+                "observationCount": 2,
+                "sum": 2,
+                "p50": 1,
+                "p95": null,
+                "max": 1
+              }
+            }
+          },
+          "traceJoinDiagnostics": {
+            "allowlistedEvents": 102,
+            "directNativeEvents": 102,
+            "sharedLookupLinkedEvents": 0,
+            "unknownNativeEvents": 0,
+            "unknownSharedLookupEvents": 0,
+            "ambiguousSharedLookupEvents": 0,
+            "unmatchedIdlessEvents": 0,
+            "malformedTraceLines": 0
+          },
+          "matchingLevel": "flexible",
+          "batches": [
+            {
+              "batchId": "cold-0",
+              "entryCount": 2,
+              "failureCount": 0,
+              "helperCpuMs": 885.6479999999999,
+              "helperMaxRssBytes": 80486400,
+              "instrumentedMetrics": {
+                "matchAssessElapsedMs": 0.985745,
+                "matchPrepareElapsedMs": 158.979096,
+                "rustHttpSendAttempts": 23,
+                "scope": "process-window delta for serial batch; counters cover only enumerated sites and are not physical HTTP request totals",
+                "successfulYtDlpSpawns": 2
+              },
+              "pairIndex": 0,
+              "reapedChildCpuMs": 7152.701,
+              "reapedChildMaxRssBytes": 358416384,
+              "resourceScope": "batch cumulative CPU deltas; maxRSS is process lifetime high-water observed at batch end, not per-entry or additive",
+              "scenario": "cold",
+              "successCount": 2,
+              "wallMs": 16770.823037,
+              "warmup": false
+            },
+            {
+              "batchId": "warm-0",
+              "entryCount": 2,
+              "failureCount": 0,
+              "helperCpuMs": 275.66100000000006,
+              "helperMaxRssBytes": 80486400,
+              "instrumentedMetrics": {
+                "matchAssessElapsedMs": 0.649673,
+                "matchPrepareElapsedMs": 91.140809,
+                "rustHttpSendAttempts": 8,
+                "scope": "process-window delta for serial batch; counters cover only enumerated sites and are not physical HTTP request totals",
+                "successfulYtDlpSpawns": 0
+              },
+              "pairIndex": 0,
+              "reapedChildCpuMs": 76.86200000000008,
+              "reapedChildMaxRssBytes": 358416384,
+              "resourceScope": "batch cumulative CPU deltas; maxRSS is process lifetime high-water observed at batch end, not per-entry or additive",
+              "scenario": "warm",
+              "successCount": 2,
+              "wallMs": 1849.008604,
+              "warmup": false
+            }
+          ],
+          "instrumentedMetricsCoverage": {
+            "httpSendAttempts": {
+              "excludes": [
+                "automatic reqwest redirect hops",
+                "yt-dlp internal requests, retries, and redirects",
+                "uninstrumented modules"
+              ],
+              "instrumentedModules": [
+                "acquisition",
+                "artist_alias_discovery",
+                "artists",
+                "bandcamp",
+                "bandcamp_fallback",
+                "monochrome",
+                "monochrome_resolver",
+                "youtube_direct_experiment",
+                "youtube_music",
+                "youtube_web_search",
+                "remote_playlists"
+              ],
+              "meaning": "instrumented Rust reqwest send invocations"
+            },
+            "matchingElapsed": {
+              "meaning": "synchronous wall-clock elapsed in prepare and assess_prepared",
+              "notCpuTime": true,
+              "unit": "nanoseconds"
+            },
+            "physicalOutboundRequestCount": null,
+            "scope": "process_window",
+            "scopeNote": "Any overlapping instrumented work in this process is included; windows are not exclusive operation attribution",
+            "ytDlpSuccessfulSpawns": {
+              "excludes": [
+                "HTTP requests made inside yt-dlp",
+                "other subprocess types"
+              ],
+              "meaning": "successful child process starts from acquisition run_tool_until"
+            }
+          },
+          "diagnosticSourceSha256": "1dbf667bba9c4d2f73e35d652d80ba6dc8a67e0291c16c1e8a66b30853b457f4",
+          "providerPolicy": {
+            "matchingLevel": "flexible",
+            "preferred": "monochrome",
+            "fallbackEnabled": true,
+            "fallbackSources": [
+              "youtube",
+              "soundcloud"
+            ]
+          },
+          "processExitCode": 0,
+          "failure": null
+        }
+      }
+    }
+  ],
+  "note": "Failures remain in attempt denominators; p95 is withheld unless >=20 measured timing samples. Trace fields count allowlisted logical events and observed resolver counter snapshots only. Instrumented Rust send attempts cover enumerated native sites; redirects and yt-dlp internal HTTP are opaque, so these are not physical HTTP request totals. Batch entries are sequential in one diagnostic process and Store; batch CPU is cumulative, while maxRSS is a process lifetime high-water observation at batch end, not per-entry or additive. Matching preparation/assessment values are synchronous elapsed-time sums, not CPU. Concurrent phase duration samples are not additive."
+}

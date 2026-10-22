@@ -13,6 +13,7 @@ name = "burrata-matching-stage5-audit"
 version = "0.0.0"
 dependencies = [
  "icu_normalizer",
+ "libc",
  "serde",
  "serde_json",
  "url",

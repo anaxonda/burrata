@@ -181,6 +181,7 @@ async fn discover(
     ];
     for query in queries {
         let raw = bounded(cancel.clone(), deadline, async {
+            crate::diagnostic_metrics::record_http_send_attempt();
             let response = client
                 .post("https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic")
                 .json(&json!({"search_text":query,"search_filter":"t","full_page":true}))
@@ -265,6 +266,7 @@ async fn public_audio(
             .resolve_to_addrs(url.host_str().ok_or("Missing audio host")?, &addresses)
             .build()
             .map_err(|_| "Could not initialize public audio reference")?;
+        crate::diagnostic_metrics::record_http_send_attempt();
         body(
             client
                 .get(url)
@@ -693,6 +695,7 @@ pub(crate) async fn resolve(
             };
             let client = client()?;
             let raw = bounded(cancel.clone(), metadata_deadline, async {
+                crate::diagnostic_metrics::record_http_send_attempt();
                 let response = client
                     .get("https://itunes.apple.com/search")
                     .query(&[

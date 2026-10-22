@@ -101,6 +101,7 @@ async fn search_candidates_at(
             "query": query,
             "params": VIDEO_ONLY_PARAMS
         });
+        crate::diagnostic_metrics::record_http_send_attempt();
         let mut response = client
             .post(endpoint)
             .header(header::CONTENT_TYPE, "application/json")

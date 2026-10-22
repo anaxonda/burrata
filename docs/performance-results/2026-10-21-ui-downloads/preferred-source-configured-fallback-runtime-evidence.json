@@ -1,0 +1,434 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "preferred_source_miss_configured_fallback_batch_runtime",
+  "capturedAtUtc": "2026-10-22",
+  "operationId": "b31af758-063e-49b4-9eba-715ba4f9af15",
+  "applicationRequest": {
+    "target": "13-track MusicBrainz catalog release",
+    "operationSourceOverride": "soundcloud",
+    "revisionTrackCount": 13
+  },
+  "savedSettingsSnapshot": {
+    "preferredDownloadSource": "monochrome",
+    "downloadFallbackEnabled": true,
+    "downloadFallbackSources": [
+      "youtube",
+      "soundcloud",
+      "slskd"
+    ],
+    "downloadFallbackAllowLossy": true
+  },
+  "selectionReceipt": {
+    "status": "completed",
+    "completionScope": "selectionAndEnqueue",
+    "requestedCount": 13,
+    "processedCount": 13,
+    "queuedCount": 11,
+    "skipped": [
+      {
+        "index": 5,
+        "reason": "not included in receipt"
+      },
+      {
+        "index": 11,
+        "reason": "not included in receipt"
+      }
+    ],
+    "failedCount": 0
+  },
+  "summary": {
+    "requested": 13,
+    "processed": 13,
+    "queued": 11,
+    "skipped": 2,
+    "selectionFailed": 0,
+    "queuedJobStates": {
+      "completed": 11
+    },
+    "queuedCandidateProviders": {
+      "slskd": 10,
+      "youtube": 1
+    },
+    "outputsExist": 11,
+    "exactPathAssetRowCounts": {
+      "1": 11
+    },
+    "allAssetHashBindingsPass": true,
+    "allRecordingBindingsPass": true,
+    "fullDecodeSuccesses": 11,
+    "sameHashAsPriorSoulseekAlbumAudit": 0
+  },
+  "queuedOutputs": [
+    {
+      "index": 0,
+      "jobId": "9b79a7d2-0f56-4dad-9444-09546e1018da",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "2a98ae5201a17347b413857205ea0f1ff6584cdf57da573fe68a86108d276c53",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "8c127173-37e0-4367-b954-d58922b264f7",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 147.066667,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 51885120,
+        "pcmSha256": "318a979a270b766246cc6ca23352b2d53a68c523426c472eee87be7d5df5fd35",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 1,
+      "jobId": "346d4fdd-0894-46e1-b70c-8b1e9da83b29",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "b74860364c352500af113f74c1c1ff3e8826a06589d375d3c84c7441cb5cc563",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "d42d3dae-bd2e-4c00-b7aa-36d8822b4ff5",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 91.266667,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 32198880,
+        "pcmSha256": "f5981d403859ec6f3d4d4e68f5e70f4df9a037ad1901631aaaa4393217d0e7ae",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 2,
+      "jobId": "db0dbb46-be54-45dc-9d43-f500b9eab4a9",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "4acb31995aaf39e5bc03f5c24fe424a338bcc724564893400618ddebb8fd80d3",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "46b17ceb-0142-468e-9625-b22460b034de",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 311.466667,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 109885440,
+        "pcmSha256": "4613c2b09d98ec803a1ae77be44adcdc3d4850e73790b840e0bcf039ca640696",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 3,
+      "jobId": "ec37b6c9-a6a0-45f7-b835-3f3626bb527b",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "0d15efbd2a060e74bbf3f9b2869444ab6af652af73584bdfafec139751558713",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "d584cc35-68c9-4eae-9dae-8824c18f0e5b",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 160.693333,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 56692608,
+        "pcmSha256": "98125e9efe00e7e6de4cb7df34abb544a5346da709ac25b982e90e9bcc299326",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 4,
+      "jobId": "a7e70812-5c24-4b7f-95af-b68600ce4b8a",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "67767756395599e27c9426b1dd39df86ea66a04f473ca33e1d9dfcda7dcbf61f",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "60ed9d04-1fe8-4723-9967-9205d100d488",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 125.240978,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 44172288,
+        "pcmSha256": "1e9f56c5ddd457332d24ee77189a1bcb4c7a7a4a8cbc6e4dddfcd395693e618a",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 6,
+      "jobId": "ad86d55d-afd2-4fa3-9438-c69d75097fb7",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "225a1d054a03e851cbe06c42a1fd443493a2a3f65eb102137fff85e8a1b70192",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "9097285d-7aa1-4d19-9b46-3cff40f30869",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 95.066667,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 33539520,
+        "pcmSha256": "1f29a8e666f19daf918e55073a37adee1bcabecb97ae8f7cdc2d0beabc4b8ed3",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 7,
+      "jobId": "7e5ea2f7-1792-4485-896d-b8b8528ed353",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "a7358a5cbe2f64cd641ed4409580a8e7cc1f6aeb7e045b52fea87c21900d15c8",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "11fb9795-7d1e-494a-87cd-abe4dfde2662",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 174.107188,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 61425016,
+        "pcmSha256": "dd44338f8eaed10b8829a3fa3df9c329b873c7b5f4b068ab5584e506fabc2792",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 8,
+      "jobId": "615998eb-e208-49a5-8027-3c5985e558f3",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "cb1b4e8292f96a0482f2cd984461130f64f58fd6a6cb1c10b7611bf97cea49ed",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "f52499c0-eb03-4878-9776-b3fd50ef5e1e",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 275.575656,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 97210368,
+        "pcmSha256": "022f00db8129d78530e24e9cc79b149be187d4b251eb56e8019aa1dd9a61fd1d",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 9,
+      "jobId": "bd3ce5b0-51c7-4314-8228-f48408575660",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "f79b5ac9e0211169bbae08529d6ab39f4a4b9b340edfbd70b9fc37566c663457",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "924fa8de-2119-4951-b328-bdb2132d3f59",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 170.333333,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 60093600,
+        "pcmSha256": "7e1bec25d104db593be04f748bc421ccec4686fc1b7316bc6415a6c8bc5848fa",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 10,
+      "jobId": "a70d37bb-94cd-441f-b445-6f0bc7800042",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "youtube",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "856e5bf9a10c36b25c8d4ab345525f06ee503b48ac3af6d889106e13f32f1896",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "3c0ee008-0e8b-44b1-b8e4-4d8f9dff9600",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "ogg",
+      "durationSeconds": 197.3005,
+      "audioStream": {
+        "codec_name": "opus",
+        "sample_rate": "48000",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 75760704,
+        "pcmSha256": "565668db09a6558de5454965b80b3d4345a07d3450078b047bd3c9b94e8e3e3e",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    },
+    {
+      "index": 12,
+      "jobId": "31f2e54e-01b5-43af-b601-edc1a38d8fad",
+      "finalJobState": "completed",
+      "selectedCandidateProvider": "slskd",
+      "trackProvider": "catalog",
+      "outputExists": true,
+      "outputSha256": "a03a222a46d39e04dd898a9d84e430aba89365b57a130ffd31df3e84f107d8f9",
+      "exactOutputPathAssetRowCount": 1,
+      "assetBindings": [
+        {
+          "assetId": "7738e53b-c0ed-4641-b638-66b490346a17",
+          "recordingMatchesJobTrack": true,
+          "dbHashMatchesLive": true,
+          "payloadHashMatchesLive": true
+        }
+      ],
+      "containerFormat": "mp3",
+      "durationSeconds": 217.871178,
+      "audioStream": {
+        "codec_name": "mp3",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "pcmBytes": 76852224,
+        "pcmSha256": "3201fd4428f5eda06e6f97675234fb65b8690df9faebd6df38e189b3323a5223",
+        "stderr": null
+      },
+      "matchesPriorSoulseekAlbumFileHash": false
+    }
+  ],
+  "interpretation": "The caller requested SoundCloud for the operation while the captured saved preference remained Monochrome and configured fallback was enabled in the order YouTube, SoundCloud, Soulseek with lossy fallback allowed. The existing batch action processed 13 entries, enqueued 11, and reported 2 skipped; all 11 resulting jobs are completed and their output files fully decode with one exact-path asset row, matching live/database hashes, and requested recording bindings. Final selected candidates were 10 Soulseek and 1 YouTube. This supports that configured fallback sources were selected after the operation override path found no accepted source for those entries; request/HTTP chronology is not present, so the evidence does not claim exactly which provider requests failed first. This is 11/13 completed output jobs, not a completed 13-track album; two skips remain under investigation.",
+  "limitations": [
+    "Two skipped indices were present without a reason in the selection receipt.",
+    "No detailed provider request or HTTP failure timeline was captured.",
+    "The full decoded PCM hashes are current-file hashes; they are not independent acoustic identity evidence.",
+    "The 11 output hashes differ from the earlier thirteen-track Soulseek album audit; consequently that earlier full-decode audit was not reused."
+  ],
+  "privacy": "Omitted filesystem paths, filenames, full recording IDs, candidate source URLs, and peer identities. Exact operation/job/asset IDs and content hashes are retained for evidence lineage."
+}

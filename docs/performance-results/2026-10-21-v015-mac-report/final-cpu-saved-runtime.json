@@ -1,0 +1,41 @@
+{
+  "scope": "Linux normal-profile MCP saved-library playback; position progress is not physical audibility or acoustic identity",
+  "appSha256": "dbe00f0f4c29a2c6e596e4ffdce72f285140aa9a6786cb10bc06f030942f2a0d",
+  "sourceReportSha256": "e3beea301f6c8bd878cdb30a086e66b8b4cd19f8b58f3f86f89376c7a99d9c97",
+  "runStatus": "complete",
+  "retries": 0,
+  "cases": [
+    {
+      "caseId": "bacc",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 6.018019,
+      "wallMs": 12248,
+      "intendedMatchingMode": "Balanced"
+    },
+    {
+      "caseId": "vibe_with_me",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 5.987112,
+      "wallMs": 9904,
+      "intendedMatchingMode": "Balanced"
+    },
+    {
+      "caseId": "sacrifices",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 5.982354,
+      "wallMs": 10191,
+      "intendedMatchingMode": "Balanced"
+    },
+    {
+      "caseId": "to_miroloi_tis_manas",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 5.988203,
+      "wallMs": 9909,
+      "intendedMatchingMode": "Balanced"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "appSha256": "dbe00f0f4c29a2c6e596e4ffdce72f285140aa9a6786cb10bc06f030942f2a0d",
+  "burrataGuiCount": 1,
+  "normalProfile": true,
+  "profileControl": "non-isolated launch against the existing normal profile; no profile replacement or sign-in mutation",
+  "running": true,
+  "playbackStatus": "paused",
+  "matchingLevel": "balanced",
+  "sessions": {
+    "enabled": true,
+    "running": true,
+    "transport": "native-webview-http",
+    "mode": "native-ready",
+    "confirmedAccounts": {
+      "spotify": true,
+      "youtube": true
+    },
+    "accountRevisions": {
+      "spotify": 1,
+      "youtube": 1
+    },
+    "youtubeReconnectRequired": false
+  },
+  "accountFlagsAndRevisionsMatchPriorObservation": true,
+  "stats": {
+    "assets": 70,
+    "playlists": 49,
+    "tracks": 5203
+  },
+  "limits": [
+    "Account confirmation flags are not a fresh provider authorization test.",
+    "Counts do not establish an exhaustive before/after membership comparison."
+  ]
+}

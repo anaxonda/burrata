@@ -450,6 +450,7 @@ async fn fetch_anonymous_spotify_embed_duration(track_id: &str) -> Result<f64> {
         .as_ref()
         .map_err(|error| error.clone())?;
     let url = format!("https://open.spotify.com/embed/track/{track_id}");
+    crate::diagnostic_metrics::record_http_send_attempt();
     let mut response = tokio::time::timeout(
         PUBLIC_SPOTIFY_EMBED_TIMEOUT,
         client

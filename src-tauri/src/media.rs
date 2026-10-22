@@ -95,6 +95,56 @@ pub struct KeyAnalysis {
     pub window_keys: Vec<Option<String>>,
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BpmPeakDiagnostic {
+    lag_frames: usize,
+    bpm: f64,
+    normalized_autocorrelation: f64,
+    period_ratio_to_selected: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BpmDiagnostics {
+    envelope_frames: usize,
+    min_lag_frames: usize,
+    max_lag_frames: usize,
+    required_observations: usize,
+    strongest_autocorrelation: Option<f64>,
+    selected_lag_frames: Option<usize>,
+    candidate_peaks: Vec<BpmPeakDiagnostic>,
+    rejection_reason: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KeyProfileDiagnostic {
+    key: Option<String>,
+    profile_fit: Option<f64>,
+    profile_margin: Option<f64>,
+    qualified: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KeyWindowDiagnostic {
+    index: usize,
+    start_seconds: f64,
+    profile: KeyProfileDiagnostic,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KeyDiagnostics {
+    duration_seconds: f64,
+    whole_track: Option<KeyProfileDiagnostic>,
+    windows: Vec<KeyWindowDiagnostic>,
+    consensus_key: Option<String>,
+    consensus_votes: usize,
+    rejection_reason: Option<&'static str>,
+}
+
 unsafe extern "C" {
     fn burrata_keyfinder_analyze(
         samples: *const f32,
@@ -108,6 +158,13 @@ unsafe extern "C" {
 /// Estimate a tempo from decoded audio. Returns no estimate when the signal does
 /// not contain a sufficiently regular beat pattern.
 pub async fn detect_bpm(path: &Path, settings: &Settings) -> Result<Option<BpmAnalysis>, String> {
+    Ok(detect_bpm_with_diagnostics(path, settings).await?.0)
+}
+
+async fn detect_bpm_with_diagnostics(
+    path: &Path,
+    settings: &Settings,
+) -> Result<(Option<BpmAnalysis>, BpmDiagnostics), String> {
     let mut command = Command::new(crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"));
     crate::tools::configure_no_console_tokio(&mut command);
     command
@@ -200,7 +257,7 @@ pub async fn detect_bpm(path: &Path, settings: &Settings) -> Result<Option<BpmAn
     })
     .await
     .map_err(|_| "BPM analysis timed out after 10 minutes".to_string())??;
-    tokio::task::spawn_blocking(move || estimate_bpm(&decoded))
+    tokio::task::spawn_blocking(move || estimate_bpm_with_diagnostics(&decoded))
         .await
         .map_err(|e| format!("BPM analysis worker failed: {e}"))
 }
@@ -210,6 +267,13 @@ pub async fn detect_bpm(path: &Path, settings: &Settings) -> Result<Option<BpmAn
 /// SILENCE for non-tonal input; disagreement, short audio and silence remain
 /// unknown instead of being written as a guessed key.
 pub async fn detect_key(path: &Path, settings: &Settings) -> Result<Option<KeyAnalysis>, String> {
+    Ok(detect_key_with_diagnostics(path, settings).await?.0)
+}
+
+async fn detect_key_with_diagnostics(
+    path: &Path,
+    settings: &Settings,
+) -> Result<(Option<KeyAnalysis>, KeyDiagnostics), String> {
     let mut command = Command::new(crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"));
     crate::tools::configure_no_console_tokio(&mut command);
     command
@@ -272,7 +336,7 @@ pub async fn detect_key(path: &Path, settings: &Settings) -> Result<Option<KeyAn
     })
     .await
     .map_err(|_| "Key analysis timed out after 10 minutes".to_string())??;
-    tokio::task::spawn_blocking(move || estimate_key(&decoded))
+    tokio::task::spawn_blocking(move || estimate_key_with_diagnostics(&decoded))
         .await
         .map_err(|e| format!("Key analysis worker failed: {e}"))
 }
@@ -311,18 +375,55 @@ fn keyfinder_analyze(samples: &[f32]) -> Option<(&'static str, f64, f64)> {
 }
 
 fn estimate_key(samples: &[f32]) -> Option<KeyAnalysis> {
+    estimate_key_with_diagnostics(samples).0
+}
+
+fn key_profile_diagnostic(result: Option<(&str, f64, f64)>) -> KeyProfileDiagnostic {
+    match result {
+        Some((key, fit, margin)) => KeyProfileDiagnostic {
+            key: Some(key.to_owned()),
+            profile_fit: Some(fit),
+            profile_margin: Some(margin),
+            qualified: fit >= KEY_MIN_PROFILE_FIT && margin >= KEY_MIN_PROFILE_MARGIN,
+        },
+        None => KeyProfileDiagnostic {
+            key: None,
+            profile_fit: None,
+            profile_margin: None,
+            qualified: false,
+        },
+    }
+}
+
+fn estimate_key_with_diagnostics(samples: &[f32]) -> (Option<KeyAnalysis>, KeyDiagnostics) {
     let minimum = KEY_SAMPLE_RATE as usize * KEY_MIN_WINDOW_SECONDS;
+    let mut diagnostics = KeyDiagnostics {
+        duration_seconds: samples.len() as f64 / KEY_SAMPLE_RATE as f64,
+        whole_track: None,
+        windows: Vec::new(),
+        consensus_key: None,
+        consensus_votes: 0,
+        rejection_reason: None,
+    };
     if samples.len() < minimum {
-        return None;
+        diagnostics.rejection_reason = Some("minimum_duration");
+        return (None, diagnostics);
     }
-    let (whole_track_key, whole_fit, whole_margin) = keyfinder_analyze(samples)?;
-    if whole_fit < KEY_MIN_PROFILE_FIT || whole_margin < KEY_MIN_PROFILE_MARGIN {
-        return None;
-    }
-    let whole_track_key = whole_track_key.to_string();
+    let whole = keyfinder_analyze(samples);
+    diagnostics.whole_track = Some(key_profile_diagnostic(whole));
+    let whole_track_key = whole.map(|(key, _, _)| key.to_string());
     let window_len = (samples.len() / 5).min(KEY_SAMPLE_RATE as usize * KEY_WINDOW_SECONDS);
     if window_len < minimum {
-        return None;
+        diagnostics.rejection_reason = if whole.is_none() {
+            Some("whole_classifier_no_key")
+        } else if whole.is_some_and(|(_, fit, _)| fit < KEY_MIN_PROFILE_FIT) {
+            Some("whole_profile_fit")
+        } else if whole.is_some_and(|(_, _, margin)| margin < KEY_MIN_PROFILE_MARGIN) {
+            Some("whole_profile_margin")
+        } else {
+            Some("window_length")
+        };
+        return (None, diagnostics);
     }
     let mut window_keys = Vec::with_capacity(5);
     for part in 0..5 {
@@ -330,29 +431,65 @@ fn estimate_key(samples: &[f32]) -> Option<KeyAnalysis> {
         let start = center
             .saturating_sub(window_len / 2)
             .min(samples.len() - window_len);
-        let key = keyfinder_analyze(&samples[start..start + window_len])
-            .filter(|(_, fit, margin)| {
-                *fit >= KEY_MIN_PROFILE_FIT && *margin >= KEY_MIN_PROFILE_MARGIN
-            })
-            .map(|(key, _, _)| key.to_owned());
+        let raw = keyfinder_analyze(&samples[start..start + window_len]);
+        let profile = key_profile_diagnostic(raw);
+        let key = if profile.qualified {
+            profile.key.clone()
+        } else {
+            None
+        };
         window_keys.push(key);
+        diagnostics.windows.push(KeyWindowDiagnostic {
+            index: part + 1,
+            start_seconds: start as f64 / KEY_SAMPLE_RATE as f64,
+            profile,
+        });
     }
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
     for key in window_keys.iter().flatten() {
         *counts.entry(key.clone()).or_default() += 1;
     }
-    let Some((key, votes)) = counts.into_iter().max_by_key(|(_, votes)| *votes) else {
-        return None;
-    };
-    if votes < 3 || key != whole_track_key {
-        return None;
+    if let Some((key, votes)) = counts.iter().max_by_key(|(_, votes)| *votes) {
+        diagnostics.consensus_key = Some(key.clone());
+        diagnostics.consensus_votes = *votes;
     }
-    Some(KeyAnalysis {
-        key,
-        confidence: votes as f64 / 5.0,
-        whole_track_key,
-        window_keys,
-    })
+    // Keep the detector's original first-failure ordering while retaining the
+    // window evidence that explains borderline whole-track decisions.
+    let Some((whole_track_key, whole_fit, whole_margin)) = whole else {
+        diagnostics.rejection_reason = Some("whole_classifier_no_key");
+        return (None, diagnostics);
+    };
+    if whole_fit < KEY_MIN_PROFILE_FIT {
+        diagnostics.rejection_reason = Some("whole_profile_fit");
+        return (None, diagnostics);
+    }
+    if whole_margin < KEY_MIN_PROFILE_MARGIN {
+        diagnostics.rejection_reason = Some("whole_profile_margin");
+        return (None, diagnostics);
+    }
+    let whole_track_key = whole_track_key.to_string();
+    let Some((key, votes)) = counts.into_iter().max_by_key(|(_, votes)| *votes) else {
+        diagnostics.rejection_reason = Some("window_consensus_no_qualified_keys");
+        return (None, diagnostics);
+    };
+    if votes < 3 {
+        diagnostics.rejection_reason = Some("window_consensus_under_3_of_5");
+        return (None, diagnostics);
+    }
+    if key != whole_track_key {
+        diagnostics.rejection_reason = Some("whole_vs_window_consensus_disagree");
+        return (None, diagnostics);
+    }
+    diagnostics.rejection_reason = None;
+    (
+        Some(KeyAnalysis {
+            key,
+            confidence: votes as f64 / 5.0,
+            whole_track_key,
+            window_keys,
+        }),
+        diagnostics,
+    )
 }
 
 fn add_bpm_sample(
@@ -382,15 +519,31 @@ fn finish_bpm_frame(energy: f64, count: usize, previous_level: &mut f64, envelop
 }
 
 fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
+    estimate_bpm_with_diagnostics(envelope).0
+}
+
+fn estimate_bpm_with_diagnostics(envelope: &[f64]) -> (Option<BpmAnalysis>, BpmDiagnostics) {
     let frame_seconds = BPM_FRAME_SAMPLES as f64 / f64::from(BPM_SAMPLE_RATE);
     let min_lag = (60.0 / (200.0 * frame_seconds)).round() as usize;
     let max_lag = (60.0 / (60.0 * frame_seconds)).round() as usize;
+    let mut diagnostics = BpmDiagnostics {
+        envelope_frames: envelope.len(),
+        min_lag_frames: min_lag,
+        max_lag_frames: max_lag,
+        required_observations: 8,
+        strongest_autocorrelation: None,
+        selected_lag_frames: None,
+        candidate_peaks: Vec::new(),
+        rejection_reason: None,
+    };
     if envelope.len() <= max_lag + min_lag * 8 {
-        return None;
+        diagnostics.rejection_reason = Some("insufficient_period_coverage");
+        return (None, diagnostics);
     }
     let energy: f64 = envelope.iter().map(|v| v * v).sum();
     if energy <= f64::EPSILON {
-        return None;
+        diagnostics.rejection_reason = Some("no_onset_energy");
+        return (None, diagnostics);
     }
     let mut correlations = vec![0.0; max_lag + 1];
     for lag in min_lag..=max_lag {
@@ -410,20 +563,49 @@ fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
             correlations[lag] = dot / denominator;
         }
     }
-    let (_, strongest_value) = correlations[min_lag..=max_lag]
+    let Some((strongest_offset, strongest_value)) = correlations[min_lag..=max_lag]
         .iter()
         .enumerate()
-        .max_by(|(_, a), (_, b)| a.total_cmp(b))?;
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+    else {
+        diagnostics.rejection_reason = Some("no_period_candidates");
+        return (None, diagnostics);
+    };
+    let strongest_lag = min_lag + strongest_offset;
     let strongest = *strongest_value;
+    diagnostics.strongest_autocorrelation = Some(strongest);
+    let mut peak_lags = (min_lag..=max_lag)
+        .filter(|&lag| {
+            let value = correlations[lag];
+            value > 0.0
+                && value >= correlations[lag.saturating_sub(1)]
+                && value > correlations.get(lag + 1).copied().unwrap_or(0.0)
+        })
+        .collect::<Vec<_>>();
+    if !peak_lags.contains(&strongest_lag) {
+        peak_lags.push(strongest_lag);
+    }
+    peak_lags.sort_by(|left, right| correlations[*right].total_cmp(&correlations[*left]));
+    peak_lags.dedup();
+    peak_lags.truncate(5);
     if !strongest.is_finite() || strongest < 0.35 {
-        return None;
+        diagnostics.candidate_peaks =
+            bpm_candidate_peaks(&correlations, &peak_lags, frame_seconds, None);
+        diagnostics.rejection_reason = Some("weak_periodicity");
+        return (None, diagnostics);
     }
     // Preserve the previous conservative pick when two octave-related
     // periods are nearly tied. Otherwise, consider supported local peaks
     // before a longer global peak: exact high tempos can have a stronger peak
     // at a three-beat multiple and would otherwise collapse to 60-70 BPM.
-    let conventional_lag =
-        (min_lag..=max_lag).find(|&lag| correlations[lag] >= strongest * 0.97)?;
+    let Some(conventional_lag) =
+        (min_lag..=max_lag).find(|&lag| correlations[lag] >= strongest * 0.97)
+    else {
+        diagnostics.candidate_peaks =
+            bpm_candidate_peaks(&correlations, &peak_lags, frame_seconds, None);
+        diagnostics.rejection_reason = Some("no_conventional_peak");
+        return (None, diagnostics);
+    };
     let candidate_lag = (min_lag..conventional_lag)
         .find(|&lag| {
             let value = correlations[lag];
@@ -451,6 +633,12 @@ fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
     } else {
         candidate_lag
     };
+    diagnostics.selected_lag_frames = Some(lag);
+    if !peak_lags.contains(&lag) {
+        peak_lags.push(lag);
+    }
+    diagnostics.candidate_peaks =
+        bpm_candidate_peaks(&correlations, &peak_lags, frame_seconds, Some(lag));
     let selected_score = correlations[lag];
     let related_lag = [lag / 2, lag.saturating_mul(2)]
         .into_iter()
@@ -464,11 +652,35 @@ fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
         .map(|lag| bpm_for_lag(&correlations, lag, frame_seconds))
         .filter(|bpm| (60.0..=200.0).contains(bpm));
     let bpm = bpm_for_lag(&correlations, lag, frame_seconds);
-    (60.0..=200.0).contains(&bpm).then_some(BpmAnalysis {
-        bpm,
-        confidence: correlations[lag].clamp(0.0, 1.0),
-        related_tempo_bpm,
-    })
+    if !(60.0..=200.0).contains(&bpm) {
+        diagnostics.rejection_reason = Some("outside_supported_tempo_range");
+        return (None, diagnostics);
+    }
+    (
+        Some(BpmAnalysis {
+            bpm,
+            confidence: correlations[lag].clamp(0.0, 1.0),
+            related_tempo_bpm,
+        }),
+        diagnostics,
+    )
+}
+
+fn bpm_candidate_peaks(
+    correlations: &[f64],
+    lags: &[usize],
+    frame_seconds: f64,
+    selected_lag: Option<usize>,
+) -> Vec<BpmPeakDiagnostic> {
+    lags.iter()
+        .copied()
+        .map(|lag| BpmPeakDiagnostic {
+            lag_frames: lag,
+            bpm: bpm_for_lag(correlations, lag, frame_seconds),
+            normalized_autocorrelation: correlations[lag].clamp(0.0, 1.0),
+            period_ratio_to_selected: selected_lag.map(|selected| lag as f64 / selected as f64),
+        })
+        .collect()
 }
 
 fn bpm_for_lag(correlations: &[f64], lag: usize, frame_seconds: f64) -> f64 {
@@ -524,7 +736,12 @@ fn onset_occupancy_per_period(envelope: &[f64], lag: usize) -> f64 {
     best
 }
 
-fn add_bpm_analysis(track: &Track, analysis: Option<BpmAnalysis>, error: Option<&str>) -> Track {
+fn add_bpm_analysis(
+    track: &Track,
+    analysis: Option<BpmAnalysis>,
+    diagnostics: Option<BpmDiagnostics>,
+    error: Option<&str>,
+) -> Track {
     if track.bpm.is_some() {
         return track.clone();
     }
@@ -538,10 +755,12 @@ fn add_bpm_analysis(track: &Track, analysis: Option<BpmAnalysis>, error: Option<
             "source": "decoded audio",
             "method": "10ms onset autocorrelation",
             "confidence": analysis.confidence,
-            "confidenceMeaning": "normalized onset-autocorrelation strength, not a probability",
+            "confidenceMeaning": "normalized onset-autocorrelation strength, not a calibrated probability",
+            "diagnosticsMeaning": "candidate peak scores and period ratios describe this signal; they are not calibrated probabilities",
             "relatedTempoAlternativeBpm": analysis.related_tempo_bpm,
             "tempoAmbiguity": analysis.related_tempo_bpm.is_some(),
-            "bpm": analysis.bpm
+            "bpm": analysis.bpm,
+            "diagnostics": diagnostics
         });
     } else if let Some(error) = error {
         track.provenance["bpmAnalysis"] = serde_json::json!({
@@ -554,13 +773,19 @@ fn add_bpm_analysis(track: &Track, analysis: Option<BpmAnalysis>, error: Option<
         track.provenance["bpmAnalysis"] = serde_json::json!({
             "source": "decoded audio",
             "method": "10ms onset autocorrelation",
-            "status": "no confident estimate"
+            "status": "no confident estimate",
+            "diagnostics": diagnostics
         });
     }
     track
 }
 
-fn add_key_analysis(track: &Track, analysis: Option<KeyAnalysis>, error: Option<&str>) -> Track {
+fn add_key_analysis(
+    track: &Track,
+    analysis: Option<KeyAnalysis>,
+    diagnostics: Option<KeyDiagnostics>,
+    error: Option<&str>,
+) -> Track {
     if track
         .key
         .as_deref()
@@ -582,9 +807,12 @@ fn add_key_analysis(track: &Track, analysis: Option<KeyAnalysis>, error: Option<
             "version": "libkeyfinder-2.2.8",
             "status": "complete",
             "confidence": analysis.confidence,
+            "confidenceMeaning": "fraction of five windows agreeing with the accepted key; not a calibrated probability",
+            "diagnosticsMeaning": "profile fit is cosine similarity and margin is the winner-minus-runner-up difference; neither is a calibrated probability",
             "agreementCount": agreement_count,
             "wholeTrackKey": analysis.whole_track_key,
-            "windowKeys": analysis.window_keys
+            "windowKeys": analysis.window_keys,
+            "diagnostics": diagnostics
         });
     } else if let Some(error) = error {
         track.provenance["keyAnalysis"] = serde_json::json!({
@@ -599,7 +827,8 @@ fn add_key_analysis(track: &Track, analysis: Option<KeyAnalysis>, error: Option<
             "source": "decoded audio",
             "method": method,
             "version": "libkeyfinder-2.2.8",
-            "status": "no_confident_estimate"
+            "status": "no_confident_estimate",
+            "diagnostics": diagnostics
         });
     }
     track
@@ -631,9 +860,11 @@ async fn analyze_missing_fields(
         }
     }
     if !manual_bpm && analyzed.bpm.is_none() {
-        analyzed = match detect_bpm(path, settings).await {
-            Ok(analysis) => add_bpm_analysis(&analyzed, analysis, None),
-            Err(error) => add_bpm_analysis(&analyzed, None, Some(&error)),
+        analyzed = match detect_bpm_with_diagnostics(path, settings).await {
+            Ok((analysis, diagnostics)) => {
+                add_bpm_analysis(&analyzed, analysis, Some(diagnostics), None)
+            }
+            Err(error) => add_bpm_analysis(&analyzed, None, None, Some(&error)),
         };
     }
     if !manual_key
@@ -642,9 +873,11 @@ async fn analyze_missing_fields(
             .as_deref()
             .is_none_or(|key| key.trim().is_empty())
     {
-        analyzed = match detect_key(path, settings).await {
-            Ok(analysis) => add_key_analysis(&analyzed, analysis, None),
-            Err(error) => add_key_analysis(&analyzed, None, Some(&error)),
+        analyzed = match detect_key_with_diagnostics(path, settings).await {
+            Ok((analysis, diagnostics)) => {
+                add_key_analysis(&analyzed, analysis, Some(diagnostics), None)
+            }
+            Err(error) => add_key_analysis(&analyzed, None, None, Some(&error)),
         };
     }
     analyzed
@@ -3577,13 +3810,46 @@ mod tests {
             ("C", [130.8128, 164.8138, 196.0]),
             ("Am", [220.0, 261.6256, 329.6276]),
         ] {
-            let detected = estimate_key(&chord(frequencies))
-                .unwrap_or_else(|| panic!("clear {expected} fixture should be classified"));
+            let samples = chord(frequencies);
+            let (detected, diagnostics) = estimate_key_with_diagnostics(&samples);
+            let detected =
+                detected.unwrap_or_else(|| panic!("clear {expected} fixture should be classified"));
             assert_eq!(detected.key, expected, "{detected:?}");
             assert_eq!(detected.window_keys.iter().flatten().count(), 5);
+            assert_eq!(diagnostics.windows.len(), 5);
+            assert_eq!(diagnostics.consensus_key.as_deref(), Some(expected));
+            assert_eq!(diagnostics.rejection_reason, None);
+            assert!(diagnostics
+                .whole_track
+                .as_ref()
+                .unwrap()
+                .profile_fit
+                .is_some());
         }
 
-        assert!(estimate_key(&vec![0.0; duration]).is_none());
+        let (silent_estimate, silent_diagnostics) =
+            estimate_key_with_diagnostics(&vec![0.0; duration]);
+        assert!(silent_estimate.is_none());
+        assert_eq!(
+            silent_diagnostics.rejection_reason,
+            Some("whole_classifier_no_key")
+        );
+        assert_eq!(silent_diagnostics.windows.len(), 5);
+        let silent_track = add_key_analysis(
+            &Track::default(),
+            silent_estimate,
+            Some(silent_diagnostics),
+            None,
+        );
+        assert!(silent_track.key.is_none());
+        assert_eq!(
+            silent_track.provenance["keyAnalysis"]["status"],
+            "no_confident_estimate"
+        );
+        assert_eq!(
+            silent_track.provenance["keyAnalysis"]["diagnostics"]["rejectionReason"],
+            "whole_classifier_no_key"
+        );
         let mut clicks = vec![0.0; duration];
         for offset in (0..duration).step_by(sample_rate / 2) {
             for (sample_index, sample) in clicks[offset..offset + 64].iter_mut().enumerate() {
@@ -3796,7 +4062,8 @@ mod tests {
             title: "Pulse test".into(),
             ..Track::default()
         };
-        track = add_bpm_analysis(&track, Some(analysis), None);
+        let (_, diagnostics) = estimate_bpm_with_diagnostics(&periodic_pulse_envelope(120.0, 32));
+        track = add_bpm_analysis(&track, Some(analysis), Some(diagnostics), None);
         assert_eq!(track.bpm, Some(analysis.bpm));
         assert_eq!(track.provenance["bpmAnalysis"]["bpm"], analysis.bpm);
         assert_eq!(
@@ -3804,6 +4071,16 @@ mod tests {
             serde_json::json!(analysis.related_tempo_bpm)
         );
         assert_eq!(track.provenance["bpmAnalysis"]["tempoAmbiguity"], true);
+        assert_eq!(
+            track.provenance["bpmAnalysis"]["diagnostics"]["rejectionReason"],
+            serde_json::Value::Null
+        );
+        assert!(
+            !track.provenance["bpmAnalysis"]["diagnostics"]["candidatePeaks"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         tag_media(&path, &track, None).unwrap();
         let inspected = inspect_local_file(&path, &Settings::default())
             .await
@@ -3824,6 +4101,7 @@ mod tests {
                 confidence: 0.91,
                 related_tempo_bpm: None,
             }),
+            None,
             None,
         );
         assert_eq!(result.bpm, Some(123.5));
@@ -3898,6 +4176,32 @@ mod tests {
         assert!(
             slow.related_tempo_bpm.is_none(),
             "weak subdivisions should not be presented as an equally likely tempo: {slow:?}"
+        );
+    }
+
+    #[test]
+    fn bpm_diagnostics_explain_abstention_without_creating_a_tempo() {
+        let short = vec![0.0; 100];
+        let (estimate, diagnostics) = estimate_bpm_with_diagnostics(&short);
+        assert!(estimate.is_none());
+        assert_eq!(
+            diagnostics.rejection_reason,
+            Some("insufficient_period_coverage")
+        );
+
+        let silent = vec![0.0; 1000];
+        let (estimate, diagnostics) = estimate_bpm_with_diagnostics(&silent);
+        assert!(estimate.is_none());
+        assert_eq!(diagnostics.rejection_reason, Some("no_onset_energy"));
+        let track = add_bpm_analysis(&Track::default(), estimate, Some(diagnostics), None);
+        assert!(track.bpm.is_none());
+        assert_eq!(
+            track.provenance["bpmAnalysis"]["status"],
+            "no confident estimate"
+        );
+        assert_eq!(
+            track.provenance["bpmAnalysis"]["diagnostics"]["rejectionReason"],
+            "no_onset_energy"
         );
     }
 

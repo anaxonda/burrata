@@ -1,0 +1,14 @@
+{
+  "scope": "post-measurement formatting only; matching/transport/media/diagnostic sources unchanged",
+  "changedInputs": [
+    "src-tauri/src/automation.rs"
+  ],
+  "beforeSha256": "3a47f9edd88ed2e5839518bc87d4a07e84192497a0b7ece26db3025834644dcd",
+  "afterSha256": "fe4c99cf53ac1e8af4f4b8e16f6598bf3e1ed5d24f79ac060806f54fed313f34",
+  "formatter": "cargo fmt --manifest-path src-tauri/Cargo.toml",
+  "checkPassed": true,
+  "plainRustfmtStdoutEqual": true,
+  "releaseGate": "fresh exact-commit CI and tagged installed smoke remain required",
+  "edition": "2021",
+  "comparison": "rustfmt stdout with its filename header removed equals current source byte for byte"
+}

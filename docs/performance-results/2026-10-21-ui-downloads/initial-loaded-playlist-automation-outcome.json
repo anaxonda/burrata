@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "initial_loaded_local_playlist_download_selection_and_acquisition_outcome",
+  "capturedAtUtc": "2026-10-22",
+  "operationId": "a5c14ba5-f487-49f2-a183-d6f37d963b84",
+  "navigation": {
+    "targetKind": "local_playlist",
+    "status": "complete",
+    "trackCount": 13,
+    "collectionRevision": "13:fb7ad98e"
+  },
+  "selectionReceipt": {
+    "status": "completed",
+    "completionScope": "selectionAndEnqueue",
+    "requestedCount": 13,
+    "processedCount": 13,
+    "queuedCount": 13,
+    "selectionFailedCount": 0,
+    "selectionSkippedCount": 0
+  },
+  "acquisitionOutcome": {
+    "observedJobCount": 13,
+    "states": {
+      "completed": 2,
+      "failed": 11
+    },
+    "failedErrorCategories": {
+      "cross_catalog_asset_reuse_blocked": 11
+    },
+    "jobCreatedAtRangeUtc": [
+      "2026-10-22T11:03:07.103579199+00:00",
+      "2026-10-22T11:04:33.523226246+00:00"
+    ],
+    "jobs": [
+      {
+        "index": 0,
+        "jobId": "ce91c6c7-8842-4eb0-8d20-12f103763bb7",
+        "state": "completed",
+        "candidateProvider": "monochrome",
+        "errorCategory": null,
+        "error": null,
+        "createdAt": "2026-10-22T11:03:07.103579199+00:00"
+      },
+      {
+        "index": 1,
+        "jobId": "8d866a0f-1cae-49ca-816f-f7e34f7cf203",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:03:17.166631071+00:00"
+      },
+      {
+        "index": 2,
+        "jobId": "40a0c26e-6249-44c4-8cd9-738d5d2b5d04",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:03:25.898154882+00:00"
+      },
+      {
+        "index": 3,
+        "jobId": "bf57cee2-a30a-4743-98bb-bda1c20d92e1",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:03:31.157380283+00:00"
+      },
+      {
+        "index": 4,
+        "jobId": "73c2a5f2-12c4-4a4c-be5a-aeb7d913b9d5",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:03:38.037805063+00:00"
+      },
+      {
+        "index": 5,
+        "jobId": "5ecbd73f-08c1-483a-989a-1dd0ee9440a4",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:03:43.614589005+00:00"
+      },
+      {
+        "index": 6,
+        "jobId": "73339ea5-bc58-4efb-acb7-a031b09e4a95",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:03:50.018001055+00:00"
+      },
+      {
+        "index": 7,
+        "jobId": "9c3aee27-f4fc-4c02-bce3-16594c6a1659",
+        "state": "completed",
+        "candidateProvider": "monochrome",
+        "errorCategory": null,
+        "error": null,
+        "createdAt": "2026-10-22T11:04:01.816844918+00:00"
+      },
+      {
+        "index": 8,
+        "jobId": "f9e05787-de6a-420b-8e27-a35a77f14209",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:04:06.392626826+00:00"
+      },
+      {
+        "index": 9,
+        "jobId": "341b9d69-08ae-4275-b8fb-d51a7afdef90",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:04:13.415967823+00:00"
+      },
+      {
+        "index": 10,
+        "jobId": "d0782d03-d305-46e6-8371-b942e30a7b9c",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:04:20.729065710+00:00"
+      },
+      {
+        "index": 11,
+        "jobId": "3aeb249f-5a9e-4158-8d54-56a578a605cb",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:04:28.492509734+00:00"
+      },
+      {
+        "index": 12,
+        "jobId": "65c04bb6-ffb0-4586-a091-9f21b6f62fe4",
+        "state": "failed",
+        "candidateProvider": "monochrome",
+        "errorCategory": "cross_catalog_asset_reuse_blocked",
+        "error": "This source is saved for another catalog entry and did not pass the identifier-based reuse policy",
+        "createdAt": "2026-10-22T11:04:33.523226246+00:00"
+      }
+    ]
+  },
+  "interpretation": "The automation action selected and enqueued all 13 playlist entries. The supplied exact job IDs show 2 completed and 11 failed; each of the 11 failures was blocked because the chosen Monochrome source asset was registered to another catalog entry and failed identifier-based reuse. This is an initial outcome only. It does not claim 13 successful downloads or represent subsequent retries.",
+  "privacy": "Omitted filesystem paths, file names, source URLs, full catalog track IDs, and track titles. The supplied jobs page contained unrelated and later jobs; this record includes only IDs returned in this operation receipt."
+}

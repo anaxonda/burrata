@@ -1,0 +1,655 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "burrata.stage5.heldout-catalog-identity.v3",
+  "status": "source-labels-frozen-before-v3-evaluator-run",
+  "frozenOn": "2026-10-22",
+  "purpose": "A small source-supported catalog-metadata regression set covering same-title different-artist contrast, named guest, live and radio-edit alternatives, artist alias spelling, and missing duration. It is not a representative population sample and does not verify audio.",
+  "provenance": {
+    "primarySource": "MusicBrainz public catalog: work, release, series, artist alias, and recording pages",
+    "sources": [
+      {
+        "id": "crazy-in-love-work",
+        "url": "https://musicbrainz.org/work/e526fb3d-f0e7-325e-a934-546a9e82b5ce",
+        "supports": "MusicBrainz lists the album version (Beyoncé feat. Jay-Z, 3:56), a no-rap version without Jay-Z (ISRC USSM10306783, 3:46), live performances (including the 2012 Brooklyn performance), and cover recordings by other artists including Snow Patrol."
+      },
+      {
+        "id": "crazy-in-love-original-series",
+        "url": "https://musicbrainz.org/series/355b26c9-001e-4728-852e-82b4379adb82",
+        "supports": "The Rolling Stone 500 series lists Crazy in Love (album version), Beyoncé feat. Jay-Z, ISRC USSM10305425, 3:56."
+      },
+      {
+        "id": "beyonce-name-aliases",
+        "url": "https://musicbrainz.org/artist/859d0860-d480-4efd-970c-c05d5f1776b8/aliases",
+        "supports": "MusicBrainz lists Beyonce as an alias and artist-credit spelling for the Beyoncé entity."
+      },
+      {
+        "id": "metallica-one-release",
+        "url": "https://musicbrainz.org/release/da53e497-8c61-4d4a-a29b-a5b53d86ccb7",
+        "supports": "The …And Justice for All release identifies One by Metallica, about 7:27, with its own recording-of relationship and Metallica composer credits."
+      },
+      {
+        "id": "u2-one-release",
+        "url": "https://musicbrainz.org/release/9b746946-202a-39b5-9964-9c578ad1c373",
+        "supports": "Achtung Baby identifies One by U2, 4:36, with U2 composer credits."
+      },
+      {
+        "id": "mary-j-blige-u2-one-radio-edit",
+        "url": "https://musicbrainz.org/release/b81a4987-6cd5-4b97-b3c4-9f22f5cedf65",
+        "supports": "The One single release lists One (radio edit), credited Mary J. Blige & U2, 4:04, recording of the One work."
+      },
+      {
+        "id": "beyonce-live-in-brooklyn-recording",
+        "url": "https://musicbrainz.org/artist/859d0860-d480-4efd-970c-c05d5f1776b8/recordings?page=6",
+        "supports": "MusicBrainz lists Crazy in Love (live, 2012-10-06: Barclays Center) by Beyoncé feat. Jay-Z, ISRC USJZ11200006, 3:06, release Live In Brooklyn."
+      }
+    ],
+    "retrievedOn": "2026-10-22",
+    "labelMethod": "Labels were fixed from primary catalog metadata and the matching policy contract before any v3 evaluator run. The single alias case passes the independently verified name-equivalence fact through the evaluator’s scoped alias API; it does not test lookup/discovery. Same recording means matching catalog ISRC for the same source record. Different recording contrasts require distinct credited performers/composer/work metadata or an explicit cataloged version/performance distinction. Alternative labels identify a different edit/performance/cover and are not same-recording claims. Every fixture carrier is synthesized from public catalog facts; no audio was listened to, downloaded, fingerprinted, or bound to a provider URL."
+  },
+  "limitations": [
+    "MusicBrainz is community-maintained metadata.",
+    "Synthetic fixture carriers exercise the shared evaluator but do not measure provider retrieval or source-binding accuracy.",
+    "The set is intentionally small and selected for categories requested by the plan; no precision, recall, false-acceptance-rate, or population accuracy estimate is valid.",
+    "Catalog identity labels do not prove decoded audio identity."
+  ],
+  "cases": [
+    {
+      "id": "same-isrc-crazy-in-love-verified-spelling-alias",
+      "evidenceClass": "sourceBackedCatalogIdentity",
+      "synthetic": false,
+      "groundTruth": "sameCatalogRecording",
+      "sourceRecords": [
+        "crazy-in-love-work",
+        "crazy-in-love-original-series",
+        "beyonce-name-aliases"
+      ],
+      "request": {
+        "title": "Crazy in Love",
+        "artist": "Beyonce feat. Jay-Z",
+        "durationSeconds": 236,
+        "version": null,
+        "isrc": "USSM10305425"
+      },
+      "candidate": {
+        "title": "Crazy in Love",
+        "provider": "fixture",
+        "id": "fixture-crazy-in-love",
+        "url": "",
+        "uploader": "Beyoncé, Jay-Z",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Crazy in Love",
+          "artistNames": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "artistCount": 2,
+          "duration": 236,
+          "isrc": "USSM10305425"
+        },
+        "durationSeconds": 236
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          }
+        }
+      },
+      "rationale": "The source catalog links the candidate recording by shared ISRC; the source profile identifies Beyonce as an alias of the Beyoncé entity. The fixture supplies that prevalidated scoped name-equivalence fact explicitly to the evaluator. The carrier fields and context are synthetic wrappers around catalog facts; this does not qualify alias discovery latency or provider audio.",
+      "catalogFacts": {
+        "title": "Crazy in Love",
+        "performerCredits": [
+          "Beyoncé",
+          "Jay-Z"
+        ],
+        "versionAnnotation": null,
+        "versionNote": "Album version; no semantic alternative on this row.",
+        "durationSeconds": 236,
+        "isrc": "USSM10305425",
+        "requestIsrc": "USSM10305425",
+        "aliasEvidence": "Beyonce is a listed alias of MusicBrainz artist 859d0860-d480-4efd-970c-c05d5f1776b8"
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "heldOut",
+      "verifiedArtistNameAlias": {
+        "provider": "musicbrainz",
+        "artistId": "859d0860-d480-4efd-970c-c05d5f1776b8",
+        "requestedName": "Beyonce",
+        "candidateName": "Beyoncé",
+        "sourceRecord": "beyonce-name-aliases",
+        "evidence": "Unique MusicBrainz artist-profile alias maps the request spelling to the candidate artist entity."
+      }
+    },
+    {
+      "id": "same-title-one-metallica-vs-u2",
+      "evidenceClass": "sourceBackedCatalogContrast",
+      "synthetic": false,
+      "groundTruth": "differentCatalogRecordings",
+      "sourceRecords": [
+        "metallica-one-release",
+        "u2-one-release"
+      ],
+      "request": {
+        "title": "One",
+        "artist": "Metallica",
+        "durationSeconds": 447,
+        "version": null
+      },
+      "candidate": {
+        "title": "One",
+        "provider": "fixture",
+        "id": "fixture-one",
+        "url": "",
+        "uploader": "U2",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "One",
+          "artistNames": [
+            "U2"
+          ],
+          "artistCount": 1,
+          "duration": 276
+        },
+        "durationSeconds": 276
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "Two MusicBrainz release records give the same title to different credited artists and compositions, with substantially different lengths. No acoustic or provider-source claim is made; the independently sourced artist/work facts support this close metadata contradiction.",
+      "catalogFacts": {
+        "request": {
+          "title": "One",
+          "performerCredits": [
+            "Metallica"
+          ],
+          "durationSeconds": 447
+        },
+        "candidate": {
+          "title": "One",
+          "performerCredits": [
+            "U2"
+          ],
+          "durationSeconds": 276
+        },
+        "versionAnnotation": null
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "heldOut"
+    },
+    {
+      "id": "crazy-in-love-no-rap-omits-requested-guest",
+      "evidenceClass": "sourceBackedCatalogContrast",
+      "synthetic": false,
+      "groundTruth": "differentCatalogRecordings",
+      "sourceRecords": [
+        "crazy-in-love-work",
+        "crazy-in-love-original-series"
+      ],
+      "request": {
+        "title": "Crazy in Love",
+        "artist": "Beyoncé feat. Jay-Z",
+        "durationSeconds": 236,
+        "version": null,
+        "isrc": "USSM10305425"
+      },
+      "candidate": {
+        "title": "Crazy in Love (no rap version)",
+        "provider": "fixture",
+        "id": "fixture-crazy-in-love-(no-rap-version)",
+        "url": "",
+        "uploader": "Beyoncé",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Crazy in Love (no rap version)",
+          "artistNames": [
+            "Beyoncé"
+          ],
+          "artistCount": 1,
+          "duration": 226,
+          "isrc": "USSM10306783",
+          "version": "no rap version"
+        },
+        "durationSeconds": 226
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "MusicBrainz distinguishes the album version credited to Beyoncé feat. Jay-Z from a no-rap version without Jay-Z and assigns the latter a different ISRC and length. Missing the requested guest plus the conflicting identifier supports a different-recording label; the edit is not reclassified as a Flexible cover/remix/live alternative.",
+      "catalogFacts": {
+        "request": {
+          "title": "Crazy in Love",
+          "performerCredits": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "durationSeconds": 236,
+          "isrc": "USSM10305425"
+        },
+        "candidate": {
+          "title": "Crazy in Love (no rap version)",
+          "performerCredits": [
+            "Beyoncé"
+          ],
+          "versionAnnotation": "no rap version",
+          "durationSeconds": 226,
+          "isrc": "USSM10306783"
+        }
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "heldOut"
+    },
+    {
+      "id": "crazy-in-love-live-performance-alternative",
+      "evidenceClass": "sourceBackedCatalogAlternative",
+      "synthetic": false,
+      "groundTruth": "identifiedAlternativeRecording",
+      "sourceRecords": [
+        "crazy-in-love-work",
+        "crazy-in-love-original-series",
+        "beyonce-live-in-brooklyn-recording"
+      ],
+      "request": {
+        "title": "Crazy in Love",
+        "artist": "Beyoncé feat. Jay-Z",
+        "durationSeconds": 236,
+        "version": "album version",
+        "isrc": "USSM10305425"
+      },
+      "candidate": {
+        "title": "Crazy in Love (live)",
+        "provider": "fixture",
+        "id": "fixture-crazy-in-love-(live)",
+        "url": "",
+        "uploader": "Beyoncé, Jay-Z",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Crazy in Love (live)",
+          "artistNames": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "artistCount": 2,
+          "duration": 186,
+          "isrc": "USJZ11200006",
+          "version": "live"
+        },
+        "durationSeconds": 186
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "MusicBrainz separately labels the 2012 Brooklyn performance live, with its own ISRC and 3:06 length, distinct from the 3:56 album version. This is a metadata-labeled alternative only; the wrapper does not claim audio-source binding.",
+      "catalogFacts": {
+        "request": {
+          "title": "Crazy in Love",
+          "performerCredits": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "versionAnnotation": "album version",
+          "durationSeconds": 236,
+          "isrc": "USSM10305425"
+        },
+        "candidate": {
+          "title": "Crazy in Love (live)",
+          "performerCredits": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "versionAnnotation": "live",
+          "durationSeconds": 186,
+          "isrc": "USJZ11200006"
+        }
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "heldOut"
+    },
+    {
+      "id": "u2-one-radio-edit-alternative",
+      "evidenceClass": "sourceBackedCatalogAlternative",
+      "synthetic": false,
+      "groundTruth": "identifiedAlternativeRecording",
+      "sourceRecords": [
+        "u2-one-release",
+        "mary-j-blige-u2-one-radio-edit"
+      ],
+      "request": {
+        "title": "One",
+        "artist": "U2",
+        "durationSeconds": 276,
+        "version": null
+      },
+      "candidate": {
+        "title": "One (radio edit)",
+        "provider": "fixture",
+        "id": "fixture-one-(radio-edit)",
+        "url": "",
+        "uploader": "Mary J. Blige, U2",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "One (radio edit)",
+          "artistNames": [
+            "Mary J. Blige",
+            "U2"
+          ],
+          "artistCount": 2,
+          "duration": 244,
+          "version": "radio edit"
+        },
+        "durationSeconds": 244
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Alternative",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "MusicBrainz links the radio edit recording to the One work and lists the distinct Mary J. Blige & U2 credit and 4:04 duration; the U2 album recording is listed at 4:36. The request names U2 but does not assert a closed performer set, so the added credit is not labeled a contradiction. Flexible alternative eligibility is a policy target, not a claim of audio equivalence.",
+      "catalogFacts": {
+        "request": {
+          "title": "One",
+          "performerCredits": [
+            "U2"
+          ],
+          "durationSeconds": 276
+        },
+        "candidate": {
+          "title": "One (radio edit)",
+          "performerCredits": [
+            "Mary J. Blige",
+            "U2"
+          ],
+          "versionAnnotation": "radio edit",
+          "durationSeconds": 244
+        }
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "heldOut"
+    }
+  ],
+  "policyProbes": [
+    {
+      "id": "crazy-in-love-same-isrc-missing-duration-mutation",
+      "evidenceClass": "syntheticMetadataMutation",
+      "synthetic": true,
+      "groundTruth": "sameCatalogRecording",
+      "sourceRecords": [
+        "crazy-in-love-work",
+        "crazy-in-love-original-series"
+      ],
+      "request": {
+        "title": "Crazy in Love",
+        "artist": "Beyoncé feat. Jay-Z",
+        "durationSeconds": 236,
+        "version": null,
+        "isrc": "USSM10305425"
+      },
+      "candidate": {
+        "title": "Crazy in Love",
+        "provider": "fixture",
+        "id": "fixture-crazy-in-love",
+        "url": "",
+        "uploader": "Beyoncé, Jay-Z",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Crazy in Love",
+          "artistNames": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "artistCount": 2,
+          "duration": null,
+          "isrc": "USSM10305425"
+        },
+        "durationSeconds": null
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "recordingIdentifier"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "recordingIdentifier"
+          }
+        }
+      },
+      "rationale": "Deterministic mutation of the source-backed positive removes only candidate duration. The shared ISRC still supports catalog identity; no timing agreement is inferred. This is a policy probe, not an observed provider candidate.",
+      "catalogFacts": {
+        "title": "Crazy in Love",
+        "performerCredits": [
+          "Beyoncé",
+          "Jay-Z"
+        ],
+        "versionAnnotation": null,
+        "versionNote": "Album version; duration intentionally omitted in candidate mutation.",
+        "durationSeconds": 236,
+        "candidateDurationSeconds": null,
+        "isrc": "USSM10305425",
+        "requestIsrc": "USSM10305425"
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "developmentPolicyProbe"
+    }
+  ]
+}

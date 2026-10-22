@@ -26,6 +26,7 @@ pub mod candidate_preview;
 pub mod collection_sources;
 mod compilation_excerpt;
 pub mod connections;
+pub mod diagnostic_metrics;
 mod directory_browser;
 pub mod discovery;
 pub mod external_player;
@@ -2542,6 +2543,7 @@ fn automation_ui_navigation_complete(
     status: String,
     release_revision: Option<String>,
     track_count: Option<usize>,
+    collection_revision: Option<String>,
 ) {
     state.automation.complete_ui_navigation_request(
         &request_id,
@@ -2549,6 +2551,7 @@ fn automation_ui_navigation_complete(
         &status,
         release_revision.as_deref(),
         track_count,
+        collection_revision.as_deref(),
     );
 }
 

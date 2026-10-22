@@ -339,7 +339,10 @@ async fn search_playback_candidates_at(
         _ = tokio::time::sleep_until(operation_deadline) => {
             return Err("YouTube Music playback search deadline expired".into());
         }
-        result = client.post(endpoint).json(&payload).send() => {
+        result = {
+            crate::diagnostic_metrics::record_http_send_attempt();
+            client.post(endpoint).json(&payload).send()
+        } => {
             result.map_err(|_| "YouTube Music playback search request failed".to_owned())?
         }
     };
@@ -447,6 +450,7 @@ pub async fn search_page(
     } else {
         json!({"context":context["context"].clone(),"query":q,"params":"EgWKAQIIAWoKEAkQChADEAQQBQ%3D%3D"})
     };
+    crate::diagnostic_metrics::record_http_send_attempt();
     let response = client.post(endpoint).json(&payload).send().await;
     if let Ok(response) = response {
         if response.status().is_success() {

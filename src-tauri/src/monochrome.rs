@@ -172,6 +172,7 @@ impl Client {
         self.check_cooldown()?;
         let limit = requested_limit.clamp(1, INTERACTIVE_SEARCH_LIMIT);
         let limit_parameter = limit.to_string();
+        crate::diagnostic_metrics::record_http_send_attempt();
         let response = self
             .http
             .get(format!("{}{SEARCH_PATH}", self.base))
@@ -272,6 +273,7 @@ impl Client {
         {
             return Err("Monochrome candidate must use a catalog track URL".into());
         }
+        crate::diagnostic_metrics::record_http_send_attempt();
         let response = self
             .http
             .get(parsed)

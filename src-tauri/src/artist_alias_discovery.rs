@@ -125,6 +125,7 @@ async fn fetch(url: &str, query: &[(&str, String)]) -> Result<Value, String> {
         bytes: 0,
         outcome: "aborted",
     };
+    crate::diagnostic_metrics::record_http_send_attempt();
     let response = client()?
         .get(url)
         .query(query)

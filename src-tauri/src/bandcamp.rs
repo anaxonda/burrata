@@ -237,6 +237,7 @@ pub(crate) async fn resolve_track_page_audio(
         .build()
         .map_err(|_| "Could not initialize Bandcamp track access".to_owned())?;
     let response = bounded(deadline, cancel.clone(), async {
+        crate::diagnostic_metrics::record_http_send_attempt();
         client
             .get(page.clone())
             .send()

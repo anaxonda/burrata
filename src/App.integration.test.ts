@@ -5364,6 +5364,35 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.some(([command])=>command==="get_release_tracks")).toBe(true);
   });
 
+  it("captures and downloads an exact saved local playlist revision through the playlist batch path", async () => {
+    mockCollectionRows=[{...collectionTrack,title:"Stable playlist entry"}];
+    configuredMusicDirectory="/music";
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    const navigate=eventHandlers.get("automation-ui-navigation")!;
+    const target={kind:"local_playlist",collectionId:"collection-empty"};
+    navigate({event:"automation-ui-navigation",id:201,payload:{requestId:"local-playlist-nav-stale",target}});await settle();await settle();
+    const first=mocks.call.mock.calls.find(([command,args])=>command==="automation_ui_navigation_complete"&&args?.requestId==="local-playlist-nav-stale")?.[1];
+    expect(first).toMatchObject({destination:"collection-empty",status:"complete",trackCount:1});
+    expect(typeof first?.collectionRevision).toBe("string");
+    mockCollectionRows=[{...collectionTrack,title:"Changed after capture"}];
+    const settingsBefore=mocks.call.mock.calls.filter(([command])=>command==="get_settings").length;
+    eventHandlers.get("automation-local-playlist-download")!({event:"automation-local-playlist-download",id:202,payload:{operationId:"123e4567-e89b-42d3-a456-426614174000",collectionId:"collection-empty",collectionRevision:first!.collectionRevision}});
+    await settle();await settle();
+    expect(mocks.call).toHaveBeenCalledWith("automation_layout_complete",expect.objectContaining({requestId:"local-playlist-download:123e4567-e89b-42d3-a456-426614174000",layout:expect.objectContaining({status:"failed"})}));
+    expect(mocks.call.mock.calls.filter(([command])=>command==="get_settings")).toHaveLength(settingsBefore);
+
+    navigate({event:"automation-ui-navigation",id:203,payload:{requestId:"local-playlist-nav-current",target}});await settle();await settle();
+    const current=mocks.call.mock.calls.find(([command,args])=>command==="automation_ui_navigation_complete"&&args?.requestId==="local-playlist-nav-current")?.[1];
+    expect(typeof current?.collectionRevision).toBe("string");
+    const operationId="123e4567-e89b-42d3-a456-426614174001";
+    eventHandlers.get("automation-local-playlist-download")!({event:"automation-local-playlist-download",id:204,payload:{operationId,collectionId:"collection-empty",collectionRevision:current!.collectionRevision}});
+    await settle();await settle();
+    expect(mocks.call).toHaveBeenCalledWith("list_tracks",{view:"collections",collectionId:"collection-empty"});
+    expect(mocks.call).toHaveBeenCalledWith("find_download_candidates",expect.objectContaining({track:expect.objectContaining({id:"collection-recording"})}));
+    expect(mocks.call).toHaveBeenCalledWith("automation_layout_complete",expect.objectContaining({requestId:`local-playlist-download:${operationId}`,layout:expect.objectContaining({requestedCount:1})}));
+    expect(mocks.call.mock.calls.some(([command])=>command==="save_settings")).toBe(false);
+  });
+
   it("rejects invalid catalog navigation bridge targets before changing route", async () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };

@@ -1,0 +1,871 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "loaded_local_playlist_final_assets_after_same_job_retry",
+  "capturedAtUtc": "2026-10-22",
+  "appBuildSha256": "72b2f0470c66da078b716a37eabb6a0d8338f1d0758f7ed9545a1cb46909d27a",
+  "automationOperationId": "a5c14ba5-f487-49f2-a183-d6f37d963b84",
+  "selection": {
+    "requested": 13,
+    "processed": 13,
+    "queuedJobCount": 13,
+    "selectionFailures": 0,
+    "selectionSkips": 0
+  },
+  "initialAcquisitionOutcomes": {
+    "stateCounts": {
+      "completed": 2,
+      "failed": 11
+    },
+    "jobs": [
+      {
+        "playlistIndex": 0,
+        "jobId": "ce91c6c7-8842-4eb0-8d20-12f103763bb7",
+        "initialState": "completed",
+        "initialErrorCategory": null
+      },
+      {
+        "playlistIndex": 1,
+        "jobId": "8d866a0f-1cae-49ca-816f-f7e34f7cf203",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 2,
+        "jobId": "40a0c26e-6249-44c4-8cd9-738d5d2b5d04",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 3,
+        "jobId": "bf57cee2-a30a-4743-98bb-bda1c20d92e1",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 4,
+        "jobId": "73c2a5f2-12c4-4a4c-be5a-aeb7d913b9d5",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 5,
+        "jobId": "5ecbd73f-08c1-483a-989a-1dd0ee9440a4",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 6,
+        "jobId": "73339ea5-bc58-4efb-acb7-a031b09e4a95",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 7,
+        "jobId": "9c3aee27-f4fc-4c02-bce3-16594c6a1659",
+        "initialState": "completed",
+        "initialErrorCategory": null
+      },
+      {
+        "playlistIndex": 8,
+        "jobId": "f9e05787-de6a-420b-8e27-a35a77f14209",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 9,
+        "jobId": "341b9d69-08ae-4275-b8fb-d51a7afdef90",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 10,
+        "jobId": "d0782d03-d305-46e6-8371-b942e30a7b9c",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 11,
+        "jobId": "3aeb249f-5a9e-4158-8d54-56a578a605cb",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      },
+      {
+        "playlistIndex": 12,
+        "jobId": "65c04bb6-ffb0-4586-a091-9f21b6f62fe4",
+        "initialState": "failed",
+        "initialErrorCategory": "cross_catalog_asset_reuse_blocked"
+      }
+    ]
+  },
+  "sameJobRetries": {
+    "retryCount": 11,
+    "jobIdsMatchOriginalFailedSet": true,
+    "retryResultAtRequestTime": "queued for every retry; final state verified independently from readonly SQLite job rows"
+  },
+  "finalAuditSummary": {
+    "fileCount": 13,
+    "finalJobStates": {
+      "completed": 13
+    },
+    "allFilesExist": true,
+    "exactPathAssetRowsPerFile": [
+      1
+    ],
+    "allDbHashesMatchLive": true,
+    "fullDecodeSuccessCount": 13,
+    "physicalTagMatchCounts": {
+      "artist": 13,
+      "title": 13,
+      "album": 13
+    },
+    "allBindingsPointToRequestedRecording": true,
+    "existingTargetAssetIdMatchCount": 12,
+    "priorCompletedSamePathAcquisitionCount": 12,
+    "priorSamePathAcquisitionsMatchRecordingAndCandidateCount": 12,
+    "physicalTagKeyCounts": {
+      "ARTIST": 13,
+      "TITLE": 13,
+      "ALBUM": 13,
+      "ISRC": 1,
+      "INITIALKEY": 2
+    },
+    "formatCounts": {
+      "flac": 13
+    }
+  },
+  "files": [
+    {
+      "playlistIndex": 0,
+      "jobId": "ce91c6c7-8842-4eb0-8d20-12f103763bb7",
+      "finalJobState": "completed",
+      "retryResultState": null,
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "29580f33-55f1-4c7b-995a-6f51d3714dd3",
+          "recordingId": "spotify:1npXx6gwd9ZLUPHmjUo5cR",
+          "databaseHash": "f9bf6e961831b8b8d342645eb5e67ce6088100f6e4f5083f3be2608526ef6794",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": false,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "f9bf6e961831b8b8d342645eb5e67ce6088100f6e4f5083f3be2608526ef6794",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "6fcd9f0ca915c8ccf0281af3abb86a70d3af0b88f1f6375b2bc412548b60746c",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 141.506667,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Pilentze Pee",
+        "ALBUM": "Le Mystere Des Voix Bulgares",
+        "ISRC": "USNO18716501"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 0,
+        "allMatchRequestedRecording": false,
+        "allMatchSelectedCandidate": false
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551272379174912"
+    },
+    {
+      "playlistIndex": 1,
+      "jobId": "8d866a0f-1cae-49ca-816f-f7e34f7cf203",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "707e10ad-7f11-4804-961f-c6395b755acd",
+          "recordingId": "spotify:3xcMsaYrlt9P8dXRFvPnKC",
+          "databaseHash": "733fa836da8c69bc7e09d5c32b10f7dbb24c24ef4bef43f6d374ef0d335859c7",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "733fa836da8c69bc7e09d5c32b10f7dbb24c24ef4bef43f6d374ef0d335859c7",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "0a8d8a833c36a3b65306739b66e4205c441c567e7b0b7b0c3f1faf31b8665a81",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 87.226667,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Svatba (The Wedding)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551276380540928"
+    },
+    {
+      "playlistIndex": 2,
+      "jobId": "40a0c26e-6249-44c4-8cd9-738d5d2b5d04",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "6e235366-a74c-42f3-82cf-816d3707cd61",
+          "recordingId": "spotify:2iG3k3Xd7mlatWOVvH7HqE",
+          "databaseHash": "49baca9ecec5ddfc8513837c20aefd3054270a2d380726891dfdc57af0244adf",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "49baca9ecec5ddfc8513837c20aefd3054270a2d380726891dfdc57af0244adf",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "35c4984e2734b5e0759a147f7460ea66622140415fa74343b8dd404d541a2ba4",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 306.133333,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Kalimankou Denkou (The Evening Gathering)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551279949893632"
+    },
+    {
+      "playlistIndex": 3,
+      "jobId": "bf57cee2-a30a-4743-98bb-bda1c20d92e1",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "30c6bd56-46ae-44bb-a619-7993de1bdafe",
+          "recordingId": "spotify:601EnwcQZ2ggBRDqJPIbDb",
+          "databaseHash": "4d0a2df7398d5fea3a0c68813f5a2c0448a2cbe570ed8047fb9e1dd0f270e04e",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "4d0a2df7398d5fea3a0c68813f5a2c0448a2cbe570ed8047fb9e1dd0f270e04e",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "548c0b2d81442483fb1ec735f4aad6aebbe8e050919d070f982dde636ffdfda2",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 156.866667,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Strati na Angelaki Doumasche (Haiduk Song)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551283527634944"
+    },
+    {
+      "playlistIndex": 4,
+      "jobId": "73c2a5f2-12c4-4a4c-be5a-aeb7d913b9d5",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "7ce4eac7-532e-4651-a08e-bc72cf87d6df",
+          "recordingId": "spotify:52DqyorqxxJEAV7FOBvYxP",
+          "databaseHash": "9bfe73633255a361112a193f6f8a7d92528f9ef5b9cd9afe9b74cdc04273d9da",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "9bfe73633255a361112a193f6f8a7d92528f9ef5b9cd9afe9b74cdc04273d9da",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "aac697f662efda0d1b36130d7871360d27216ac8e3764a398739025b1d51199a",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 121.6,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Polegnala e Pschenitza (Harvest Song from Thrace)",
+        "ALBUM": "Le Mystere Des Voix Bulgares",
+        "INITIALKEY": "Gm"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551287096987648"
+    },
+    {
+      "playlistIndex": 5,
+      "jobId": "5ecbd73f-08c1-483a-989a-1dd0ee9440a4",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "c5255619-d79b-4c4c-9196-f95d3c88ddd9",
+          "recordingId": "spotify:6CK1pSiUzo8xw2TnNhMpeO",
+          "databaseHash": "37f30dc9427d302bf678ad1b5987baf1007701f41e110e974cd58d42d7336c3f",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "37f30dc9427d302bf678ad1b5987baf1007701f41e110e974cd58d42d7336c3f",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "146a67207b81770cbe30a93759d32e91497268432b3e30a27b43ced69bdfe1be",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 151.066667,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Messetschinko lio Gre_livko (Love Song from the Mountains)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551290674728960"
+    },
+    {
+      "playlistIndex": 6,
+      "jobId": "73339ea5-bc58-4efb-acb7-a031b09e4a95",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "fd710f62-1c15-4f23-ab01-eb2835c91c22",
+          "recordingId": "spotify:0V9NiI2l0KEGiRu8g94owV",
+          "databaseHash": "a0abce6020a6512e2671c9d45fb459d872e0132ce5475b678e00bc6bf3666bbb",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "a0abce6020a6512e2671c9d45fb459d872e0132ce5475b678e00bc6bf3666bbb",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "5a6c9b68e379db0663c29481b1c71a057fb6a98ebad9b2f72f7430f87b88fbe6",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 90.84,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Bre_Yvance (Dancing Song)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551294252470272"
+    },
+    {
+      "playlistIndex": 7,
+      "jobId": "9c3aee27-f4fc-4c02-bce3-16594c6a1659",
+      "finalJobState": "completed",
+      "retryResultState": null,
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "b71a08ab-9290-4bb0-a432-8a4230ccfae4",
+          "recordingId": "spotify:2bGf7LJjOV9Xk5mPwfyYVS",
+          "databaseHash": "af125268f5b6ad006ef2d4626f6f172894ae45330bc91f4c3f93109999cfb10e",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "af125268f5b6ad006ef2d4626f6f172894ae45330bc91f4c3f93109999cfb10e",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "ffb4c742cf20a48c8fa0b29912f99298fed81866259972f0394df576eb66b975",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 170.4,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Erghan Diado (Song of Schopsko)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551297821822976"
+    },
+    {
+      "playlistIndex": 8,
+      "jobId": "f9e05787-de6a-420b-8e27-a35a77f14209",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "6306cdf6-b7b0-483f-a585-3f7bc56b410f",
+          "recordingId": "spotify:7sr5xJT8RKs2C7Zftxe1Su",
+          "databaseHash": "ca2da2b92d3a364aa650a9d4e7633a17c3cd6b9b8e946979b9600e5e56f473d7",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "ca2da2b92d3a364aa650a9d4e7633a17c3cd6b9b8e946979b9600e5e56f473d7",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "58626f0178943b4f822b4f7140c14caad7664dd263a4aae527bc667791a242e1",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 270.906667,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Sableyalo mi Agontze (The Bleating Lamb)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551301391175680"
+    },
+    {
+      "playlistIndex": 9,
+      "jobId": "341b9d69-08ae-4275-b8fb-d51a7afdef90",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "fc372bc3-df67-4477-bf7e-991eedf977fa",
+          "recordingId": "spotify:05wWHy7q9ScbIvLMDZtTn8",
+          "databaseHash": "316eb83516faf5eca62d98a0fd5b33512a2de3182dfd2906830d90d7989d8db9",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "316eb83516faf5eca62d98a0fd5b33512a2de3182dfd2906830d90d7989d8db9",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "b165b296a1981b2683f7e6d2b53737b3cea55bec893555e3fe58b12e2235ff85",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 165.826667,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Prïtoutïtze Planinata (Song from the Thracian Plain)",
+        "ALBUM": "Le Mystere Des Voix Bulgares",
+        "INITIALKEY": "A"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551304956334080"
+    },
+    {
+      "playlistIndex": 10,
+      "jobId": "d0782d03-d305-46e6-8371-b942e30a7b9c",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "f80aa8f8-e4a1-4826-9d10-665b5f561b4a",
+          "recordingId": "spotify:0m7Xuqbxe5N1hfKo9xccyB",
+          "databaseHash": "7a5dbce8b070f22248e146d8360d018c6eaa921ea0307f83015d49553cdfce84",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "7a5dbce8b070f22248e146d8360d018c6eaa921ea0307f83015d49553cdfce84",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "b288a8e2431f10de03a8501bc3947d142e5bd0a6e1597bad0d21a9329ba358a5",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 189.933333,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Mir Stanke le (Harvest Song from Thrace)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551308953505792"
+    },
+    {
+      "playlistIndex": 11,
+      "jobId": "3aeb249f-5a9e-4158-8d54-56a578a605cb",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "0cae8199-a57f-42c8-9c44-31554b91a775",
+          "recordingId": "spotify:27TwgTbE6MuxFqqSa1A0ly",
+          "databaseHash": "3ed1f16c01d149fa4b07d2227bcf8137fe5d7a79272efa4f9f969d5eef6b13e4",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "3ed1f16c01d149fa4b07d2227bcf8137fe5d7a79272efa4f9f969d5eef6b13e4",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "5de204fd6e532274fb245430c4d739c3bfb5a0a61a166848a6668badd81c2570",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 87.6,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Schopska Pesen (Diaphonic Chant)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551312522858496"
+    },
+    {
+      "playlistIndex": 12,
+      "jobId": "65c04bb6-ffb0-4586-a091-9f21b6f62fe4",
+      "finalJobState": "completed",
+      "retryResultState": "queued",
+      "outputFileExists": true,
+      "registeredAssetRowCountForExactOutputPath": 1,
+      "assetBindings": [
+        {
+          "assetId": "33518389-5ced-42c5-a039-0b46e4e60990",
+          "recordingId": "spotify:2zqLPc7SNIX1JZmKtbq2F6",
+          "databaseHash": "4f3c6d8e83053a257e661b326d2c1b6721e7c9fa90b864b8e7ed16420218a2ef",
+          "databaseHashMatchesLiveFile": true,
+          "payloadHashMatchesLiveFile": true,
+          "targetAssetIdMatches": true,
+          "recordingMatchesRequestedTrack": true,
+          "pathMatchesJobOutput": true
+        }
+      ],
+      "liveFileSha256": "4f3c6d8e83053a257e661b326d2c1b6721e7c9fa90b864b8e7ed16420218a2ef",
+      "fullPcmDecode": {
+        "exitCode": 0,
+        "decodedPcmBytesSha256": "93a32a658ae92559e844b8c121d75de7b5d68bbd73c5528e16632725565015d0",
+        "error": null
+      },
+      "containerFormat": "flac",
+      "durationSeconds": 217.706667,
+      "audioStream": {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_sample": 0
+      },
+      "physicalTags": {
+        "ARTIST": "Bulgarian State Television Female Choir",
+        "TITLE": "Polegnala e Todora (Love Song)",
+        "ALBUM": "Le Mystere Des Voix Bulgares"
+      },
+      "tagComparisonToSavedTrack": {
+        "artistMatches": true,
+        "titleMatches": true,
+        "albumMatches": true,
+        "expectedPresent": {
+          "artist": true,
+          "title": true,
+          "album": true
+        }
+      },
+      "priorCompletedAcquisitionAtExactOutputPath": {
+        "count": 1,
+        "allMatchRequestedRecording": true,
+        "allMatchSelectedCandidate": true
+      },
+      "selectedCandidateProvider": "monochrome",
+      "selectedCandidateId": "monochrome:184551316524224512"
+    }
+  ],
+  "interpretation": "All 13 final outputs have one exact output-path asset row, point to the requested Spotify recording, match DB and live SHA-256, decode fully, and have physical artist/title/album tags matching the saved metadata. For 12 outputs, the asset ID equals the saved target asset ID and a prior completed job exists for the same exact path, requested recording, and selected candidate; these are existing-file reuse. Index 0 has the exact requested recording and a completed output but a newly registered asset ID, corresponding to one of the two jobs that completed in the initial attempt. The other initial completion reused an existing target asset. The 11 failed initial jobs completed on same-job retries. This verifies file and tag consistency and recorded candidate lineage only; it makes no new acoustic-identity claim.",
+  "privacy": "Filesystem paths, filenames, source URLs, and full catalog track IDs are omitted. Exact job and asset IDs are kept for runtime lineage. Physical tags are included for verification."
+}

@@ -1,0 +1,67 @@
+{
+  "evidenceType": "sanitized read-only runtime and local-file audit",
+  "createdAtUtc": "2026-10-22",
+  "scope": {
+    "playbackQueueOrSettingsChanged": false,
+    "downloadsStarted": false,
+    "externalAudioUploads": false,
+    "databaseOrAudioMutations": false
+  },
+  "bulgariaPlaylist": {
+    "savedPlaylistName": "bulgaria",
+    "trackCount": 13,
+    "returnedLocalAvailability": "available for all 13",
+    "verifiedExistingAssets": 13,
+    "assetRowsPresent": 13,
+    "filesPresent": 13,
+    "databaseHashesMatchLiveFiles": 13,
+    "assetPayloadHashesMatchLiveFiles": 13,
+    "flacFiles": 13,
+    "fullDecodeSucceeded": 13,
+    "filesWithTitleArtistAlbumTags": 13,
+    "downloadActionAvailability": {
+      "builtInPlaylistDownloadCommand": false,
+      "navigationCommandCanNavigateButNotInvokeDownload": true,
+      "decision": "No playlist UI download command is exposed to this agent. Because all 13 saved rows already point to verified local FLACs, no download was started and no click sequence was approximated."
+    },
+    "boundary": "This checks the saved 13-entry local playlist named bulgaria. It does not claim to have re-downloaded or checked the separate 62-track public YouTube list."
+  },
+  "laCubanita": {
+    "assetId": "3883e7c8-cb24-422f-88af-5819b0398497",
+    "publicationJobId": "1e92449d-7997-4789-8a15-08544838561f",
+    "jobState": "completed",
+    "jobProvider": "youtube",
+    "outputPathMatchesExactAssetPath": true,
+    "fileExists": true,
+    "liveSha256MatchesDatabase": "1d3f935b42b4a7340c5d882fa404b7db03afc740e357752bf3555a2009c29c73",
+    "format": {
+      "codec": "opus",
+      "sampleRateHz": 48000,
+      "channels": 2,
+      "durationSeconds": 190.0805
+    },
+    "fullDecodeSucceeded": true,
+    "physicalNonArtworkTags": {
+      "TITLE": "La Cubanita",
+      "ARTIST": "Los Niños de Sara",
+      "ALBUM": "Gipsyolé",
+      "BPM": "60.2",
+      "INITIALKEY": "Gbm",
+      "ENCODER": "Lavf62.12.103"
+    },
+    "completedJobSourceMetadata": {
+      "origin": "ytDlpFullInfo",
+      "track": "La Cubanita",
+      "catalogTitle": "La Cubanita",
+      "artists": [
+        "Los Niños de Sara"
+      ],
+      "album": "Gipsyolé",
+      "durationSeconds": 190.0,
+      "resolvedProviderIdMatchesSavedSource": "crVGLi7X1i4"
+    },
+    "tagCoverage": "The title, artist and album available in the completed-job source metadata are present in the file and current library row. Source metadata contains no ISRC, release date, genre, label or catalog number; none is written as a catalog fact.",
+    "identityProvenance": "source_reported_unverified; prior audit found four ambiguous catalog recordings. No catalog recording identity was inferred.",
+    "shazam": "No audio was uploaded for recognition. The current job source metadata provides title, artist and album; Shazam-derived ISRC or other catalog fields are not established."
+  }
+}

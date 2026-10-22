@@ -1,0 +1,42 @@
+{
+  "scope": "Linux normal-profile MCP saved-library playback; position progress is not physical audibility or acoustic identity",
+  "appSha256": "72b2f0470c66da078b716a37eabb6a0d8338f1d0758f7ed9545a1cb46909d27a",
+  "sourceReportSha256": "366d0ccf6f83b4c110d00b27979b650587711ff8b1a008efc9cd9de6b59c3663",
+  "runStatus": "complete",
+  "minimumObservedProgressSeconds": 5,
+  "retries": 0,
+  "cases": [
+    {
+      "caseId": "bacc",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 6.00269,
+      "wallMs": 9931,
+      "intendedMatchingMode": "Balanced"
+    },
+    {
+      "caseId": "vibe_with_me",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 5.989681,
+      "wallMs": 9098,
+      "intendedMatchingMode": "Balanced"
+    },
+    {
+      "caseId": "sacrifices",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 5.979135,
+      "wallMs": 9902,
+      "intendedMatchingMode": "Balanced"
+    },
+    {
+      "caseId": "to_miroloi_tis_manas",
+      "attempts": 1,
+      "status": "five_second_progress_observed",
+      "progressSeconds": 5.975909,
+      "wallMs": 11056,
+      "intendedMatchingMode": "Balanced"
+    }
+  ]
+}

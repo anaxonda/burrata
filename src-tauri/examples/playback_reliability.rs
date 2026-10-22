@@ -26,7 +26,7 @@ use tokio::{io::AsyncReadExt, sync::watch};
 
 #[derive(Debug)]
 struct Options {
-    track: PathBuf,
+    tracks: Vec<PathBuf>,
     settings: PathBuf,
     output: PathBuf,
     resources: Option<PathBuf>,
@@ -41,7 +41,7 @@ struct Options {
 impl Options {
     fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, &'static str> {
         let mut args = args.into_iter();
-        let (mut track, mut settings, mut output, mut resources) = (None, None, None, None);
+        let (mut tracks, mut settings, mut output, mut resources) = (Vec::new(), None, None, None);
         let (mut repetitions, mut warmups, mut smoke) = (20, 3, false);
         let mut scenario = "warm".to_owned();
         let mut expected_video_id = None;
@@ -58,7 +58,7 @@ impl Options {
             }
             let value = args.next().ok_or("MISSING_ARGUMENT_VALUE")?;
             match argument.as_str() {
-                "--track" => track = Some(PathBuf::from(value)),
+                "--track" => tracks.push(PathBuf::from(value)),
                 "--settings" => settings = Some(PathBuf::from(value)),
                 "--output" => output = Some(PathBuf::from(value)),
                 "--resources" => resources = Some(PathBuf::from(value)),
@@ -92,8 +92,18 @@ impl Options {
         }) {
             return Err("INVALID_EXPECTED_VIDEO_ID");
         }
+        if tracks.len() > 200 {
+            return Err("TOO_MANY_TRACKS");
+        }
+        if tracks.len() > 1 && expected_video_id.is_some() {
+            return Err("EXPECTED_VIDEO_ID_REQUIRES_SINGLE_TRACK");
+        }
         Ok(Self {
-            track: track.ok_or("TRACK_REQUIRED")?,
+            tracks: if tracks.is_empty() {
+                return Err("TRACK_REQUIRED");
+            } else {
+                tracks
+            },
             settings: settings.ok_or("SETTINGS_REQUIRED")?,
             output: output.ok_or("OUTPUT_REQUIRED")?,
             resources,
@@ -441,6 +451,7 @@ async fn attempt(
     cancel: watch::Receiver<bool>,
 ) -> Value {
     let started = Instant::now();
+    let diagnostic_metrics_before = burrata_lib::diagnostic_metrics::snapshot();
     let deadline = tokio::time::Instant::now() + settings.playback_startup_timeout();
     let (own_before, children_before) = (usage(false), usage(true));
     // Playback-only experiment: overlap local helper loading with the resolver's
@@ -525,7 +536,22 @@ async fn attempt(
     row["reapedChildCpuMs"] = json!(cpu_delta(children_before, children_after));
     row["helperMaxRssBytes"] = json!(own_after.map(|usage| usage.max_rss_bytes));
     row["reapedChildMaxRssBytes"] = json!(children_after.map(|usage| usage.max_rss_bytes));
-    row["accountingScope"] = json!("main helper CPU and reaped child CPU; persistent BgUtils CPU not yet reaped is excluded per attempt; lifetime RSS maxima are not additive");
+    let diagnostic_metrics =
+        burrata_lib::diagnostic_metrics::snapshot().delta_since(diagnostic_metrics_before);
+    row["instrumentedMetrics"] = json!({
+        "rustHttpSendAttempts":diagnostic_metrics.http_send_attempts,
+        "successfulYtDlpSpawns":diagnostic_metrics.yt_dlp_successful_spawns,
+        "matchPrepareElapsedMs":diagnostic_metrics.match_prepare_elapsed_ns as f64 / 1_000_000.,
+        "matchAssessElapsedMs":diagnostic_metrics.match_assess_elapsed_ns as f64 / 1_000_000.,
+        "matchPrepareCpuElapsedNs":diagnostic_metrics.match_prepare_cpu_elapsed_ns,
+        "matchPrepareCpuObservations":diagnostic_metrics.match_prepare_cpu_observations,
+        "matchAssessCpuElapsedNs":diagnostic_metrics.match_assess_cpu_elapsed_ns,
+        "matchAssessCpuObservations":diagnostic_metrics.match_assess_cpu_observations,
+        "scope":"process-window deltas around this serial diagnostic attempt; only enumerated native send sites, yt-dlp starts, and synchronous matching preparation/assessment are instrumented"
+    });
+    row["accountingScope"] = json!(
+        "main helper CPU and reaped child CPU; persistent BgUtils CPU not yet reaped is excluded per attempt; lifetime RSS maxima are not additive"
+    );
     row
 }
 fn summarize(rows: &[Value]) -> Vec<Value> {
@@ -565,9 +591,17 @@ fn save(path: &Path, report: &Value) -> Result<(), &'static str> {
     std::fs::write(path, bytes).map_err(|_| "OUTPUT_UNAVAILABLE")
 }
 async fn run(options: Options) -> Result<bool, &'static str> {
-    let track_bytes = std::fs::read(&options.track).map_err(|_| "TRACK_UNAVAILABLE")?;
-    let track: Track = serde_json::from_slice(&track_bytes).map_err(|_| "INVALID_TRACK_JSON")?;
-    validate_public_track(&track)?;
+    let tracks = options
+        .tracks
+        .iter()
+        .map(|path| {
+            let bytes = std::fs::read(path).map_err(|_| "TRACK_UNAVAILABLE")?;
+            let track: Track = serde_json::from_slice(&bytes).map_err(|_| "INVALID_TRACK_JSON")?;
+            validate_public_track(&track)?;
+            Ok::<_, &'static str>((track, bytes))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let track = &tracks[0].0;
     let settings_bytes = std::fs::read(&options.settings).map_err(|_| "SETTINGS_UNAVAILABLE")?;
     let public: PublicSettings =
         serde_json::from_slice(&settings_bytes).map_err(|_| "INVALID_PUBLIC_SETTINGS_JSON")?;
@@ -597,6 +631,7 @@ async fn run(options: Options) -> Result<bool, &'static str> {
     );
     burrata_lib::youtube_support::initialize_global(manager.clone())
         .map_err(|_| "PROVIDER_INITIALIZATION_FAILED")?;
+    burrata_lib::diagnostic_metrics::enable();
     let (stop, cancel) = watch::channel(false);
     let interrupt = tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
@@ -607,14 +642,18 @@ async fn run(options: Options) -> Result<bool, &'static str> {
         "environmentIsolation":"process-only disposable XDG cache/config/data roots; HOME unchanged; all connection credentials session-only and empty",
         "platform":std::env::consts::OS,"architecture":std::env::consts::ARCH,"build":if cfg!(debug_assertions){"debug"}else{"release"},
         "requestedRecordingIdentity":{"id":track.id,"provider":track.provider,"providerId":track.provider_id,"artist":track.artist,"title":track.title,"durationSeconds":track.duration_seconds},
-        "inputHashes":{"trackSha256":format!("{:x}",Sha256::digest(&track_bytes)),"publicSettingsSha256":format!("{:x}",Sha256::digest(&settings_bytes)),"exampleSourceSha256":format!("{:x}",Sha256::digest(include_bytes!("playback_reliability.rs")))},
+        "requestedRecordingIdentities":tracks.iter().map(|(track,_)|json!({"id":track.id,"provider":track.provider,"providerId":track.provider_id,"artist":track.artist,"title":track.title,"durationSeconds":track.duration_seconds})).collect::<Vec<_>>(),
+        "inputHashes":{"trackSha256":format!("{:x}",Sha256::digest(&tracks[0].1)),"trackSha256s":tracks.iter().map(|(_,bytes)|format!("{:x}",Sha256::digest(bytes))).collect::<Vec<_>>(),"publicSettingsSha256":format!("{:x}",Sha256::digest(&settings_bytes)),"exampleSourceSha256":format!("{:x}",Sha256::digest(include_bytes!("playback_reliability.rs")))},
+        "batchScope":if tracks.len()>1{"sequential shared-process/store multi-track diagnostic; not concurrent playback"}else{"single-track diagnostic"},
+        "externalRequestMeasurement":{"status":"partial_instrumentation","physicalOutboundRequestCount":null,"note":"instrumented Rust send invocations are listed in instrumentedMetricsCoverage; redirects, yt-dlp internal network activity and other uninstrumented modules remain opaque"},
+        "instrumentedMetricsCoverage":burrata_lib::diagnostic_metrics::coverage(),
         "expectedVideoId":options.expected_video_id,"providerPrewarmEnabled":options.prewarm_provider,"smoke":options.smoke,"repetitions":options.repetitions,"warmupsPerScenario":options.warmups,
         "resolverBudgetMs":settings.playback_startup_timeout().as_millis(),"commandBudgetScope":"one shared absolute budget for resolver and five seconds PCM decode",
         "streamingPolicy":{"matchingLevel":settings.matching_level,"preferred":settings.preferred_streaming_source,"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources},
         "coldScope":"new disposable Store/AcquisitionManager and stopped BgUtils helper; OS and packaged tool caches are not flushed",
         "warmScope":if options.scenario=="paired"{"same Store/AcquisitionManager immediately after its paired cold attempt"}else{"one reused Store/AcquisitionManager per warm scenario; warmups excluded"},
         "identityScope":"production resolver evidence gate; explicit video ID invariant only when supplied; no acoustic verification",
-        "attempts":[],"unexpectedSourceIds":[],"summary":[]});
+        "attempts":[],"batches":[],"unexpectedSourceIds":[],"summary":[]});
     let before_children = usage(true);
     let before_helper = usage(false);
     let mut rows = Vec::new();
@@ -645,7 +684,7 @@ async fn run(options: Options) -> Result<bool, &'static str> {
                         .await
                         .map_err(|_| "PROVIDER_RESET_FAILED")?;
                 }
-                retained = Some(context(&settings, &track)?);
+                retained = Some(context(&settings, track)?);
             }
             let cold;
             let ctx = if paired || scenario == "warm" {
@@ -655,24 +694,49 @@ async fn run(options: Options) -> Result<bool, &'static str> {
                     .shutdown()
                     .await
                     .map_err(|_| "PROVIDER_RESET_FAILED")?;
-                cold = context(&settings, &track)?;
+                cold = context(&settings, track)?;
                 &cold
             };
-            let mut row = attempt(ctx, &track, &settings, &options, &manager, cancel.clone()).await;
-            row["scenario"] = json!(scenario);
-            row["matchingLevel"] = json!(settings.matching_level);
-            if paired {
-                row["pairIndex"] = json!(index);
+            let batch_id = format!("{scenario}-{index}");
+            let batch_started = Instant::now();
+            let (batch_helper_before, batch_children_before) = (usage(false), usage(true));
+            let batch_metrics_before = burrata_lib::diagnostic_metrics::snapshot();
+            let batch_row_start = rows.len();
+            for (entry_index, (entry, _)) in tracks.iter().enumerate() {
+                ctx.store.save_track(entry).map_err(|_| "TRACK_UNAVAILABLE")?;
+                let mut row = attempt(ctx, entry, &settings, &options, &manager, cancel.clone()).await;
+                row["scenario"] = json!(scenario);
+                row["matchingLevel"] = json!(settings.matching_level);
+                row["batchId"] = json!(batch_id);
+                row["batchEntryIndex"] = json!(entry_index);
+                row["batchEntryCount"] = json!(tracks.len());
+                if paired { row["pairIndex"] = json!(index); }
+                row["warmup"] = json!(index < options.warmups);
+                row["iteration"] = json!(index.saturating_sub(options.warmups));
+                if row["failure"] == "UNEXPECTED_SOURCE_ID" {
+                    report["unexpectedSourceIds"].as_array_mut().unwrap().push(row.clone());
+                }
+                rows.push(row);
             }
-            row["warmup"] = json!(index < options.warmups);
-            row["iteration"] = json!(index.saturating_sub(options.warmups));
-            if row["failure"] == "UNEXPECTED_SOURCE_ID" {
-                report["unexpectedSourceIds"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(row.clone());
-            }
-            rows.push(row);
+            let batch_metrics = burrata_lib::diagnostic_metrics::snapshot()
+                .delta_since(batch_metrics_before);
+            report["batches"].as_array_mut().unwrap().push(json!({
+                "batchId":batch_id,"scenario":scenario,"pairIndex":if paired{Some(index)}else{None},
+                "warmup":index<options.warmups,"entryCount":tracks.len(),"wallMs":batch_started.elapsed().as_secs_f64()*1000.,
+                "successCount":rows[batch_row_start..].iter().filter(|row|row["ok"]==true).count(),
+                "failureCount":rows[batch_row_start..].iter().filter(|row|row["ok"]!=true).count(),
+                "helperCpuMs":cpu_delta(batch_helper_before,usage(false)),"reapedChildCpuMs":cpu_delta(batch_children_before,usage(true)),
+                "helperMaxRssBytes":usage(false).map(|usage|usage.max_rss_bytes),"reapedChildMaxRssBytes":usage(true).map(|usage|usage.max_rss_bytes),
+                "instrumentedMetrics":json!({"rustHttpSendAttempts":batch_metrics.http_send_attempts,"successfulYtDlpSpawns":batch_metrics.yt_dlp_successful_spawns,
+                        "matchPrepareElapsedMs":batch_metrics.match_prepare_elapsed_ns as f64/1_000_000.,
+                        "matchAssessElapsedMs":batch_metrics.match_assess_elapsed_ns as f64/1_000_000.,
+                        "matchPrepareCpuElapsedNs":batch_metrics.match_prepare_cpu_elapsed_ns,
+                        "matchPrepareCpuObservations":batch_metrics.match_prepare_cpu_observations,
+                        "matchAssessCpuElapsedNs":batch_metrics.match_assess_cpu_elapsed_ns,
+                        "matchAssessCpuObservations":batch_metrics.match_assess_cpu_observations,
+                        "scope":"process-window delta for serial batch; counters cover only enumerated sites and are not physical HTTP request totals"}),
+                "resourceScope":"batch cumulative CPU deltas; maxRSS is process lifetime high-water observed at batch end, not per-entry or additive"
+            }));
             report["attempts"] = json!(rows);
             report["summary"] = json!(summarize(&rows));
             save(&options.output, &report)?;
@@ -694,7 +758,9 @@ async fn run(options: Options) -> Result<bool, &'static str> {
     report["fullRunHelperMaxRssBytes"] = json!(usage(false).map(|usage| usage.max_rss_bytes));
     report["reapedChildrenIncludingProviderCpuMs"] = json!(cpu_delta(before_children, usage(true)));
     report["fullRunReapedChildMaxRssBytes"] = json!(usage(true).map(|usage| usage.max_rss_bytes));
-    report["resourceAccountingNote"]=json!("full-run reaped child CPU includes stopped BgUtils helpers, extractor runtimes and FFmpeg; lifetime maxRSS is a maximum rather than a simultaneous sum");
+    report["resourceAccountingNote"] = json!(
+        "full-run reaped child CPU includes stopped BgUtils helpers, extractor runtimes and FFmpeg; lifetime maxRSS is a maximum rather than a simultaneous sum"
+    );
     if let Err(code) = operation {
         report["harnessFailure"] = json!(code);
     }
@@ -710,7 +776,7 @@ async fn run(options: Options) -> Result<bool, &'static str> {
         .collect::<Vec<_>>();
     let passed = operation.is_ok()
         && shutdown.is_ok()
-        && measured.len() == expected
+        && measured.len() == expected * tracks.len()
         && measured.iter().all(|r| r["ok"] == true);
     report["runPassed"] = json!(passed);
     save(&options.output, &report)?;
@@ -722,7 +788,9 @@ async fn run(options: Options) -> Result<bool, &'static str> {
 }
 fn main() {
     if std::env::args().any(|arg| arg == "--help") {
-        println!("playback_reliability --track PUBLIC_TRACK.json --settings PUBLIC_SETTINGS.json --output REPORT.json [--resources DIR] [--repetitions 20] [--warmups 3] [--scenario cold|warm|both|paired] [--expected-video-id ID] [--position SECONDS] [--prewarm-provider] [--smoke]");
+        println!(
+            "playback_reliability --track PUBLIC_TRACK.json --settings PUBLIC_SETTINGS.json --output REPORT.json [--resources DIR] [--repetitions 20] [--warmups 3] [--scenario cold|warm|both|paired] [--expected-video-id ID] [--position SECONDS] [--prewarm-provider] [--smoke]"
+        );
         return;
     }
     // Set child-runtime cache/config/data roots before starting any async threads.
@@ -784,6 +852,31 @@ mod tests {
                 .unwrap()
                 .prewarm_provider
         );
+    }
+    #[test]
+    fn repeated_track_arguments_select_shared_process_batch_mode() {
+        let mut input = args(&[]);
+        input.extend(["--track", "second.json"].into_iter().map(String::from));
+        let options = Options::parse(input).unwrap();
+        assert_eq!(
+            options.tracks,
+            [PathBuf::from("public.json"), PathBuf::from("second.json")]
+        );
+    }
+    #[test]
+    fn batch_limits_and_single_track_identity_expectation_are_enforced() {
+        let mut with_expected_id = args(&["--expected-video-id", "abcdefghijk"]);
+        with_expected_id.extend(["--track", "second.json"].into_iter().map(String::from));
+        assert_eq!(
+            Options::parse(with_expected_id).unwrap_err(),
+            "EXPECTED_VIDEO_ID_REQUIRES_SINGLE_TRACK"
+        );
+
+        let mut too_many = args(&[]);
+        for index in 0..200 {
+            too_many.extend(["--track".to_owned(), format!("{index}.json")]);
+        }
+        assert_eq!(Options::parse(too_many).unwrap_err(), "TOO_MANY_TRACKS");
     }
     #[test]
     fn one_attempt_requires_explicit_smoke() {

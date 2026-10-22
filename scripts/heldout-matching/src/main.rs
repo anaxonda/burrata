@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#[path = "../../../src-tauri/src/diagnostic_metrics.rs"]
+mod diagnostic_metrics;
 #[path = "../../../src-tauri/src/matching.rs"]
 mod matching;
 #[path = "../../../src-tauri/src/models.rs"]
@@ -98,7 +100,24 @@ fn run_group(cases: &[Value], classification: &str) -> Result<(usize, usize), St
                 let selected_mode = parse_mode(mode_name)?;
                 let selected_stage = parse_stage(stage_name)?;
                 let result = std::panic::catch_unwind(|| {
-                    recording_match::assess(&request, &candidate, selected_mode, selected_stage)
+                    if let Some(alias) = case["verifiedArtistNameAlias"].as_object() {
+                        let requested = alias["requestedName"]
+                            .as_str()
+                            .expect("verified alias request name missing");
+                        let candidate_name = alias["candidateName"]
+                            .as_str()
+                            .expect("verified alias candidate name missing");
+                        recording_match::assess_with_scoped_artist_name_alias(
+                            &request,
+                            &candidate,
+                            selected_mode,
+                            selected_stage,
+                            requested,
+                            candidate_name,
+                        )
+                    } else {
+                        recording_match::assess(&request, &candidate, selected_mode, selected_stage)
+                    }
                 });
                 evaluated += 1;
                 match result {
@@ -114,7 +133,7 @@ fn run_group(cases: &[Value], classification: &str) -> Result<(usize, usize), St
                         } else {
                             format!("{classification}-DIFF")
                         };
-                        println!("{mark} case={id} stage={stage_name} mode={mode_name} expected={:?}/{:?}/{:?} actual={:?}/{:?}/{:?} reasons={:?} carrierSynthetic={}", exp_rel, exp_act, exp_proof, actual.relationship, actual.action, actual.proof_strength, actual.reasons, case["candidateCarrierSynthetic"]);
+                        println!("{mark} case={id} stage={stage_name} mode={mode_name} expected={:?}/{:?}/{:?} actual={:?}/{:?}/{:?} reasons={:?} aliasContext={} carrierSynthetic={}", exp_rel, exp_act, exp_proof, actual.relationship, actual.action, actual.proof_strength, actual.reasons, case.get("verifiedArtistNameAlias").is_some(), case["candidateCarrierSynthetic"]);
                     }
                     Err(_) => {
                         differences += 1;
@@ -131,10 +150,14 @@ fn run() -> Result<(), String> {
     let root: Value =
         serde_json::from_slice(&fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?)
             .map_err(|e| e.to_string())?;
-    if root["fixtureId"] != "burrata.stage5.heldout-catalog-identity.v2"
-        || root["status"] != "reviewed-after-v1-initial-run; labels-frozen-before-v2-run"
-    {
-        return Err("unsupported or unfrozen v2 fixture".into());
+    let supported_v2 = root["fixtureId"] == "burrata.stage5.heldout-catalog-identity.v2"
+        && root["status"] == "reviewed-after-v1-initial-run; labels-frozen-before-v2-run";
+    let supported_v3 = root["fixtureId"] == "burrata.stage5.heldout-catalog-identity.v3"
+        && root["status"] == "source-labels-frozen-before-v3-evaluator-run";
+    let supported_v4 = root["fixtureId"] == "burrata.stage5.heldout-catalog-identity.v4"
+        && root["status"] == "policy-corrected-after-v3-initial-run; labels-frozen-before-v4-run";
+    if !supported_v2 && !supported_v3 && !supported_v4 {
+        return Err("unsupported or unfrozen catalog fixture".into());
     }
     let cases = root["cases"].as_array().ok_or("held-out cases missing")?;
     let probes = root["policyProbes"]
@@ -142,7 +165,7 @@ fn run() -> Result<(), String> {
         .ok_or("policy probes missing")?;
     let (heldout_count, heldout_diffs) = run_group(cases, "HELDOUT")?;
     let (probe_count, probe_diffs) = run_group(probes, "POLICY")?;
-    println!("heldoutEvaluated={heldout_count} heldoutDifferences={heldout_diffs}; policyProbeEvaluated={probe_count} policyProbeDifferences={probe_diffs}; no population accuracy estimate");
+    println!("fixture={} heldoutEvaluated={heldout_count} heldoutDifferences={heldout_diffs}; policyProbeEvaluated={probe_count} policyProbeDifferences={probe_diffs}; no population accuracy estimate", root["fixtureId"]);
     if heldout_diffs + probe_diffs > 0 {
         Err(format!(
             "{} held-out and {} policy-probe expectations differ",

@@ -15,6 +15,14 @@ spec.loader.exec_module(cohort)
 
 
 class CohortTests(unittest.TestCase):
+    def test_source_snapshot_records_base_dirty_state_and_diff_fingerprint(self):
+        snapshot = cohort.source_snapshot(Path(__file__).parents[2])
+        self.assertRegex(snapshot["sourceRevision"], r"^[0-9a-f]{40}$")
+        self.assertIsInstance(snapshot["worktreeDirty"], bool)
+        self.assertRegex(snapshot["trackedDiffSha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(snapshot["untrackedBuildSourceFileCount"],
+                         len(snapshot["untrackedBuildSourceFiles"]))
+
     def test_level_selector_defaults_to_all_and_accepts_two_canonical_levels(self):
         parser = cohort.build_parser()
         base = ["--binary", "bin", "--manifest", "manifest.json", "--outputdir", "out"]
@@ -107,6 +115,40 @@ class CohortTests(unittest.TestCase):
         result = cohort.attempt_summary({"attempts": rows})
         self.assertEqual(result["pairedSourceIdentityDifferenceCount"], 1)
 
+    def test_shared_process_batch_pairs_each_entry_and_keeps_batch_resource_scope(self):
+        rows = [
+            {"scenario": "cold", "warmup": False, "pairIndex": 0, "batchEntryIndex": 0,
+             "resolvedRecordingIdentity": {"providerId": "a"}, "ok": True, "resolveMs": 10,
+             "instrumentedMetrics": {"rustHttpSendAttempts": 4, "secret": "do-not-copy"}},
+            {"scenario": "warm", "warmup": False, "pairIndex": 0, "batchEntryIndex": 0,
+             "resolvedRecordingIdentity": {"providerId": "a"}, "ok": True, "resolveMs": 2},
+            {"scenario": "cold", "warmup": False, "pairIndex": 0, "batchEntryIndex": 1,
+             "resolvedRecordingIdentity": {"providerId": "b"}, "ok": True, "resolveMs": 20},
+            {"scenario": "warm", "warmup": False, "pairIndex": 0, "batchEntryIndex": 1,
+             "resolvedRecordingIdentity": {"providerId": "b"}, "ok": True, "resolveMs": 3},
+        ]
+        result = cohort.attempt_summary({"attempts": rows})
+        self.assertEqual(result["perBatchEntry"]["1"]["cold"]["resolveMsP50"], 20)
+        self.assertEqual(result["pairedSourceIdentityDifferenceCount"], 0)
+        self.assertEqual(result["attempts"][0]["instrumentedMetrics"]["rustHttpSendAttempts"], 4)
+        self.assertIsNone(result["attempts"][0]["instrumentedMetrics"]["matchPrepareCpuElapsedNs"])
+
+    def test_cpu_metric_without_clock_observations_remains_null(self):
+        rows = [{"scenario": "cold", "warmup": False, "ok": True, "resolveMs": 1,
+                 "instrumentedMetrics": {"matchPrepareCpuElapsedNs": None,
+                                         "matchPrepareCpuObservations": 0}}]
+        result = cohort.attempt_summary({"attempts": rows, "batches": [
+            {"scenario": "cold", "warmup": False, "failureCount": 0,
+             "instrumentedMetrics": {"matchPrepareCpuElapsedNs": None,
+                                     "matchPrepareCpuObservations": 0}}
+        ]})
+        metrics = result["attempts"][0]["instrumentedMetrics"]
+        self.assertIsNone(metrics["matchPrepareCpuElapsedNs"])
+        cold = result["batchSummary"]["cold"]
+        self.assertIsNone(cold["instrumentedMetricTotals"]["matchPrepareCpuElapsedNs"])
+        self.assertEqual(cold["instrumentedMetricDistributions"]["matchPrepareCpuElapsedNs"]["n"], 0)
+        self.assertEqual(cold["instrumentedMetricTotals"]["matchPrepareCpuObservations"], 0)
+
     def test_rejects_profile_or_secret_settings(self):
         with self.assertRaises(ValueError):
             cohort.check_public({"preferredStreamingSource": "youtube", "apiToken": "x"})
@@ -167,6 +209,39 @@ Path(args["--output"]).write_text(json.dumps({"schema":"burrata.production-resol
             self.assertEqual(result["frozen"]["levels"], ["balanced", "flexible"])
             self.assertEqual(list(result["cases"][0]["modes"]), ["balanced", "flexible"])
             self.assertNotIn("exact", result["cases"][0]["modes"])
+
+    def test_fake_batch_invocation_retains_entry_and_shared_resource_summaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); binary = root / "fake.py"
+            binary.write_text('''#!/usr/bin/env python3
+import json,sys
+from pathlib import Path
+args=dict(zip(sys.argv[1::2],sys.argv[2::2]))
+tracks=[sys.argv[i+1] for i,x in enumerate(sys.argv[:-1]) if x=="--track"]
+rows=[]
+for scenario in ("cold","warm"):
+ for entry in range(len(tracks)):
+  rows.append({"scenario":scenario,"pairIndex":0,"batchId":scenario+"-0","batchEntryIndex":entry,"batchEntryCount":len(tracks),"warmup":False,"ok":True,"resolveMs":10+entry,"resolvedRecordingIdentity":{"providerId":"src"+str(entry)}})
+Path(args["--output"]).write_text(json.dumps({"schema":"burrata.production-resolver-diagnostic/v1","runPassed":True,"providerShutdownOk":True,"attempts":rows,"batches":[{"scenario":"cold","warmup":False,"entryCount":len(tracks),"wallMs":20,"helperMaxRssBytes":1000,"instrumentedMetrics":{"rustHttpSendAttempts":7,"successfulYtDlpSpawns":2,"matchPrepareElapsedMs":1.5,"matchAssessElapsedMs":3.0,"matchPrepareCpuElapsedNs":1500000,"matchPrepareCpuObservations":3,"matchAssessCpuElapsedNs":200000,"matchAssessCpuObservations":3}}]}))
+''')
+            binary.chmod(0o755)
+            for name in ("a.json", "b.json"):
+                (root / name).write_text('{"id":"' + name + '","title":"Song"}')
+            (root / "settings.json").write_text('{}')
+            (root / "manifest.json").write_text(json.dumps({"cases":[{"caseId":"batch","tracks":["a.json","b.json"],"settings":"settings.json"}]}))
+            args = SimpleNamespace(manifest=str(root / "manifest.json"), binary=str(binary), outputdir=str(root / "out"),
+                                   smoke=True, reps=20, warmups=3, levels=["balanced"], trace=False)
+            result = cohort.run(args)
+            mode = result["cases"][0]["modes"]["balanced"]
+            self.assertEqual(result["cases"][0]["batchEntryCount"], 2)
+            self.assertEqual(mode["perBatchEntry"]["1"]["warm"]["successes"], 1)
+            self.assertEqual(mode["batches"][0]["helperMaxRssBytes"], 1000)
+            self.assertEqual(mode["batchSummary"]["cold"]["wallMs"]["p50"], 20)
+            self.assertEqual(mode["batchSummary"]["cold"]["instrumentedMetricTotals"]["rustHttpSendAttempts"], 7)
+            self.assertEqual(mode["batchSummary"]["cold"]["instrumentedMetricDistributions"]["rustHttpSendAttempts"]["p50"], 7)
+            self.assertEqual(mode["batchSummary"]["cold"]["instrumentedMetricTotals"]["matchPrepareCpuObservations"], 3)
+            self.assertEqual(mode["batchSummary"]["cold"]["instrumentedMetricDistributions"]["matchPrepareCpuElapsedNs"]["p50"], 1500000)
+            self.assertIn("lifetime high-water", mode["batchSummary"]["cold"]["resourceScope"])
 
 
 if __name__ == "__main__":

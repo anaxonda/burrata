@@ -5294,11 +5294,18 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     }
     return receipt;
   }
-  async function downloadPlaylist(id: string, useDisplayed = false) {
+  function localPlaylistSnapshot(items: Track[]) {
+    const source=JSON.stringify(items.map((track,index)=>[index,track.id,track.provider,track.providerId,track.sourceUrl,track.artist,track.title,track.version,track.album,track.albumArtist,track.label,track.genre,track.durationSeconds,track.releaseDate,track.isrc,track.catalogNumber,track.trackNumber,track.discNumber,track.assetId,track.localPath]));
+    let hash=2166136261;
+    for(let index=0;index<source.length;index++)hash=Math.imul(hash^source.charCodeAt(index),16777619);
+    return {trackCount:items.length,revision:`${items.length}:${(hash>>>0).toString(16).padStart(8,"0")}`};
+  }
+  async function downloadPlaylist(id: string, useDisplayed = false, expectedRevision?:string, onReceipt?:(receipt:AlbumBatchReceipt)=>void|Promise<void>) {
     // A local playlist download includes the entire stored order, beyond its visible page.
     // Imported snapshots retain their explicitly selected import version.
     const items = useDisplayed && activeBrowserImport ? [...tracks] : await call<Track[]>("list_tracks", { view: "collections", collectionId: id });
-    await queueSelected(items);
+    if(expectedRevision && localPlaylistSnapshot(items).revision!==expectedRevision)throw new Error("Playlist changed; reopen the exact local playlist before downloading");
+    return await queueSelected(items,onReceipt);
   }
   let downloadSortField = $state<TrackSortField>("sourceOrder"),downloadSortDirection = $state<SortDirection>("asc"),downloadMinDuration=$state(""),downloadMaxDuration=$state("");
   const sortedDownloadJobs=$derived.by(()=>{
@@ -5978,16 +5985,17 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         void call("automation_layout_complete",{requestId:request.requestId,layout:sample}).catch(()=>{});
       });
       let activeUiNavigationRequest: string | null = null;
-      const navigationListenerReady = register<{requestId:string;target:{kind:"view";view:"library"|"favorites"|"history"|"downloads"|"settings"|"radio";settingsCategory?:SettingsCategory;settingsControl?:string}|{kind:"catalog_artist";catalogArtist:ArtistRef;catalogArtistSection?:"overview"|"releases"|"tracks"}|{kind:"catalog_release";catalogArtist:ArtistRef;catalogRelease:ArtistRef}|{kind:"spotify_artist";spotifyArtistId:string}|{kind:"spotify_profile";spotifyProfileId:string}|{kind:"spotify_playlist";spotifyPlaylistId:string}|{kind:"history";historyDirection:"back"|"forward"}}>("automation-ui-navigation", request => {
+      const navigationListenerReady = register<{requestId:string;target:{kind:"view";view:"library"|"favorites"|"history"|"downloads"|"settings"|"radio";settingsCategory?:SettingsCategory;settingsControl?:string}|{kind:"catalog_artist";catalogArtist:ArtistRef;catalogArtistSection?:"overview"|"releases"|"tracks"}|{kind:"catalog_release";catalogArtist:ArtistRef;catalogRelease:ArtistRef}|{kind:"spotify_artist";spotifyArtistId:string}|{kind:"spotify_profile";spotifyProfileId:string}|{kind:"spotify_playlist";spotifyPlaylistId:string}|{kind:"local_playlist";collectionId:string}|{kind:"history";historyDirection:"back"|"forward"}}>("automation-ui-navigation", request => {
         activeUiNavigationRequest = request.requestId;
         const target = request.target;
-        const destination = target.kind === "catalog_artist" ? (target.catalogArtist?.id ?? "") : target.kind === "catalog_release" ? (target.catalogRelease?.id ?? "") : target.kind === "view" ? target.view : target.kind === "spotify_artist" ? target.spotifyArtistId : target.kind === "spotify_profile" ? target.spotifyProfileId : target.kind === "spotify_playlist" ? target.spotifyPlaylistId : target.historyDirection;
+        const destination = target.kind === "catalog_artist" ? (target.catalogArtist?.id ?? "") : target.kind === "catalog_release" ? (target.catalogRelease?.id ?? "") : target.kind === "view" ? target.view : target.kind === "spotify_artist" ? target.spotifyArtistId : target.kind === "spotify_profile" ? target.spotifyProfileId : target.kind === "spotify_playlist" ? target.spotifyPlaylistId : target.kind === "local_playlist" ? target.collectionId : target.historyDirection;
         const historyStack = target.kind === "history" ? (target.historyDirection === "back" ? backRoutes : forwardRoutes) : [];
         const historyRoute = historyStack[historyStack.length - 1];
-        const targetView = target.kind === "view" ? target.view : (target.kind === "spotify_artist" || target.kind === "catalog_artist") ? "artist" : target.kind === "catalog_release" ? "search" : target.kind === "history" ? historyRoute?.view : "source-browser";
+        const targetView = target.kind === "view" ? target.view : target.kind === "local_playlist" ? "collections" : (target.kind === "spotify_artist" || target.kind === "catalog_artist") ? "artist" : target.kind === "catalog_release" ? "search" : target.kind === "history" ? historyRoute?.view : "source-browser";
         const hasSettingsControl = "settingsControl" in target;
         const before = navigationRequest;
         let expectedNavigation = before + 1;
+        let loadedLocalPlaylistSnapshot:ReturnType<typeof localPlaylistSnapshot>|undefined;
         void (async () => {
           try {
             if (hasSettingsControl && (target.kind !== "view" || target.view !== "settings" || target.settingsCategory !== "playback" || target.settingsControl !== "playbackStartupTimeout")) throw new Error("invalid settings control");
@@ -6036,6 +6044,13 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
               if (!/^[A-Za-z0-9]{22}$/.test(target.spotifyPlaylistId)) throw new Error("invalid target");
               expectedNavigation = before + (view !== "source-browser" || provider !== "spotify" ? 1 : 0);
               await openRemotePlaylist("spotify", `https://open.spotify.com/playlist/${target.spotifyPlaylistId}`);
+            } else if (target.kind === "local_playlist") {
+              if(typeof target.collectionId!=="string"||!target.collectionId||target.collectionId.length>300||["favorites","history"].includes(target.collectionId))throw new Error("invalid local playlist target");
+              if(!collections.some(item=>item.id===target.collectionId)||latestImports.some(item=>item.collectionId===target.collectionId)||remotePlaylistBindings.some(binding=>binding.collectionId===target.collectionId||binding.sourceCollectionId===target.collectionId))throw new Error("target is not a saved local playlist");
+              await openPlaylist(target.collectionId);
+              if(view!=="collections"||collectionId!==target.collectionId||activeBrowserImport)throw new Error("saved local playlist did not open");
+              const items=await call<Track[]>("list_tracks",{view:"collections",collectionId:target.collectionId});
+              loadedLocalPlaylistSnapshot=localPlaylistSnapshot(items);
             } else {
               if (!historyRoute || !["back","forward"].includes(target.historyDirection)) throw new Error("History destination unavailable");
               const beforeRestoration = routeRestorationEpoch;
@@ -6048,6 +6063,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
             if (target.kind === "view" && target.settingsCategory !== undefined && settingsCategory !== target.settingsCategory) return;
             if (target.kind === "catalog_artist" && (activeArtistRef?.provider !== target.catalogArtist.provider || activeArtistRef?.id !== target.catalogArtist.id || artistSection !== (target.catalogArtistSection ?? "overview") || spotifyArtistId || spotifyAlbumId)) return;
             if (target.kind === "catalog_release" && (searchRelease?.release.provider!==target.catalogRelease.provider||searchRelease.release.id!==target.catalogRelease.id||searchReleaseBusy||!searchReleaseTracks.length))return;
+            if (target.kind === "local_playlist" && (view!=="collections"||collectionId!==target.collectionId||activeBrowserImport||!loadedLocalPlaylistSnapshot)) return;
             if (hasSettingsControl) {
               const control = document.getElementById("playback-startup-timeout") as HTMLSelectElement | null;
               if (!control || !control.isConnected || control.tagName !== "SELECT") throw new Error("Playback startup timeout control is unavailable");
@@ -6064,7 +6080,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
             // Route completion is not proof that remote content has loaded.
             const albumSnapshot=target.kind==="catalog_release"?searchReleaseComponent?.captureLoadedAlbumSnapshot():undefined;
             if(target.kind==="catalog_release"&&(!albumSnapshot?.loaded||albumSnapshot.trackCount!==searchReleaseTracks.length))throw new Error("Loaded catalog release changed before completion");
-            void call("automation_ui_navigation_complete", {requestId:request.requestId,destination,status:"complete",...(albumSnapshot?{releaseRevision:albumSnapshot.revision,trackCount:albumSnapshot.trackCount}:{})}).catch(()=>{});
+            void call("automation_ui_navigation_complete", {requestId:request.requestId,destination,status:"complete",...(albumSnapshot?{releaseRevision:albumSnapshot.revision,trackCount:albumSnapshot.trackCount}:{}),...(loadedLocalPlaylistSnapshot?{collectionRevision:loadedLocalPlaylistSnapshot.revision,trackCount:loadedLocalPlaylistSnapshot.trackCount}:{})}).catch(()=>{});
           } catch {
             if (disposed || activeUiNavigationRequest !== request.requestId) return;
             activeUiNavigationRequest = null;
@@ -6088,6 +6104,21 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
             receipt={status:"failed",requestedCount:searchReleaseTracks.length,completedCount:0,queuedJobs:[],skipped:[],failed:[{index:-1,trackId:"",reason:String(failure)}]};
           }
           await call("automation_layout_complete",{requestId:`release-download:${request.operationId}`,layout:receipt}).catch(()=>{});
+        })();
+      });
+      register<{operationId:string;collectionId:string;collectionRevision:string}>("automation-local-playlist-download",request=>{
+        void (async()=>{
+          let receipt:AlbumBatchReceipt;
+          try {
+            if(!request.operationId||!request.collectionId||view!=="collections"||collectionId!==request.collectionId||activeBrowserImport)throw new Error("Loaded local playlist changed; reopen the exact saved playlist before downloading");
+            const collection=collections.find(item=>item.id===request.collectionId);
+            if(!collection||latestImports.some(item=>item.collectionId===request.collectionId)||remotePlaylistBindings.some(binding=>binding.collectionId===request.collectionId||binding.sourceCollectionId===request.collectionId))throw new Error("Playlist is not a saved local playlist");
+            receipt=await downloadPlaylist(request.collectionId,false,request.collectionRevision,progress=>call("automation_layout_complete",{requestId:`local-playlist-download:${request.operationId}`,layout:progress}).then(()=>{})) as AlbumBatchReceipt;
+            if(!receipt||typeof receipt.status!=="string")throw new Error("Playlist download action did not return a batch receipt");
+          } catch(failure) {
+            receipt={status:"failed",requestedCount:0,completedCount:0,queuedJobs:[],skipped:[],failed:[{index:-1,trackId:"",reason:String(failure)}]};
+          }
+          await call("automation_layout_complete",{requestId:`local-playlist-download:${request.operationId}`,layout:receipt}).catch(()=>{});
         })();
       });
       register<{requestId:string}>("automation-ui-navigation-cancelled", request => { if(activeUiNavigationRequest===request.requestId)activeUiNavigationRequest=null; });

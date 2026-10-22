@@ -270,6 +270,7 @@ impl ArtistService {
             }
             // reqwest errors can include the full request URL. Last.fm credentials
             // are query parameters, so keep transport errors free of URL details.
+            crate::diagnostic_metrics::record_http_send_attempt();
             let response = request
                 .send()
                 .await

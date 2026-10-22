@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#[path = "../../../src-tauri/src/diagnostic_metrics.rs"]
+mod diagnostic_metrics;
 #[path = "../../../src-tauri/src/matching.rs"]
 mod matching;
 #[path = "../../../src-tauri/src/models.rs"]

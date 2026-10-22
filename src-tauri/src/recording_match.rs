@@ -1697,6 +1697,11 @@ fn prepare_with_primary_credit_override(
     verified_name_alias: Option<(&str, &str)>,
     verified_credit_set_alias: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
 ) -> PreparedMatchInput {
+    let enabled = crate::diagnostic_metrics::is_enabled();
+    let started = enabled.then(std::time::Instant::now);
+    let cpu_started = enabled
+        .then(crate::diagnostic_metrics::thread_cpu_time_ns)
+        .flatten();
     let (request, candidate_evidence) = prepare_observations(track, candidate);
     let facts = build_comparison(
         track,
@@ -1708,11 +1713,23 @@ fn prepare_with_primary_credit_override(
         verified_name_alias,
         verified_credit_set_alias,
     );
-    PreparedMatchInput {
+    let prepared = PreparedMatchInput {
         request,
         candidate: candidate_evidence,
         facts,
+    };
+    if let Some(started) = started {
+        crate::diagnostic_metrics::record_match_prepare_elapsed(started.elapsed());
     }
+    if let (Some(start), Some(end)) = (
+        cpu_started,
+        enabled
+            .then(crate::diagnostic_metrics::thread_cpu_time_ns)
+            .flatten(),
+    ) {
+        crate::diagnostic_metrics::record_match_prepare_cpu_elapsed(end.saturating_sub(start));
+    }
+    prepared
 }
 /// Facts and proof are independent of user-selected permissiveness and stage.
 pub fn compare_prepared(input: &PreparedMatchInput) -> ComparedEvidence {
@@ -2213,6 +2230,31 @@ fn build_comparison(
 
 /// Apply eligibility policy to prepared facts. This never reparses text or does I/O.
 pub fn assess_prepared(
+    input: &PreparedMatchInput,
+    level: MatchLevel,
+    stage: MatchStage,
+) -> MatchAssessment {
+    let enabled = crate::diagnostic_metrics::is_enabled();
+    let started = enabled.then(std::time::Instant::now);
+    let cpu_started = enabled
+        .then(crate::diagnostic_metrics::thread_cpu_time_ns)
+        .flatten();
+    let assessment = assess_prepared_inner(input, level, stage);
+    if let Some(started) = started {
+        crate::diagnostic_metrics::record_match_assess_elapsed(started.elapsed());
+    }
+    if let (Some(start), Some(end)) = (
+        cpu_started,
+        enabled
+            .then(crate::diagnostic_metrics::thread_cpu_time_ns)
+            .flatten(),
+    ) {
+        crate::diagnostic_metrics::record_match_assess_cpu_elapsed(end.saturating_sub(start));
+    }
+    assessment
+}
+
+fn assess_prepared_inner(
     input: &PreparedMatchInput,
     level: MatchLevel,
     stage: MatchStage,

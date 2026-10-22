@@ -417,6 +417,7 @@ impl DirectExperiment {
                 if let Some(body) = spec.body {
                     request = request.json(&body);
                 }
+                crate::diagnostic_metrics::record_http_send_attempt();
                 let response = request
                     .send()
                     .await

@@ -24,6 +24,16 @@ TRACE_NOTE = ("observedResolverExtractionBudgetCounter is the maximum of emitted
               "not a physical extractor or HTTP request count; zero snapshots do not mean no extraction when "
               "logical extraction_start events are present. Shared lookup events are joined only when one "
               "native operation owns the lookup; ambiguous consumers are left unassigned.")
+INSTRUMENTED_METRIC_KEYS = ("rustHttpSendAttempts", "successfulYtDlpSpawns",
+                            "matchPrepareElapsedMs", "matchAssessElapsedMs",
+                            "matchPrepareCpuElapsedNs", "matchPrepareCpuObservations",
+                            "matchAssessCpuElapsedNs", "matchAssessCpuObservations")
+INSTRUMENTED_METRIC_NOTE = ("Instrumented Rust send-attempt counters cover only listed native send sites; they do not count "
+                            "redirect hops or yt-dlp internal HTTP and are not physical HTTP request totals. yt-dlp values "
+                            "count successful child starts. Match preparation/assessment are synchronous elapsed-time sums, "
+                            "not CPU time. The separate matching-stage CPU fields use CLOCK_THREAD_CPUTIME_ID where supported; "
+                            "they cover only observed current-thread intervals and are null when no clock observations were made. "
+                            "They are not total process or async-worker CPU. Site coverage is frozen in the diagnostic report.")
 SECRET_KEY = re.compile(r"(credential|password|secret|token|cookie|authorization|api.?key|profile|library)", re.I)
 TRACE_PREFIX = "burrata_playback_phase "
 TRACE_PHASES = frozenset({
@@ -74,6 +84,39 @@ def sha(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def source_snapshot(repo: Path) -> dict:
+    """Fingerprint the base commit plus tracked diff and untracked build-source files."""
+    def git(*args, binary=False):
+        result = subprocess.run(["git", *args], cwd=repo, capture_output=True,
+                                text=not binary, check=False)
+        if result.returncode:
+            raise ValueError(f"git source snapshot failed: {args[0]}")
+        return result.stdout
+
+    revision = git("rev-parse", "HEAD").strip()
+    diff = git("diff", "--binary", "HEAD", "--", binary=True)
+    status = git("status", "--porcelain", "--untracked-files=normal")
+    untracked = git("ls-files", "--others", "--exclude-standard", "-z", binary=True)
+    prefixes = (b"src-tauri/src/", b"src-tauri/examples/", b"scripts/performance/")
+    build_files = [b"src-tauri/Cargo.toml", b"src-tauri/Cargo.lock", b"src-tauri/build.rs",
+                   b"scripts/performance/matching_cohort.py"]
+    untracked_source_digests = []
+    for raw_path in untracked.split(b"\0"):
+        if not raw_path or not (raw_path.startswith(prefixes) or raw_path in build_files):
+            continue
+        path = Path(raw_path.decode("utf-8", errors="strict"))
+        full_path = repo / path
+        if full_path.is_file():
+            untracked_source_digests.append({"path": path.as_posix(), "sha256": sha(full_path)})
+    return {
+        "sourceRevision": revision,
+        "worktreeDirty": bool(status.strip()),
+        "trackedDiffSha256": hashlib.sha256(diff).hexdigest(),
+        "untrackedBuildSourceFiles": sorted(untracked_source_digests, key=lambda row: row["path"]),
+        "untrackedBuildSourceFileCount": len(untracked_source_digests),
+    }
 
 
 def check_public(value, where="root"):
@@ -272,34 +315,105 @@ def attempt_summary(report, trace_text="", trace_enabled=False):
         identity = r.get("resolvedRecordingIdentity")
         provider_id = identity.get("providerId") if isinstance(identity, dict) else None
         out.append({k: r.get(k) for k in (
-            "scenario", "pairIndex", "iteration", "ok", "failure", "resolveMs",
+            "scenario", "pairIndex", "iteration", "batchId", "batchEntryIndex", "batchEntryCount", "ok", "failure", "resolveMs",
             "wallMs", "firstPcmFromRequestMs", "helperCpuMs", "reapedChildCpuMs"
         ) if isinstance(r.get(k), (str, int, float, bool)) or r.get(k) is None} | {"providerId": provider_id})
+        metrics = r.get("instrumentedMetrics")
+        if isinstance(metrics, dict):
+            out[-1]["instrumentedMetrics"] = {key: metrics.get(key) for key in INSTRUMENTED_METRIC_KEYS
+                                                if (isinstance(metrics.get(key), (int, float)) and
+                                                    not isinstance(metrics.get(key), bool)) or
+                                                (key.endswith("CpuElapsedNs") and metrics.get(key) is None)}
         if trace is not None:
             out[-1]["trace"] = trace
     groups = {}
+    entry_groups = {}
+    entry_indexes = sorted({r.get("batchEntryIndex", 0) for r, _ in measured})
     for scenario in ("cold", "warm"):
         rows_s = [r for r, _ in measured if r.get("scenario") == scenario]
         times = [r["resolveMs"] for r in rows_s if isinstance(r.get("resolveMs"), (int, float))]
         groups[scenario] = {
             "attempts": len(rows_s), "successes": sum(r.get("ok") is True for r in rows_s),
             "failures": sum(r.get("ok") is not True for r in rows_s),
+            "timingScope": "pooled track-entry resolve times; use perBatchEntry for track-specific latency",
             "resolveMsP50": percentile(times, .5),
             "resolveMsP95": percentile(times, .95) if len(times) >= 20 else None,
             "p95SampleCount": len(times) if len(times) >= 20 else 0,
         }
+    for entry_index in entry_indexes:
+        entry_groups[str(entry_index)] = {}
+        for scenario in ("cold", "warm"):
+            group = [r for r, _ in measured if r.get("scenario") == scenario and
+                     r.get("batchEntryIndex", 0) == entry_index]
+            values = [r["resolveMs"] for r in group if isinstance(r.get("resolveMs"), (int, float))]
+            entry_groups[str(entry_index)][scenario] = {
+                "attempts": len(group), "successes": sum(r.get("ok") is True for r in group),
+                "failures": sum(r.get("ok") is not True for r in group),
+                "resolveMsP50": percentile(values, .5),
+                "resolveMsP95": percentile(values, .95) if len(values) >= 20 else None,
+                "p95SampleCount": len(values) if len(values) >= 20 else 0,
+            }
+            for field in ("firstPcmFromRequestMs", "helperCpuMs", "reapedChildCpuMs"):
+                samples = [r[field] for r in group if isinstance(r.get(field), (int, float)) and
+                           (field != "firstPcmFromRequestMs" or r.get("ok") is True)]
+                entry_groups[str(entry_index)][scenario][field] = {
+                    "n": len(samples), "p50": percentile(samples, .5),
+                    "p95": percentile(samples, .95) if len(samples) >= 20 else None,
+                    "p95SampleCount": len(samples) if len(samples) >= 20 else 0,
+                    "scope": "successful attempts only" if field == "firstPcmFromRequestMs" else "all measured attempts",
+                }
     pairs = {}
     for r, _ in measured:
         if isinstance(r.get("pairIndex"), int):
-            pairs.setdefault(r["pairIndex"], {})[r.get("scenario")] = r
-    source_differences = [i for i, pair in pairs.items()
+            key = (r["pairIndex"], r.get("batchEntryIndex", 0))
+            pairs.setdefault(key, {})[r.get("scenario")] = r
+    source_differences = [list(i) for i, pair in pairs.items()
             if pair.get("cold", {}).get("resolvedRecordingIdentity", {}).get("providerId") and
                           pair.get("warm", {}).get("resolvedRecordingIdentity", {}).get("providerId") and
                           pair["cold"]["resolvedRecordingIdentity"]["providerId"] != pair["warm"]["resolvedRecordingIdentity"]["providerId"]]
     result = {"runPassed": report.get("runPassed") is True, "attempts": out,
-            "scenarios": groups, "pairedSourceIdentityDifferenceCount": len(source_differences),
-            "pairedSourceIdentityDifferencePairIndexes": source_differences,
+            "scenarios": groups, "perBatchEntry": entry_groups,
+            "pairedSourceIdentityDifferenceCount": len(source_differences),
+            "pairedSourceIdentityDifferencePairEntries": source_differences,
             "providerShutdownOk": report.get("providerShutdownOk") is True}
+    raw_batches = report.get("batches", [])
+    batch_summary = {}
+    for scenario in ("cold", "warm"):
+        rows_b = [batch for batch in raw_batches if batch.get("scenario") == scenario and batch.get("warmup") is False]
+        summary = {"batches": len(rows_b), "successes": sum(batch.get("failureCount", 0) == 0 for batch in rows_b),
+                   "failures": sum(batch.get("failureCount", 0) > 0 for batch in rows_b),
+                   "failureEntryCount": sum(batch.get("failureCount", 0) for batch in rows_b)}
+        for field in ("wallMs", "helperCpuMs", "reapedChildCpuMs"):
+            values = [batch[field] for batch in rows_b if isinstance(batch.get(field), (int, float))]
+            summary[field] = {"n": len(values), "p50": percentile(values, .5),
+                              "p95": percentile(values, .95) if len(values) >= 20 else None,
+                              "p95SampleCount": len(values) if len(values) >= 20 else 0}
+        summary["lifetimeMaxRssObservations"] = [
+            {"helperMaxRssBytes": batch.get("helperMaxRssBytes"),
+             "reapedChildMaxRssBytes": batch.get("reapedChildMaxRssBytes")}
+            for batch in rows_b]
+        summary["instrumentedMetricTotals"] = {}
+        for key in INSTRUMENTED_METRIC_KEYS:
+            values = [batch.get("instrumentedMetrics", {}).get(key) for batch in rows_b
+                      if isinstance(batch.get("instrumentedMetrics", {}).get(key), (int, float)) and
+                      not isinstance(batch.get("instrumentedMetrics", {}).get(key), bool)]
+            has_unobserved_cpu_window = key.endswith("CpuElapsedNs") and any(
+                batch.get("instrumentedMetrics", {}).get(key) is None for batch in rows_b)
+            summary["instrumentedMetricTotals"][key] = sum(values) if values and not has_unobserved_cpu_window else None
+        summary["instrumentedMetricDistributions"] = {}
+        for key in INSTRUMENTED_METRIC_KEYS:
+            values = [batch.get("instrumentedMetrics", {}).get(key) for batch in rows_b
+                      if isinstance(batch.get("instrumentedMetrics", {}).get(key), (int, float)) and
+                      not isinstance(batch.get("instrumentedMetrics", {}).get(key), bool)]
+            summary["instrumentedMetricDistributions"][key] = {
+                "n": len(values), "p50": percentile(values, .5),
+                "p95": percentile(values, .95) if len(values) >= 20 else None,
+                "p95SampleCount": len(values) if len(values) >= 20 else 0,
+            }
+        summary["resourceScope"] = "RSS values are process lifetime high-water observations; not per-batch memory usage"
+        batch_summary[scenario] = summary
+    result["batchSummary"] = batch_summary
+    result["instrumentedMetricNote"] = INSTRUMENTED_METRIC_NOTE
     if trace_enabled:
         result["traceByScenario"] = summarize_trace_scenarios(out)
         result["traceJoinDiagnostics"] = trace_diagnostics
@@ -326,8 +440,7 @@ def run(args):
     if reps < 1 or (not args.smoke and reps < 20) or warmups < 0:
         raise ValueError("production cohort requires >=20 reps; use --smoke for one diagnostic")
     frozen = {"binarySha256": sha(binary), "manifestSha256": sha(manifest),
-              "sourceRevision": subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
-                  text=True).stdout.strip() or None,
+              **source_snapshot(Path.cwd().resolve()),
               "repetitions": reps, "warmups": warmups,
               "levels": list(modes),
               "providerPolicy": "public settings fixture only; same fixture policy across modes",
@@ -337,12 +450,18 @@ def run(args):
         case_id = case.get("caseId")
         if not isinstance(case_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", case_id):
             raise ValueError("caseId must be a safe identifier")
-        track = (manifest.parent / case["track"]).resolve()
+        track_values = case.get("tracks", [case.get("track")])
+        if not isinstance(track_values, list) or not track_values or any(not isinstance(item, str) for item in track_values):
+            raise ValueError("case tracks must be a non-empty array of track JSON paths")
+        tracks = [(manifest.parent / item).resolve() for item in track_values]
         settings_path = (manifest.parent / case["settings"]).resolve()
-        track_data = json.loads(track.read_text())
+        for track in tracks:
+            json.loads(track.read_text())
         settings = json.loads(settings_path.read_text())
         check_public(settings)
-        case_entry = {"caseId": case_id, "trackSha256": sha(track), "settingsSha256": sha(settings_path), "modes": {}}
+        track_hashes = [sha(track) for track in tracks]
+        case_entry = {"caseId": case_id, "trackSha256": track_hashes[0], "trackSha256s": track_hashes,
+                      "batchEntryCount": len(tracks), "settingsSha256": sha(settings_path), "modes": {}}
         for mode in modes:
             mode_settings = dict(settings)
             mode_settings["matchingLevel"] = mode
@@ -352,7 +471,7 @@ def run(args):
             stderr_file = outdir / f".{case_id}-{mode}-stderr.log"
             mode_file.write_text(json.dumps(mode_settings))
             os.chmod(mode_file, 0o600)
-            cmd = [str(binary), "--track", str(track), "--settings", str(mode_file), "--output", str(report_file),
+            cmd = [str(binary), *[arg for track in tracks for arg in ("--track", str(track))], "--settings", str(mode_file), "--output", str(report_file),
                    "--scenario", "paired", "--repetitions", str(reps), "--warmups", str(warmups)]
             if args.smoke:
                 cmd.append("--smoke")
@@ -390,9 +509,11 @@ def run(args):
                             "failure": parse_failure or (obj.get("harnessFailure") if obj else "PROCESS_FAILED")})
             if obj:
                 summary["diagnosticSourceSha256"] = obj.get("inputHashes", {}).get("exampleSourceSha256")
+                summary["instrumentedMetricsCoverage"] = obj.get("instrumentedMetricsCoverage")
                 policy = obj.get("streamingPolicy", {})
                 summary["providerPolicy"] = {key: policy.get(key) for key in
                     ("matchingLevel", "preferred", "fallbackEnabled", "fallbackSources")}
+                summary["batches"] = obj.get("batches", [])
             expected = case.get("expectedSourceId")
             if expected:
                 observed = [r.get("providerId") for r in summary["attempts"] if r.get("providerId")]
@@ -406,7 +527,7 @@ def run(args):
         results.append(case_entry)
     aggregate = {"schema": "burrata.matching-performance-cohort/v1", "qualification": False,
                  "frozen": frozen, "cases": results,
-                 "note": "Failures remain in attempt denominators; p95 is withheld unless >=20 measured timing samples. Trace fields count allowlisted logical events and observed resolver counter snapshots only; they do not represent HTTP request totals. Concurrent phase duration samples are not additive. Per-attempt RSS is omitted because available child RSS is a lifetime high-water mark."}
+                 "note": "Failures remain in attempt denominators; p95 is withheld unless >=20 measured timing samples. Trace fields count allowlisted logical events and observed resolver counter snapshots only. Instrumented Rust send attempts cover enumerated native sites; redirects and yt-dlp internal HTTP are opaque, so these are not physical HTTP request totals. Batch entries are sequential in one diagnostic process and Store; batch CPU is cumulative, while maxRSS is a process lifetime high-water observation at batch end, not per-entry or additive. Matching preparation/assessment values are synchronous elapsed-time sums, not CPU. Concurrent phase duration samples are not additive."}
     target = outdir / "aggregate.json"
     target.write_text(json.dumps(aggregate, indent=2) + "\n")
     os.chmod(target, 0o644)
