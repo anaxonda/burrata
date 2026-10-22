@@ -2264,7 +2264,9 @@ mod tests {
         asset.track.provenance["retagJournalId"] = serde_json::json!("journal-1");
         asset.track.provenance["identityStatus"] = serde_json::json!("source_reported_unverified");
         let future = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
-        fs::File::open(&path)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
             .unwrap()
             .set_times(fs::FileTimes::new().set_modified(future))
             .unwrap();
