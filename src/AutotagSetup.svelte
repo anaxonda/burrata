@@ -50,7 +50,7 @@
       {toolStatuses.length === 0 || toolStatuses.every((item) => item.available) ? "Ready" : "Needs setup"}
     </span>
   </div>
-  <p class="intro">When a new download finishes, Burrata can look up its artist, title, and recording date. You review each match and approve the fields before they are written.</p>
+  <p class="intro">When a new download finishes, Burrata can fill artist, title, and recording date from a strong match. Uncertain matches stay in review, and manual edits are protected.</p>
 
   <label class="check-row">
     <span><strong>Tag new downloads</strong><small>Check completed downloads for missing or incorrect metadata.</small></span>

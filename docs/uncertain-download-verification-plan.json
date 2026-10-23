@@ -1,0 +1,42 @@
+{
+  "status": "implementation plan; workflow not implemented",
+  "purpose": "Identify plausible weak-metadata candidates before library publication without relaxing recording checks",
+  "currentBoundaries": {
+    "frontendSelection": "src/lib/batch.ts resolveBatchSource rejects unaccepted assessments before enqueue",
+    "nativeAdmission": "src-tauri/src/acquisition.rs selected_assessment gate runs before staging retrieval",
+    "publication": "src-tauri/src/acquisition.rs finalize_download_with_layout publishes before autotag_download",
+    "recognition": "src-tauri/src/autotag.rs songrec_match requires two consistent non-overlapping twenty-second excerpts and retains recognition without a catalog match"
+  },
+  "requiredBehavior": [
+    "Separate explicit opt-in, disabled by default; existing post-download tagging settings do not silently enable staging verification.",
+    "Only plausible candidates with matching title and duration and no hard version/identifier contradiction enter verification.",
+    "Never fingerprint candidates that already have adequate positive recording evidence.",
+    "Retrieve into an owned temporary staging directory; no asset, file tags, playlist membership or library publication before verification.",
+    "Verification must establish the requested recording through a shared ISRC or an independently verified catalog crosswalk for the recognized recording, with compatible credits, version and runtime. Plain name equality alone is insufficient; unresolved identity remains review-only.",
+    "Bind recognition to the actual staged-file hash and selected provider locator; candidate substitution invalidates proof.",
+    "Reassess recording policy after recognition; no blanket confidence-score promotion.",
+    "Cancellation, timeout, opt-in revocation and unmatched identification stop publication and clean temporary material.",
+    "Do not silently retry fingerprint submissions or switch recognition providers.",
+    "Soulseek may need the full temporary transfer; stream sample retrieval is a later optimization and must not be claimed as implemented by staging verification."
+  ],
+  "implementationUnits": [
+    "Snapshot explicit opt-in at enqueue; recheck it before any fingerprint submission.",
+    "Expose server-computed pending-verification eligibility to batch selection instead of duplicating permissive matching in the UI.",
+    "Introduce identifying state between staging retrieval and publication, preserving all existing admission, format and quality checks.",
+    "Factor two-excerpt recognition from optional catalog enrichment so recording verification does not depend on MusicBrainz availability.",
+    "Persist bounded verification outcome and file-hash binding; retain unknown outcomes for review without fabricating catalog metadata."
+  ],
+  "acceptanceTests": [
+    "Strongly matched candidate performs no recognition.",
+    "Disabled opt-in retains existing strict behavior.",
+    "Weak eligible candidate is never published before successful verification.",
+    "Different ISRC, conflicting remix/guest, short or unavailable samples and inconsistent excerpt identifications refuse publication.",
+    "Exact requested ISRC plus compatible recording policy permits only the verified staged file.",
+    "A request without ISRC can pass only through an independently verified recognition-to-catalog crosswalk; absent or ambiguous crosswalks stay unresolved.",
+    "Cancellation and setting revocation at every wait boundary clean staging and publish nothing.",
+    "Source switch or staged-file change invalidates proof.",
+    "Soulseek and streamable-source paths report whether a full temporary file or bounded samples were fetched.",
+    "Use synthetic/local fixtures by default; real fingerprint qualification requires specific user authorization."
+  ],
+  "normalDataConstraint": "Keep existing library, manual metadata, assets and sign-ins intact; runtime checks must restore paused state and every queue occurrence."
+}
