@@ -102,6 +102,7 @@ const UI_SETTINGS_CATEGORIES: &[&str] = &[
 enum PlayerPanel {
     NowPlaying,
     NowPlayingDetails,
+    Lyrics,
     Queue,
     Info,
     Closed,
@@ -112,6 +113,7 @@ impl PlayerPanel {
         match self {
             Self::NowPlaying => "now-playing",
             Self::NowPlayingDetails => "now-playing-details",
+            Self::Lyrics => "lyrics",
             Self::Queue => "queue",
             Self::Info => "info",
             Self::Closed => "closed",
@@ -677,11 +679,12 @@ fn parse_player_panel_request(arguments: &Value) -> Result<PlayerPanel, ToolErro
     match object.get("panel").and_then(Value::as_str) {
         Some("now-playing") => Ok(PlayerPanel::NowPlaying),
         Some("now-playing-details") => Ok(PlayerPanel::NowPlayingDetails),
+        Some("lyrics") => Ok(PlayerPanel::Lyrics),
         Some("queue") => Ok(PlayerPanel::Queue),
         Some("info") => Ok(PlayerPanel::Info),
         Some("closed") => Ok(PlayerPanel::Closed),
         _ => Err(ToolError::bad(
-            "Player panel must be now-playing, now-playing-details, queue, info, or closed",
+            "Player panel must be now-playing, now-playing-details, lyrics, queue, info, or closed",
         )),
     }
 }
@@ -7888,7 +7891,7 @@ fn tool_definitions() -> Vec<Value> {
  ("set_search_continuation","Set the visible search continuation preference for loaded results", "control"),
  ("play_search_result","Play one exact currently loaded search occurrence by its expiring UI token", "control"),
  ("interact_queue_ui","Dispatch finite synthetic queue DOM events in a marked isolated paused native profile; not a trusted OS gesture", "control"),
- ("set_player_panel","Open full-screen Now Playing or its artist/credits section, the playback queue, track information panel, or close the player panel", "control"),
+ ("set_player_panel","Open full-screen Now Playing, artist/credits or lyrics, the playback queue, track information panel, or close the player panel", "control"),
  ("navigate_ui","Navigate to a finite view, one settings category, the Playback startup timeout control, exact Spotify artist/profile/playlist, a saved local playlist, a validated MusicBrainz/Discogs catalog artist and section or exact catalog release, or Back/Forward. settingsCategory is allowed only with view=settings; settingsControl is allowed only for playbackStartupTimeout under Playback settings", "control"),
  ("download_loaded_catalog_release_album","Download the currently loaded exact catalog release through the app’s album download action. Requires a caller UUID and the loaded release revision returned by navigate_ui; retrying the same UUID is idempotent. Optional sourceProviderId overrides the primary source for this operation without changing saved settings; configured fallbacks still apply. This queues local downloads only.","manage"),
  ("get_catalog_release_download_status","Poll catalog release selection/enqueue progress by caller UUID. processedCount (legacy completedCount) counts processed tracks, not successful downloads; inspect queued job IDs with download_jobs for acquisition outcomes. Polling never starts a second batch.","read"),
@@ -7957,7 +7960,7 @@ fn tool_definitions() -> Vec<Value> {
  "inspect_search_ui"=>(json!({"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!([])),
  "set_search_continuation"=>(json!({"revision":{"type":"string","format":"uuid","minLength":36,"maxLength":36},"enabled":{"type":"boolean"}}),json!(["revision","enabled"])),
  "play_search_result"=>(json!({"revision":{"type":"string","format":"uuid","minLength":36,"maxLength":36},"occurrenceToken":{"type":"string","format":"uuid","minLength":36,"maxLength":36}}),json!(["revision","occurrenceToken"])),
- "set_player_panel"=>(json!({"panel":{"type":"string","enum":["queue","info","now-playing","now-playing-details","closed"]}}),json!(["panel"])),
+ "set_player_panel"=>(json!({"panel":{"type":"string","enum":["queue","info","now-playing","now-playing-details","lyrics","closed"]}}),json!(["panel"])),
  "identify_playing_track"=>(json!({"captureId":{"type":"string","minLength":36,"maxLength":36,"pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$","description":"Optional caller-generated UUID; pass the same value to cancel_playing_track_identification. Omit it for legacy uncancellable calls."}}),json!([])),
  "cancel_playing_track_identification"=>(json!({"captureId":{"type":"string","minLength":36,"maxLength":36,"pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}),json!(["captureId"])),
  "navigate_ui"=>(json!({"catalogArtist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string","minLength":1,"maxLength":36}},"required":["provider","id"],"additionalProperties":false,"oneOf":[{"properties":{"provider":{"const":"musicbrainz"},"id":{"pattern":"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"}}},{"properties":{"provider":{"const":"discogs"},"id":{"pattern":"^[1-9][0-9]{0,19}$","maxLength":20}}}]},"catalogRelease":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string","minLength":1,"maxLength":36}},"required":["provider","id"],"additionalProperties":false},"catalogArtistSection":{"type":"string","enum":["overview","releases","tracks"],"description":"Optional catalog artist section; requires catalogArtist, defaults to overview"},"view":{"type":"string","enum":["library","favorites","history","downloads","settings","radio"]},"settingsCategory":{"type":"string","enum":UI_SETTINGS_CATEGORIES,"description":"Optional existing category; accepted only with view=settings"},"settingsControl":{"type":"string","enum":["playbackStartupTimeout"],"description":"Optional fixed control; requires view=settings and settingsCategory=playback"},"spotifyArtistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"spotifyProfileId":{"type":"string","minLength":1,"maxLength":256,"description":"Canonical Spotify user ID only; no URL, whitespace, separators or query"},"spotifyPlaylistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","minLength":22,"maxLength":22},"historyDirection":{"type":"string","enum":["back","forward"]}}),json!([])),
@@ -9501,6 +9504,15 @@ mod tests {
     #[test]
     fn player_panel_request_is_bounded_and_completion_is_correlated() {
         assert_eq!(
+            parse_player_panel_request(&json!({"panel":"lyrics"})).unwrap(),
+            PlayerPanel::Lyrics
+        );
+        assert_eq!(
+            sanitize_player_panel_completion(PlayerPanel::Lyrics, "lyrics", "complete").unwrap(),
+            json!({"panel":"lyrics","status":"complete"})
+        );
+
+        assert_eq!(
             parse_player_panel_request(&json!({"panel":"now-playing-details"})).unwrap(),
             PlayerPanel::NowPlayingDetails
         );
@@ -9550,6 +9562,7 @@ mod tests {
                 "info",
                 "now-playing",
                 "now-playing-details",
+                "lyrics",
                 "closed"
             ])
         );

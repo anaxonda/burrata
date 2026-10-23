@@ -202,12 +202,12 @@ preparation to be distinguished from actual foreground reuse.
 `navigate_ui` is a Control-permission tool for finite app routes (`library`, `favorites`, `history`, `downloads`, `settings`) or an exact Spotify artist/profile/playlist identifier, or Back/Forward history direction. Artist and playlist IDs must be 22 ASCII alphanumeric characters. It confirms route entry, with a 15-second bound and cancellation/stale/unmount guards; provider data may continue loading. It accepts no arbitrary URL, script or selector. See [the command contract and qualification limits](automation/navigate_ui.md).
 
 `set_player_panel` is a Control-permission tool that sets the visible player
-panel to `queue`, `info` or `closed`. It changes only the panel view; it does
+panel to `queue`, `info`, `now-playing`, `now-playing-details`, `lyrics` or `closed`. It changes only the panel view; it does
 not change playback or the queue. It requires the frontend-ready handshake,
 allows one outstanding request, and waits up to five seconds for the UI to
 apply the change. To run the same check through the local stdio MCP bridge and
 write a sanitized result containing only the requested panel and completion
-status, use `node scripts/dev/set-player-panel.mjs AUTOMATION_FILE queue|info|closed OUTPUT_JSON`.
+status, use `node scripts/dev/set-player-panel.mjs AUTOMATION_FILE queue|info|now-playing|now-playing-details|lyrics|closed OUTPUT_JSON`.
 
 `search_ui` runs the visible app's search flow for a query (up to 500
 characters), a selected source or `all`, and a result kind such as `tracks`,

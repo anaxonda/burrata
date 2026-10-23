@@ -4596,6 +4596,30 @@ describe("saved recording navigation", () => {
     }));
   });
 
+  it("opens and closes fullscreen lyrics through finite app controls without restarting playback", async () => {
+    previewMode = "direct";
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, {target:document.body});
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    eventHandlers.get("automation-player-panel")?.({event:"automation-player-panel",id:1,payload:{requestId:"lyrics-empty",panel:"lyrics"}});
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("automation_player_panel_complete",{requestId:"lyrics-empty",panel:"lyrics",status:"failed"});
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();await settle();
+    const audio=document.querySelector("audio"), starts=play.mock.calls.length;
+    const resolutions=mocks.call.mock.calls.filter(([command])=>command==="resolve_preview").length;
+    eventHandlers.get("automation-player-panel")?.({event:"automation-player-panel",id:2,payload:{requestId:"lyrics-open",panel:"lyrics"}});
+    await settle();
+    expect(document.body.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')).not.toBeNull();
+    expect(mocks.call).toHaveBeenCalledWith("automation_player_panel_complete",{requestId:"lyrics-open",panel:"lyrics",status:"complete"});
+    eventHandlers.get("automation-player-panel")?.({event:"automation-player-panel",id:3,payload:{requestId:"lyrics-close",panel:"closed"}});
+    await settle();
+    expect(document.body.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')).toBeNull();
+    expect(document.querySelector("audio")).toBe(audio);
+    expect(play).toHaveBeenCalledTimes(starts);
+    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_preview")).toHaveLength(resolutions);
+  });
+
   it("opens lyrics fullscreen directly from the player microphone button", async () => {
     previewMode = "direct";
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);

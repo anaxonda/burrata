@@ -6375,15 +6375,17 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         })().catch(()=>{});
       });
       const queueUiCancelListenerReady=register<{requestId:string}>("automation-queue-ui-cancelled",request=>{if(queueUiRequestId===request.requestId)queueUiController?.abort();});
-      const playerPanelListenerReady = register<{requestId:string;panel:"queue"|"info"|"now-playing"|"now-playing-details"|"closed"}>("automation-player-panel", request => {
+      const playerPanelListenerReady = register<{requestId:string;panel:"queue"|"info"|"now-playing"|"now-playing-details"|"lyrics"|"closed"}>("automation-player-panel", request => {
+        showFullscreenLyrics = request.panel === "lyrics" && Boolean(playingTrack);
         if (request.panel === "now-playing" || request.panel === "now-playing-details") { openPlayerPanel(null); showFullNowPlaying = Boolean(playingTrack); }
-        else openPlayerPanel(request.panel === "closed" ? null : request.panel);
-        void tick().then(() => {
+        else if (request.panel !== "lyrics") openPlayerPanel(request.panel === "closed" ? null : request.panel);
+        void tick().then(async () => {
+          if (request.panel === "lyrics") await tick();
           const expanded = request.panel === "now-playing" || request.panel === "now-playing-details";
           const view = document.querySelector(".now-playing-view");
           const cards = view?.querySelector(".cards");
           if (request.panel === "now-playing-details") cards?.scrollIntoView({block:"start"});
-          const mounted = !expanded || Boolean(view && (request.panel !== "now-playing-details" || cards));
+          const mounted = request.panel === "lyrics" ? Boolean(document.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')) : !expanded || Boolean(view && (request.panel !== "now-playing-details" || cards));
           return call("automation_player_panel_complete", {requestId:request.requestId,panel:request.panel,status:mounted ? "complete" : "failed"});
         }).catch(()=>{});
       });
