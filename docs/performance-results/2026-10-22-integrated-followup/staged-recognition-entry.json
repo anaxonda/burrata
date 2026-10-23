@@ -1,0 +1,36 @@
+{
+  "scope": "Owned staged-file recognition entry and policy verifier components; acquisition admission/publication integration unfinished",
+  "focusedTests": {
+    "passed": 3,
+    "failed": 0,
+    "log": "/tmp/burrata-staged-recognition-final-tests.log"
+  },
+  "recordingPolicyTests": {
+    "passed": 5,
+    "failed": 0,
+    "log": "/tmp/burrata-download-verification-policy-tests.log"
+  },
+  "covers": [
+    "Owned temporary-root confinement before extraction",
+    "Separate queued and live consent",
+    "Live matching-policy stability",
+    "Cancellation and consent revocation during waits",
+    "Consent check after extraction before recognition submission",
+    "Measured duration and two consistent excerpts",
+    "File/source/request binding and policy recheck on returned receipt"
+  ],
+  "externalRecognitionRequests": 0,
+  "normalLibraryChanges": 0,
+  "remaining": [
+    "Wire acquisition admission and identifying state",
+    "Owned transfer cleanup on every failure, cancellation and timeout",
+    "Publication gate and crash/restart behavior",
+    "Synthetic end-to-end acceptance and authorized live qualification"
+  ],
+  "fullNative": {
+    "passed": 1815,
+    "failed": 0,
+    "ignored": 41,
+    "log": "/tmp/burrata-staged-recognition-full-native.log"
+  }
+}

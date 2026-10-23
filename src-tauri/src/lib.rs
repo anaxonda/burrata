@@ -90,6 +90,7 @@ pub mod slskd;
 pub mod source_fallback;
 mod source_preparation;
 mod spotify_mb_crosswalk;
+mod staged_recognition;
 pub mod storage;
 pub mod system_media;
 pub mod tools;

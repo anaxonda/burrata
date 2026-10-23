@@ -76,7 +76,7 @@ struct SongRecOutcome {
 
 // Recognition agreement is independent of optional catalog enrichment.
 // The result alone does not authorize catalog tags or identity binding.
-fn consistent_songrec_excerpts(
+pub(crate) fn consistent_songrec_excerpts(
     first: Option<crate::radio::RadioTrackMetadata>,
     second: Option<crate::radio::RadioTrackMetadata>,
 ) -> Option<AudioRecognition> {
@@ -2849,6 +2849,16 @@ async fn songrec_excerpt(
     start: f64,
     ffmpeg_path: &str,
 ) -> Result<Option<crate::radio::RadioTrackMetadata>, String> {
+    songrec_excerpt_guarded(path, start, ffmpeg_path, || Ok(())).await
+}
+
+pub(crate) async fn songrec_excerpt_guarded(
+    path: &str,
+    start: f64,
+    ffmpeg_path: &str,
+    check: impl Fn() -> Result<(), String>,
+) -> Result<Option<crate::radio::RadioTrackMetadata>, String> {
+    check()?;
     // Own the entire private directory across both awaits. Dropping a cancelled
     // request also drops its excerpt, rather than skipping manual cleanup.
     let temporary = tempfile::Builder::new()
@@ -2873,6 +2883,7 @@ async fn songrec_excerpt(
     if !matches!(extracted, Ok(Ok(status)) if status.success()) {
         return Ok(None);
     }
+    check()?;
     let station = crate::radio::RadioStation {
         id: "autotag-recognition".into(),
         name: "Local autotag recognition".into(),

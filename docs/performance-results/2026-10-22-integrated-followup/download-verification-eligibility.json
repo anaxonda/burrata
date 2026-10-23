@@ -52,5 +52,17 @@
   "typecheck": {
     "errors": 0,
     "warnings": 0
+  },
+  "recognizedPolicyTests": {
+    "passed": 5,
+    "failed": 0,
+    "log": "/tmp/burrata-download-verification-policy-tests.log",
+    "covers": [
+      "Shared identifier plus compatible recognized metadata and measured runtime",
+      "Same identifier does not override different title, artist or live version",
+      "Missing requested guest fails even under Flexible verification",
+      "Short, mismatched and nonfinite measured runtime fails"
+    ],
+    "scope": "Pure verifier component; not staged acquisition/publication integration"
   }
 }
