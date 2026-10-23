@@ -409,6 +409,9 @@ pub struct Settings {
     pub live_bpm_enabled: bool,
     #[serde(default = "default_matching_level")]
     pub matching_level: crate::recording_match::MatchLevel,
+    /// Separate consent for staged weak-metadata audio verification.
+    #[serde(default)]
+    pub download_audio_verification_enabled: bool,
     #[serde(default)]
     pub pause_on_source_open: bool,
     #[serde(default)]
@@ -501,6 +504,7 @@ impl Default for Settings {
             playback_diagnostics_enabled: false,
             live_bpm_enabled: false,
             matching_level: default_matching_level(),
+            download_audio_verification_enabled: false,
             pause_on_source_open: false,
             source_open_at_position: false,
             preview_delay_ms: 250,
@@ -584,6 +588,24 @@ mod matching_level_settings_tests {
         let settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.matching_level, MatchLevel::Balanced);
         assert_eq!(Settings::default().matching_level, MatchLevel::Balanced);
+    }
+
+    #[test]
+    fn staged_audio_verification_requires_explicit_separate_opt_in() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("downloadAudioVerificationEnabled");
+        let restored: Settings = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(!restored.download_audio_verification_enabled);
+        legacy["downloadAudioVerificationEnabled"] = json!(true);
+        let opted_in: Settings = serde_json::from_value(legacy).unwrap();
+        assert!(opted_in.download_audio_verification_enabled);
+        assert_eq!(
+            serde_json::to_value(opted_in).unwrap()["downloadAudioVerificationEnabled"],
+            json!(true)
+        );
     }
 
     #[test]

@@ -240,6 +240,7 @@ export interface Settings {
   playbackDiagnosticsEnabled?: boolean;
   liveBpmEnabled?: boolean;
   matchingLevel?: "exact" | "balanced" | "flexible";
+  downloadAudioVerificationEnabled?: boolean;
   downloadLayout?: DownloadLayout;
   pauseOnSourceOpen?: boolean;
   sourceOpenAtPosition?: boolean;

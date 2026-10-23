@@ -5099,6 +5099,15 @@ fn verify_resolved_identity(
     Some(VerifiedRecordingProof { kind })
 }
 
+/// Reuse the exact retained matching scope for recognition input bindings.
+/// This computes identity only; it does not resolve or play a source.
+pub(crate) fn recognition_request_fingerprint(
+    track: &Track,
+    level: crate::recording_match::MatchLevel,
+) -> Option<String> {
+    policy_matching::request_fingerprint(track, level)
+}
+
 fn recording_identity_fingerprint(track: &Track) -> Option<String> {
     let normalize = |value: Option<&str>| {
         value

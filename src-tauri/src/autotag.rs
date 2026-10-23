@@ -1542,10 +1542,50 @@ impl AutoTagger {
             return Ok(None);
         }
         let settings = self.store.settings().map_err(|e| e.to_string())?;
+        let asset = self
+            .store
+            .get_asset_by_path(path)
+            .map_err(|error| error.to_string())?
+            .ok_or("Recognition input is no longer a registered library file")?;
+        let binding = crate::recognition_input::RecognitionInputBinding::capture(
+            source,
+            source,
+            std::path::Path::new(path),
+            settings.matching_level,
+            Some(&asset.hash),
+        )
+        .await?;
         let first = songrec_excerpt(path, 5.0, &settings.ffmpeg_path).await?;
+        if first.is_none() {
+            return Ok(None);
+        }
         tokio::time::sleep(Duration::from_secs(10)).await;
+        // Refuse another submission if bytes or the matching policy changed
+        // while waiting between excerpts.
+        let current_level = self
+            .store
+            .settings()
+            .map_err(|error| error.to_string())?
+            .matching_level;
+        binding
+            .recheck(source, source, std::path::Path::new(path), current_level)
+            .await?;
         let second = songrec_excerpt(path, duration - 25.0, &settings.ffmpeg_path).await?;
-        Ok(consistent_songrec_excerpts(first, second))
+        let Some(recognition) = consistent_songrec_excerpts(first, second) else {
+            return Ok(None);
+        };
+        binding
+            .recheck(
+                source,
+                source,
+                std::path::Path::new(path),
+                self.store
+                    .settings()
+                    .map_err(|error| error.to_string())?
+                    .matching_level,
+            )
+            .await?;
+        Ok(Some(recognition))
     }
 
     async fn songrec_match(

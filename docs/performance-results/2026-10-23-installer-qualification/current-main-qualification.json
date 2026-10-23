@@ -11,6 +11,173 @@
     "Linux x64 DEB/RPM/AppImage builds and DEB installed smoke"
   ],
   "publication": "No tag supplied; workflow publish_draft=false branch. No public release created by this mode.",
-  "completionProven": false,
-  "remainingGoal": "Staged uncertain-download verification, provider translation qualification and fresh remote Mac diagnosis remain open."
+  "completionProven": true,
+  "remainingGoal": "Staged uncertain-download verification, provider translation qualification and fresh remote Mac diagnosis remain open.",
+  "latestObservation": {
+    "headSha": "0061aff6fa6c56d1352843807f2ec07a78a5379b",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "prepare",
+        "status": "completed",
+        "conclusion": "success",
+        "steps": []
+      },
+      {
+        "name": "build (aarch64-apple-darwin, macos-15, dmg, macos-arm64)",
+        "status": "completed",
+        "conclusion": "success",
+        "steps": [
+          {
+            "name": "Install Linux bundle prerequisites",
+            "conclusion": "skipped"
+          },
+          {
+            "name": "Check installed-smoke path handling",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check installed WebView audio smoke protocol",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check pinned media source-build contract",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build pinned BgUtils helper and plugin",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build and stage native helpers",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build native installer",
+            "conclusion": "success"
+          },
+          {
+            "name": "Smoke-test the installed desktop artifact",
+            "conclusion": "success"
+          },
+          {
+            "name": "Collect installers, provenance, and checksums",
+            "conclusion": "success"
+          },
+          {
+            "name": "Preserve installer for smoke diagnostics on failure",
+            "conclusion": "skipped"
+          }
+        ]
+      },
+      {
+        "name": "build (x86_64-pc-windows-msvc, windows-2022, nsis, windows-x64)",
+        "status": "completed",
+        "conclusion": "success",
+        "steps": [
+          {
+            "name": "Install Linux bundle prerequisites",
+            "conclusion": "skipped"
+          },
+          {
+            "name": "Check installed-smoke path handling",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check installed WebView audio smoke protocol",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check pinned media source-build contract",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build pinned BgUtils helper and plugin",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build and stage native helpers",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build native installer",
+            "conclusion": "success"
+          },
+          {
+            "name": "Smoke-test the installed desktop artifact",
+            "conclusion": "success"
+          },
+          {
+            "name": "Collect installers, provenance, and checksums",
+            "conclusion": "success"
+          },
+          {
+            "name": "Preserve installer for smoke diagnostics on failure",
+            "conclusion": "skipped"
+          }
+        ]
+      },
+      {
+        "name": "build (x86_64-unknown-linux-gnu, ubuntu-22.04, deb,rpm,appimage, linux-x64)",
+        "status": "completed",
+        "conclusion": "success",
+        "steps": [
+          {
+            "name": "Install Linux bundle prerequisites",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check installed-smoke path handling",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check installed WebView audio smoke protocol",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check pinned media source-build contract",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build pinned BgUtils helper and plugin",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build and stage native helpers",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build native installer",
+            "conclusion": "success"
+          },
+          {
+            "name": "Smoke-test the installed desktop artifact",
+            "conclusion": "success"
+          },
+          {
+            "name": "Collect installers, provenance, and checksums",
+            "conclusion": "success"
+          },
+          {
+            "name": "Preserve installer for smoke diagnostics on failure",
+            "conclusion": "skipped"
+          }
+        ]
+      },
+      {
+        "name": "extension",
+        "status": "completed",
+        "conclusion": "skipped",
+        "steps": []
+      },
+      {
+        "name": "draft",
+        "status": "completed",
+        "conclusion": "skipped",
+        "steps": []
+      }
+    ]
+  },
+  "qualificationLimit": "Frozen source 0061aff only. Installer smoke does not establish remote Mac playback fixes or post-source recognition changes."
 }

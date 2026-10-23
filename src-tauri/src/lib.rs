@@ -74,6 +74,7 @@ pub mod provider_read_requests;
 pub mod providers;
 mod queued_playback;
 pub mod radio;
+mod recognition_input;
 pub mod recording_filename;
 pub mod recording_identity;
 pub mod recording_match;

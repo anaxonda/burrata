@@ -7956,6 +7956,10 @@ impl AcquisitionManager {
         // while a job is waiting must not silently change its identity policy.
         request.track.provenance["downloadMatchingLevel"] =
             serde_json::to_value(settings.matching_level).map_err(|error| error.to_string())?;
+        // Queue-local consent is necessary but never sufficient: the staged
+        // verifier must also recheck the live setting before submission.
+        request.track.provenance["downloadAudioVerificationEnabled"] =
+            serde_json::json!(settings.download_audio_verification_enabled);
         let mut candidate = request.candidate;
         if let Some(CandidateSource::Soulseek {
             batch_id,

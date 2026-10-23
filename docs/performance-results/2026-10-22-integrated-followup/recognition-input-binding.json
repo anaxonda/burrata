@@ -1,0 +1,51 @@
+{
+  "scope": "Recognition input coherence component; not staged download workflow qualification",
+  "implementation": [
+    "Capture canonical regular-file path and SHA-256 before recognition; compare registered asset hash when supplied",
+    "Recheck supplied recording request, source locator, matching mode, path and bytes after agreeing excerpts",
+    "Limit blocking hash workers to two, retaining permits across caller cancellation",
+    "Ignore volatile Soulseek transfer identifiers while binding peer, filename and size",
+    "Recheck bytes and live matching level before second excerpt submission and after recognition"
+  ],
+  "validation": {
+    "recognition_input_tests": {
+      "passed": 3,
+      "failed": 0,
+      "log": "/tmp/burrata-recognition-input-binding-tests.log"
+    },
+    "autotag_tests": {
+      "passed": 36,
+      "failed": 0,
+      "log": "/tmp/burrata-recognition-binding-autotag-tests.log"
+    },
+    "full_native_before_pre_second_guard": {
+      "passed": 1806,
+      "failed": 0,
+      "ignored": 41,
+      "log": "/tmp/burrata-recognition-consent-full-native.log"
+    },
+    "full_native_final": {
+      "passed": 1806,
+      "failed": 0,
+      "ignored": 41,
+      "log": "/tmp/burrata-recognition-consent-full-native-final.log"
+    },
+    "typecheck": {
+      "errors": 0,
+      "warnings": 0,
+      "log": "/tmp/burrata-recognition-consent-typecheck.log"
+    }
+  },
+  "limitations": [
+    "No new audio or fingerprint requests were submitted",
+    "Does not establish recording identity or authorize publication",
+    "Staged opt-in, eligibility, independent identifier crosswalk, cancellation state and publication gate remain unfinished",
+    "Supplied recording/source snapshots are checked with live matching level; catalog metadata is not independently reloaded."
+  ],
+  "consentComponent": {
+    "defaultOff": true,
+    "legacyMigrationTestPassed": true,
+    "enqueueSnapshot": true,
+    "uiAndStagedSubmissionGate": "not implemented"
+  }
+}
