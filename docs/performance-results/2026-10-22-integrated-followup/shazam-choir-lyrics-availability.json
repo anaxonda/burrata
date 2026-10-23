@@ -1,0 +1,25 @@
+{
+  "checkedDate": "2026-10-23",
+  "recording": {
+    "title": "Kalimankou Denkou (The Evening Gathering)",
+    "artist": "Bulgarian State Radio & Television Female Vocal Choir",
+    "shazamPageId": "151627043"
+  },
+  "publicPage": {
+    "url": "https://www.shazam.com/song/151627043/kalimankou-denkou-the-evening-gathering",
+    "directOpenVerified": true,
+    "returnedTitleAndArtistMatch": true,
+    "lyricsSectionPresent": true,
+    "lyricsTextRetainedInRepository": false
+  },
+  "application": {
+    "existingRecognitionLyricsFallbackImplemented": true,
+    "requiresReturnedLyricsSection": true,
+    "requiresNormalizedTitleAndArtistMatch": true,
+    "output": "unsynced",
+    "actualSongRecResponseForThisRecordingVerified": false,
+    "genericPageFetchFallbackEnabled": false,
+    "newRecognitionRequestSent": false
+  },
+  "qualification": "Public page availability is established. This does not prove the recognition endpoint includes lyrics or that this song currently shows lyrics in Burrata."
+}

@@ -39,7 +39,32 @@
     "frontendFullTests": 1275,
     "frontendFiles": 107,
     "productionFrontendBuild": "passed",
-    "commandContracts": 8
+    "commandContracts": 8,
+    "rebuiltLiveRead": {
+      "commit": "5251368",
+      "binarySha256": "fe063e0dc0baf44e84d76e601d12dd0bed95c9a68badfcd284199c7219f4c328",
+      "platform": "Linux X11",
+      "cloneErrorAbsent": true,
+      "visibleSettings": {
+        "slots": 32,
+        "speedLimitKib": null,
+        "retryAttempts": 3,
+        "retryDelayMs": 5000,
+        "retryMaxDelayMs": 60000,
+        "partialPolicy": "resume"
+      },
+      "applyNotClicked": true,
+      "isolatedDownloadJobs": 0,
+      "normalRestoration": {
+        "queueEntryIds": true,
+        "queueTotal": true,
+        "currentIndex": true,
+        "entryId": true,
+        "trackId": true,
+        "paused": true,
+        "position": true
+      }
+    }
   },
   "normalProfileRestored": {
     "queueEntriesCompared": 200,
