@@ -96,6 +96,7 @@ pub mod system_media;
 pub mod tools;
 pub mod track_sort_sql;
 pub mod track_sort_text;
+mod verification_staging;
 mod webview_audio_transcode;
 mod webview_audio_transport;
 pub mod webview_identification;

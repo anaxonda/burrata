@@ -43,11 +43,11 @@
     "recognitionBoundary": "recognize_file_without_catalog now collects and checks two excerpt results independently of catalog enrichment; the existing post-download path uses it.",
     "temporaryExcerptOwnership": "Each extraction owns a private temporary directory; cancellation during a real synthetic Unix extraction subprocess removes it. Windows cancellation remains unqualified.",
     "stillMissing": [
-      "Settings UI and live consent recheck before each fingerprint submission",
-      "Server-computed uncertain candidate admission",
-      "Staging identifying state and publication gate",
-      "Catalog crosswalk validation and staged-file/source hash binding for the new per-excerpt evidence",
-      "Cancellation, revocation and cleanup coverage throughout the complete staged workflow"
+      "Explicit consent Settings UI and frontend uncertain-candidate selection",
+      "Synthetic acquisition-to-publication fixtures with successful and failed recognition",
+      "Cancellation/revocation/timeout cleanup coverage through complete acquisition workflow",
+      "Former-music-directory orphan handling",
+      "Authorized live fingerprint qualification without automatic resubmission"
     ],
     "proofCaution": "The combined isrc field can still come from one excerpt. The staged verifier must use agreeingIdentifiers plus independently validated catalog crosswalks and staged-file/source binding; excerptCount alone is insufficient.",
     "perExcerptIdentifiers": "AudioRecognition now retains agreeingIdentifiers only for ISRC/Shazam/Apple values observed with the same value in both excerpts. Legacy records default to no agreement evidence. Tag review labels explicit ISRC agreement.",
@@ -58,6 +58,7 @@
     "recognizedPolicyComponent": "Verifier component combines identifier linkage with existing recording_match_context using recognizer title/artist and actual measured file duration. It requires accepted Exact/Probable relationship; Flexible alternatives do not establish requested-recording verification. Five focused tests pass, including shared-ISRC title/artist/version/guest/runtime contradictions. Not connected to staged downloads or publication.",
     "stagedEntryComponent": "Owned-TempDir entry point now binds requested recording/source/file, probes actual duration, performs two guarded excerpts without retries and verifies recording policy. It polls live consent/cancellation, rechecks consent after extraction immediately before submission, and returns an in-memory recheckable receipt. All three local preflight, revocation and post-extraction submission-boundary tests pass. Not connected to acquisition; caller-owned staging cleanup and identifying-state recovery remain unfinished.",
     "acquisitionIntegration": "Native acquisition now admits only opted-in eligible uncertain sources into an owned TempDir, identifies before the atomic publication boundary and rechecks its in-memory receipt. Attempt markers prevent automatic recognition replay through fallback or Soulseek startup recovery. Explicit retries and new requests clear the marker. Final full suite passes 1816 tests with 41 ignored; typecheck is clean. Settings UI and frontend uncertain selection remain disabled; crash-staging scavenging and synthetic end-to-end publication acceptance are unfinished.",
-    "submissionBoundary": "Guard runs again after acquiring the shared SongRec mutex and before polling the recognizer child future. Deterministic held-gate revocation test and full native suite pass (1817 passed, 41 ignored)."
+    "submissionBoundary": "Guard runs again after acquiring the shared SongRec mutex and before polling the recognizer child future. Deterministic held-gate revocation test and full native suite pass (1817 passed, 41 ignored).",
+    "crashCleanup": "New uncertain-transfer directories carry a schema/job/folder-bound ownership marker before transfer starts. Startup scavenging removes only marked known inactive transfers under the current music directory staging root; active-job lock prevents a concurrent retry race. Unknown, unmarked and symlinked roots/markers are retained. Two focused tests, including external child-symlink preservation, and full suite pass (1819 passed, 41 ignored). Prior unmarked experimental directories and staging under a former music directory are not scavenged."
   }
 }

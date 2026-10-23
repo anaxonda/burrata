@@ -1,0 +1,24 @@
+{
+  "scope": "Startup cleanup of ownership-marked uncertain transfers under current music directory",
+  "fullNative": {
+    "passed": 1819,
+    "failed": 0,
+    "ignored": 41,
+    "log": "/tmp/burrata-verification-staging-full-native.log"
+  },
+  "focusedTests": 2,
+  "covers": [
+    "Known inactive marked directory removed",
+    "Active and unknown jobs retained",
+    "Unmarked folders and normal library files retained",
+    "Staging-root and marker symlinks not followed",
+    "External target of child symlink survives removal",
+    "Startup cleanup holds active-job lock matching start lock order"
+  ],
+  "limits": [
+    "Ownership-marker-less experimental directories retained",
+    "Former music directory roots not scanned",
+    "Full acquisition-to-publication synthetic workflow not qualified"
+  ],
+  "normalLibraryChanges": 0
+}

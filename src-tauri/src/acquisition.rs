@@ -6196,6 +6196,24 @@ impl AcquisitionManager {
         }
     }
     pub async fn resume_interrupted_soulseek(&self, settings: Settings) -> Result<usize, String> {
+        if !settings.music_directory.trim().is_empty() {
+            let music = PathBuf::from(&settings.music_directory);
+            let inner = self.inner.clone();
+            tokio::task::spawn_blocking(move || {
+                // Match start()'s lock order. No retry can become active or
+                // create a new owned directory while this snapshot is cleaned.
+                let active = inner.active.lock().map_err(|_| "Queue lock poisoned")?;
+                let jobs = inner
+                    .store
+                    .list_jobs()?
+                    .into_iter()
+                    .filter(|job| !active.contains_key(&job.id))
+                    .collect::<Vec<_>>();
+                crate::verification_staging::cleanup_interrupted(&music, &jobs)
+            })
+            .await
+            .map_err(|_| "Verification staging cleanup failed")??;
+        }
         if settings.music_directory.trim().is_empty() || self.inner.connections.slskd()?.is_none() {
             return Ok(0);
         }
@@ -8628,12 +8646,10 @@ impl AcquisitionManager {
             tokio::fs::create_dir_all(&staging_parent)
                 .await
                 .map_err(|error| error.to_string())?;
-            Some(
-                tempfile::Builder::new()
-                    .prefix("verification-")
-                    .tempdir_in(&staging_parent)
-                    .map_err(|error| format!("Cannot create staging directory: {error}"))?,
-            )
+            Some(crate::verification_staging::create(
+                &staging_parent,
+                &job.id,
+            )?)
         } else {
             None
         };
