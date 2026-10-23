@@ -2278,16 +2278,12 @@ fn get_playback_engine_settings(
     )
 }
 #[tauri::command]
-fn save_playback_engine_settings(
+async fn restart_with_playback_engine(
     state: State<'_, AppState>,
     engine: playback_engine_settings::Engine,
-) -> Result<playback_engine_settings::EngineSettings> {
-    playback_engine_settings::save(
-        &state.store,
-        engine,
-        state.playback.native_enabled(),
-        std::env::var("BURRATA_PLAYBACK_ENGINE").is_ok(),
-    )
+    checkpoint: serde_json::Value,
+) -> Result<()> {
+    state.playback.restart_with_engine(engine, checkpoint).await
 }
 #[tauri::command]
 fn get_playback_snapshot(state: State<'_, AppState>) -> serde_json::Value {
@@ -6434,7 +6430,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
             get_release_setup, complete_release_setup, get_radio_recognition, set_radio_recognition, choose_music_directory,
-            get_playback_engine_settings, save_playback_engine_settings, get_playback_snapshot, playback_command, handoff_webview_playback, handoff_resolved_playback_source,
+            get_playback_engine_settings, restart_with_playback_engine, get_playback_snapshot, playback_command, handoff_webview_playback, handoff_resolved_playback_source,
             get_browser_install_status, register_browser_host, unregister_browser_host,
             youtube_support_status,youtube_support_check,youtube_support_update,youtube_support_rollback,youtube_support_diagnose,
             get_radio_stations, rename_radio_station, resolve_radio_station_playback_url, resolve_radio_station_artwork, get_station_details, poll_radio_station, identify_radio_station, get_mpv_status, open_in_mpv,

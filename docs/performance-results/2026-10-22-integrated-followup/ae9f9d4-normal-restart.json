@@ -15,5 +15,7 @@
   "positionDeltaSeconds": 3.552713678800501e-15,
   "positionToleranceSeconds": 1e-06,
   "paused": true,
-  "queueTotal": 200
+  "queueTotal": 200,
+  "queueEntriesCompared": 50,
+  "queueComparisonScope": "The status endpoint returned its default first 50 entries; queue total was 200. Full 200-entry identity preservation was not directly compared."
 }

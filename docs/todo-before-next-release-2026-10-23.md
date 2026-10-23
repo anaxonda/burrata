@@ -1,5 +1,7 @@
 # Archived todo and qualification record
 
+Correction: historical references to verifying all 200 queue IDs via the default status endpoint were overbroad. That endpoint returned 50 IDs; the total was 200. Use the scoped current evidence and explicit full-queue snapshots for complete comparisons.
+
 Archived on 2026-10-23. Use the root todo.md for current status; this file preserves the original requirements, evidence and historical updates. Current user pauses and later instructions supersede historical proceed instructions below. Local absolute repository paths are represented relative to the repository root.
 
 # todo

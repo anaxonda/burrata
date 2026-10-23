@@ -10,23 +10,26 @@ import PlaybackEngineSettings from "./PlaybackEngineSettings.svelte";
 let instance:ReturnType<typeof mount>|null=null;
 afterEach(async()=>{if(instance)await unmount(instance);instance=null;document.body.innerHTML="";mocks.call.mockReset();});
 async function settle(){for(let i=0;i<8;i++)await Promise.resolve();await tick();}
-it("saves the next-launch preference and displays a restart requirement",async()=>{
+it("keeps selection as a draft until explicit apply and restart",async()=>{
+  const restart=vi.fn().mockResolvedValue(undefined);
   mocks.call.mockImplementation(async(command:string)=>command==="get_playback_engine_settings"?{selected:"webview",active:"webview",locked:false,restartRequired:false}:{selected:"native",active:"webview",locked:false,restartRequired:true});
-  instance=mount(PlaybackEngineSettings,{target:document.body});await settle();
+  instance=mount(PlaybackEngineSettings,{target:document.body,props:{onApplyRestart:restart}});await settle();
   const select=document.querySelector<HTMLSelectElement>('select')!;expect(select.disabled).toBe(false);
   select.value="native";select.dispatchEvent(new Event("change",{bubbles:true}));await settle();
-  expect(mocks.call).toHaveBeenCalledWith("save_playback_engine_settings",{engine:"native"});
-  expect(document.body.textContent).toContain("Restart Burrata to use native audio");
+  expect(mocks.call).toHaveBeenCalledTimes(1);expect(restart).not.toHaveBeenCalled();
+  document.querySelector<HTMLButtonElement>("button")!.click();await settle();
+  expect(restart).toHaveBeenCalledWith("native");
 });
 it("keeps fixed-launch settings read-only and does not write preferences",async()=>{
   mocks.call.mockResolvedValue({selected:"native",active:"native",locked:true,restartRequired:false});
-  instance=mount(PlaybackEngineSettings,{target:document.body});await settle();
+  instance=mount(PlaybackEngineSettings,{target:document.body,props:{onApplyRestart:vi.fn()}});await settle();
   expect(document.querySelector<HTMLSelectElement>('select')!.disabled).toBe(true);
   expect(mocks.call).toHaveBeenCalledTimes(1);expect(document.body.textContent).toContain("fixed audio engine");
 });
-it("restores the saved choice if persistence fails",async()=>{
+it("retains the saved choice and reports a failed handoff",async()=>{
   mocks.call.mockImplementation(async(command:string)=>{if(command==="get_playback_engine_settings")return{selected:"webview",active:"webview",locked:false,restartRequired:false};throw new Error("unavailable");});
-  instance=mount(PlaybackEngineSettings,{target:document.body});await settle();
+  instance=mount(PlaybackEngineSettings,{target:document.body,props:{onApplyRestart:vi.fn().mockRejectedValue(new Error("save failed"))}});await settle();
   const select=document.querySelector<HTMLSelectElement>('select')!;select.value="native";select.dispatchEvent(new Event("change",{bubbles:true}));await settle();
-  expect(select.value).toBe("webview");expect(document.body.textContent).toContain("Could not save");
+  document.querySelector<HTMLButtonElement>("button")!.click();await settle();
+  expect(select.value).toBe("webview");expect(document.body.textContent).toContain("Could not switch");
 });

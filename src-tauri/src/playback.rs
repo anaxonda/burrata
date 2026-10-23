@@ -1218,6 +1218,49 @@ impl PlaybackService {
             })
             .unwrap_or(0)
     }
+    /// Explicit user action: checkpoint both engine stores, then restart while
+    /// holding persistence serialization so an older session cannot overwrite it.
+    pub async fn restart_with_engine(
+        &self,
+        engine: crate::playback_engine_settings::Engine,
+        saved: Value,
+    ) -> Result<(), String> {
+        if std::env::var("BURRATA_PLAYBACK_ENGINE").is_ok() {
+            return Err("This launch uses a fixed audio engine".into());
+        }
+        let _commands = self.inner.commands.lock().await;
+        let _persistence = self
+            .inner
+            .persistence
+            .lock()
+            .map_err(|_| "Playback persistence unavailable")?;
+        let (queue, session) = engine_switch_checkpoint(&saved)?;
+        if self.native_enabled() {
+            let current = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Playback state unavailable")?;
+            if current.status == "playing"
+                || current.status == "resolving"
+                || current.status == "buffering"
+                || saved["entryIds"] != json!(current.entries)
+                || saved["currentEntryId"] != json!(current.entries.get(current.index))
+                || saved["queueRevision"].as_u64() != Some(current.queue_revision)
+                || (saved["position"].as_f64().unwrap_or(-1.) - current.position).abs() > 0.05
+            {
+                return Err("Playback changed during engine switching. Try again.".into());
+            }
+        }
+        let selected = serde_json::to_value(engine).map_err(|_| "Invalid audio engine")?;
+        self.inner.store.save_playback_checkpoint_and_engine(
+            Some(&queue),
+            Some(&session),
+            Some(&selected),
+        )?;
+        self.inner.app.restart();
+    }
+
     pub fn snapshot(&self) -> Value {
         self.inner
             .state
@@ -4290,6 +4333,39 @@ fn merge_persisted_queue(saved: &mut Value, queue: &Value) -> Result<(), String>
     }
     saved["tracks"] = queue["tracks"].clone();
     Ok(())
+}
+
+/// Validate an engine-switch checkpoint without mutating the running player.
+/// Explicit occurrence IDs are mandatory; legacy ID regeneration is not safe here.
+fn engine_switch_checkpoint(saved: &Value) -> Result<(Value, Value), String> {
+    let tracks = saved["tracks"]
+        .as_array()
+        .ok_or("Engine-switch queue is missing")?;
+    let entries = saved["entryIds"]
+        .as_array()
+        .ok_or("Engine-switch occurrence IDs are missing")?;
+    if entries.len() != tracks.len()
+        || entries.iter().any(|id| {
+            id.as_str().is_none_or(|id| {
+                id.is_empty() || id.len() > 128 || id.chars().any(char::is_control)
+            })
+        })
+        || saved["position"]
+            .as_f64()
+            .is_none_or(|position| !position.is_finite() || position < 0.)
+        || saved["volume"]
+            .as_f64()
+            .is_none_or(|volume| !volume.is_finite() || !(0. ..=1.).contains(&volume))
+        || !matches!(saved["repeat"].as_str(), Some("off" | "all" | "one"))
+        || saved["shuffle"].as_bool().is_none()
+    {
+        return Err("Engine-switch checkpoint is invalid".into());
+    }
+    let mut restored = State::default();
+    restore_state(&mut restored, saved)?;
+    let queue = json!({"tracks":restored.queue,"entryIds":restored.entries,"queueRevision":restored.queue_revision});
+    let session = json!({"index":restored.index,"currentEntryId":restored.entries.get(restored.index),"queueRevision":restored.queue_revision,"position":restored.position,"volume":restored.volume,"repeat":restored.repeat,"shuffle":restored.shuffle,"finished":false});
+    Ok((queue, session))
 }
 
 fn restore_state(state: &mut State, saved: &Value) -> Result<(), String> {
@@ -8356,5 +8432,33 @@ mod upcoming_identity_preparation_tests {
             .await
             .unwrap_err()
             .contains("deadline"));
+    }
+}
+
+#[cfg(test)]
+mod engine_switch_checkpoint_tests {
+    use super::*;
+    #[test]
+    fn switch_checkpoint_rejects_missing_identity_and_invalid_position() {
+        let saved = json!({"tracks":[],"entryIds":[],"queueRevision":7,"currentEntryId":null,"position":22.0,"volume":0.8,"repeat":"all","shuffle":false});
+        let (queue, session) = engine_switch_checkpoint(&saved).unwrap();
+        assert_eq!(queue["queueRevision"], session["queueRevision"]);
+        assert_eq!(session["position"], 22.0);
+        assert_eq!(session["finished"], false);
+        for field in [
+            "entryIds",
+            "queueRevision",
+            "position",
+            "volume",
+            "repeat",
+            "shuffle",
+        ] {
+            let mut invalid = saved.clone();
+            invalid.as_object_mut().unwrap().remove(field);
+            assert!(engine_switch_checkpoint(&invalid).is_err(), "{field}");
+        }
+        let mut invalid = saved.clone();
+        invalid["position"] = json!(-1);
+        assert!(engine_switch_checkpoint(&invalid).is_err());
     }
 }

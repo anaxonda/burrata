@@ -220,7 +220,7 @@
     "allow-youtube-support-rollback",
     "allow-youtube-support-diagnose",
     "allow-get-playback-engine-settings",
-    "allow-save-playback-engine-settings",
+    "allow-restart-with-playback-engine",
     "allow-get-playback-snapshot",
     "allow-get-live-bpm",
     "allow-playback-command",

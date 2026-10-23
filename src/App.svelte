@@ -123,6 +123,7 @@
   import SearchPanel, { type SearchKind } from "./SearchPanel.svelte";
   import SoulseekWishlist from "./SoulseekWishlist.svelte";
   import LyricsPanel from "./LyricsPanel.svelte";
+  import { queueForEngineMigration } from "./lib/playback-engine-migration";
   import PlaybackEngineSettings from "./PlaybackEngineSettings.svelte";
   import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
   import { isTrackDownloaded } from "./lib/track-sort";
@@ -1145,6 +1146,32 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     position = event.position;
     if (event.duration !== undefined) duration = event.duration;
     if (event.buffering !== undefined) bufferingAudio = event.buffering;
+  }
+  let engineSwitchBusy = $state(false);
+  async function applyPlaybackEngineAndRestart(engine: "webview" | "native") {
+    if (engineSwitchBusy) return;
+    engineSwitchBusy = true;
+    try {
+      const isNative = nativeActive();
+      if (isNative) await nativeBridge.command({action:"pause"});
+      else { audio?.pause(); paused = true; }
+      const snapshot = isNative ? await call<NativePlaybackSnapshot & {queueTotal:number;queueEntryIds:string[]}>("get_playback_snapshot") : null;
+      const queue = snapshot ? queueForEngineMigration(snapshot) : playbackQueue.snapshot();
+      const track = queue.tracks[queue.currentIndex];
+      const relativePosition = snapshot ? snapshot.position : track ? chapterRelativePosition(track, position) : 0;
+      const absolutePosition = snapshot && track ? chapterAbsolutePosition(track, relativePosition) : position;
+      const persisted = new PlaybackQueue();
+      persisted.restore(queue);
+      if (!savePlaybackQueue(persisted)) throw new Error("Could not save the current queue");
+      localStorage.setItem(PLAYBACK_POSITION_KEY, JSON.stringify({trackId:track?.id ?? null,position:absolutePosition,savedAt:Date.now()}));
+      localStorage.setItem("burrata.engine-switch-controls.v1", JSON.stringify({volume:snapshot?.volume ?? volume,shuffle:snapshot?.shuffle ?? shuffleEnabled}));
+      await call("restart_with_playback_engine", {engine, checkpoint:{
+        tracks:queue.tracks, entryIds:queue.entryIds, index:queue.currentIndex,
+        currentEntryId:queue.entryIds?.[queue.currentIndex] ?? null,
+        queueRevision:snapshot?.queueRevision ?? 0, position:relativePosition,
+        volume:snapshot?.volume ?? volume, repeat:queue.repeat, shuffle:snapshot?.shuffle ?? shuffleEnabled,
+      }});
+    } finally { engineSwitchBusy = false; }
   }
   async function nativeCommand(command: Parameters<NativePlaybackBridge["command"]>[0]) {
     try {
@@ -2337,6 +2364,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   }
   let lastPersistedPlaybackPosition: {trackId:string;position:number;savedAt:number} | null = null;
   function persistPlaybackPosition(routine = false) {
+    if (engineSwitchBusy) return;
     if (!playingTrack || typeof localStorage === "undefined") return;
     resumeTrackId = playingTrack.id;
     resumePosition = Math.max(0, Number.isFinite(position) ? position : 0);
@@ -4430,6 +4458,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     showPlayingInfo = panel === "info"; showQueue = panel === "queue"; showDownloads = panel === "downloads";
   }
   function keyboard(e: KeyboardEvent) {
+    if(engineSwitchBusy){e.preventDefault();return;}
     const target = e.target instanceof Element ? e.target : null;
     if (e.key === "Escape" && showFullNowPlaying) { e.preventDefault(); showFullNowPlaying = false; return; }
     if (showFullNowPlaying && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); showFullNowPlaying = false; return; }
@@ -6040,6 +6069,13 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const restored = loadPlaybackQueue();
     if (restored) { playbackQueue.restore(restored.snapshot()); repeatMode = playbackQueue.repeat; refreshQueue(); playingTrack = playbackQueue.current; if (playingTrack) void cacheCover(playingTrack); }
     restorePlaybackPosition();
+    try {
+      const controls=JSON.parse(localStorage.getItem("burrata.engine-switch-controls.v1") ?? "null");
+      if(controls && typeof controls.volume==="number" && Number.isFinite(controls.volume) && controls.volume>=0 && controls.volume<=1 && typeof controls.shuffle==="boolean") {
+        volume=controls.volume;shuffleEnabled=controls.shuffle;
+      }
+      localStorage.removeItem("burrata.engine-switch-controls.v1");
+    } catch { /* Keep default controls if storage is unavailable. */ }
     try {const left=Number(localStorage.getItem("burrata.layout.sidebar.v1"));if(left>=160&&left<=320)sidebarWidth=left;const right=Number(localStorage.getItem("burrata.layout.info.v1"));if(right>=280&&right<=420)infoPanelWidth=right;}catch{}
     void loadAutotagState().catch(()=>{});
     if(desktop())void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{});
@@ -6474,7 +6510,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
 </script>
 
 <svelte:window onkeydown={keyboard} onpointerdown={dismissHistoryFiltersOutside} bind:innerWidth={screenWidth} />
-<div class:light={settings.theme === "light" || settings.theme === "system" && systemLight} class:has-player-panel={showPlayingInfo || showQueue} class="app-shell" style={`--player-height: ${playerHeight}px; --library-sidebar-width:${screenWidth<=900?64:Math.min(sidebarWidth,Math.max(160,screenWidth-((showPlayingInfo||showQueue)?280:0)-320))}px; --info-panel-width:${Math.min(infoPanelWidth,Math.max(280,screenWidth-(screenWidth<=900?64:sidebarWidth)-280))}px`}>
+<div class:light={settings.theme === "light" || settings.theme === "system" && systemLight} class:has-player-panel={showPlayingInfo || showQueue} class="app-shell" inert={engineSwitchBusy} style={`--player-height: ${playerHeight}px; --library-sidebar-width:${screenWidth<=900?64:Math.min(sidebarWidth,Math.max(160,screenWidth-((showPlayingInfo||showQueue)?280:0)-320))}px; --info-panel-width:${Math.min(infoPanelWidth,Math.max(280,screenWidth-(screenWidth<=900?64:sidebarWidth)-280))}px`}>
   <LibrarySidebar inert={showFullNowPlaying} {call} showAccountPlaylists={sidebarLayout.showAccountPlaylists} onRemotePlaylist={(source,url) => void openRemotePlaylist(source,url)} compact={screenWidth<=900} favoritesPlaylistId={playlistPreferences.favoritesPlaylistId} playlistNames={sidebarLayout.names??{}} onRadioContext={(station,event)=>radioActions={station,anchor:{x:event.clientX,y:event.clientY}}} {radioStations} activeRadioStationId={selectedRadioStationId} onRadioStation={(station)=>{showAddRadio=false;selectedRadioStationId=station.id;void navigate("radio");if(playingRadioStation?.id!==station.id)playRadioStation(station);}} onAddRadio={()=>{showAddRadio=true;void navigate("radio");}} width={sidebarWidth} onWidthChange={(width)=>saveLayoutWidth("sidebar",width)} {view} collections={namedCollections} browserImports={sidebarImports} {localPlaylistIds} activeSource="all" activeCollectionId={view === "collections" || view === "charts" ? collectionId : ""}
     onDirectoryBrowser={() => { directoryBrowserVisited = true; if (view !== "directory-browser") void navigate("directory-browser"); }}
     selectedFolder={view === "directory-browser" ? directoryLocation : null} rootsRevision={directoryRootsRevision} onSelectFolder={browseFolder} onRootsChanged={() => directoryRootsRevision++}
@@ -6688,7 +6724,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           <div class="settings-grid">{#if settingsCategory === "general"}<label>Theme<select bind:value={settings.theme}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>{/if}
           {#if settingsCategory === "playback"}<label>Playback startup timeout<select id="playback-startup-timeout" bind:value={settings.playbackStartupTimeoutSeconds}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label><label>Preview delay (ms)<input type="number" min="0" max="5000" bind:value={settings.previewDelayMs} /></label>{/if}</div>
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.autoPreview} /><span><strong>Play songs selected with arrow keys</strong><small>Wait for the preview delay before starting audio.</small></span></label>{/if}
-          {#if settingsCategory === "playback"}<PlaybackEngineSettings />{/if}
+          {#if settingsCategory === "playback"}<PlaybackEngineSettings onApplyRestart={applyPlaybackEngineAndRestart} />{/if}
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" aria-label="Enable live BPM" checked={settings.liveBpmEnabled === true} onchange={(event) => { settings.liveBpmEnabled = event.currentTarget.checked; void saveSettingsFields(["liveBpmEnabled"], "Live BPM preference saved."); }} /><span><strong>Show live BPM</strong><small>Estimate approximate tempo from native playback audio while a track is playing. This does not change track metadata.</small></span></label>{/if}
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.pauseOnSourceOpen} /><span>Pause when opening the playing track’s source</span></label><label class="settings-option"><input type="checkbox" bind:checked={settings.sourceOpenAtPosition} /><span>Open source at current position (YouTube and SoundCloud)</span></label>{/if}
           <button onclick={()=>void saveSettingsFields(["theme","autoPreview","previewDelayMs","playbackStartupTimeoutSeconds","pauseOnSourceOpen","sourceOpenAtPosition","liveBpmEnabled"],"Playback preferences saved.")}>{settingsCategory === "general" ? "Save appearance" : "Save playback preferences"}</button>

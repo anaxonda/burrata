@@ -1,0 +1,14 @@
+{
+  "commit": "a2073202e9a4ba2ee1a8548275fd10d16530ca30",
+  "binarySha256": "19d0ec8efa54a8f242e14b63e1c97857ca42f7045cb54f6de7dfe2c574327f1f",
+  "scope": "Linux isolated profile; WebView; raw public MPRIS OpenUri",
+  "sourceUrl": "https://soundcloud.com/thisisharvit/fred-again-b2b-thomas",
+  "openUriExitCode": 0,
+  "seekTargetSeconds": 3600,
+  "observedPositionSeconds": 3841.197023,
+  "status": "playing",
+  "originalSourceUrlRetained": true,
+  "failure": null,
+  "lastMediaFailure": null,
+  "limitation": "Not physical macOS or remote-network qualification."
+}

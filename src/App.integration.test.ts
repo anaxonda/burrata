@@ -11715,3 +11715,50 @@ describe("remote occurrence save wiring", () => {
   });
 
 });
+
+describe("audio engine switch session handoff",()=>{
+  async function openEngineSettings(target="webview") {
+    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button=>button.textContent?.trim()==="Playback")!.click();await settle();
+    const select=document.querySelector<HTMLSelectElement>('select[aria-label="Audio playback engine"]')!;
+    select.value=target;select.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    const apply=[...document.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent?.trim()==="Apply and restart");
+    expect(apply, document.querySelector(".engine-settings")?.outerHTML).toBeDefined();
+    return apply!;
+  }
+  function setupSnapshot() {
+    const queue=Array.from({length:200},()=>savedTrack);
+    nativePlaybackSnapshot={...makeNativeSnapshot({status:"paused",queue,currentIndex:137,queueRevision:8,track:savedTrack,trackId:savedTrack.id,position:22.5,volume:.42,repeat:"all",shuffle:true}),queueTotal:200,queueEntryIds:queue.map((_,i)=>`occurrence-${i}`)} as NativePlaybackSnapshot;
+    const original=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="get_playback_engine_settings"?{selected:"native",active:"native",locked:false,restartRequired:false}:original(command,args));
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};
+  }
+  it("copies all 200 duplicate occurrences before requesting an engine restart",async()=>{
+    setupSnapshot();await settle();const apply=await openEngineSettings();
+    expect(mocks.call.mock.calls.some(([command])=>command==="restart_with_playback_engine")).toBe(false);
+    apply.click();await settle();
+    const saved=JSON.parse(localStorage.getItem("burrata.playback-queue.v1")!);
+    expect(saved.tracks).toHaveLength(200);expect(saved.entryIds).toEqual(Array.from({length:200},(_,i)=>`occurrence-${i}`));expect(saved.currentIndex).toBe(137);
+    expect(lastCallOf("restart_with_playback_engine")?.[1]).toMatchObject({engine:"webview",checkpoint:{index:137,currentEntryId:"occurrence-137",queueRevision:8,position:22.5,volume:.42,repeat:"all",shuffle:true}});
+    expect(JSON.parse(localStorage.getItem("burrata.playback-position.v1")!)).toMatchObject({trackId:savedTrack.id,position:22.5});
+    expect(JSON.parse(localStorage.getItem("burrata.engine-switch-controls.v1")!)).toEqual({volume:.42,shuffle:true});
+  });
+  it("uses the browser session rather than an older native queue when switching to native",async()=>{
+    localStorage.setItem("burrata.playback-queue.v1",JSON.stringify({tracks:[savedTrack,savedTrack],entryIds:["browser-first","browser-second"],currentIndex:1,repeat:"one"}));
+    localStorage.setItem("burrata.playback-position.v1",JSON.stringify({trackId:savedTrack.id,position:19.5,savedAt:Date.now()}));
+    nativePlaybackSnapshot=makeNativeSnapshot({engine:"webview",queue:[secondTrack],track:secondTrack,trackId:secondTrack.id,currentIndex:0,position:99});
+    const original=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="get_playback_engine_settings"?{selected:"webview",active:"webview",locked:false,restartRequired:false}:original(command,args));
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    const apply=await openEngineSettings("native");apply.click();await settle();
+    expect(lastCallOf("restart_with_playback_engine")?.[1]).toMatchObject({engine:"native",checkpoint:{entryIds:["browser-first","browser-second"],index:1,currentEntryId:"browser-second",position:19.5,repeat:"one"}});
+    expect((lastCallOf("restart_with_playback_engine")?.[1] as {checkpoint:{tracks:Track[]}}).checkpoint.tracks.map(track=>track.id)).toEqual([savedTrack.id,savedTrack.id]);
+  });
+  it("does not request a restart or engine write if queue persistence fails",async()=>{
+    setupSnapshot();await settle();const apply=await openEngineSettings();
+    const original=localStorage.setItem;
+    const spy=vi.spyOn(localStorage,"setItem").mockImplementation(function(this:Storage,key:string,value:string){if(key==="burrata.playback-queue.v1")throw new Error("Synthetic storage full");return original.call(this,key,value);});
+    try {apply.click();await settle();expect(lastCallOf("restart_with_playback_engine")).toBeUndefined();expect(document.body.textContent).toContain("Could not switch audio engines");}
+    finally {spy.mockRestore();}
+  });
+});

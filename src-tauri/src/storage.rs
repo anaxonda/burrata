@@ -969,9 +969,19 @@ impl Store {
         queue: Option<&serde_json::Value>,
         session: Option<&serde_json::Value>,
     ) -> Result<()> {
-        if queue.is_none() && session.is_none() {
+        self.save_playback_checkpoint_and_engine(queue, session, None)
+    }
+    /// Engine selection and its complete session must commit together.
+    pub fn save_playback_checkpoint_and_engine(
+        &self,
+        queue: Option<&serde_json::Value>,
+        session: Option<&serde_json::Value>,
+        engine: Option<&serde_json::Value>,
+    ) -> Result<()> {
+        if queue.is_none() && session.is_none() && engine.is_none() {
             return Ok(());
         }
+        let engine = engine.map(encode).transpose()?;
         let queue = queue.map(encode).transpose()?;
         let session = session.map(encode).transpose()?;
         let mut connection = self.lock_connection()?;
@@ -979,6 +989,7 @@ impl Store {
         for (key, value) in [
             ("nativePlaybackQueue.v1", queue),
             ("nativePlaybackSession.v1", session),
+            ("playbackEngine.v1", engine),
         ] {
             if let Some(value) = value {
                 transaction
@@ -6401,6 +6412,45 @@ mod tests {
             .is_err());
         assert!(store.get_asset_by_id(&stale_asset.id).unwrap().is_none());
         assert_eq!(raw_after, raw_before);
+    }
+
+    #[test]
+    fn engine_switch_checkpoint_rolls_back_all_three_preferences_on_failure() {
+        let (_directory, store) = db();
+        let queue = serde_json::json!({"tracks":[],"entryIds":[],"queueRevision":1});
+        let session =
+            serde_json::json!({"index":0,"currentEntryId":null,"queueRevision":1,"position":12.5});
+        store
+            .save_playback_checkpoint_and_engine(
+                Some(&queue),
+                Some(&session),
+                Some(&serde_json::json!("webview")),
+            )
+            .unwrap();
+        store.lock_connection().unwrap().execute_batch("CREATE TRIGGER reject_engine_switch BEFORE UPDATE ON settings WHEN NEW.key = 'playbackEngine.v1' BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END;").unwrap();
+        let changed_queue = serde_json::json!({"tracks":[],"entryIds":[],"queueRevision":2});
+        let changed_session = serde_json::json!({"queueRevision":2,"position":99});
+        assert!(store
+            .save_playback_checkpoint_and_engine(
+                Some(&changed_queue),
+                Some(&changed_session),
+                Some(&serde_json::json!("native"))
+            )
+            .is_err());
+        assert_eq!(
+            store.get_json_preference("nativePlaybackQueue.v1").unwrap(),
+            Some(queue)
+        );
+        assert_eq!(
+            store
+                .get_json_preference("nativePlaybackSession.v1")
+                .unwrap(),
+            Some(session)
+        );
+        assert_eq!(
+            store.get_json_preference("playbackEngine.v1").unwrap(),
+            Some(serde_json::json!("webview"))
+        );
     }
 
     #[test]
