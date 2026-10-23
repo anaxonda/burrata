@@ -57,3 +57,21 @@ describe("fullscreen artwork upgrades", () => {
     expect(fullscreenArtworkUpgradeCandidates(track({ provider: "spotify", providerId: "different" }))).toEqual([]);
   });
 });
+
+it("upgrades the exact selected YouTube image asset without changing its identity or options",()=>{
+  const source="https://yt3.googleusercontent.com/SyntheticAsset_123=w120-h120-l90-rj";
+  expect(fullscreenArtworkUpgradeCandidates(track({provider:"youtube",artworkUrl:source,provenance:{}}))).toEqual([
+    {url:"https://yt3.googleusercontent.com/SyntheticAsset_123=w600-h600-l90-rj",width:600,height:600},
+    {url:"https://yt3.googleusercontent.com/SyntheticAsset_123=w1200-h1200-l90-rj",width:1200,height:1200},
+  ]);
+  expect(fullscreenArtworkUpgradeCandidates(track({provider:"youtube",artworkUrl:source.replace("w120-h120","w1200-h1200"),provenance:{}}))).toEqual([]);
+});
+it.each([
+  "https://yt3.googleusercontent.com.evil.invalid/Asset=w120-h120-rj",
+  "https://user@yt3.googleusercontent.com/Asset=w120-h120-rj",
+  "http://yt3.googleusercontent.com/Asset=w120-h120-rj",
+  "https://yt3.googleusercontent.com/Asset=w120-h120-rj?token=secret",
+  "https://yt3.googleusercontent.com/nested/Asset=w120-h120-rj",
+])("does not rewrite an unrecognized or credential-bearing image URL %s",url=>{
+  expect(fullscreenArtworkUpgradeCandidates(track({provider:"youtube",artworkUrl:url,provenance:{}}))).toEqual([]);
+});

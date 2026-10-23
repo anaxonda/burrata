@@ -56,10 +56,25 @@ function musicBrainzArtworkCandidates(track: Track, provenance: Record<string, u
   return [...edition, ...group].filter(candidate => candidate.url !== original);
 }
 
-/** Higher-resolution alternatives are accepted only when tied to this track's catalog identity. */
+/** Resize only the already-selected YouTube image asset; never search for replacement art. */
+function youtubeArtworkCandidates(track: Track): ArtworkImage[] {
+  if (track.provider !== "youtube" || typeof track.artworkUrl !== "string" || track.artworkUrl.length > 2048) return [];
+  let url: URL;
+  try { url = new URL(track.artworkUrl); } catch { return []; }
+  if (url.protocol !== "https:" || !["yt3.googleusercontent.com", "yt3.ggpht.com"].includes(url.hostname)
+    || url.username || url.password || url.port || url.search || url.hash) return [];
+  const match = url.pathname.match(/^(\/[A-Za-z0-9_-]+)=w([0-9]{1,5})-h([0-9]{1,5})((?:-[A-Za-z0-9]+)*)$/);
+  if (!match) return [];
+  const [, asset, width, height, options] = match;
+  return [600, 1200].filter(size => size > Math.max(Number(width), Number(height)))
+    .map(size => ({url:`${url.origin}${asset}=w${size}-h${size}${options}`,width:size,height:size}));
+}
+
+/** Alternatives retain this track's catalog identity or its exact selected image asset. */
 export function fullscreenArtworkUpgradeCandidates(track: Track): ArtworkImage[] {
   const provenance = isRecord(track.provenance) ? track.provenance : {};
   const catalog = isRecord(provenance.catalog) ? provenance.catalog : null;
   if (track.provider === "spotify" || catalog?.provider === "spotify") return spotifyImageCandidates(track, provenance);
-  return musicBrainzArtworkCandidates(track, provenance);
+  const youtube = youtubeArtworkCandidates(track);
+  return youtube.length ? youtube : musicBrainzArtworkCandidates(track, provenance);
 }

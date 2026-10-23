@@ -11,7 +11,7 @@ These notes describe the current development checkpoint. They are not a publishe
 - Add a Soulseek wishlist in Settings → Downloads. Saved searches check periodically while the app is open, with pause/remove controls and candidate review; they do not download automatically.
 - Add managed local slskd controls for download slots, speed, retries and partial files. Separately configured daemons remain read-only. Improve configuration preservation and restart rollback reporting.
 - Add download layouts for artist/album folders and playlist folders, plus cover-art embedding. Existing files are not reorganized automatically.
-- Improve combined artist-and-album MusicBrainz searches, artist portraits, fullscreen artwork and alternative stream-URL discovery for saved radio stations.
+- Improve combined artist-and-album MusicBrainz searches, artist portraits, higher-resolution catalog-backed Spotify/MusicBrainz fullscreen artwork and alternative stream-URL discovery for saved radio stations.
 - Add an optional live BPM estimate. Choose Native audio in Settings → Playback and select Apply and restart to preserve the current queue and playhead, then enable Show live BPM. Estimates can remain blank when confidence is insufficient and do not change saved tags. Compatibility playback remains the default.
 
 ## Qualification and limitations

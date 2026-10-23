@@ -1,0 +1,37 @@
+{
+  "scope": "Post-v0.1.8-tag follow-up; not included in tagged commit 03c5e63",
+  "observation": "Fullscreen selected YouTube album artwork was 120 pixels and appeared enlarged. Existing upgrade candidates covered matching Spotify/MusicBrainz catalog images only.",
+  "change": "For exact supported yt3 hosts and bounded image paths, request 600/1200 pixel variants of the selected asset with the same asset identifier and options. Existing image probes verify actual dimensions before replacing the visible image.",
+  "liveSourceImageProbes": [
+    {
+      "requestedSize": 120,
+      "httpStatus": 200,
+      "width": 120,
+      "height": 120,
+      "bytes": 6782
+    },
+    {
+      "requestedSize": 600,
+      "httpStatus": 200,
+      "width": 600,
+      "height": 600,
+      "bytes": 193665
+    },
+    {
+      "requestedSize": 1200,
+      "httpStatus": 200,
+      "width": 1200,
+      "height": 1200,
+      "bytes": 354477
+    }
+  ],
+  "focusedTests": 12,
+  "typecheck": "0 errors, 0 warnings",
+  "rendererQualification": "Pending rebuilt app; current embedded checkpoint predates the follow-up.",
+  "normalQueuePreserved": {
+    "entriesCompared": 200,
+    "allEntryIdsEqual": true,
+    "positionExactlyEqual": true,
+    "paused": true
+  }
+}
