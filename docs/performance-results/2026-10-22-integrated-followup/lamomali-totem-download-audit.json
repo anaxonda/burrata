@@ -1,0 +1,43 @@
+{
+  "recording": "Totem",
+  "jobId": "d2e99e2d-e8c3-4e3e-aef4-4bca2d6879dc",
+  "state": "completed",
+  "provider": "slskd",
+  "matchingLevel": "balanced",
+  "fileCount": 1,
+  "sizeBytes": 21636392,
+  "hashMatchesAsset": true,
+  "fullDecodePassed": true,
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "flac",
+        "sample_rate": "44100",
+        "channels": 2,
+        "bits_per_raw_sample": "16"
+      },
+      {
+        "codec_name": "mjpeg",
+        "bits_per_raw_sample": "8"
+      }
+    ],
+    "format": {
+      "duration": "179.582948",
+      "tags": {
+        "ARTIST": "Lamomali & Yam\u00ea",
+        "TITLE": "Totem",
+        "ALBUM": "Lamomali Totem",
+        "track": "3",
+        "disc": "1",
+        "LABEL": "Labo -M-",
+        "BPM": "126.9",
+        "INITIALKEY": "Gbm",
+        "ISRC": "FR11Y2500030",
+        "RELEASEDATE": "2025-04-25"
+      }
+    }
+  },
+  "limitation": "Metadata/duration and file integrity qualification; no independent audio recognition or listening comparison performed."
+}
