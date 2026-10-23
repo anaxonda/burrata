@@ -6697,10 +6697,10 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           {/if}{#if settingsCategory === "downloads"}<section class="settings-source-card" aria-labelledby="download-settings-title">
             <h3 id="download-settings-title">Downloads</h3><p>Save a recording to your music folder.</p>
             <label>Folder layout<select aria-label="Download folder layout" value={settings.downloadLayout ?? "artistAlbum"} onchange={(event) => { settings.downloadLayout = event.currentTarget.value as Settings["downloadLayout"]; void saveSettingsFields(["downloadLayout"], "Download folder layout saved."); }}>
-              <option value="flat">Flat · Music/Track</option>
-              <option value="artistAlbum">Artist and album · Music/Artist/Album/Track</option>
-              <option value="playlist">Playlist first · Music/Playlist/Artist/Album/Track</option>
-            </select><small>Playlist folders apply to downloads started from a saved local playlist. Other downloads use Artist and album when Playlist first is selected. Existing files are not moved.</small></label>
+              <option value="flat">Flat</option>
+              <option value="artistAlbum">Artist and album</option>
+              <option value="playlist">Playlist first</option>
+            </select><small>{settings.downloadLayout === "flat" ? "Music/Artist - Title.ext" : settings.downloadLayout === "playlist" ? "Music/Playlists/Name/Artist - Title.ext" : "Music/Artist/Album/Artist - Title.ext"}</small><small>Playlist folders apply to downloads started from a saved local playlist. Other downloads use Artist and album when Playlist first is selected. Existing files are not moved.</small></label>
             <label>Primary source<select aria-label="Preferred download source" bind:value={settings.preferredDownloadSource} onchange={() => void savePreferredDownloadSource()}>
             <option value="youtube">YouTube</option>
             <option value="soundcloud">SoundCloud</option>

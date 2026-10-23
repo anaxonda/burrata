@@ -51,7 +51,14 @@
       "failed": 0,
       "ignored": 3,
       "savedStateReopenCovered": true,
-      "liveRebuiltUiVerification": "pending",
+      "liveRebuiltUiVerification": {
+        "runtimeCommit": "6d77228",
+        "binarySha256": "f748719056e3d6a7800fb5522c5491c92aae24b38a5e36d8bde7cf557a760fda",
+        "changedUrlCodecNull": true,
+        "changedUrlBitrateNull": true,
+        "staleFlacLabelVisuallyAbsent": true,
+        "originalUrlRestored": true
+      },
       "reproductionLogSha256": "03d0cc6965ea3466f013408c47a9495486c165fe918e32d2d3dab6cb9ba43147",
       "fixedTestsLogSha256": "3013c016084cc305d25089011d215e96be6757630fd63d113ac1ab44735cbf4b"
     }

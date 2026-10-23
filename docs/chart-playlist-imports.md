@@ -775,21 +775,28 @@ added to the stable Downloads playlist. Startup backfills existing managed asset
 only when their file exists and their acquisition provenance is present. Existing
 chapter playlists remain, but new sets do not automatically create another one.
 
-Files currently remain directly in the configured music directory as
-`Artist - Title [version].extension`, with collision-safe suffixes. The Downloads
-playlist is a database/M3U view, not another copy of the files. Chapters use the
-same directory; MP3 exports carry an `[MP3 export]` suffix. Temporary job files
-live in `.burrata-staging`, and source audio for chapter reuse in
-`.chapter-source-cache`. No automatic artist/album filesystem reorganization is
-implemented. A future opt-in layout should distinguish:
+New downloads follow the selected **Settings → Downloads → Folder layout**:
 
-- Catalog albums: `Music/Artist/Album (Year)/01 - Title.ext` using verified album
-  and track-order tags.
-- Singles and uncertain album matches: `Music/Artist/Singles/Title.ext` rather
-  than guessing an album from a YouTube upload title.
-- Continuous sets: `Music/DJ Sets/DJ/Date - Set.ext`; chapter exports in a sibling
-  set folder, retaining the DJ/set source and chapter timing alongside any
-  independently recognized recording identity.
+- Flat: `Music/Artist - Title [version].extension`.
+- Artist and album: `Music/Album Artist/Album/Artist - Title [version].extension`,
+  using the track artist if album artist is absent and `Singles` if album is absent.
+- Playlist first: downloads started from a saved local playlist use
+  `Music/Playlists/Playlist Name/Artist - Title [version].extension`; other downloads
+  fall back to Artist and album.
+
+Folder names are sanitized and publication remains collision-safe. The layout is
+captured when a job is created. Changing the preference does not move existing
+files or reorganize older downloads. The Downloads playlist remains a database/M3U
+view rather than another file copy. Chapters follow the same chosen layout; MP3
+exports carry an `[MP3 export]` suffix. Temporary job files live in
+`.burrata-staging`, and source audio for chapter reuse in `.chapter-source-cache`.
+
+Further layout proposals remain: catalog albums could use verified year and
+track-order tags for `Music/Artist/Album (Year)/01 - Title.ext`; continuous sets
+could use `Music/DJ Sets/DJ/Date - Set.ext`, with chapter exports in a sibling set
+folder retaining DJ/set identity and chapter timing. These proposals require
+separate implementation and qualification. Album identity and track-order tags
+remain independent of folder names.
 
 Tags and persistent IDs should remain authoritative; paths alone are insufficient
 for compilations, collaborations and tracks that belong to several playlists.

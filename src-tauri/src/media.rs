@@ -3276,7 +3276,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn selected_folder_file_publication_retains_embedded_album_tags() {
+    async fn selected_folder_file_publication_retains_tags_in_each_download_layout() {
         use super::*;
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("source.flac");
@@ -3327,28 +3327,74 @@ mod tests {
             duration_seconds: Some(1.0),
             ..Candidate::default()
         };
-        let asset = finalize_download(
-            &source,
-            &track,
-            &candidate,
-            &settings,
-            "source",
-            "folder-tags-fixture",
-        )
-        .await
-        .unwrap();
-        assert_eq!(asset.track.artist, "Source artist");
-        assert_eq!(asset.track.title, "Source title");
-        assert_eq!(asset.track.album.as_deref(), Some("Source album"));
-        assert_eq!(asset.track.track_number, Some(2));
-        assert!(asset.path.contains("Source artist"));
-        let tagged = Probe::open(&asset.path).unwrap().read().unwrap();
-        let tag = tagged.primary_tag().unwrap();
-        assert_eq!(tag.artist().as_deref(), Some("Source artist"));
-        assert_eq!(tag.title().as_deref(), Some("Source title"));
-        assert_eq!(tag.album().as_deref(), Some("Source album"));
-        assert_eq!(tag.get_string(&ItemKey::TrackNumber), Some("2"));
-        assert_eq!(tag.get_string(&ItemKey::TrackTotal), Some("6"));
+        let original_audio = fs::read(&source).unwrap();
+        let library = Path::new(&settings.music_directory);
+        let artist_album = library.join("Source artist").join("Source album");
+        let playlist = DownloadPlaylistContext {
+            id: "local-layout-fixture".into(),
+            name: "Road/Trip".into(),
+        };
+        let mut published = Vec::new();
+        for (index, (layout, context, expected_directory)) in [
+            (DownloadLayout::Flat, None, library.to_path_buf()),
+            (DownloadLayout::ArtistAlbum, None, artist_album.clone()),
+            (
+                DownloadLayout::Playlist,
+                Some(&playlist),
+                library.join("Playlists").join("Road_Trip"),
+            ),
+            (DownloadLayout::Playlist, None, artist_album),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            fs::write(&source, &original_audio).unwrap();
+            let asset = finalize_download_with_layout(
+                &source,
+                &track,
+                &candidate,
+                &settings,
+                "source",
+                &format!("folder-tags-fixture-{index}"),
+                layout,
+                context,
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                Path::new(&asset.path)
+                    .parent()
+                    .unwrap()
+                    .canonicalize()
+                    .unwrap(),
+                expected_directory.canonicalize().unwrap(),
+            );
+            assert_eq!(asset.track.artist, "Source artist");
+            assert_eq!(asset.track.title, "Source title");
+            assert_eq!(asset.track.album.as_deref(), Some("Source album"));
+            assert_eq!(asset.track.track_number, Some(2));
+            let tagged = Probe::open(&asset.path).unwrap().read().unwrap();
+            let tag = tagged.primary_tag().unwrap();
+            assert_eq!(tag.artist().as_deref(), Some("Source artist"));
+            assert_eq!(tag.title().as_deref(), Some("Source title"));
+            assert_eq!(tag.album().as_deref(), Some("Source album"));
+            assert_eq!(tag.get_string(&ItemKey::TrackNumber), Some("2"));
+            assert_eq!(tag.get_string(&ItemKey::TrackTotal), Some("6"));
+            published.push((asset.path.clone(), fs::read(&asset.path).unwrap()));
+        }
+        // The fallback shares an artist/album folder with an earlier output:
+        // publishing it must preserve every already-published file byte for byte.
+        assert_eq!(
+            published
+                .iter()
+                .map(|(path, _)| path)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            4
+        );
+        for (path, bytes) in published {
+            assert_eq!(fs::read(path).unwrap(), bytes);
+        }
     }
 
     #[test]
