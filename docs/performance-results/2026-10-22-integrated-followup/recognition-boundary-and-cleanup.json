@@ -1,0 +1,21 @@
+{
+  "scope": "Existing post-download recognition refactor and temporary-excerpt cleanup; staged download verification remains unfinished",
+  "behavior": [
+    "Two-excerpt recording agreement is computed without catalog lookup.",
+    "The existing tagging path enriches the retained recognition afterward.",
+    "Missing excerpts, blank identity and conflicting artist/title/ISRC/Shazam/Apple locators do not yield a recognition result.",
+    "Each extractor uses an owned private temporary directory spanning extraction and recognition awaits."
+  ],
+  "tests": {
+    "fullNativePassed": 1801,
+    "ignoredOptInTests": 40,
+    "finalFocusedAutotagPassed": 35,
+    "cancellationFixture": "Unix fake extractor writes its actual excerpt path and waits; aborting songrec_excerpt removes the owned directory. No recognition network request is reached."
+  },
+  "limitations": [
+    "Windows cleanup on cancellation has not been runtime qualified.",
+    "Combined post-download recognition can contain an ISRC from one excerpt; this is not a two-ISRC proof for staged verification.",
+    "No new opt-in, uncertain candidate admission or publication gate implemented.",
+    "No normal library, audio files, sign-ins or playback changed."
+  ]
+}

@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, env, fs, process::Stdio, sync::Arc, time::Duration};
+use std::{collections::HashSet, process::Stdio, sync::Arc, time::Duration};
 use strsim::jaro_winkler;
 use tauri::Emitter;
 use tokio::sync::{mpsc, Mutex, Semaphore};
@@ -70,8 +70,62 @@ struct SongRecOutcome {
     candidate: Option<AutoTagCandidate>,
 }
 
-// Catalog outages must not erase a successful two-excerpt audio recognition.
-// Keeping recognition alone never authorizes catalog tags or automatic identity binding.
+// Recognition agreement is independent of optional catalog enrichment.
+// The result alone does not authorize catalog tags or identity binding.
+fn consistent_songrec_excerpts(
+    first: Option<crate::radio::RadioTrackMetadata>,
+    second: Option<crate::radio::RadioTrackMetadata>,
+) -> Option<AudioRecognition> {
+    let (Some(artist_a), Some(artist_b)) = (first, second) else {
+        return None;
+    };
+    if artist_a.artist.trim().is_empty()
+        || artist_a.title.trim().is_empty()
+        || normalize(&artist_a.artist) != normalize(&artist_b.artist)
+        || normalize(&artist_a.title) != normalize(&artist_b.title)
+    {
+        return None;
+    }
+    let identifiers_a = artist_a.identifiers.clone().unwrap_or_default();
+    let identifiers_b = artist_b.identifiers.clone().unwrap_or_default();
+    if identifiers_a
+        .isrc
+        .as_deref()
+        .zip(identifiers_b.isrc.as_deref())
+        .is_some_and(|(a, b)| !crate::recording_identity::same_isrc(a, b))
+    {
+        return None;
+    }
+    if identifiers_a
+        .shazam_id
+        .as_deref()
+        .zip(identifiers_b.shazam_id.as_deref())
+        .is_some_and(|(a, b)| a != b)
+    {
+        return None;
+    }
+    if identifiers_a
+        .apple_music_url
+        .as_deref()
+        .zip(identifiers_b.apple_music_url.as_deref())
+        .is_some_and(|(a, b)| a != b)
+    {
+        return None;
+    }
+    let recognized_isrc = identifiers_a
+        .isrc
+        .or(identifiers_b.isrc)
+        .and_then(|isrc| crate::recording_identity::normalize_isrc(&isrc));
+    Some(AudioRecognition {
+        provider: "songrec".into(),
+        artist: artist_a.artist.clone(),
+        title: artist_a.title.clone(),
+        isrc: recognized_isrc.clone(),
+        shazam_id: identifiers_a.shazam_id.or(identifiers_b.shazam_id),
+        excerpt_count: 2,
+    })
+}
+
 fn songrec_catalog_outcome(
     source: &Track,
     recognition: AudioRecognition,
@@ -1450,11 +1504,11 @@ impl AutoTagger {
         Ok(Some(candidate))
     }
 
-    async fn songrec_match(
+    async fn recognize_file_without_catalog(
         &self,
         source: &Track,
         path: &str,
-    ) -> Result<Option<SongRecOutcome>, String> {
+    ) -> Result<Option<AudioRecognition>, String> {
         if !executable_available("songrec") && !executable_available("SongRec") {
             return Ok(None);
         }
@@ -1466,60 +1520,26 @@ impl AutoTagger {
         let first = songrec_excerpt(path, 5.0, &settings.ffmpeg_path).await?;
         tokio::time::sleep(Duration::from_secs(10)).await;
         let second = songrec_excerpt(path, duration - 25.0, &settings.ffmpeg_path).await?;
-        let (Some(artist_a), Some(artist_b)) = (first, second) else {
+        Ok(consistent_songrec_excerpts(first, second))
+    }
+
+    async fn songrec_match(
+        &self,
+        source: &Track,
+        path: &str,
+    ) -> Result<Option<SongRecOutcome>, String> {
+        let Some(recognition) = self.recognize_file_without_catalog(source, path).await? else {
             return Ok(None);
         };
-        if normalize(&artist_a.artist) != normalize(&artist_b.artist)
-            || normalize(&artist_a.title) != normalize(&artist_b.title)
-        {
-            return Ok(None);
-        }
-        let identifiers_a = artist_a.identifiers.clone().unwrap_or_default();
-        let identifiers_b = artist_b.identifiers.clone().unwrap_or_default();
-        if identifiers_a
-            .isrc
-            .as_deref()
-            .zip(identifiers_b.isrc.as_deref())
-            .is_some_and(|(a, b)| !crate::recording_identity::same_isrc(a, b))
-        {
-            return Ok(None);
-        }
-        if identifiers_a
-            .shazam_id
-            .as_deref()
-            .zip(identifiers_b.shazam_id.as_deref())
-            .is_some_and(|(a, b)| a != b)
-        {
-            return Ok(None);
-        }
-        if identifiers_a
-            .apple_music_url
-            .as_deref()
-            .zip(identifiers_b.apple_music_url.as_deref())
-            .is_some_and(|(a, b)| a != b)
-        {
-            return Ok(None);
-        }
-        let recognized_isrc = identifiers_a
-            .isrc
-            .or(identifiers_b.isrc)
-            .and_then(|isrc| crate::recording_identity::normalize_isrc(&isrc));
-        let recognition = AudioRecognition {
-            provider: "songrec".into(),
-            artist: artist_a.artist.clone(),
-            title: artist_a.title.clone(),
-            isrc: recognized_isrc.clone(),
-            shazam_id: identifiers_a.shazam_id.or(identifiers_b.shazam_id),
-            excerpt_count: 2,
-        };
+        let recognized_isrc = recognition.isrc.as_deref();
         let identified = Track {
-            artist: artist_a.artist.clone(),
-            title: artist_a.title.clone(),
+            artist: recognition.artist.clone(),
+            title: recognition.title.clone(),
             duration_seconds: source.duration_seconds,
-            isrc: recognized_isrc.clone(),
+            isrc: recognition.isrc.clone(),
             ..Track::default()
         };
-        let rows = if let Some(isrc) = recognized_isrc.as_deref() {
+        let rows = if let Some(isrc) = recognized_isrc {
             let query =
                 format!("recording?query=isrc%3A{isrc}&limit=100&inc=artist-credits+isrcs+genres");
             self.artists
@@ -2764,7 +2784,13 @@ async fn songrec_excerpt(
     start: f64,
     ffmpeg_path: &str,
 ) -> Result<Option<crate::radio::RadioTrackMetadata>, String> {
-    let wav = env::temp_dir().join(format!("burrata-autotag-{}.wav", uuid::Uuid::new_v4()));
+    // Own the entire private directory across both awaits. Dropping a cancelled
+    // request also drops its excerpt, rather than skipping manual cleanup.
+    let temporary = tempfile::Builder::new()
+        .prefix("burrata-autotag-")
+        .tempdir()
+        .map_err(|error| format!("Cannot create recognition excerpt directory: {error}"))?;
+    let wav = temporary.path().join("excerpt.wav");
     let mut ffmpeg = tokio::process::Command::new(crate::tools::executable(ffmpeg_path, "ffmpeg"));
     crate::tools::configure_no_console_tokio(&mut ffmpeg);
     ffmpeg
@@ -2780,7 +2806,6 @@ async fn songrec_excerpt(
         .kill_on_drop(true);
     let extracted = tokio::time::timeout(Duration::from_secs(30), ffmpeg.status()).await;
     if !matches!(extracted, Ok(Ok(status)) if status.success()) {
-        let _ = fs::remove_file(&wav);
         return Ok(None);
     }
     let station = crate::radio::RadioStation {
@@ -2803,7 +2828,6 @@ async fn songrec_excerpt(
         crate::radio::recognize_captured_sample_uncached(&station, &wav),
     )
     .await;
-    let _ = fs::remove_file(&wav);
     match output {
         Ok(Ok(result)) => Ok(result),
         _ => Ok(None),
@@ -3677,6 +3701,86 @@ mod tests {
         assert_eq!(
             reported.provenance["sourceReportedMetadata"]["identityStatus"],
             "source_reported_unverified"
+        );
+    }
+
+    fn synthetic_songrec_metadata() -> crate::radio::RadioTrackMetadata {
+        crate::radio::RadioTrackMetadata {
+            identifiers: Some(crate::recording_identity::RecognitionIdentifiers {
+                isrc: Some("USABC2600001".into()),
+                shazam_id: Some("12345".into()),
+                apple_music_url: Some("https://music.apple.com/us/song/12345".into()),
+            }),
+            station_id: "synthetic".into(),
+            artist: "Synthetic artist".into(),
+            title: "Synthetic title".into(),
+            album: None,
+            year: None,
+            artwork_url: None,
+            source_url: String::new(),
+            observed_at: None,
+            metadata_confidence: "synthetic fixture".into(),
+        }
+    }
+
+    #[test]
+    fn two_excerpt_agreement_is_available_without_catalog_and_rejects_conflicts() {
+        let first = synthetic_songrec_metadata();
+        let result = consistent_songrec_excerpts(Some(first.clone()), Some(first.clone())).unwrap();
+        assert_eq!(result.excerpt_count, 2);
+        assert_eq!(result.isrc.as_deref(), Some("USABC2600001"));
+        assert!(consistent_songrec_excerpts(Some(first.clone()), None).is_none());
+        for field in ["artist", "title", "isrc", "shazam", "apple"] {
+            let mut second = first.clone();
+            match field {
+                "artist" => second.artist = "Other artist".into(),
+                "title" => second.title = "Other title".into(),
+                "isrc" => second.identifiers.as_mut().unwrap().isrc = Some("USABC2600002".into()),
+                "shazam" => second.identifiers.as_mut().unwrap().shazam_id = Some("67890".into()),
+                _ => {
+                    second.identifiers.as_mut().unwrap().apple_music_url =
+                        Some("https://music.apple.com/us/song/67890".into())
+                }
+            }
+            assert!(
+                consistent_songrec_excerpts(Some(first.clone()), Some(second)).is_none(),
+                "{field}"
+            );
+        }
+        let mut blank = first;
+        blank.title.clear();
+        assert!(consistent_songrec_excerpts(Some(blank.clone()), Some(blank)).is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelling_excerpt_extraction_removes_owned_temporary_audio() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = tempfile::tempdir().unwrap();
+        let marker = fixture.path().join("output-path");
+        let script = fixture.path().join("fake-ffmpeg");
+        std::fs::write(&script, format!("#!/bin/sh\nfor output do :; done\nprintf %s \"$output\" > '{}'\nprintf fixture > \"$output\"\nexec sleep 30\n", marker.display())).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let task = tokio::spawn(async move {
+            songrec_excerpt("unused-synthetic-input", 5.0, script.to_str().unwrap()).await
+        });
+        let mut output = None;
+        for _ in 0..100 {
+            if let Ok(path) = std::fs::read_to_string(&marker) {
+                if !path.is_empty() && std::path::Path::new(&path).is_file() {
+                    output = Some(std::path::PathBuf::from(path));
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let wav = output.expect("Synthetic extractor did not produce its fixture");
+        let directory = wav.parent().unwrap().to_owned();
+        assert!(
+            !directory.exists(),
+            "Cancelled extraction retained temporary material"
         );
     }
 

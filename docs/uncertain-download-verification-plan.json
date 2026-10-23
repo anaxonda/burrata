@@ -38,5 +38,17 @@
     "Soulseek and streamable-source paths report whether a full temporary file or bounded samples were fetched.",
     "Use synthetic/local fixtures by default; real fingerprint qualification requires specific user authorization."
   ],
-  "normalDataConstraint": "Keep existing library, manual metadata, assets and sign-ins intact; runtime checks must restore paused state and every queue occurrence."
+  "normalDataConstraint": "Keep existing library, manual metadata, assets and sign-ins intact; runtime checks must restore paused state and every queue occurrence.",
+  "implementationProgress": {
+    "recognitionBoundary": "recognize_file_without_catalog now collects and checks two excerpt results independently of catalog enrichment; the existing post-download path uses it.",
+    "temporaryExcerptOwnership": "Each extraction owns a private temporary directory; cancellation during a real synthetic Unix extraction subprocess removes it. Windows cancellation remains unqualified.",
+    "stillMissing": [
+      "Explicit opt-in and queued-policy snapshot",
+      "Server-computed uncertain candidate admission",
+      "Staging identifying state and publication gate",
+      "Typed per-excerpt proof and catalog crosswalk validation bound to the staged-file hash",
+      "Cancellation, revocation and cleanup coverage throughout the complete staged workflow"
+    ],
+    "proofCaution": "The existing combined AudioRecognition can retain an ISRC supplied by only one excerpt. It must not be treated as proof of two independent agreeing ISRC observations; the staged verifier needs per-excerpt agreement evidence."
+  }
 }

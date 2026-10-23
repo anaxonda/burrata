@@ -26,3 +26,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Preserve successful SongRec recognition for tag review when a later catalog lookup fails, while keeping catalog identity unverified.
 
 - Continue configured tag-identification fallbacks after catalog lookup outages, retain total-failure errors and require review for incomplete release context.
+
+- Separate two-excerpt recognition from optional catalog enrichment and keep recognition excerpts in request-owned private temporary directories. Unix cancellation cleanup is covered by a real subprocess fixture.
