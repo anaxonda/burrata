@@ -1,0 +1,11 @@
+{
+  "sourceCommit": "0dd695ff3f5d58ac151d0b7709a99ce8e5f830b3",
+  "artifact": ".cache/qualification-0dd695f-20261023/burrata",
+  "sha256": "a312af7cc6806d90d0df52f22dd64c5d06da9a4c85c6cc5d7208abe829853e05",
+  "profile": "dev, debug symbols disabled, incremental disabled",
+  "embeddedFrontend": true,
+  "command": "CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_TARGET_DIR=.cache/verification-target cargo build --manifest-path src-tauri/Cargo.toml --bin burrata --features custom-protocol",
+  "result": "success",
+  "runtimeQualification": "not launched; normal GUI preserved",
+  "earlierAttempt": "Ordinary dev build failed at linker when disk filled; disposable incremental cache removed, retry succeeded."
+}
