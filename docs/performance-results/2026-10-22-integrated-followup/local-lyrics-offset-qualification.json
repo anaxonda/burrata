@@ -1,0 +1,13 @@
+{
+  "scope": "Unreleased source; separate from running 0dd695f binary",
+  "behavior": "LRC source offset advances display clock for positive millisecond values; original timestamps, stable IDs, translation source and audio playhead are unchanged",
+  "limits": "Signed integer milliseconds within plus/minus 300000; conflicting, malformed and overflowing offset tags reject the lyric document",
+  "tests": {
+    "nativeLyricsTestsPassed": 20,
+    "ignoredLiveTest": 1,
+    "lyricsPanelTestsPassed": 14,
+    "typecheck": "0 errors, 0 warnings"
+  },
+  "conventionReference": "https://github.com/Clarkkkk/paroles",
+  "installedRuntimeQualified": false
+}

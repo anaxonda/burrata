@@ -19,6 +19,18 @@ function render(result: CurrentTrackLyrics, absolutePosition = 0, extra: Record<
 }
 
 describe("LyricsPanel", () => {
+  it("applies source timing offset without rewriting lyric timestamps or resetting it with manual controls", async () => {
+    const result: CurrentTrackLyrics = {status:"synced",provider:"localLrc",sourceOffsetSeconds:2,
+      lines:[{timeSeconds:1,text:"First synthetic line"},{timeSeconds:3,text:"Next synthetic line"}]};
+    const {target}=render(result,1.5);
+    await settle();target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();
+    expect(target.querySelector(".lyrics-scroll p.active")?.textContent).toBe("Next synthetic line");
+    target.querySelector<HTMLButtonElement>('[aria-label="Shift lyrics later by 0.5 seconds"]')!.click();await settle();
+    target.querySelector<HTMLButtonElement>(".lyrics-reset")!.click();await settle();
+    expect(target.querySelector(".lyrics-scroll p.active")?.textContent).toBe("Next synthetic line");
+    expect(result.lines![1].timeSeconds).toBe(3);
+  });
+
   it("opens requested fullscreen lyrics immediately and reports close without an extra show click", async () => {
     const close=vi.fn();const {call}=render({status:"unsynced",provider:"lrclib",plainLyrics:"Direct fullscreen lyrics"},0,{fullscreenRequested:true,onFullscreenClose:close});
     await settle();expect(call).toHaveBeenCalledOnce();

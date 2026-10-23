@@ -87,6 +87,8 @@ pub struct LyricsResponse {
     pub lines: Option<Vec<LyricsLine>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plain_lyrics: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_offset_seconds: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -145,6 +147,7 @@ fn response(status: &str) -> LyricsResponse {
         matched: None,
         lines: None,
         plain_lyrics: None,
+        source_offset_seconds: None,
     }
 }
 
@@ -213,6 +216,7 @@ pub(crate) fn retain_shazam_lyrics(track: &Value) {
         matched: None,
         lines: Some(lines),
         plain_lyrics: Some(plain),
+        source_offset_seconds: None,
     };
     if let Ok(mut cache) = shazam_cache().lock() {
         cache.retain(|_, value| value.inserted.elapsed() < CACHE_TTL);
@@ -799,12 +803,16 @@ fn classify_record(request: &LyricsRequest, record: ApiRecord) -> LyricsResponse
             matched: Some(matched),
             lines: None,
             plain_lyrics: None,
+            source_offset_seconds: None,
         };
     }
     if let Some(raw) = record
         .synced_lyrics
         .filter(|lyrics| !lyrics.trim().is_empty() && lyrics.len() <= MAX_LYRICS_BYTES)
     {
+        let Ok(source_offset_seconds) = lrc_offset(&raw) else {
+            return response("unavailable");
+        };
         let lines = parse_lrc(&raw);
         if !lines.is_empty() {
             let source_hash = source_hash_for_lines(&lines);
@@ -815,6 +823,7 @@ fn classify_record(request: &LyricsRequest, record: ApiRecord) -> LyricsResponse
                 matched: Some(matched),
                 lines: Some(lines),
                 plain_lyrics: None,
+                source_offset_seconds,
             };
         }
     }
@@ -831,9 +840,36 @@ fn classify_record(request: &LyricsRequest, record: ApiRecord) -> LyricsResponse
             matched: Some(matched),
             lines: Some(lines),
             plain_lyrics: Some(plain),
+            source_offset_seconds: None,
         };
     }
     response("notFound")
+}
+
+// LRC positive offsets advance the display clock; preserve the original
+// source timestamps and stable IDs instead of rewriting them.
+fn lrc_offset(raw: &str) -> Result<Option<f64>, ()> {
+    let mut offset = None;
+    for line in raw.lines().take(MAX_LINES) {
+        let line = line.trim().trim_start_matches('\u{feff}');
+        let Some(tag) = line.strip_prefix('[').and_then(|s| s.strip_suffix(']')) else {
+            continue;
+        };
+        let Some((key, value)) = tag.split_once(':') else {
+            continue;
+        };
+        if !key.eq_ignore_ascii_case("offset") {
+            continue;
+        }
+        let milliseconds = value.trim().parse::<i64>().map_err(|_| ())?;
+        if !(-300_000..=300_000).contains(&milliseconds)
+            || offset.is_some_and(|previous| previous != milliseconds)
+        {
+            return Err(());
+        }
+        offset = Some(milliseconds);
+    }
+    Ok(offset.map(|milliseconds| milliseconds as f64 / 1000.0))
 }
 
 fn parse_lrc(raw: &str) -> Vec<LyricsLine> {
@@ -1100,6 +1136,25 @@ mod tests {
         candidate.artist_name = alias.artist_name.clone();
         candidate.duration = 240.0;
         assert!(matching_variant_record(&[alias], candidate).is_none());
+    }
+
+    #[test]
+    fn source_offset_preserves_timestamps_and_rejects_ambiguous_tags() {
+        let mut source = record();
+        source.synced_lyrics = Some("[offset:+1500]\n[00:02.50] Synthetic line".into());
+        let result = classify_record(&request(), source);
+        assert_eq!(result.source_offset_seconds, Some(1.5));
+        assert_eq!(result.lines.unwrap()[0].time_seconds, Some(2.5));
+        assert_eq!(lrc_offset("[offset:-500]"), Ok(Some(-0.5)));
+        assert_eq!(lrc_offset("[offset:500]\n[offset:500]"), Ok(Some(0.5)));
+        for raw in [
+            "[offset:500]\n[offset:600]",
+            "[offset:NaN]",
+            "[offset:300001]",
+            "[offset:9223372036854775808]",
+        ] {
+            assert!(lrc_offset(raw).is_err());
+        }
     }
 
     fn request() -> LyricsRequest {

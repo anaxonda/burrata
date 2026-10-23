@@ -18,3 +18,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Explain download recording-credit conflicts and keep inspection/connection errors distinct from recording-policy rejections.
 
 - Read same-name `.lrc` sidecars and embedded lyric text from the selected registered local audio file before online lookup, retaining source hashes and rejecting changed audio or unrelated recording bindings.
+
+- Honor bounded LRC file timing offsets in the display clock while keeping the original lyric timestamps intact. Resetting manual timing preserves the file offset.

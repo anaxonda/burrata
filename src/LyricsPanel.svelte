@@ -7,6 +7,7 @@
     status: "synced" | "unsynced" | "instrumental" | "notFound" | "unmatched" | "unavailable" | "noCurrentTrack" | "invalidRequest" | "providerUnavailable";
     provider: "lrclib" | "shazam" | "localLrc" | "embeddedLyrics";
     sourceHash?: string;
+    sourceOffsetSeconds?: number;
     match?: { trackName: string; artistName: string; albumName?: string | null; durationSeconds?: number | null; durationDeltaSeconds?: number | null };
     lines?: { id?: string; timeSeconds: number | null; text: string }[];
     plainLyrics?: string;
@@ -72,7 +73,8 @@
   }
   const activeLine = $derived.by(() => {
     if (lyrics?.status !== "synced" || timingMismatch || !Number.isFinite(absolutePosition)) return -1;
-    const lyricsClock = absolutePosition + timingOffset + (anchorOffset ?? 0);
+    const sourceOffset = lyrics?.sourceOffsetSeconds;
+    const lyricsClock = absolutePosition + timingOffset + (anchorOffset ?? 0) + (typeof sourceOffset === "number" && Number.isFinite(sourceOffset) && Math.abs(sourceOffset) <= 300 ? sourceOffset : 0);
     let active = -1;
     for (let index = 0; index < (lyrics.lines?.length ?? 0); index++) {
       const line = lyrics.lines![index]!;
