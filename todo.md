@@ -52,6 +52,8 @@ Work through the reported issues and all original todo requirements. The priorit
 
 ## Current evidence
 
+- Current source `0061aff` installer qualification is running in workflow main/no-tag mode: [run 40023303379](https://github.com/anaxonda/burrata/actions/runs/40023303379). It builds all three platform installers and runs installed smoke checks; completion is not yet proven and no public release is created by this mode. [Tracker](docs/performance-results/2026-10-23-installer-qualification/current-main-qualification.json).
+
 - Checkpoint `418379c` passed [CI run 39931752499](https://github.com/anaxonda/burrata/actions/runs/39931752499): Linux/macOS/Windows checks and Linux bundle creation. Live engine-switch results above cover Linux X11, not native Mac behavior.
 
 - Native full suite: **1,786 passed, 0 failed, 38 ignored** after integrating explicit engine-switch checkpoint/restart and atomic rollback coverage.
