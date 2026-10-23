@@ -10,3 +10,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Keep wishlist checkboxes beside their query labels, replace internal artist-evidence paths with readable source labels, and correct the managed-folder guidance.
 
 - Clear stale station codec and bitrate labels when its stream URL changes; retain station identity and saved listening history.
+
+- Show short download-layout choices with accurate folder-path previews. Real-file checks cover Flat, Artist/Album, Playlist and playlist fallback, source-tag retention and preservation of already published files.

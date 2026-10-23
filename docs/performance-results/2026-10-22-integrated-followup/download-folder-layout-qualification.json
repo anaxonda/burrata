@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-23",
+  "liveUi": {
+    "platform": "Linux X11",
+    "runtimeCommit": "6d77228",
+    "profile": "isolated",
+    "allThreeChoicesSelectedAndSaved": {
+      "flat": true,
+      "artistAlbum": true,
+      "playlist": true
+    },
+    "playlistPersistedAfterRelaunch": true,
+    "originalPreferencesRestored": true,
+    "downloadJobsCreated": 0,
+    "selectionHarnessNote": "First batched coordinate/keyboard attempt did not select the intended values; re-inspected the screen and repeated deliberate selections successfully.",
+    "restoreHarnessNote": "The manage API was disabled; final restoration was performed through the UI and verified using read-only preferences.",
+    "labelFinding": "Long option text was truncated and the playlist path example claimed nonexistent artist/album subfolders. Source now uses short choices with an accurate path preview below the select.",
+    "labelFixTypeCheck": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "labelFixProductionFrontendBuild": true,
+    "labelFixRebuiltUiVerification": {
+      "runtimeCommit": "3381771",
+      "playlistPreviewVisuallyCorrect": true,
+      "artistAlbumPreviewVisuallyCorrect": true,
+      "binarySha256": "79f9343ff1d85b3631f88e74fae9c2af78937e42931ded74829ad16665d58103"
+    }
+  },
+  "realFilePublication": {
+    "fixture": "one-second generated FLAC with embedded source artist/title/album/track tags",
+    "productionFunction": "finalize_download_with_layout",
+    "cases": [
+      {
+        "layout": "flat",
+        "parent": "Music"
+      },
+      {
+        "layout": "artistAlbum",
+        "parent": "Music/Source artist/Source album"
+      },
+      {
+        "layout": "playlist",
+        "playlistContext": "Road/Trip",
+        "parent": "Music/Playlists/Road_Trip"
+      },
+      {
+        "layout": "playlist",
+        "playlistContext": null,
+        "parent": "Music/Source artist/Source album"
+      }
+    ],
+    "allActualOutputDirectoriesVerified": true,
+    "allEmbeddedTagsRetained": true,
+    "fourDistinctFilesPublished": true,
+    "earlierPublishedFilesByteForByteUnchanged": true,
+    "temporaryDirectoryOnly": true,
+    "testPassed": true
+  },
+  "relatedMediaTests": {
+    "passed": 35,
+    "failed": 0,
+    "ignored": 1
+  },
+  "normalRestoration": {
+    "all200QueueOccurrenceIdsMatched": true,
+    "selectedEntryMatched": true,
+    "pausedMatched": true,
+    "positionMatchedExactly": true,
+    "normalLayoutPreferenceChanged": false
+  },
+  "logsSha256": {
+    "publication": "fba2fc6cf693a6f8b7a21d2bc720f1e9d170f3f5844991cdb4cce83b21b24373",
+    "media": "fd94fab79e65a7be1395ae9a1808eab58884dd94101740363aacf803066bcc56",
+    "typeCheck": "94c93b81d3b4bb8e9d625d11ee1061a270acbddfa8a635fc9261ae2aeba09131",
+    "frontendBuild": "ef14bbf0acba18bf67690c64a362a92cda6f9c0753b2d5adb9e4e2ba67740b35"
+  },
+  "limits": [
+    "Live GUI checks qualify settings selection/persistence, not provider network availability.",
+    "File-publication checks use generated audio and the production finalizer, not a new peer transfer.",
+    "No existing normal download was moved or retagged."
+  ]
+}
