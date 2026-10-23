@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-23",
+  "scope": "Linux production managed-settings file/restart transaction exercised on a disposable pinned slskd daemon; normal-daemon UI Apply not clicked.",
+  "implementation": "managed_slskd_settings::apply_download_settings called by the guarded public update command and opt-in integration test",
+  "daemonImage": "slskd/slskd@sha256:588af49abc3088d639c8f1174d3bfad6e92c093a275a593140e3ac9311ebf6c4",
+  "isolation": {
+    "freshPrivateData": true,
+    "generatedTestOnlyApiKey": true,
+    "networkMode": "none",
+    "publishedPorts": 0,
+    "pullPolicy": "never",
+    "soulseekConnectionDisabledAndConfirmed": true,
+    "shareScanDisabledAndConfirmed": true,
+    "versionCheckDisabledAndConfirmed": true,
+    "configWatchDisabledAndConfirmed": true,
+    "normalConfigurationMounted": false,
+    "normalLibraryMounted": false
+  },
+  "effectiveOptionsChecks": {
+    "baselineDefaults": true,
+    "nondefault": {
+      "slots": 17,
+      "speedLimitKib": 2048,
+      "retryAttempts": 7,
+      "retryDelayMs": 9000,
+      "retryMaxDelayMs": 36000,
+      "partialPolicy": "overwrite"
+    },
+    "allSixReadFromRunningDaemonApi": true,
+    "applyChangedContainerId": true,
+    "defaultsRestoredThroughSameTransaction": true,
+    "restoreChangedContainerId": true,
+    "fixtureContainersRemoved": true
+  },
+  "normalDaemon": {
+    "startTimeUnchanged": true,
+    "transferStatesUnchanged": true,
+    "nonterminalDownloads": 2,
+    "uploads": 0
+  },
+  "validation": {
+    "dockerIntegration": {
+      "passed": 1,
+      "failed": 0,
+      "runtimeSeconds": 12.4
+    },
+    "relatedNativeRegressions": {
+      "passed": 35,
+      "failed": 0,
+      "ignored": 1
+    },
+    "rustFormatting": true,
+    "diffWhitespace": true,
+    "logs": {
+      "integration": "79f7edf7c2e6f570a8c5746bd4655c093e18567032c7b4baa675d3f335676fb6",
+      "regressions": "3fcd1b8617279914c4ed42bb1b24885fb35487560c04775d5a503e1143af179d"
+    }
+  },
+  "limitations": [
+    "Does not simulate transfer interruption/recovery or peer availability.",
+    "Does not weaken the public managed-connection/platform guards.",
+    "Normal app remains on the already qualified 5251368 binary; native source refactor awaits the next build."
+  ]
+}

@@ -94,19 +94,28 @@ pub fn update(
     if !crate::slskd::managed_share_controls_available() {
         return Err("Managed slskd settings cannot be changed on this platform".into());
     }
+    apply_download_settings(&managed_share_paths()?, settings)
+}
+
+// Keep the public connection/platform guards above. This shared core also lets
+// the opt-in Docker qualification exercise the real file/restart transaction
+// against a disposable deployment instead of touching a user's daemon.
+fn apply_download_settings(
+    paths: &crate::slskd::ManagedSharePaths,
+    settings: ManagedDownloadSettings,
+) -> Result<ManagedDownloadSettingsState, String> {
     validate(&settings)?;
     let _guard = MANAGED_SHARE_LOCK
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .map_err(|_| "Managed slskd settings lock poisoned")?;
-    let paths = managed_share_paths()?;
     let old_config = fs::read_to_string(&paths.config)
         .map_err(|e| format!("Cannot read managed slskd settings: {e}"))?;
     let old_compose = fs::read_to_string(&paths.compose)
         .map_err(|e| format!("Cannot read managed slskd deployment: {e}"))?;
     let new_config = patch_download_config(&old_config, &settings)?;
     let new_compose = patch_download_slots(&old_compose, settings.slots)?;
-    apply_managed_share_texts(&paths, &old_config, &old_compose, &new_config, &new_compose)?;
+    apply_managed_share_texts(paths, &old_config, &old_compose, &new_config, &new_compose)?;
     Ok(ManagedDownloadSettingsState {
         managed: true,
         can_edit: true,
@@ -498,5 +507,169 @@ mod tests {
         let updated = patch_download_config(existing, &value).unwrap();
         assert!(updated.contains("attempts: 8 # attempts"));
         assert!(updated.contains("speed_limit: 2147483647"));
+    }
+    /// Opt in with `cargo test managed_download_settings_disposable_daemon -- --ignored`.
+    /// Uses only a cached image, fresh private data and a network-disabled container.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires Docker Compose and the cached pinned slskd image"]
+    fn managed_download_settings_disposable_daemon() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use std::process::{Command, Stdio};
+        use std::time::{Duration, Instant};
+
+        struct Fixture {
+            paths: crate::slskd::ManagedSharePaths,
+            _directory: tempfile::TempDir,
+            api_key: String,
+        }
+        impl Fixture {
+            fn compose(&self, args: &[&str]) -> std::process::Output {
+                Command::new("docker")
+                    .args(["compose", "-f"])
+                    .arg(&self.paths.compose)
+                    .args(args)
+                    .current_dir(&self.paths.root)
+                    .stdin(Stdio::null())
+                    .output()
+                    .expect("Docker Compose must be installed for this opt-in test")
+            }
+            fn container_id(&self) -> String {
+                let output = self.compose(&["ps", "-q", "slskd"]);
+                assert!(output.status.success());
+                let id = String::from_utf8(output.stdout).unwrap().trim().to_string();
+                assert!(!id.is_empty(), "Disposable daemon must be running");
+                id
+            }
+            fn options(&self) -> serde_json::Value {
+                let header = format!("--header=X-API-Key: {}", self.api_key);
+                let deadline = Instant::now() + Duration::from_secs(30);
+                loop {
+                    let response = self.compose(&[
+                        "exec",
+                        "-T",
+                        "slskd",
+                        "wget",
+                        "-qO-",
+                        "--timeout=1",
+                        &header,
+                        "http://127.0.0.1:5030/api/v0/options",
+                    ]);
+                    if response.status.success() {
+                        if let Ok(options) = serde_json::from_slice(&response.stdout) {
+                            return options;
+                        }
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "Disposable daemon options API did not become ready"
+                    );
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+            }
+            fn assert_effective(&self, expected: &ManagedDownloadSettings) {
+                let options = self.options();
+                let download = &options["transfers"]["download"];
+                assert_eq!(download["slots"], expected.slots);
+                assert_eq!(
+                    download["speedLimit"],
+                    expected.speed_limit_kib.unwrap_or(i32::MAX as u32)
+                );
+                assert_eq!(download["retry"]["attempts"], expected.retry_attempts);
+                assert_eq!(download["retry"]["delay"], expected.retry_delay_ms);
+                assert_eq!(download["retry"]["maxDelay"], expected.retry_max_delay_ms);
+                assert_eq!(download["retry"]["partial"], expected.partial_policy);
+                assert_eq!(options["flags"]["noConnect"], true);
+                assert_eq!(options["flags"]["noShareScan"], true);
+                assert_eq!(options["flags"]["noVersionCheck"], true);
+                assert_eq!(options["flags"]["noConfigWatch"], true);
+            }
+        }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                // Only this randomly named project and its empty private mount.
+                let _ = self.compose(&["down", "--timeout", "5"]);
+            }
+        }
+
+        let directory = tempfile::Builder::new()
+            .prefix("burrata-slskd-settings-")
+            .tempdir()
+            .unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let metadata = directory.path().metadata().unwrap();
+        let data = directory.path().join("data");
+        fs::create_dir(&data).unwrap();
+        let paths = crate::slskd::ManagedSharePaths {
+            root: directory.path().to_path_buf(),
+            compose: directory.path().join("compose.yaml"),
+            config: data.join("slskd.yml"),
+        };
+        let api_key = uuid::Uuid::new_v4().simple().to_string();
+        let project = format!("burrata-settings-{}", uuid::Uuid::new_v4().simple());
+        fs::write(&paths.config, format!("web:\n  authentication:\n    api_keys:\n      qualification:\n        key: {api_key}\n        role: Administrator\ntransfers:\n  download:\n    speed_limit: 2147483647\n")).unwrap();
+        fs::set_permissions(&paths.config, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(
+            &paths.compose,
+            format!(
+                r#"name: {project}
+services:
+  slskd:
+    image: slskd/slskd@sha256:588af49abc3088d639c8f1174d3bfad6e92c093a275a593140e3ac9311ebf6c4
+    pull_policy: never
+    user: "{}:{}"
+    network_mode: none
+    volumes:
+      - ./data:/app
+    environment:
+      SLSKD_DOWNLOAD_SLOTS: "32"
+      SLSKD_NO_CONNECT: "true"
+      SLSKD_NO_SHARE_SCAN: "true"
+      SLSKD_NO_VERSION_CHECK: "true"
+      SLSKD_NO_CONFIG_WATCH: "true"
+      SLSKD_NO_HTTPS: "true"
+"#,
+                metadata.uid(),
+                metadata.gid()
+            ),
+        )
+        .unwrap();
+        let fixture = Fixture {
+            paths,
+            _directory: directory,
+            api_key,
+        };
+        let defaults = ManagedDownloadSettings::default();
+        apply_download_settings(&fixture.paths, defaults.clone()).unwrap();
+        fixture.assert_effective(&defaults);
+        let initial = fixture.container_id();
+        let desired = ManagedDownloadSettings {
+            slots: 17,
+            speed_limit_kib: Some(2048),
+            retry_attempts: 7,
+            retry_delay_ms: 9000,
+            retry_max_delay_ms: 36000,
+            partial_policy: "overwrite".into(),
+        };
+        let result = apply_download_settings(&fixture.paths, desired.clone()).unwrap();
+        assert_eq!(result.settings, Some(desired.clone()));
+        fixture.assert_effective(&desired);
+        let changed = fixture.container_id();
+        assert_ne!(
+            initial, changed,
+            "Apply must recreate the disposable daemon"
+        );
+        apply_download_settings(&fixture.paths, defaults.clone()).unwrap();
+        fixture.assert_effective(&defaults);
+        assert_ne!(
+            changed,
+            fixture.container_id(),
+            "Restoring defaults must recreate the daemon"
+        );
+        assert!(fixture
+            .compose(&["down", "--timeout", "5"])
+            .status
+            .success());
+        assert!(fixture.compose(&["ps", "-q", "slskd"]).stdout.is_empty());
     }
 }
