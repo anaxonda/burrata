@@ -7555,8 +7555,13 @@ fn playback_history_search_options(
     let limit = limit as u32;
     let offset = usize_arg(arguments, "offset", 1_000_000)?.unwrap_or(0) as u32;
     let availability = optional_str_arg(arguments, "availability", 24)?;
-    if availability.as_deref().is_some_and(|value| !matches!(value, "all" | "downloaded" | "not-downloaded")) {
-        return Err(ToolError::bad("availability must be all, downloaded, or not-downloaded"));
+    if availability
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "all" | "downloaded" | "not-downloaded"))
+    {
+        return Err(ToolError::bad(
+            "availability must be all, downloaded, or not-downloaded",
+        ));
     }
     Ok(PlaybackHistorySearchOptions {
         availability,
