@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-playback-engine-settings"
+description = "Enables the get_playback_engine_settings command without any pre-configured scope."
+commands.allow = ["get_playback_engine_settings"]
+
+[[permission]]
+identifier = "deny-get-playback-engine-settings"
+description = "Denies the get_playback_engine_settings command without any pre-configured scope."
+commands.deny = ["get_playback_engine_settings"]

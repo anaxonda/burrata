@@ -94,6 +94,8 @@ const COMMANDS: &[&str] = &[
     "repair_download_source_tags",
     "get_automation_status",
     "set_automation_permissions",
+    "get_playback_engine_settings",
+    "save_playback_engine_settings",
     "get_playback_snapshot",
     "get_live_bpm",
     "playback_command",

@@ -1,0 +1,19 @@
+{
+  "commit": "ae9f9d43276afe70d16388fa5cc3143c48feeaaf",
+  "binarySha256": "7db64a1ce04276d744725458b4c537de7eb892829f232006abcb0a3be8ffedcd",
+  "toolCount": 124,
+  "frontendMounted": true,
+  "normalProfilePreserved": true,
+  "exactPreservation": {
+    "trackId": true,
+    "entryId": true,
+    "currentIndex": true,
+    "queueTotal": true,
+    "paused": true,
+    "queueEntryIds": true
+  },
+  "positionDeltaSeconds": 3.552713678800501e-15,
+  "positionToleranceSeconds": 1e-06,
+  "paused": true,
+  "queueTotal": 200
+}

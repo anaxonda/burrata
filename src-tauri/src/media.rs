@@ -3943,7 +3943,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             Path::new(&asset.path).parent().unwrap(),
-            directory.path().join("Artist").join("Album")
+            fs::canonicalize(directory.path().join("Artist").join("Album")).unwrap()
         );
         assert_eq!(recover_publications(&settings).unwrap().len(), 1);
         acknowledge_publication(&settings, job).unwrap();

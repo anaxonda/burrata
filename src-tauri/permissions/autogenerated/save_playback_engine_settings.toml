@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-playback-engine-settings"
+description = "Enables the save_playback_engine_settings command without any pre-configured scope."
+commands.allow = ["save_playback_engine_settings"]
+
+[[permission]]
+identifier = "deny-save-playback-engine-settings"
+description = "Denies the save_playback_engine_settings command without any pre-configured scope."
+commands.deny = ["save_playback_engine_settings"]

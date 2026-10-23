@@ -123,6 +123,7 @@
   import SearchPanel, { type SearchKind } from "./SearchPanel.svelte";
   import SoulseekWishlist from "./SoulseekWishlist.svelte";
   import LyricsPanel from "./LyricsPanel.svelte";
+  import PlaybackEngineSettings from "./PlaybackEngineSettings.svelte";
   import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
   import { isTrackDownloaded } from "./lib/track-sort";
   let historyDownloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
@@ -6687,6 +6688,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           <div class="settings-grid">{#if settingsCategory === "general"}<label>Theme<select bind:value={settings.theme}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>{/if}
           {#if settingsCategory === "playback"}<label>Playback startup timeout<select id="playback-startup-timeout" bind:value={settings.playbackStartupTimeoutSeconds}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label><label>Preview delay (ms)<input type="number" min="0" max="5000" bind:value={settings.previewDelayMs} /></label>{/if}</div>
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.autoPreview} /><span><strong>Play songs selected with arrow keys</strong><small>Wait for the preview delay before starting audio.</small></span></label>{/if}
+          {#if settingsCategory === "playback"}<PlaybackEngineSettings />{/if}
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" aria-label="Enable live BPM" checked={settings.liveBpmEnabled === true} onchange={(event) => { settings.liveBpmEnabled = event.currentTarget.checked; void saveSettingsFields(["liveBpmEnabled"], "Live BPM preference saved."); }} /><span><strong>Show live BPM</strong><small>Estimate approximate tempo from native playback audio while a track is playing. This does not change track metadata.</small></span></label>{/if}
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.pauseOnSourceOpen} /><span>Pause when opening the playing track’s source</span></label><label class="settings-option"><input type="checkbox" bind:checked={settings.sourceOpenAtPosition} /><span>Open source at current position (YouTube and SoundCloud)</span></label>{/if}
           <button onclick={()=>void saveSettingsFields(["theme","autoPreview","previewDelayMs","playbackStartupTimeoutSeconds","pauseOnSourceOpen","sourceOpenAtPosition","liveBpmEnabled"],"Playback preferences saved.")}>{settingsCategory === "general" ? "Save appearance" : "Save playback preferences"}</button>
