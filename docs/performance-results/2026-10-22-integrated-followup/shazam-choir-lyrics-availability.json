@@ -60,5 +60,12 @@
       "bytes": 858501
     },
     "interpretation": "This host received unrelated canonical metadata through direct HTTP despite the browsing/search representation showing choir lyrics. A generic page fallback cannot be qualified from this evidence."
+  },
+  "additionalWebMetadataProbe": {
+    "endpoint": "https://www.shazam.com/discovery/v5/en-US/US/web/-/track/10032861?shazamapiversion=v3&video=v3",
+    "method": "GET metadata only; no audio, fingerprints or credentials",
+    "httpStatus": 404,
+    "reference": "https://github.com/LeMetadatarr/xazam/blob/dev/docs/api.md",
+    "conclusion": "This route did not provide a working fallback on this host; no general availability claim."
   }
 }

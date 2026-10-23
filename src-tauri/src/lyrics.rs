@@ -404,6 +404,9 @@ pub async fn get_current_track_lyrics_with_catalog(
         if requests.len() <= 1 {
             return None;
         }
+        if let Some(result) = verified_variant_shazam_lyrics(&requests) {
+            return Some(result);
+        }
         let result = search_verified_variants(&requests).await;
         matches!(
             result.status.as_str(),
@@ -459,6 +462,14 @@ async fn local_lyrics(
         "embeddedLyrics"
     };
     Some(result)
+}
+
+// Call only with the recording-scoped variants returned by lyrics_aliases.
+fn verified_variant_shazam_lyrics(requests: &[LyricsRequest]) -> Option<LyricsResponse> {
+    requests.iter().find_map(|request| {
+        let result = shazam_fallback(request, response("notFound"));
+        (result.provider == "shazam").then_some(result)
+    })
 }
 
 fn matching_variant_record(
@@ -1155,6 +1166,24 @@ mod tests {
         ] {
             assert!(lrc_offset(raw).is_err());
         }
+    }
+
+    #[test]
+    fn verified_aliases_reuse_existing_shazam_lyrics_without_recognition() {
+        let source = serde_json::json!({"key":"999123456780", "title":"Synthetic alias lyric", "subtitle":"Синтетический хор", "sections":[{"type":"LYRICS","text":["Synthetic cached paragraph"]}]});
+        retain_shazam_lyrics(&source);
+        let original = LyricsRequest {
+            track_name: "Synthetic alias lyric".into(),
+            artist_name: "Synthetic transliterated choir".into(),
+            album_name: None,
+            duration_seconds: 180.0,
+        };
+        assert!(verified_variant_shazam_lyrics(&[original.clone()]).is_none());
+        let mut verified_alias = original.clone();
+        verified_alias.artist_name = "Синтетический хор".into();
+        let result = verified_variant_shazam_lyrics(&[original, verified_alias]).unwrap();
+        assert_eq!(result.provider, "shazam");
+        assert_eq!(result.status, "unsynced");
     }
 
     fn request() -> LyricsRequest {

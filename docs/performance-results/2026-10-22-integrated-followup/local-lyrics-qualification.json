@@ -30,5 +30,17 @@
     "No automatic timing stretch or file edits",
     "No installed GUI qualification yet"
   ],
-  "normalAudioFilesEdited": false
+  "normalAudioFilesEdited": false,
+  "platformCi": {
+    "sourceCommit": "0dd695ff3f5d58ac151d0b7709a99ce8e5f830b3",
+    "run": "https://github.com/anaxonda/burrata/actions/runs/40000990466",
+    "conclusion": "success",
+    "jobs": [
+      "Checks (windows-2022)",
+      "Checks (macos-15)",
+      "Checks (ubuntu-22.04)",
+      "Linux configured bundle targets"
+    ],
+    "scope": "Code and Linux bundle checks; later source-offset change requires its own CI."
+  }
 }

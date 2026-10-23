@@ -21,6 +21,13 @@
       "lyricsUnitTestsPassed": 15,
       "lyricsLiveTestIgnored": 1,
       "frontendRequestTestsPassed": 2
+    },
+    "shazamCache": "Recording-scoped verified variants also check the bounded existing-recognition lyric cache; no extra recognition, fingerprint submission or public-page request.",
+    "shazamCacheTests": {
+      "nativeLyricsTestsPassed": 21,
+      "ignoredLiveTest": 1,
+      "contractsPassed": 8,
+      "regression": "Original transliterated name misses; explicitly supplied verified Cyrillic alias reuses cached unsynced lyrics."
     }
   },
   "translation": {
