@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-soulseek-directory"
+description = "Enables the browse_soulseek_directory command without any pre-configured scope."
+commands.allow = ["browse_soulseek_directory"]
+
+[[permission]]
+identifier = "deny-browse-soulseek-directory"
+description = "Denies the browse_soulseek_directory command without any pre-configured scope."
+commands.deny = ["browse_soulseek_directory"]

@@ -1,0 +1,9 @@
+{
+  "helperVersion": "2026.10.10.233141",
+  "scope": "Linux exact-source extraction plus three-second HLS decode; no app output or Mac playback claim",
+  "extractionOk": true,
+  "decodeOk": true,
+  "decodeElapsedMs": 1164,
+  "formatId": "hls_aac_160k",
+  "providerIdMatches": true
+}

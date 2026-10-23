@@ -1,5 +1,8 @@
 //! Media validation, selected metadata tagging and collision-safe library publication.
-use crate::models::{AudioFacts, Candidate, Chapter, LocalAsset, Settings, Track};
+use crate::models::{
+    AudioFacts, Candidate, Chapter, DownloadLayout, DownloadPlaylistContext, LocalAsset, Settings,
+    Track,
+};
 use lofty::{
     config::WriteOptions,
     file::{AudioFile, FileType, TaggedFileExt},
@@ -518,7 +521,7 @@ fn finish_bpm_frame(energy: f64, count: usize, previous_level: &mut f64, envelop
     *previous_level = level;
 }
 
-fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
+pub(crate) fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
     estimate_bpm_with_diagnostics(envelope).0
 }
 
@@ -1155,6 +1158,86 @@ fn file_stem(track: &Track) -> String {
         safe_component(&title)
     )
 }
+
+fn publication_directory(
+    library: &Path,
+    track: &Track,
+    layout: DownloadLayout,
+    playlist: Option<&DownloadPlaylistContext>,
+) -> PathBuf {
+    let artist_directory = || {
+        library
+            .join(safe_component(
+                track
+                    .album_artist
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(&track.artist),
+            ))
+            .join(safe_component(
+                track
+                    .album
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("Singles"),
+            ))
+    };
+    match layout {
+        DownloadLayout::Flat => library.to_path_buf(),
+        DownloadLayout::ArtistAlbum => artist_directory(),
+        DownloadLayout::Playlist => match playlist.filter(|p| {
+            !p.id.trim().is_empty()
+                && !p.name.trim().is_empty()
+                && p.id.len() <= 300
+                && p.name.chars().count() <= 160
+                && !p.id.chars().any(char::is_control)
+                && !p.name.chars().any(char::is_control)
+        }) {
+            Some(playlist) => library
+                .join("Playlists")
+                .join(safe_component(&playlist.name)),
+            None => artist_directory(),
+        },
+    }
+}
+
+fn create_confined_directory(library: &Path, directory: &Path) -> Result<PathBuf, String> {
+    let relative = directory
+        .strip_prefix(library)
+        .map_err(|_| "Download folder resolves outside the configured music directory")?;
+    let mut current = library.to_path_buf();
+    for component in relative.components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err("Download folder contains an unsafe path component".into());
+        };
+        current.push(name);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err("Download folder contains a symlink or non-directory component".into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match fs::create_dir(&current) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(format!("Cannot create library folder: {error}")),
+                }
+                let metadata = fs::symlink_metadata(&current).map_err(|e| e.to_string())?;
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    return Err(
+                        "Download folder contains a symlink or non-directory component".into(),
+                    );
+                }
+            }
+            Err(error) => return Err(format!("Cannot inspect library folder: {error}")),
+        }
+        let canonical = fs::canonicalize(&current).map_err(|e| e.to_string())?;
+        if canonical != current || !canonical.starts_with(library) {
+            return Err("Download folder resolves outside the configured music directory".into());
+        }
+    }
+    Ok(current)
+}
 fn staging(settings: &Settings, id: &str) -> Result<PathBuf, String> {
     if settings.music_directory.trim().is_empty() {
         return Err("Choose a music directory in Settings first".into());
@@ -1287,6 +1370,14 @@ fn optional_artwork_or_embedded(
     fetched: Result<Option<Vec<u8>>, String>,
     staged_audio: &Path,
 ) -> Option<Vec<u8>> {
+    optional_artwork_or_embedded_with_source(fetched, staged_audio, None)
+}
+
+fn optional_artwork_or_embedded_with_source(
+    fetched: Result<Option<Vec<u8>>, String>,
+    staged_audio: &Path,
+    source_audio: Option<&Path>,
+) -> Option<Vec<u8>> {
     fn valid(bytes: Vec<u8>) -> Option<Vec<u8>> {
         const MAX_EMBEDDED_ARTWORK: usize = 8 * 1024 * 1024;
         (bytes.len() <= MAX_EMBEDDED_ARTWORK && artwork_extension(&bytes).is_ok()).then_some(bytes)
@@ -1296,6 +1387,12 @@ fn optional_artwork_or_embedded(
         .flatten()
         .and_then(valid)
         .or_else(|| embedded_artwork(staged_audio).and_then(valid))
+        .or_else(|| {
+            source_audio
+                .filter(|source| *source != staged_audio)
+                .and_then(embedded_artwork)
+                .and_then(valid)
+        })
 }
 
 pub fn artwork_extension(data: &[u8]) -> Result<&'static str, String> {
@@ -1309,6 +1406,105 @@ pub fn artwork_extension(data: &[u8]) -> Result<&'static str, String> {
         Err("Artwork is not a supported JPEG, PNG or WebP image".into())
     }
 }
+/// Peer-file tags describe the explicitly selected file; they are not proof of
+/// catalog identity. Never use them to overwrite catalog tracks or manual edits.
+fn merge_soulseek_file_tags(track: &Track, tag: &Tag) -> Track {
+    let mut merged = track.clone();
+    if track.provider != "slskd" || track.provenance["sourceKind"] != "soulseekFolder" {
+        return merged;
+    }
+    let text = |key| {
+        tag.get_string(&key)
+            .map(str::trim)
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control)
+            })
+            .map(str::to_owned)
+    };
+    let manual = |field: &str| track.provenance["manualFields"][field] == true;
+    let mut fields = Vec::new();
+    if !manual("title") && track.provenance["identity"] == "unverified peer filename" {
+        if let Some(title) = text(ItemKey::TrackTitle) {
+            merged.title = title;
+            // The embedded title includes its own version text. Do not append
+            // a second filename-derived version to it during tagging.
+            if !manual("version") {
+                merged.version = None;
+            }
+            fields.push("title");
+        }
+    }
+    if !manual("artist") && merged.artist.trim().is_empty() {
+        if let Some(artist) = text(ItemKey::TrackArtist) {
+            merged.artist = artist;
+            fields.push("artist");
+        }
+    }
+    macro_rules! fill_text {
+        ($field:ident, $name:literal, $key:expr) => {
+            if !manual($name)
+                && merged
+                    .$field
+                    .as_deref()
+                    .is_none_or(|value| value.trim().is_empty())
+            {
+                if let Some(value) = text($key) {
+                    merged.$field = Some(value);
+                    fields.push($name);
+                }
+            }
+        };
+    }
+    fill_text!(album, "album", ItemKey::AlbumTitle);
+    fill_text!(album_artist, "albumArtist", ItemKey::AlbumArtist);
+    fill_text!(genre, "genre", ItemKey::Genre);
+    fill_text!(label, "label", ItemKey::Label);
+    fill_text!(catalog_number, "catalogNumber", ItemKey::CatalogNumber);
+    fill_text!(key, "key", ItemKey::InitialKey);
+    if !manual("isrc") && merged.isrc.is_none() {
+        if let Some(value) =
+            text(ItemKey::Isrc).and_then(|value| crate::recording_identity::normalize_isrc(&value))
+        {
+            merged.isrc = Some(value);
+            fields.push("isrc");
+        }
+    }
+    if !manual("releaseDate") && merged.release_date.is_none() {
+        let (release, _) = local_date_fields(
+            text(ItemKey::ReleaseDate),
+            text(ItemKey::RecordingDate),
+            None,
+        );
+        if release.is_some() {
+            merged.release_date = release;
+            fields.push("releaseDate");
+        }
+    }
+    macro_rules! fill_number {
+        ($field:ident, $name:literal, $key:expr) => {
+            if !manual($name) && merged.$field.is_none() {
+                if let Some(value) = text($key)
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .filter(|value| *value > 0 && *value <= 10_000)
+                {
+                    merged.$field = Some(value);
+                    fields.push($name);
+                }
+            }
+        };
+    }
+    fill_number!(track_number, "trackNumber", ItemKey::TrackNumber);
+    fill_number!(track_total, "trackTotal", ItemKey::TrackTotal);
+    fill_number!(disc_number, "discNumber", ItemKey::DiscNumber);
+    fill_number!(disc_total, "discTotal", ItemKey::DiscTotal);
+    if !fields.is_empty() {
+        merged.provenance["embeddedSourceTags"] = serde_json::json!({
+            "fields":fields, "identity":"unverified source file tags"
+        });
+    }
+    merged
+}
+
 fn tag_media(path: &Path, track: &Track, cover: Option<Vec<u8>>) -> Result<(), String> {
     if track
         .bpm
@@ -1328,8 +1524,15 @@ fn tag_media(path: &Path, track: &Track, cover: Option<Vec<u8>>) -> Result<(), S
         FileType::Wav | FileType::Aiff => TagType::Id3v2,
         _ => tagged.primary_tag_type(),
     };
-    // Remove stale upload metadata; apply the selected track's fields. Recording
-    // identity and mix review belong to the source-selection flow, not the writer.
+    // A directly selected peer file keeps custom tags (including peer-reported
+    // catalog IDs) as file metadata only. Known fields are rebuilt below so
+    // manual deletions and selected values remain authoritative.
+    let source_tag = (track.provider == "slskd"
+        && track.provenance["sourceKind"] == "soulseekFolder")
+        .then(|| tagged.tag(tag_type).cloned())
+        .flatten();
+    // Remove stale upload metadata for other source kinds. Recording identity
+    // and mix review belong to source selection, not this writer.
     let types: Vec<_> = tagged.tags().iter().map(|t| t.tag_type()).collect();
     for kind in types {
         if kind != tag_type {
@@ -1339,7 +1542,28 @@ fn tag_media(path: &Path, track: &Track, cover: Option<Vec<u8>>) -> Result<(), S
         tagged.remove(kind);
     }
     let had_cover = cover.is_some();
-    let mut tag = Tag::new(tag_type);
+    let mut tag = source_tag.unwrap_or_else(|| Tag::new(tag_type));
+    for key in [
+        ItemKey::TrackArtist,
+        ItemKey::TrackTitle,
+        ItemKey::AlbumTitle,
+        ItemKey::Genre,
+        ItemKey::AlbumArtist,
+        ItemKey::TrackNumber,
+        ItemKey::TrackTotal,
+        ItemKey::DiscNumber,
+        ItemKey::DiscTotal,
+        ItemKey::Label,
+        ItemKey::Bpm,
+        ItemKey::IntegerBpm,
+        ItemKey::InitialKey,
+        ItemKey::Isrc,
+        ItemKey::CatalogNumber,
+        ItemKey::ReleaseDate,
+        ItemKey::RecordingDate,
+    ] {
+        tag.remove_key(&key);
+    }
     if !track.artist.is_empty() {
         tag.set_artist(track.artist.clone());
     }
@@ -1352,6 +1576,19 @@ fn tag_media(path: &Path, track: &Track, cover: Option<Vec<u8>>) -> Result<(), S
     }
     if let Some(genre) = &track.genre {
         tag.set_genre(genre.clone());
+    }
+    if let Some(value) = &track.album_artist {
+        tag.insert_text(ItemKey::AlbumArtist, value.clone());
+    }
+    for (key, value) in [
+        (ItemKey::TrackNumber, track.track_number),
+        (ItemKey::TrackTotal, track.track_total),
+        (ItemKey::DiscNumber, track.disc_number),
+        (ItemKey::DiscTotal, track.disc_total),
+    ] {
+        if let Some(value) = value {
+            tag.insert_text(key, value.to_string());
+        }
     }
     // Keep live-source evidence in the exported file as well as Burrata's DB.
     // This is an inferred performance identity, not a verified catalog match.
@@ -1948,8 +2185,34 @@ pub(crate) fn journaled_publish(
     asset: &mut LocalAsset,
     candidate: Option<&Candidate>,
 ) -> Result<(), String> {
+    journaled_publish_with_layout(
+        path,
+        settings,
+        job_id,
+        stem,
+        extension,
+        asset,
+        candidate,
+        settings.download_layout,
+        None,
+    )
+}
+
+pub(crate) fn journaled_publish_with_layout(
+    path: &Path,
+    settings: &Settings,
+    job_id: &str,
+    stem: &str,
+    extension: &str,
+    asset: &mut LocalAsset,
+    candidate: Option<&Candidate>,
+    layout: DownloadLayout,
+    playlist: Option<&DownloadPlaylistContext>,
+) -> Result<(), String> {
     let stage = staging(settings, job_id)?;
     let library = fs::canonicalize(&settings.music_directory).map_err(|e| e.to_string())?;
+    let requested_directory = publication_directory(&library, &asset.track, layout, playlist);
+    let directory = create_confined_directory(&library, &requested_directory)?;
     flush_staged_audio(path).map_err(|e| format!("Cannot flush staged audio: {e}"))?;
     for index in 0..1000 {
         let suffix = if index == 0 {
@@ -1959,7 +2222,7 @@ pub(crate) fn journaled_publish(
         } else {
             format!(" [{}-{index}]", &asset.hash[..12])
         };
-        let target = library.join(format!("{stem}{suffix}.{extension}"));
+        let target = directory.join(format!("{stem}{suffix}.{extension}"));
         if target.exists() {
             continue;
         }
@@ -1997,7 +2260,7 @@ pub(crate) fn journaled_publish(
         match fs::hard_link(path, &target) {
             Ok(()) => {
                 #[cfg(unix)]
-                File::open(&library)
+                File::open(&directory)
                     .and_then(|directory| directory.sync_all())
                     .map_err(|e| {
                         format!(
@@ -2059,16 +2322,23 @@ pub fn recover_publications(settings: &Settings) -> Result<Vec<(String, LocalAss
             return Err("Publication journal has invalid job identity".into());
         }
         let target = Path::new(&journal.asset.path);
-        if !target.exists() {
-            // The crash happened before the atomic link. There is no asset to
-            // recover; clear the intent so an explicit retry can publish again.
-            fs::remove_file(&path).map_err(|e| e.to_string())?;
-            continue;
-        }
+        let metadata = match fs::symlink_metadata(target) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // The crash happened before the atomic link. There is no asset to
+                // recover; clear the intent so an explicit retry can publish again.
+                fs::remove_file(&path).map_err(|e| e.to_string())?;
+                continue;
+            }
+            Err(error) => return Err(error.to_string()),
+        };
         // Canonicalization prevents journal paths escaping the music directory,
         // including symlink replacements of a previously published file.
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err("Publication journal target is not a regular audio file".into());
+        }
         let canonical = fs::canonicalize(target).map_err(|e| e.to_string())?;
-        if canonical.parent() != Some(library.as_path()) {
+        if !target.is_absolute() || !target.starts_with(&library) || canonical != target {
             return Err("Publication journal points outside the music directory".into());
         }
         if hash_file(&canonical)? != journal.asset.hash {
@@ -2150,7 +2420,33 @@ pub async fn finalize_download(
     profile: &str,
     job_id: &str,
 ) -> Result<LocalAsset, String> {
-    finalize_download_inner(path, track, candidate, settings, profile, job_id, None).await
+    finalize_download_with_layout(
+        path,
+        track,
+        candidate,
+        settings,
+        profile,
+        job_id,
+        settings.download_layout,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn finalize_download_with_layout(
+    path: &Path,
+    track: &Track,
+    candidate: &Candidate,
+    settings: &Settings,
+    profile: &str,
+    job_id: &str,
+    layout: DownloadLayout,
+    playlist: Option<&DownloadPlaylistContext>,
+) -> Result<LocalAsset, String> {
+    finalize_download_inner(
+        path, track, candidate, settings, profile, job_id, None, layout, playlist,
+    )
+    .await
 }
 
 pub(crate) async fn finalize_download_with_diagnostic(
@@ -2170,6 +2466,8 @@ pub(crate) async fn finalize_download_with_diagnostic(
         profile,
         job_id,
         Some(failure_stage),
+        settings.download_layout,
+        None,
     )
     .await
 }
@@ -2191,6 +2489,8 @@ async fn finalize_download_inner(
     profile: &str,
     job_id: &str,
     mut failure_stage: Option<&mut &'static str>,
+    layout: DownloadLayout,
+    playlist: Option<&DownloadPlaylistContext>,
 ) -> Result<LocalAsset, String> {
     set_finalize_diagnostic_stage(&mut failure_stage, "finalize_validate_profile");
     if !matches!(profile, "source" | "mp3") {
@@ -2211,6 +2511,25 @@ async fn finalize_download_inner(
         }
     }
     let mut source_track = track.clone();
+    if track.provider == "slskd" && track.provenance["sourceKind"] == "soulseekFolder" {
+        let source_path = path.to_path_buf();
+        let original_track = source_track.clone();
+        source_track = tokio::task::spawn_blocking(move || {
+            let Ok(file) = Probe::open(&source_path)
+                .map_err(|error| error.to_string())
+                .and_then(|probe| probe.guess_file_type().map_err(|error| error.to_string()))
+                .and_then(|probe| probe.read().map_err(|error| error.to_string()))
+            else {
+                return original_track;
+            };
+            file.primary_tag()
+                .or_else(|| file.first_tag())
+                .map(|tag| merge_soulseek_file_tags(&original_track, tag))
+                .unwrap_or(original_track)
+        })
+        .await
+        .map_err(|error| format!("Source tag worker failed: {error}"))?;
+    }
     if source_track.artwork_url.is_none() {
         source_track.artwork_url = candidate.artwork_url.clone();
         if source_track.artwork_url.is_some() {
@@ -2238,7 +2557,11 @@ async fn finalize_download_inner(
                 .map_err(|e| format!("Cannot stage audio: {e}"))?;
         }
         set_finalize_diagnostic_stage(&mut failure_stage, "finalize_artwork");
-        let cover = optional_artwork_or_embedded(artwork(&source_track).await, &staged);
+        let cover = optional_artwork_or_embedded_with_source(
+            artwork(&source_track).await,
+            &staged,
+            Some(path),
+        );
         let p = staged.clone();
         let t = tagged_track.clone();
         set_finalize_diagnostic_stage(&mut failure_stage, "finalize_tag");
@@ -2285,14 +2608,16 @@ async fn finalize_download_inner(
             track: tagged_track,
         };
         set_finalize_diagnostic_stage(&mut failure_stage, "finalize_publish");
-        journaled_publish(
+        journaled_publish_with_layout(
             &staged,
             settings,
             job_id,
-            &file_stem(track),
+            &file_stem(&asset.track),
             extension,
             &mut asset,
             Some(candidate),
+            layout,
+            playlist,
         )?;
         Ok(asset)
     }
@@ -2757,6 +3082,15 @@ fn export_processing(codec: &str, source: &str) -> String {
 }
 
 pub async fn export_mp3(asset: &LocalAsset, settings: &Settings) -> Result<LocalAsset, String> {
+    export_mp3_with_layout(asset, settings, settings.download_layout, None).await
+}
+
+pub(crate) async fn export_mp3_with_layout(
+    asset: &LocalAsset,
+    settings: &Settings,
+    layout: DownloadLayout,
+    playlist: Option<&DownloadPlaylistContext>,
+) -> Result<LocalAsset, String> {
     verify_asset(asset).await?;
     let original = probe(Path::new(&asset.path), settings).await?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -2770,7 +3104,11 @@ pub async fn export_mp3(asset: &LocalAsset, settings: &Settings) -> Result<Local
         } else {
             transcode(Path::new(&asset.path), &output, settings, true).await?;
         }
-        let cover = artwork(&asset.track).await?;
+        let cover = optional_artwork_or_embedded_with_source(
+            artwork(&asset.track).await,
+            &output,
+            Some(Path::new(&asset.path)),
+        );
         let p = output.clone();
         let t = asset.track.clone();
         tokio::task::spawn_blocking(move || tag_media(&p, &t, cover))
@@ -2812,7 +3150,7 @@ pub async fn export_mp3(asset: &LocalAsset, settings: &Settings) -> Result<Local
             processing: export_processing(&original.codec, &asset.path),
             track,
         };
-        journaled_publish(
+        journaled_publish_with_layout(
             &output,
             settings,
             &id,
@@ -2820,6 +3158,8 @@ pub async fn export_mp3(asset: &LocalAsset, settings: &Settings) -> Result<Local
             "mp3",
             &mut exported,
             None,
+            layout,
+            playlist,
         )?;
         Ok(exported)
     }
@@ -2882,6 +3222,135 @@ pub async fn open_in_file_manager(path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn folder_file_tags_enrich_only_the_actual_source_and_preserve_manual_fields() {
+        use super::*;
+        let mut tag = Tag::new(TagType::VorbisComments);
+        tag.set_title("Agitations tropicales (version acoustique)".into());
+        tag.set_artist("L’Impératrice".into());
+        tag.set_album("Odyssée (version acoustique)".into());
+        tag.insert_text(ItemKey::AlbumArtist, "L’Impératrice".into());
+        tag.insert_text(ItemKey::TrackNumber, "2".into());
+        tag.insert_text(ItemKey::TrackTotal, "6".into());
+        let track = Track {
+            provider: "slskd".into(),
+            title: "L’Impératrice - Agitations tropicales 02".into(),
+            provenance: serde_json::json!({"sourceKind":"soulseekFolder","identity":"unverified peer filename"}),
+            ..Track::default()
+        };
+        let merged = merge_soulseek_file_tags(&track, &tag);
+        assert_eq!(merged.title, "Agitations tropicales (version acoustique)");
+        assert_eq!(merged.artist, "L’Impératrice");
+        assert_eq!(
+            merged.album.as_deref(),
+            Some("Odyssée (version acoustique)")
+        );
+        assert_eq!(merged.track_number, Some(2));
+        assert_eq!(merged.track_total, Some(6));
+        assert_eq!(merged.provenance["identity"], "unverified peer filename");
+        assert_eq!(
+            merged.provenance["embeddedSourceTags"]["identity"],
+            "unverified source file tags"
+        );
+        let mut manual = track.clone();
+        manual.provenance["manualFields"] =
+            serde_json::json!({"title":true,"artist":true,"album":true,"trackNumber":true});
+        let protected = merge_soulseek_file_tags(&manual, &tag);
+        assert_eq!(protected.title, manual.title);
+        assert!(protected.artist.is_empty());
+        assert!(protected.album.is_none());
+        assert!(protected.track_number.is_none());
+        let catalog = Track {
+            provider: "catalog".into(),
+            ..track.clone()
+        };
+        assert_eq!(
+            merge_soulseek_file_tags(&catalog, &tag).title,
+            catalog.title
+        );
+        let search = Track {
+            provenance: serde_json::json!({"sourceKind":"audioSearch"}),
+            ..track
+        };
+        assert!(merge_soulseek_file_tags(&search, &tag).artist.is_empty());
+    }
+
+    #[tokio::test]
+    async fn selected_folder_file_publication_retains_embedded_album_tags() {
+        use super::*;
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.flac");
+        let generated = Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=1",
+                "-c:a",
+                "flac",
+                "-metadata",
+                "title=Source title",
+                "-metadata",
+                "artist=Source artist",
+                "-metadata",
+                "album=Source album",
+                "-metadata",
+                "album_artist=Source artist",
+                "-metadata",
+                "track=2",
+                "-metadata",
+                "tracktotal=6",
+                "-y",
+            ])
+            .arg(&source)
+            .output()
+            .await
+            .unwrap();
+        assert!(generated.status.success());
+        let settings = Settings {
+            music_directory: dir.path().join("library").to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let track = Track {
+            id: "slskd:fixture".into(),
+            provider: "slskd".into(),
+            provider_id: "fixture".into(),
+            title: "Filename 02".into(),
+            provenance: serde_json::json!({"sourceKind":"soulseekFolder","identity":"unverified peer filename"}),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "slskd".into(),
+            duration_seconds: Some(1.0),
+            ..Candidate::default()
+        };
+        let asset = finalize_download(
+            &source,
+            &track,
+            &candidate,
+            &settings,
+            "source",
+            "folder-tags-fixture",
+        )
+        .await
+        .unwrap();
+        assert_eq!(asset.track.artist, "Source artist");
+        assert_eq!(asset.track.title, "Source title");
+        assert_eq!(asset.track.album.as_deref(), Some("Source album"));
+        assert_eq!(asset.track.track_number, Some(2));
+        assert!(asset.path.contains("Source artist"));
+        let tagged = Probe::open(&asset.path).unwrap().read().unwrap();
+        let tag = tagged.primary_tag().unwrap();
+        assert_eq!(tag.artist().as_deref(), Some("Source artist"));
+        assert_eq!(tag.title().as_deref(), Some("Source title"));
+        assert_eq!(tag.album().as_deref(), Some("Source album"));
+        assert_eq!(tag.get_string(&ItemKey::TrackNumber), Some("2"));
+        assert_eq!(tag.get_string(&ItemKey::TrackTotal), Some("6"));
+    }
+
     #[test]
     fn missing_opus_stream_bitrate_is_reported_as_estimated_when_available() {
         let (bitrate, origin) = super::resolve_bitrate(None, None, Some(1_200_000), 60.0);
@@ -3263,10 +3732,99 @@ mod tests {
             .flat_map(|tag| tag.pictures())
             .next()
             .is_none());
+
+        // Remuxing can strip a source picture before the staged output is
+        // inspected. The original source remains the final fallback, while a
+        // failed optional art lookup still leaves text tagging successful.
+        let remux_cover = optional_artwork_or_embedded_with_source(
+            Err("HTTP 500 from artwork service".into()),
+            &without_cover,
+            Some(&with_cover),
+        );
+        assert_eq!(remux_cover.as_deref(), Some(cover.as_slice()));
+        tag_media(&without_cover, &selected, remux_cover).unwrap();
+        assert_eq!(
+            embedded_artwork(&without_cover).as_deref(),
+            Some(cover.as_slice())
+        );
+
+        // MP3 export must treat an unusable remote artwork URL as optional and
+        // retain artwork embedded in the verified source asset.
+        let mut export_track = selected.clone();
+        export_track.artwork_url = Some("not a valid URL".into());
+        let source_path = fs::canonicalize(&with_cover).unwrap();
+        let asset = LocalAsset {
+            id: "cover-export-source".into(),
+            recording_id: export_track.id.clone(),
+            path: source_path.to_string_lossy().into_owned(),
+            hash: hash_file(&source_path).unwrap(),
+            source_codec: "flac".into(),
+            final_codec: "flac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: Some(1.0),
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "fixture".into(),
+            track: export_track,
+        };
+        let settings = Settings {
+            music_directory: directory.path().to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let exported = export_mp3(&asset, &settings).await.unwrap();
+        assert_eq!(exported.final_codec, "mp3");
+        assert_eq!(
+            embedded_artwork(Path::new(&exported.path)).as_deref(),
+            Some(cover.as_slice())
+        );
     }
     #[test]
     fn unicode_filenames_fit_filesystem_limits() {
         assert!(safe_component(&"🎵".repeat(100)).len() <= 90);
+    }
+
+    #[test]
+    fn layouts_use_safe_components_and_playlist_context_falls_back_cleanly() {
+        let root = Path::new("/music");
+        let track = Track {
+            artist: "Performer/../Name".into(),
+            album_artist: Some("Album Artist".into()),
+            album: Some("Record: One".into()),
+            ..Track::default()
+        };
+        assert_eq!(
+            publication_directory(root, &track, DownloadLayout::Flat, None),
+            root
+        );
+        assert_eq!(
+            publication_directory(root, &track, DownloadLayout::ArtistAlbum, None),
+            root.join("Album Artist").join("Record_ One")
+        );
+        assert_eq!(
+            publication_directory(root, &track, DownloadLayout::Playlist, None),
+            root.join("Album Artist").join("Record_ One")
+        );
+        let playlist = DownloadPlaylistContext {
+            id: "local-1".into(),
+            name: "Road/Trip".into(),
+        };
+        assert_eq!(
+            publication_directory(root, &track, DownloadLayout::Playlist, Some(&playlist)),
+            root.join("Playlists").join("Road_Trip")
+        );
+        let invalid = DownloadPlaylistContext {
+            id: "".into(),
+            name: "ignored".into(),
+        };
+        assert_eq!(
+            publication_directory(root, &track, DownloadLayout::Playlist, Some(&invalid)),
+            root.join("Album Artist").join("Record_ One")
+        );
+        assert_eq!(safe_component(".."), "Unknown");
     }
 
     #[test]
@@ -3335,6 +3893,142 @@ mod tests {
         acknowledge_publication(&settings, job).unwrap();
         assert!(recover_publications(&settings).unwrap().is_empty());
         assert!(Path::new(&asset.path).exists());
+    }
+
+    #[test]
+    fn nested_publication_recovers_without_following_symlinked_targets() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            music_directory: directory.path().to_string_lossy().into(),
+            download_layout: DownloadLayout::ArtistAlbum,
+            ..Settings::default()
+        };
+        let job = "nested-recovery";
+        let stage = staging(&settings, job).unwrap();
+        let audio = stage.join("audio.mp3");
+        fs::write(&audio, b"nested fixture").unwrap();
+        let track = Track {
+            artist: "Artist".into(),
+            album: Some("Album".into()),
+            title: "Song".into(),
+            ..Track::default()
+        };
+        let mut asset = LocalAsset {
+            id: "asset".into(),
+            recording_id: "recording".into(),
+            path: String::new(),
+            hash: hash_file(&audio).unwrap(),
+            source_codec: "mp3".into(),
+            final_codec: "mp3".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "preserved".into(),
+            track,
+        };
+        journaled_publish(
+            &audio,
+            &settings,
+            job,
+            "Artist - Song",
+            "mp3",
+            &mut asset,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            Path::new(&asset.path).parent().unwrap(),
+            directory.path().join("Artist").join("Album")
+        );
+        assert_eq!(recover_publications(&settings).unwrap().len(), 1);
+        acknowledge_publication(&settings, job).unwrap();
+
+        #[cfg(unix)]
+        {
+            let target = Path::new(&asset.path);
+            let real = target.with_extension("real");
+            fs::rename(target, &real).unwrap();
+            std::os::unix::fs::symlink(&real, target).unwrap();
+            let stage = staging(&settings, "nested-symlink").unwrap();
+            let fake_audio = stage.join("audio.mp3");
+            fs::write(&fake_audio, b"other").unwrap();
+            let mut forged = asset.clone();
+            forged.path = String::new();
+            forged.hash = hash_file(&fake_audio).unwrap();
+            let result = journaled_publish(
+                &fake_audio,
+                &settings,
+                "nested-symlink",
+                "Other",
+                "mp3",
+                &mut forged,
+                None,
+            );
+            assert!(result.is_ok());
+            let journal = stage.join("publication.json");
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&fs::read(&journal).unwrap()).unwrap();
+            value["asset"]["path"] =
+                serde_json::Value::String(target.to_string_lossy().into_owned());
+            fs::write(&journal, serde_json::to_vec(&value).unwrap()).unwrap();
+            assert!(recover_publications(&settings).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_rejects_symlinked_artist_before_creating_album_outside_library() {
+        let library = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), library.path().join("Artist")).unwrap();
+        let settings = Settings {
+            music_directory: library.path().to_string_lossy().into_owned(),
+            download_layout: DownloadLayout::ArtistAlbum,
+            ..Settings::default()
+        };
+        let stage = staging(&settings, "symlink-parent").unwrap();
+        let audio = stage.join("audio.mp3");
+        fs::write(&audio, b"fixture").unwrap();
+        let mut asset = LocalAsset {
+            id: "asset".into(),
+            recording_id: "recording".into(),
+            path: String::new(),
+            hash: hash_file(&audio).unwrap(),
+            source_codec: "mp3".into(),
+            final_codec: "mp3".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "fixture".into(),
+            track: Track {
+                artist: "Artist".into(),
+                album: Some("New Album".into()),
+                title: "Song".into(),
+                ..Track::default()
+            },
+        };
+        let result = journaled_publish(
+            &audio,
+            &settings,
+            "symlink-parent",
+            "Artist - Song",
+            "mp3",
+            &mut asset,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(!outside.path().join("New Album").exists());
+        assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
     }
 
     #[test]
@@ -3570,9 +4264,17 @@ mod tests {
             published.push(asset);
         }
         assert_eq!(published.len(), 2);
-        assert!(published
-            .iter()
-            .all(|asset| !asset.path.contains("Parent recording")));
+        assert!(published.iter().all(|asset| {
+            Path::new(&asset.path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| !name.contains("Parent recording"))
+                && Path::new(&asset.path)
+                    .parent()
+                    .and_then(Path::file_name)
+                    .and_then(|name| name.to_str())
+                    == Some("Parent recording")
+        }));
         assert!(!published.iter().any(|asset| asset.track.id == "parent"));
     }
 

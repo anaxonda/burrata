@@ -11,7 +11,7 @@
   import type {ArtistProfile, ArtistRef} from "./lib/artist-types";
   import TrackFiles from "./TrackFiles.svelte";
   import StationInfo from "./StationInfo.svelte";
-  import type { Track, Candidate, LocalAsset } from "./lib/types";
+  import type { Track, Candidate, LocalAsset, LiveBpmEstimate } from "./lib/types";
 
   function estimateNote(track: Track, field: "bpm" | "key"): string {
     const provenance = (track.provenance ?? {}) as Record<string, unknown>;
@@ -57,6 +57,7 @@
     panelWidth = 340,
     onPanelWidthChange,
     stationName = "",
+    liveBpm = null,
   }: {
     track: Track;
     candidate?: Candidate | null;
@@ -89,9 +90,18 @@
     panelWidth?: number;
     onPanelWidthChange?: (width: number) => void;
     stationName?: string;
+    liveBpm?: LiveBpmEstimate | null;
   } = $props();
 
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
+  const catalogProvider = $derived.by(() => {
+    if (track.provider !== "catalog") return track.provider;
+    const provenance = (track.provenance ?? {}) as Record<string, unknown>;
+    return typeof provenance.catalogProvider === "string" ? provenance.catalogProvider : "";
+  });
+  function providerLabel(provider: string): string {
+    return ({ musicbrainz: "MusicBrainz", discogs: "Discogs", spotify: "Spotify", youtube: "YouTube", soundcloud: "SoundCloud", monochrome: "Monochrome", soulseek: "Soulseek", slskd: "Soulseek" } as Record<string, string>)[provider] || provider;
+  }
   let resizing = $state(false);
   function resizePanel(event: PointerEvent) {
     if (!docked || event.button !== 0) return;
@@ -202,10 +212,12 @@
     <dl>
       {#if views !== null}<div><dt>Views</dt><dd>{formatCount(views)}</dd></div>{/if}
       {#if plays !== null}<div><dt>Plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
-      {#if track.provider}<div><dt>Catalog</dt><dd>{track.provider}</dd></div>{/if}
+      {#if catalogProvider && catalogProvider !== "catalog"}<div><dt>Metadata source</dt><dd>{providerLabel(catalogProvider)}</dd></div>{/if}
+      {#if candidate?.provider}<div><dt>Audio provider</dt><dd>{providerLabel(candidate.provider)}</dd></div>{/if}
       {#if candidate?.title}<div><dt>Audio source</dt><dd>{candidate.title}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd>{candidate.uploader}</dd></div>{/if}
       {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{estimateNote(track, "bpm")}</dd></div>{/if}
+      {#if liveBpm}<div class="live-bpm" title={`Approximate tempo estimated from ${liveBpm.windowSeconds.toFixed(1)} seconds of current playback`}><dt>Live BPM</dt><dd>{liveBpm.bpm.toFixed(1)} BPM <small>approx. · {Math.round(liveBpm.confidence * 100)}% rhythm strength · half/double-time readings can vary{#if liveBpm.relatedTempoAlternativeBpm} · related {liveBpm.relatedTempoAlternativeBpm.toFixed(1)} BPM{/if}</small></dd></div>{/if}
       {#if track.key}<div><dt>Key</dt><dd>{track.key}{estimateNote(track, "key")}</dd></div>{/if}
       {#if track.label}<div><dt>Label</dt><dd>{track.label}</dd></div>{/if}
       {#if track.releaseDate}<div><dt>Released</dt><dd>{track.releaseDate}</dd></div>{/if}

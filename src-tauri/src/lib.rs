@@ -34,9 +34,13 @@ pub mod imports;
 pub mod install_integration;
 #[cfg(target_os = "linux")]
 pub mod linux_webview_output;
+pub mod live_bpm;
 pub mod local_audio;
+pub mod lyrics;
+pub mod lyrics_translation;
 mod main_ui_capture;
 pub mod managed_provider_session;
+mod managed_slskd_settings;
 pub mod matching;
 pub mod media;
 pub mod metadata;
@@ -1247,6 +1251,31 @@ async fn remove_managed_slskd_share(
     .await
     .map_err(|e| e.to_string())??;
     get_slskd_shares(state).await
+}
+
+#[tauri::command]
+async fn get_managed_slskd_download_settings(
+    state: State<'_, AppState>,
+) -> Result<managed_slskd_settings::ManagedDownloadSettingsState> {
+    let settings = state.connections.settings()?.slskd;
+    tauri::async_runtime::spawn_blocking(move || {
+        managed_slskd_settings::state(&settings.base_url, &settings.downloads_path)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_managed_slskd_download_settings(
+    state: State<'_, AppState>,
+    settings: managed_slskd_settings::ManagedDownloadSettings,
+) -> Result<managed_slskd_settings::ManagedDownloadSettingsState> {
+    let connection = state.connections.settings()?.slskd;
+    tauri::async_runtime::spawn_blocking(move || {
+        managed_slskd_settings::update(&connection.base_url, &connection.downloads_path, settings)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -4139,6 +4168,7 @@ async fn identify_webview_playing_pcm(
                 .as_ref()
                 .and_then(|item| item.artwork_url.clone()),
             note,
+            timing_anchor: None,
         })
         .map_err(|error| error.to_string())?)
     }
@@ -4429,6 +4459,7 @@ async fn identify_webview_playing_output(
             artist: identified.as_ref().map(|m| m.artist.clone()),
             artwork_url: identified.as_ref().and_then(|m| m.artwork_url.clone()),
             note: note.into(),
+            timing_anchor: None,
         })
         .map_err(|e| e.to_string())?)
     }
@@ -4586,6 +4617,29 @@ fn set_favorite(state: State<'_, AppState>, track: Track, value: bool) -> Result
 #[tauri::command]
 fn set_disposition(state: State<'_, AppState>, track: Track, value: Option<String>) -> Result<()> {
     state.store.set_disposition(&track, value.as_deref())
+}
+#[tauri::command]
+async fn preview_unsorted_library_entries(
+    state: State<'_, AppState>,
+    limit: usize,
+    offset: usize,
+) -> Result<storage::UnsortedLibraryPreview> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.preview_unsorted_library_entries(limit, offset)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn remove_unsorted_library_entries(
+    state: State<'_, AppState>,
+    selections: Vec<storage::LibraryEntrySelection>,
+) -> Result<storage::UnsortedLibraryRemovalResult> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.remove_unsorted_library_entries(&selections))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 fn update_track(state: State<'_, AppState>, track: Track) -> Result<Track> {
@@ -4755,6 +4809,20 @@ async fn find_candidates(
     state
         .acquisition
         .find_candidates(&track, &provider_ids, &state.store.settings()?)
+        .await
+}
+
+#[tauri::command]
+async fn browse_soulseek_directory(
+    state: State<'_, AppState>,
+    username: String,
+    directory: String,
+    request_id: String,
+) -> Result<acquisition::SoulseekDirectoryBrowse> {
+    let guard = state.provider_reads.begin(request_id)?;
+    state
+        .acquisition
+        .browse_soulseek_directory(&username, &directory, guard.cancellation())
         .await
 }
 
@@ -5228,23 +5296,80 @@ fn clear_playback_diagnostics() -> playback_diagnostics::DiagnosticsStatus {
     playback_diagnostics::clear()
 }
 #[tauri::command]
+async fn get_current_track_lyrics(
+    state: State<'_, AppState>,
+    visible_track: Option<lyrics::LyricsRequestInput>,
+) -> Result<lyrics::LyricsResponse> {
+    let snapshot = state.playback.snapshot_page(0, 1);
+    Ok(lyrics::get_current_track_lyrics_from_snapshot(&snapshot, visible_track).await)
+}
+#[tauri::command]
+async fn translate_current_track_lyrics(
+    state: State<'_, AppState>,
+    source_hash: String,
+    lines: Vec<lyrics::LyricsLine>,
+    visible_track: Option<lyrics::LyricsRequestInput>,
+) -> Result<lyrics_translation::LyricsTranslationResponse> {
+    let snapshot = state.playback.snapshot_page(0, 1);
+    let current = lyrics::get_current_track_lyrics_from_snapshot(&snapshot, visible_track).await;
+    if !matches!(current.status.as_str(), "synced" | "unsynced") {
+        return Err("Current playback does not have available lyrics to translate".into());
+    }
+    let current_lines = current
+        .lines
+        .ok_or("Current playback does not have translatable lyrics")?;
+    if current.source_hash.as_deref() != Some(source_hash.as_str()) || current_lines != lines {
+        return Err("Current lyrics changed; reload them before translating".into());
+    }
+    let manager = state.connections.clone();
+    let connection = tokio::task::spawn_blocking(move || manager.lyrics_translation())
+        .await
+        .map_err(|error| error.to_string())??
+        .ok_or("Lyrics translation is disabled in Connections")?;
+    lyrics_translation::translate_current_document(connection, source_hash, current_lines).await
+}
+#[tauri::command]
 async fn export_playback_diagnostics(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    webview_context: Option<serde_json::Value>,
 ) -> Result<serde_json::Value> {
     use tauri_plugin_dialog::DialogExt;
     let settings = state.store.settings()?;
     let diagnostics = playback_diagnostics::export();
-    let playback_context = playback_diagnostics_context::project(
+    let mut playback_context = playback_diagnostics_context::project(
         &state.playback.snapshot_page(0, 1),
         tools::target_triple(),
     );
+    if let Some(webview) = playback_diagnostics_context::project_webview(webview_context.as_ref()) {
+        if let Some(context) = playback_context.as_object_mut() {
+            context.insert("engine".into(), serde_json::json!("webview"));
+            if let Some(status) = webview.get("status") {
+                context.insert("status".into(), status.clone());
+            }
+            context.insert("webview".into(), webview);
+        }
+    }
     let count = diagnostics.status.event_count;
+    #[cfg(target_os = "macos")]
+    let os_version = {
+        let mut command = tokio::process::Command::new("/usr/bin/sw_vers");
+        command.arg("-productVersion").kill_on_drop(true);
+        tokio::time::timeout(std::time::Duration::from_secs(2), command.output())
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|value| playback_diagnostics_context::safe_os_version(&value))
+    };
+    #[cfg(not(target_os = "macos"))]
+    let os_version: Option<String> = None;
     let helpers = acquisition::check_dependencies(&settings).await.into_iter().map(|dependency| {
         let version = dependency.version.as_deref().and_then(playback_diagnostics::numeric_helper_version);
         serde_json::json!({"name":dependency.name,"available":dependency.available,"version":version})
     }).collect::<Vec<_>>();
-    let report = serde_json::json!({"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
+    let report = serde_json::json!({"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"osVersion":os_version,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
     tauri::async_runtime::spawn_blocking(move || {
         let picked = app
             .dialog()
@@ -5270,6 +5395,12 @@ async fn export_playback_diagnostics(
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> Result<Settings> {
     state.store.settings()
+}
+#[tauri::command]
+async fn get_live_bpm(
+    state: State<'_, AppState>,
+) -> Result<Option<playback::LiveBpmPlaybackEstimate>> {
+    state.playback.live_bpm().await
 }
 #[tauri::command]
 fn save_settings(
@@ -6321,6 +6452,8 @@ pub fn run() {
             set_favorite,
             set_disposition,
             update_track,
+            preview_unsorted_library_entries,
+            remove_unsorted_library_entries,
             list_collections,
             list_deleted_collections,
             delete_collection,
@@ -6337,6 +6470,7 @@ pub fn run() {
             save_audio_match,
             find_candidates,
             find_soulseek_album_candidates,
+            browse_soulseek_directory,
             prepare_download_match_identity,
             find_download_candidates,
             resolve_candidate_audio,
@@ -6349,9 +6483,11 @@ pub fn run() {
             retry_download,
             list_jobs,
             get_settings,
+            get_live_bpm,
             get_playback_diagnostics_status,
             set_playback_diagnostics_enabled,
             clear_playback_diagnostics,
+            get_current_track_lyrics,
             export_playback_diagnostics,
 
             get_diagnostics,
@@ -6372,7 +6508,7 @@ pub fn run() {
             export_playlist, export_mixxx_playlist, resume_playlist_mirror, copy_playlist, move_playlist_entry,
             open_in_file_manager,
             open_external_url
-            ,get_connections, save_connections, test_connections, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share,
+            ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
             search_artists, search_albums, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,

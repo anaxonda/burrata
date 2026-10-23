@@ -37,6 +37,8 @@ pub struct DiscoveryResult {
     pub title: String,
     pub subtitle: Option<String>,
     pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artwork_url: Option<String>,
     pub track: Option<Track>,
     pub data: Value,
 }
@@ -312,9 +314,11 @@ pub fn source_registry(connections: &ConnectionManager) -> Result<Vec<SourceCapa
         ),
         cap(
             "soulseek",
-            &["track", "file"],
+            &["artist", "album", "track", "file"],
             c.slskd.enabled,
-            Some("Enable and configure slskd in Connections"),
+            Some(
+                "Artists and albums are inferred from peer filenames and folders; directory completeness is unknown until browsed",
+            ),
         ),
     ])
 }
@@ -481,6 +485,10 @@ fn append_remote_catalog_results(out: &mut DiscoveryPage, source_id: &str, page:
             .and_then(Value::as_str)
             .map(str::to_owned);
         let url = item.get("url").and_then(Value::as_str).map(str::to_owned);
+        let artwork_url = item
+            .get("artworkUrl")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let native = item.get("data").cloned().unwrap_or(Value::Null);
         let track = (kind == "track").then(|| {
             let artist = native.get("artist").and_then(Value::as_str).map(str::to_owned).or_else(|| subtitle.clone()).unwrap_or_default();
@@ -531,6 +539,7 @@ fn append_remote_catalog_results(out: &mut DiscoveryPage, source_id: &str, page:
             title,
             subtitle,
             url,
+            artwork_url,
             track,
             data: item.clone(),
         });
@@ -708,7 +717,7 @@ impl DiscoveryService {
             .min(if source_id == "youtube" { 30 } else { MAX_PAGE });
         if matches!(source_id, "slskd" | "soulseek") {
             if let Some(cursor) = request.cursor.as_deref() {
-                return self.poll_slskd(cursor).await;
+                return self.poll_slskd_with_kinds(cursor, &request.kinds).await;
             }
         }
         let mut buffered = Vec::new();
@@ -891,6 +900,7 @@ impl DiscoveryService {
                             title: a.name.clone(),
                             subtitle: a.disambiguation.clone(),
                             url: Some(a.source_url.clone()),
+                            artwork_url: a.image_url.clone(),
                             track: None,
                             data: serde_json::to_value(a).unwrap_or(Value::Null),
                         });
@@ -961,6 +971,7 @@ impl DiscoveryService {
                             title: title.into(),
                             subtitle: (!artist.is_empty()).then_some(artist),
                             url: Some(format!("https://musicbrainz.org/recording/{rid}")),
+                            artwork_url: None,
                             track: Some(recording_track),
                             data: r.clone(),
                         });
@@ -984,6 +995,7 @@ impl DiscoveryService {
                             title: r.title.clone(),
                             subtitle: r.credits.first().map(|c| c.name.clone()),
                             url: Some(r.source_url.clone()),
+                            artwork_url: r.artwork_urls.first().cloned(),
                             track: None,
                             data: serde_json::to_value(r).unwrap_or(Value::Null),
                         });
@@ -1023,6 +1035,7 @@ impl DiscoveryService {
                             title: a.name.clone(),
                             subtitle: a.disambiguation.clone(),
                             url: Some(a.source_url.clone()),
+                            artwork_url: None,
                             track: None,
                             data: serde_json::to_value(a).unwrap_or(Value::Null),
                         });
@@ -1047,6 +1060,7 @@ impl DiscoveryService {
                             title: a.title.clone(),
                             subtitle: a.credits.first().map(|c| c.name.clone()),
                             url: Some(a.source_url.clone()),
+                            artwork_url: a.artwork_urls.first().cloned(),
                             track: None,
                             data: serde_json::to_value(a).unwrap_or(Value::Null),
                         });
@@ -1238,6 +1252,7 @@ impl DiscoveryService {
                             title: r.title.clone(),
                             subtitle: r.artist.clone(),
                             url: Some(r.url.clone()),
+                            artwork_url: r.artwork_url.clone(),
                             track: Some(track),
                             data: json!({"youtubeMusic":r,"candidate":candidate}),
                         });
@@ -1303,7 +1318,11 @@ impl DiscoveryService {
                 out.source_id = "soulseek".into();
                 out.complete = false;
                 out.progress = Some("searching".into());
-                out.next_cursor = Some(id);
+                out.next_cursor = Some(encode_slskd_discovery_cursor(&SlskdDiscoveryCursor {
+                    search_id: id,
+                    offset: 0,
+                    kinds: request.kinds.clone(),
+                })?);
             }
             _ => return Err(format!("Unknown discovery source: {source_id}")),
         }
@@ -1343,21 +1362,38 @@ impl DiscoveryService {
         )
     }
     pub async fn poll_slskd(&self, search_id: &str) -> Result<DiscoveryPage, String> {
-        let (id, offset) = if let Some((id, offset)) = search_id.split_once('@') {
+        // Legacy poll callers only requested file/track rows. New typed
+        // discovery cursors preserve their own requested kinds.
+        self.poll_slskd_with_kinds(search_id, &["track".into()])
+            .await
+    }
+    async fn poll_slskd_with_kinds(
+        &self,
+        cursor: &str,
+        requested_kinds: &[String],
+    ) -> Result<DiscoveryPage, String> {
+        let decoded = decode_slskd_discovery_cursor(cursor);
+        if cursor.starts_with("ssdk1:") && decoded.is_none() {
+            return Err("Invalid Soulseek discovery cursor".into());
+        }
+        let (id, offset, kinds) = if let Some(state) = decoded {
+            (state.search_id, state.offset, state.kinds)
+        } else if let Some((id, offset)) = cursor.split_once('@') {
             (
-                id,
+                id.to_owned(),
                 offset
                     .parse::<usize>()
                     .map_err(|_| "Invalid Soulseek result cursor")?,
+                requested_kinds.to_vec(),
             )
         } else {
-            (search_id, 0)
+            (cursor.to_owned(), 0, requested_kinds.to_vec())
         };
         if offset > 10_000 {
             return Err("Soulseek result cursor is out of range".into());
         }
-        let poll: SlskdSearchPoll = self.acquisition.poll_slskd_search(id).await?;
-        let page = slskd_page(poll, id, offset);
+        let poll: SlskdSearchPoll = self.acquisition.poll_slskd_search(&id).await?;
+        let page = slskd_page(poll, &id, offset, &kinds)?;
         for row in &page.results {
             if let Some(track) = &row.track {
                 self.store.cache_track(track)?;
@@ -1450,33 +1486,218 @@ fn track_result(source: &str, t: Track) -> DiscoveryResult {
         title: t.title.clone(),
         subtitle: Some(t.artist.clone()),
         url: Some(t.source_url.clone()),
+        artwork_url: t.artwork_url.clone(),
         data: json!({"provenance":t.provenance,"providerId":t.provider_id}),
         track: Some(t),
     }
 }
-fn slskd_page(p: SlskdSearchPoll, search_id: &str, offset: usize) -> DiscoveryPage {
-    let total = p.tracks.len();
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SlskdDiscoveryCursor {
+    search_id: String,
+    offset: usize,
+    #[serde(default)]
+    kinds: Vec<String>,
+}
+
+fn encode_slskd_discovery_cursor(cursor: &SlskdDiscoveryCursor) -> Result<String, String> {
+    let bytes = serde_json::to_vec(cursor).map_err(|error| error.to_string())?;
+    Ok(format!(
+        "ssdk1:{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    ))
+}
+
+fn decode_slskd_discovery_cursor(value: &str) -> Option<SlskdDiscoveryCursor> {
+    let encoded = value.strip_prefix("ssdk1:")?;
+    if encoded.len() > 16 * 1024 {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .ok()?;
+    let cursor: SlskdDiscoveryCursor = serde_json::from_slice(&bytes).ok()?;
+    if cursor.search_id.is_empty() || cursor.offset > 10_000 || cursor.kinds.len() > 10 {
+        return None;
+    }
+    Some(cursor)
+}
+
+#[derive(Default)]
+struct SoulseekFolderGroup {
+    peer: String,
+    directory: String,
+    files: usize,
+    artist_names: std::collections::BTreeSet<String>,
+}
+
+fn soulseek_group_identity(kind: &str, peer: &str, value: &str) -> String {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(format!("{peer}\0{value}").as_bytes());
+    let suffix = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("soulseek:{kind}:{suffix}")
+}
+
+fn soulseek_folder_groups(tracks: &[Track]) -> Vec<SoulseekFolderGroup> {
+    let mut groups = std::collections::BTreeMap::<(String, String), SoulseekFolderGroup>::new();
+    for track in tracks {
+        let candidate = &track.provenance["audioCandidate"];
+        let source = &candidate["source"];
+        if source["kind"] != "soulseek" {
+            continue;
+        }
+        let Some(peer) = source["username"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let Some(filename) = source["filename"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let Some((directory, _)) = filename.rsplit_once(['/', '\\']) else {
+            continue;
+        };
+        if directory.is_empty() {
+            continue;
+        }
+        let key = (peer.to_owned(), directory.to_owned());
+        let group = groups.entry(key).or_insert_with(|| SoulseekFolderGroup {
+            peer: peer.to_owned(),
+            directory: directory.to_owned(),
+            ..Default::default()
+        });
+        group.files += 1;
+        if let Some(name) = candidate["sourceMetadata"]["filenameObservations"]["folderArtist"]
+            .as_str()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            group.artist_names.insert(name.to_owned());
+        }
+    }
+    groups.into_values().collect()
+}
+
+fn slskd_group_results(groups: &[SoulseekFolderGroup], kinds: &[String]) -> Vec<DiscoveryResult> {
+    let wants = |kind: &str| kinds.is_empty() || kinds.iter().any(|requested| requested == kind);
+    let mut results = Vec::new();
+    if wants("album") {
+        for group in groups {
+            let folder_name = group
+                .directory
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&group.directory);
+            let inferred_artist = (group.artist_names.len() == 1)
+                .then(|| group.artist_names.iter().next().cloned())
+                .flatten();
+            let identity = soulseek_group_identity("folder", &group.peer, &group.directory);
+            results.push(DiscoveryResult {
+                id: identity.clone(), kind: "album".into(), source_id: "soulseek".into(),
+                title: folder_name.into(), subtitle: inferred_artist.clone(), url: None, artwork_url: None, track: None,
+                data: json!({"soulseekGroup": {"kind":"peerFolder","identity":identity,
+                    "peer":group.peer,"directory":group.directory,"folderName":folder_name,
+                    "inferredArtist":inferred_artist,"artistEvidence":inferred_artist.as_ref().map(|_|"filenameObservations.folderArtist"),
+                    "observedFileCount":group.files,"completeness":"unknown"}}),
+            });
+        }
+    }
+    if wants("artist") {
+        let mut artists =
+            std::collections::BTreeMap::<(String, String), Vec<&SoulseekFolderGroup>>::new();
+        for group in groups {
+            if group.artist_names.len() != 1 {
+                continue;
+            }
+            let name = group.artist_names.iter().next().unwrap();
+            artists
+                .entry((group.peer.clone(), name.clone()))
+                .or_default()
+                .push(group);
+        }
+        for ((peer, name), mut folders) in artists {
+            folders.sort_by(|left, right| left.directory.cmp(&right.directory));
+            let folder_rows = folders.iter().map(|group| {
+                json!({"identity":soulseek_group_identity("folder", &group.peer, &group.directory),
+                    "peer":group.peer,"directory":group.directory,
+                    "folderName":group.directory.rsplit(['/', '\\']).next().unwrap_or(&group.directory),
+                    "inferredArtist":name,"observedFileCount":group.files,"completeness":"unknown"})
+            }).collect::<Vec<_>>();
+            let identity = soulseek_group_identity("artist", &peer, &name);
+            results.push(DiscoveryResult {
+                id: identity.clone(),
+                kind: "artist".into(),
+                source_id: "soulseek".into(),
+                title: name.clone(),
+                subtitle: Some("Inferred from peer filename metadata".into()),
+                url: None,
+                artwork_url: None,
+                track: None,
+                data: json!({"soulseekArtistGroup":{"kind":"peerArtist","identity":identity,
+                    "peer":peer,"inferredName":name,"evidence":"filenameObservations.folderArtist",
+                    "folderCount":folder_rows.len(),"folders":folder_rows,
+                    "completeness":"unknown"}}),
+            });
+        }
+    }
+    results
+}
+
+fn slskd_page(
+    p: SlskdSearchPoll,
+    search_id: &str,
+    offset: usize,
+    kinds: &[String],
+) -> Result<DiscoveryPage, String> {
+    let groups = soulseek_folder_groups(&p.tracks);
+    let wants_files = kinds.is_empty()
+        || kinds
+            .iter()
+            .any(|kind| matches!(kind.as_str(), "track" | "file"));
+    let mut all_results = slskd_group_results(&groups, kinds);
+    if wants_files {
+        all_results.extend(
+            p.tracks
+                .into_iter()
+                .map(|track| track_result("soulseek", track)),
+        );
+    }
+    let total = all_results.len();
+    let results = all_results
+        .into_iter()
+        .skip(offset)
+        .take(MAX_PAGE)
+        .collect();
     let next_cursor = if !p.complete {
-        Some(search_id.to_owned())
+        Some(encode_slskd_discovery_cursor(&SlskdDiscoveryCursor {
+            search_id: search_id.into(),
+            offset: 0,
+            kinds: kinds.to_vec(),
+        })?)
     } else if offset.saturating_add(MAX_PAGE) < total {
-        Some(format!("{search_id}@{}", offset + MAX_PAGE))
+        Some(encode_slskd_discovery_cursor(&SlskdDiscoveryCursor {
+            search_id: search_id.into(),
+            offset: offset + MAX_PAGE,
+            kinds: kinds.to_vec(),
+        })?)
     } else {
         None
     };
-    DiscoveryPage {
+    Ok(DiscoveryPage {
         source_id: "soulseek".into(),
-        results: p
-            .tracks
-            .into_iter()
-            .skip(offset)
-            .take(MAX_PAGE)
-            .map(|t| track_result("soulseek", t))
-            .collect(),
+        results,
         next_cursor,
         complete: p.complete,
         progress: Some(format!("{} · {} results", p.state, total)),
         warnings: p.warnings,
-    }
+    })
 }
 
 fn note_monochrome_search_coverage(page: &mut DiscoveryPage, raw_count: usize, limit: usize) {
@@ -1822,6 +2043,7 @@ mod tests {
                 title: id.into(),
                 subtitle: None,
                 url: None,
+                artwork_url: None,
                 track: None,
                 data: Value::Null,
             })
@@ -1915,6 +2137,7 @@ mod tests {
                     title: format!("Buffered result {index}"),
                     subtitle: None,
                     url: None,
+                    artwork_url: None,
                     track: None,
                     data: Value::Null,
                 })
@@ -1944,6 +2167,7 @@ mod tests {
                     title: "One".into(),
                     subtitle: None,
                     url: None,
+                    artwork_url: None,
                     track: None,
                     data: Value::Null,
                 },
@@ -1954,6 +2178,7 @@ mod tests {
                     title: "Two".into(),
                     subtitle: None,
                     url: None,
+                    artwork_url: None,
                     track: None,
                     data: Value::Null,
                 },
@@ -2016,6 +2241,7 @@ mod tests {
             title: title.into(),
             subtitle: Some(artist.into()),
             url: None,
+            artwork_url: None,
             track: Some(Track {
                 title: title.into(),
                 artist: artist.into(),
@@ -2082,6 +2308,14 @@ mod tests {
                 .find(|source| source.id == "soulseek")
                 .unwrap()
                 .enabled
+        );
+        assert_eq!(
+            registry
+                .iter()
+                .find(|source| source.id == "soulseek")
+                .unwrap()
+                .kinds,
+            vec!["artist", "album", "track", "file"]
         );
     }
     #[test]
@@ -2192,6 +2426,30 @@ mod tests {
                 .is_none()
         );
     }
+
+    #[test]
+    fn spotify_artist_search_keeps_provider_artwork_on_discovery_rows() {
+        let raw = json!({"id":"aaaaaaaaaaaaaaaaaaaaaa","kind":"artist","title":"Fixture Artist",
+            "url":"https://open.spotify.com/artist/aaaaaaaaaaaaaaaaaaaaaa",
+            "artworkUrl":"https://i.scdn.co/image/fixture","data":{"genres":["jazz"]}});
+        let normalized =
+            crate::remote_playlists::normalize_catalog_item(&raw, "spotify", "artist").unwrap();
+        let mut page = DiscoveryPage {
+            source_id: "spotify".into(),
+            results: vec![],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        append_remote_catalog_results(&mut page, "spotify", &json!({"items":[normalized]}));
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(
+            page.results[0].artwork_url.as_deref(),
+            Some("https://i.scdn.co/image/fixture")
+        );
+    }
+
     #[test]
     fn capped_multi_kind_pages_buffer_every_result_before_advancing_provider_cursor() {
         let source = "spotify";
@@ -2207,6 +2465,7 @@ mod tests {
                     title: format!("Row {index}"),
                     subtitle: None,
                     url: None,
+                    artwork_url: None,
                     track: None,
                     data: Value::Null,
                 })
@@ -2602,14 +2861,33 @@ mod tests {
                 .collect(),
         }
     }
+    fn slskd_fixture_track(
+        id: &str,
+        peer: &str,
+        filename: &str,
+        folder_artist: Option<&str>,
+    ) -> Track {
+        Track {
+            id: id.into(),
+            provenance: json!({"identity":"unverified peer filename","audioCandidate":{
+                "id":id,"provider":"slskd","source":{"kind":"soulseek","username":peer,"filename":filename},
+                "sourceMetadata":{"filenameObservations":{"folderArtist":folder_artist}}
+            }}),
+            ..Track::default()
+        }
+    }
     #[test]
     fn empty_partial_search_keeps_poll_cursor_and_complete_results_page_without_gaps() {
-        let partial = slskd_page(poll(false, 0), "search", 0);
+        let kinds = vec!["track".to_owned()];
+        let partial = slskd_page(poll(false, 0), "search", 0, &kinds).unwrap();
         assert!(!partial.complete);
-        assert_eq!(partial.next_cursor.as_deref(), Some("search"));
-        let first = slskd_page(poll(true, 111), "search", 0);
-        let second = slskd_page(poll(true, 111), "search", 50);
-        let last = slskd_page(poll(true, 111), "search", 100);
+        let cursor =
+            decode_slskd_discovery_cursor(partial.next_cursor.as_deref().unwrap()).unwrap();
+        assert_eq!(cursor.search_id, "search");
+        assert_eq!(cursor.kinds, kinds);
+        let first = slskd_page(poll(true, 111), "search", 0, &kinds).unwrap();
+        let second = slskd_page(poll(true, 111), "search", 50, &kinds).unwrap();
+        let last = slskd_page(poll(true, 111), "search", 100, &kinds).unwrap();
         assert_eq!(
             (
                 first.results.len(),
@@ -2618,8 +2896,18 @@ mod tests {
             ),
             (50, 50, 11)
         );
-        assert_eq!(first.next_cursor.as_deref(), Some("search@50"));
-        assert_eq!(second.next_cursor.as_deref(), Some("search@100"));
+        assert_eq!(
+            decode_slskd_discovery_cursor(first.next_cursor.as_deref().unwrap())
+                .unwrap()
+                .offset,
+            50
+        );
+        assert_eq!(
+            decode_slskd_discovery_cursor(second.next_cursor.as_deref().unwrap())
+                .unwrap()
+                .offset,
+            100
+        );
         assert!(last.next_cursor.is_none());
         let ids = first
             .results
@@ -2629,5 +2917,88 @@ mod tests {
             .map(|row| row.id)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(ids.len(), 111);
+    }
+
+    #[test]
+    fn soulseek_search_exposes_inferred_peer_folder_album_and_artist_groups() {
+        let tracks = vec![
+            slskd_fixture_track(
+                "one",
+                "peer-a",
+                "Music/Artist/Album/01.flac",
+                Some("Artist"),
+            ),
+            slskd_fixture_track(
+                "two",
+                "peer-a",
+                "Music/Artist/Album/02.flac",
+                Some("Artist"),
+            ),
+            slskd_fixture_track(
+                "three",
+                "peer-b",
+                "Music/Artist/Album/01.flac",
+                Some("Artist"),
+            ),
+            slskd_fixture_track("unknown", "peer-a", "Loose/unknown.mp3", None),
+        ];
+        let groups = soulseek_folder_groups(&tracks);
+        let rows = slskd_group_results(&groups, &["album".into(), "artist".into()]);
+        let albums = rows
+            .iter()
+            .filter(|row| row.kind == "album")
+            .collect::<Vec<_>>();
+        let artists = rows
+            .iter()
+            .filter(|row| row.kind == "artist")
+            .collect::<Vec<_>>();
+        assert_eq!(albums.len(), 3);
+        assert_eq!(artists.len(), 2);
+        assert!(albums.iter().all(|row| row.track.is_none()));
+        let album = albums
+            .iter()
+            .find(|row| {
+                row.data["soulseekGroup"]["peer"] == "peer-a"
+                    && row.data["soulseekGroup"]["directory"] == "Music/Artist/Album"
+            })
+            .unwrap();
+        assert_eq!(album.data["soulseekGroup"]["observedFileCount"], 2);
+        assert_eq!(album.data["soulseekGroup"]["completeness"], "unknown");
+        assert_eq!(album.data["soulseekGroup"]["inferredArtist"], "Artist");
+        assert!(!artists.iter().any(|row| row.title == "unknown"));
+    }
+
+    #[test]
+    fn soulseek_discovery_cursor_preserves_requested_kinds_and_accepts_legacy_ids() {
+        let kinds = vec!["album".into(), "artist".into()];
+        let encoded = encode_slskd_discovery_cursor(&SlskdDiscoveryCursor {
+            search_id: "search-1".into(),
+            offset: 0,
+            kinds: kinds.clone(),
+        })
+        .unwrap();
+        let decoded = decode_slskd_discovery_cursor(&encoded).unwrap();
+        assert_eq!(decoded.kinds, kinds);
+        assert_eq!(decoded.search_id, "search-1");
+        assert!(decode_slskd_discovery_cursor("legacy-search").is_none());
+        assert_eq!(
+            "legacy-search@50"
+                .split_once('@')
+                .unwrap()
+                .1
+                .parse::<usize>()
+                .unwrap(),
+            50
+        );
+        let groups = soulseek_folder_groups(&[slskd_fixture_track(
+            "one",
+            "peer-a",
+            "Music/Artist/Album/01.flac",
+            Some("Artist"),
+        )]);
+        let rows = slskd_group_results(&groups, &kinds);
+        assert!(rows.iter().any(|row| row.kind == "album"));
+        assert!(rows.iter().any(|row| row.kind == "artist"));
+        assert!(!rows.iter().any(|row| row.kind == "track"));
     }
 }

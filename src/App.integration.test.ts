@@ -587,7 +587,7 @@ beforeEach(() => {
       };
       case "get_settings":
         if (holdStartupCalls) return new Promise(() => {});
-        return { musicDirectory: configuredMusicDirectory, preferredDownloadSource: configuredPreferredDownloadSource, preferredStreamingSource: configuredPreferredStreamingSource, overridePlaylistTrackUrls, streamingFallbackEnabled, streamingFallbackSources, downloadFallbackEnabled, downloadFallbackSources, pauseOnSourceOpen: configuredPauseOnSourceOpen, sourceOpenAtPosition: configuredSourceOpenAtPosition, autoPreview: false, previewDelayMs: 250, theme: "dark", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno" };
+        return { musicDirectory: configuredMusicDirectory, preferredDownloadSource: configuredPreferredDownloadSource, preferredStreamingSource: configuredPreferredStreamingSource, overridePlaylistTrackUrls, streamingFallbackEnabled, streamingFallbackSources, downloadFallbackEnabled, downloadFallbackSources, pauseOnSourceOpen: configuredPauseOnSourceOpen, sourceOpenAtPosition: configuredSourceOpenAtPosition, playbackDiagnosticsEnabled: false, autoPreview: false, previewDelayMs: 250, theme: "dark", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno" };
       case "get_sidebar_layout": return sidebarLayoutState;
       case "save_sidebar_layout": {
         sidebarLayoutState = args?.layout as typeof sidebarLayoutState;
@@ -1071,7 +1071,7 @@ describe("read-only WebView media inspection", () => {
     const entryId = playback.entryId ?? null;
     const response = await inspectWithRequest({ requestId: "webview-media:events", trackId: playback.trackId, sessionId: playback.sessionId, sourceGeneration: playback.sourceGeneration, seekSerial: playback.seekSerial, currentIndex: playback.currentIndex, queueTotal: (playback.queue as unknown[]).length, entryId, queueTrackId: playback.trackId });
     expect(response?.layout).toMatchObject({ trackId: savedTrack.id, sessionId: playback.sessionId, sourceGeneration: playback.sourceGeneration, entryId, seekSerial: playback.seekSerial });
-    expect(response?.layout.diagnostics).toMatchObject({ owner: { sessionId: playback.sessionId, sourceGeneration: playback.sourceGeneration, entryId, seekSerial: playback.seekSerial }, sourceFormat: { codec: "mp4a.40.2", mimeType: "audio/mp4", formatId: "140", hasVideo: false, expectedContentLength: 123456, streamKind: "direct" }, events: [{ type: "play" }, { type: "waiting", readyState: 2, currentTime: 12.5, buffered: [{ start: 12, end: 18 }] }, { type: "seeked" }] });
+    expect(response?.layout.diagnostics).toMatchObject({ owner: { sessionId: playback.sessionId, sourceGeneration: playback.sourceGeneration, entryId, seekSerial: playback.seekSerial }, sourceFormat: { codec: "aac", mimeType: "audio/mp4", formatId: "140", hasVideo: false, expectedContentLength: 123456, streamKind: "direct" }, events: [{ type: "play" }, { type: "waiting", readyState: 2, currentTime: 12.5, buffered: [{ start: 12, end: 18 }] }, { type: "seeked" }] });
     expect(JSON.stringify(response)).not.toContain("secret.invalid");
     expect(JSON.stringify(response)).not.toContain("never-return");
     sessionStorage.removeItem("burrata.webviewMediaEventDiagnostics");
@@ -4577,6 +4577,39 @@ describe("saved recording navigation", () => {
     expect(play).toHaveBeenCalledTimes(1);
     expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_preview")).toHaveLength(previewsBeforeSkip);
     expect(mocks.call.mock.calls.filter(([command]) => command === "find_candidates")).toHaveLength(searchesBeforeSkip);
+  });
+
+  it.each([
+    ["soundcloud", "https://soundcloud.com/thisisharvit/fred-again-b2b-thomas"],
+    ["youtube", "https://www.youtube.com/watch?v=linked-source"],
+  ])("resolves an explicit %s OpenUri directly without text search", async (provider, url) => {
+    previewMode = "direct";
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const completion = await automationAction("linked-source", "openUri", { mode: url });
+    expect(completion.error).toBeNull();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "search_audio_tracks")).toHaveLength(0);
+    expect(mocks.call).toHaveBeenCalledWith("resolve_preview", expect.objectContaining({
+      track: expect.objectContaining({ provider, providerId: "", sourceUrl: url, provenance: expect.objectContaining({ sourceKind: "audioSearch" }) }),
+    }));
+  });
+
+  it("opens lyrics fullscreen directly from the player microphone button", async () => {
+    previewMode = "direct";
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    (document.querySelector('[aria-label="Play Saved Recording"]') as HTMLButtonElement).click();await settle();
+    const microphone=document.querySelector<HTMLButtonElement>('[aria-label="Open fullscreen lyrics"]')!;
+    expect(microphone.disabled).toBe(false);microphone.click();await settle();
+    expect(document.body.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')).not.toBeNull();
+    expect(mocks.call).toHaveBeenCalledWith("get_current_track_lyrics", expect.any(Object));
+    document.body.querySelector<HTMLButtonElement>('[aria-label="Exit fullscreen lyrics"]')!.click();await settle();
+    expect(document.body.querySelector('[aria-label="Fullscreen lyrics"]')).toBeNull();
+    expect(document.activeElement).toBe(microphone);
   });
 
   it("rejects an unsupported MPRIS OpenUri without searching or importing it", async () => {

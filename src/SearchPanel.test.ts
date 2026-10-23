@@ -61,6 +61,54 @@ describe("SearchPanel", () => {
     expect(input.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("labels a Soulseek peer folder as unverified and uses the browsed exact tracks for batch actions", async () => {
+    const track = { id: "slsk-file-a", provider: "youtube", providerId: "candidate-a", sourceUrl: "https://youtube.test/watch?v=candidate-a", title: "Folder Song", artist: "Folder Artist", favorite: false, provenance: { audioCandidate: { id: "youtube:candidate-a", provider: "youtube", url: "https://youtube.test/watch?v=candidate-a" } } };
+    const onDownloadTracks = vi.fn();
+    apiCall.mockResolvedValue({ username: "peer-a", directory: "Folder", tracks: [track], candidates: [], complete: true });
+    const target = render({
+      initialSources: ["soulseek"],
+      availableSources: [{ id: "soulseek", name: "Soulseek", enabled: true, kinds: ["artist", "album", "track"] }],
+      searchSource: async () => ({ sourceId: "soulseek", complete: false, nextCursor: "more", results: [{
+        id: "soulseek:folder:abc", kind: "album", sourceId: "soulseek", title: "Folder",
+        data: { soulseekGroup: { kind: "peerFolder", identity: "folder-abc", peer: "peer-a", directory: "Folder", folderName: "Folder", inferredArtist: "Folder Artist", observedFileCount: 1, completeness: "unknown" } },
+      }] }),
+      onDownloadTracks,
+    });
+    const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    input.value = "Folder Artist"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    expect(target.textContent).toContain("Source-reported peer folder");
+    expect(target.textContent).toContain("unverified metadata");
+    expect(target.textContent).toContain("do not establish the complete folder listing");
+    target.querySelector<HTMLButtonElement>(".soulseek-browse")!.click(); await settle();
+    expect(apiCall).toHaveBeenCalledWith("browse_soulseek_directory", expect.objectContaining({ username: "peer-a", directory: "Folder", requestId: expect.any(String) }));
+    expect(target.textContent).toContain("Folder listing complete · 1 audio files");
+    expect(target.textContent).toContain("Folder Song");
+    target.querySelector<HTMLButtonElement>(".soulseek-download-folder")!.click(); await settle();
+    expect(onDownloadTracks).toHaveBeenCalledWith([track]);
+  });
+
+  it("shows observed Soulseek album folders under filename-derived artist groupings", async () => {
+    apiCall.mockResolvedValue({ username: "peer-b", directory: "Album B", tracks: [], candidates: [], complete: false });
+    const target = render({
+      initialSources: ["soulseek"],
+      availableSources: [{ id: "soulseek", name: "Soulseek", enabled: true, kinds: ["artist", "album"] }],
+      searchSource: async () => ({ sourceId: "soulseek", complete: false, results: [{
+        id: "soulseek:artist:abc", kind: "artist", sourceId: "soulseek", title: "Folder Artist",
+        data: { soulseekArtistGroup: { kind: "peerArtist", identity: "artist-abc", peer: "peer-b", inferredName: "Folder Artist", evidence: "filenameObservations.folderArtist", folderCount: 1, folderIdentities: ["folder-b"], folders: [{ kind: "peerFolder", identity: "folder-b", peer: "peer-b", directory: "Album B", folderName: "Album B", observedFileCount: 2, completeness: "unknown" }] } },
+      }] }),
+    });
+    const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    input.value = "Folder Artist"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    expect(target.textContent).toContain("Not a verified artist profile");
+    expect(target.textContent).toContain("Album B");
+    expect(target.textContent).toContain("2 observed search hits");
+    target.querySelector<HTMLButtonElement>(".soulseek-browse")!.click(); await settle();
+    expect(apiCall).toHaveBeenCalledWith("browse_soulseek_directory", expect.objectContaining({ username: "peer-b", directory: "Album B" }));
+    expect(target.textContent).toContain("Partial folder listing");
+  });
+
   it("records only completed user searches and restores query, scope, and kind from history", async () => {
     const searchSource = vi.fn(async ({ sourceIds }: { sourceIds: string[] }) => ({ sourceId: sourceIds[0], complete: true, results: [] }));
     const providers = [
@@ -120,6 +168,39 @@ describe("SearchPanel", () => {
     expect(target.textContent).toContain("youtube result");
     expect(target.textContent).toContain("soundcloud result");
     expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!).sourceIds).toEqual(["youtube", "soundcloud"]);
+  });
+
+  it("adds specifically selected online tracks from multiple sources to the queue", async () => {
+    const sourceTracks = {
+      monochrome: { id: "mono-select", provider: "monochrome", providerId: "m-1", sourceUrl: "https://monochrome.test/track/1", artist: "First Artist", title: "First Source Track", favorite: false, provenance: {} },
+      youtube: { id: "youtube-select", provider: "youtube", providerId: "y-1", sourceUrl: "https://youtube.test/watch?v=y-1", artist: "Second Artist", title: "Second Source Track", favorite: false, provenance: {} },
+    };
+    const searchSource = vi.fn(async ({ sourceIds }: { sourceIds: string[] }) => {
+      const sourceId = sourceIds[0]!;
+      const track = sourceTracks[sourceId as keyof typeof sourceTracks];
+      return { sourceId, complete: true, results: [{ id: track.id, kind: "track", sourceId, title: track.title, track }] };
+    });
+    const onQueueTracks = vi.fn();
+    const onPlaylistTracks = vi.fn();
+    const target = render({
+      initialSources: ["monochrome", "youtube"],
+      availableSources: [
+        { id: "monochrome", name: "Monochrome", enabled: true, kinds: ["track"] },
+        { id: "youtube", name: "YouTube", enabled: true, kinds: ["track"] },
+      ],
+      searchSource, onQueueTracks, onPlaylistTracks,
+    });
+    const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    input.value = "source mix"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    target.querySelector<HTMLButtonElement>(".start-search-selection")!.click(); await settle();
+    target.querySelector<HTMLInputElement>("[aria-label='Select First Source Track for playlist']")!.click();
+    target.querySelector<HTMLInputElement>("[aria-label='Select Second Source Track for playlist']")!.click(); await settle();
+    expect(target.querySelector<HTMLButtonElement>(".add-search-queue")?.textContent).toContain("Add to queue");
+    target.querySelector<HTMLButtonElement>(".add-search-queue")!.click(); await settle();
+    expect(onQueueTracks).toHaveBeenCalledWith([sourceTracks.monochrome, sourceTracks.youtube], "append");
+    target.querySelector<HTMLButtonElement>(".add-search-selected")!.click(); await settle();
+    expect(onPlaylistTracks).toHaveBeenCalledWith([sourceTracks.monochrome, sourceTracks.youtube]);
   });
 
   it("keeps artist source links on the profile instead of search results", async () => {
@@ -832,7 +913,7 @@ describe("SearchPanel", () => {
 
   it("shows each non-track title once inside its action target", async () => {
     const longName = "Bulgarian State Radio & Television Female Vocal Choir — Long credited name";
-    const artist = { id: "mb-artist", kind: "artist", sourceId: "musicbrainz", title: longName, subtitle: "Choir · Bulgaria", data: { artist: { provider: "musicbrainz", id: "mb-artist" } } };
+    const artist = { id: "mb-artist", kind: "artist", sourceId: "musicbrainz", title: longName, subtitle: "Choir · Bulgaria", artworkUrl: "https://commons.wikimedia.org/fixture.jpg", data: { artist: { provider: "musicbrainz", id: "mb-artist" } } };
     const album = { id: "mb-album", kind: "album", sourceId: "musicbrainz", title: "Folk Songs", subtitle: "Choir", data: { release: { provider: "musicbrainz", id: "mb-release" }, title: "Folk Songs", tracks: [], sourceUrl: "https://musicbrainz.org/release/mb-release", credits: [] } };
     const onArtist = vi.fn(); const onAlbum = vi.fn(); const onRemoteResult = vi.fn();
     const searchSource = vi.fn(async () => ({ sourceId: "musicbrainz", complete: true, results: [artist, album] }));
@@ -850,6 +931,7 @@ describe("SearchPanel", () => {
     expect(artistButton.textContent?.match(new RegExp(longName, "g"))).toHaveLength(1);
     expect(artistButton.getAttribute("aria-label")).toContain(longName);
     expect(rows[0]!.textContent).toContain("Choir · Bulgaria");
+    expect(rows[0]!.querySelector(".spotify-identity-art img")?.getAttribute("src")).toBe("https://commons.wikimedia.org/fixture.jpg");
     artistButton.click();
     expect(onArtist).toHaveBeenCalledWith({ provider: "musicbrainz", id: "mb-artist" });
 
@@ -857,6 +939,27 @@ describe("SearchPanel", () => {
     expect(albumButton.textContent?.match(/Folk Songs/g)).toHaveLength(1);
     albumButton.click();
     expect(onAlbum).toHaveBeenCalledWith(album.data);
+  });
+
+  it("loads MusicBrainz artist artwork once per MBID and ignores results from an old search scope", async () => {
+    const artist = { id: "mb-lazy-artist", kind: "artist", sourceId: "musicbrainz", title: "Lazy Artist", data: { artist: { provider: "musicbrainz", id: "mb-lazy-artist" } } };
+    let finishProfile!: (value: { imageUrl: string }) => void;
+    const loadArtistProfile = vi.fn(() => new Promise<{ imageUrl: string }>(resolve => { finishProfile = resolve; }));
+    const searchSource = vi.fn(async ({ query }: { query: string }) => ({ sourceId: "musicbrainz", complete: true, results: query === "first" ? [artist, { ...artist, id: "mb-lazy-artist-duplicate" }] : [] }));
+    const target = render({
+      initialSources: ["musicbrainz"],
+      availableSources: [{ id: "musicbrainz", name: "MusicBrainz", enabled: true, kinds: ["artist"] }],
+      searchSource, loadArtistProfile,
+    });
+    const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    input.value = "first"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    expect(loadArtistProfile).toHaveBeenCalledTimes(1);
+
+    input.value = "second"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    finishProfile({ imageUrl: "https://commons.wikimedia.org/stale.jpg" }); await settle();
+    expect(target.querySelector("img[src='https://commons.wikimedia.org/stale.jpg']")).toBeNull();
   });
 
   it("keeps playlist, profile, and channel titles as single direct action targets", async () => {

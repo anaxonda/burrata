@@ -124,6 +124,15 @@ export interface NativePlaybackSnapshot {
   radioNowPlaying?: { id: string; title: string; artist: string; stationName: string; metadata?: Record<string, unknown> | null } | null;
   radioHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];
 }
+export interface LiveBpmEstimate {
+  generation: number;
+  seekSerial: number;
+  trackId: string;
+  bpm: number;
+  confidence: number;
+  relatedTempoAlternativeBpm?: number | null;
+  windowSeconds: number;
+}
 export interface NativePlaybackFailure {
   trackId: string | null;
   provider?: string | null;
@@ -183,6 +192,7 @@ export interface Candidate {
 }
 export interface DownloadRequest {
   chapterIds?: string[] | null;
+  playlistContext?: PlaylistContext | null;
   track: Track;
   candidate: Candidate;
   formatId: string | null;
@@ -201,6 +211,8 @@ export interface DownloadJob {
     daemonState: string;
   } | null;
   chapterIds?: string[] | null;
+  downloadLayout?: DownloadLayout;
+  playlistContext?: PlaylistContext | null;
   id: string;
   track: Track;
   candidate: Candidate;
@@ -212,6 +224,11 @@ export interface DownloadJob {
   outputProfile: string;
   formatId?: string | null;
 }
+export type DownloadLayout = "flat" | "artistAlbum" | "playlist";
+export interface PlaylistContext {
+  id: string;
+  name: string;
+}
 export interface Collection {
   id: string;
   name: string;
@@ -221,7 +238,9 @@ export interface Settings {
   musicDirectory: string;
   autoPreview: boolean;
   playbackDiagnosticsEnabled?: boolean;
+  liveBpmEnabled?: boolean;
   matchingLevel?: "exact" | "balanced" | "flexible";
+  downloadLayout?: DownloadLayout;
   pauseOnSourceOpen?: boolean;
   sourceOpenAtPosition?: boolean;
   previewDelayMs: number;

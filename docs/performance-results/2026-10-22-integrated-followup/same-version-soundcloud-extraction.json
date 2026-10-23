@@ -1,0 +1,13 @@
+{
+  "helperVersion": "2026.10.10.233141",
+  "elapsedMs": 3127,
+  "returnCode": 0,
+  "scope": "same-version Linux extraction; no media playback or acoustic identity claim",
+  "providerIdMatches": true,
+  "protocol": "m3u8_native",
+  "codec": "mp4a.40.2",
+  "formatId": "hls_aac_160k",
+  "availability": null,
+  "duration": 177.645,
+  "streamHostClass": "soundcloud_cdn"
+}

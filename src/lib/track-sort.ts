@@ -27,7 +27,11 @@ export function compareTrackText(left: string, right: string): number {
 export function normalizeTrackText(value: string): string {
   return value.toLowerCase();
 }
+export function isTrackDownloaded(track: Track): boolean {
+  return track.localAvailability === "available" || (!track.localAvailability && Boolean(track.localPath));
+}
 export interface TrackFilter {
+  availability?: "all" | "downloaded" | "not-downloaded";
   query?: string;
   minDurationSeconds?: number;
   maxDurationSeconds?: number;
@@ -62,6 +66,8 @@ export function parseDurationBound(input: string | number | null | undefined): n
 export function filterTracks<T extends Track>(tracks: readonly T[], filter: TrackFilter): T[] {
   const query = filter.query ? normalizeTrackText(filter.query.trim()) : undefined;
   return tracks.filter((track) => {
+    if (filter.availability === "downloaded" && !isTrackDownloaded(track)) return false;
+    if (filter.availability === "not-downloaded" && isTrackDownloaded(track)) return false;
     if (query) {
       const haystack = [track.title, track.artist, track.album, track.version, track.genre]
         .filter((value): value is string => typeof value === "string")

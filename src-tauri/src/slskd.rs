@@ -21,6 +21,8 @@ pub(crate) use crate::recording_filename::verified_filename_observations;
 use crate::recording_filename::{audio_extension, filename_observations};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const MAX_DIRECTORY_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_DIRECTORY_FILES: usize = 10_000;
 
 #[derive(Debug, Clone)]
 pub struct SlskdClient {
@@ -92,6 +94,39 @@ pub struct RemoteFile {
     pub length: Option<f64>,
     #[serde(default)]
     pub attributes: Vec<RemoteAttribute>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteDirectory {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    file_count: Option<usize>,
+    #[serde(default)]
+    files: Vec<RemoteFile>,
+    #[serde(default)]
+    is_complete: Option<bool>,
+    #[serde(default)]
+    complete: Option<bool>,
+    #[serde(default)]
+    is_partial: Option<bool>,
+    #[serde(default)]
+    partial: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DirectoryContentsRequest<'a> {
+    directory: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectoryAudioCandidates {
+    pub candidates: Vec<crate::models::Candidate>,
+    /// True when the exact directory response was complete and all supported
+    /// audio rows fit within the local result cap.
+    pub complete: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -322,6 +357,46 @@ impl SlskdClient {
         decode_search_responses(value)
     }
 
+    /// Read audio candidates in one exact remote directory. The endpoint lists
+    /// that directory only; child directories remain separate browse targets.
+    pub async fn directory_audio_candidates(
+        &self,
+        username: &str,
+        directory: &str,
+    ) -> Result<DirectoryAudioCandidates, String> {
+        let username = validate_remote_username(username)?.to_owned();
+        let normalized_directory = validate_remote_directory(directory)?;
+        let encoded_username =
+            url::form_urlencoded::byte_serialize(username.as_bytes()).collect::<String>();
+        let response = self
+            .response(
+                self.client
+                    .post(self.endpoint(&format!("users/{encoded_username}/directory")))
+                    .json(&DirectoryContentsRequest {
+                        // The peer locator is opaque. Validation uses a
+                        // normalized copy, but the API request must preserve
+                        // the exact spelling supplied by the remote result.
+                        directory,
+                    }),
+            )
+            .await?;
+        let mut body = Vec::new();
+        let mut response = response;
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| "Could not read slskd directory listing".to_string())?
+        {
+            if body.len().saturating_add(chunk.len()) > MAX_DIRECTORY_RESPONSE_BYTES {
+                return Err("slskd directory listing exceeds the response size limit".into());
+            }
+            body.extend_from_slice(&chunk);
+        }
+        let value: Value = serde_json::from_slice(&body)
+            .map_err(|_| "Invalid slskd directory listing response".to_string())?;
+        directory_candidates_from_response(&username, &normalized_directory, value)
+    }
+
     pub async fn cancel_search(&self, id: &str) -> Result<(), String> {
         validate_guid(id)?;
         let _ = self
@@ -464,16 +539,175 @@ impl SlskdClient {
     }
 }
 
-#[derive(Debug, Clone)]
-struct ManagedSharePaths {
-    root: PathBuf,
-    compose: PathBuf,
-    config: PathBuf,
+fn validate_remote_username(username: &str) -> Result<&str, String> {
+    let username = username.trim();
+    if username.is_empty()
+        || username.len() > 128
+        || username
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '/' | '\\' | '\0'))
+    {
+        return Err("Invalid Soulseek peer username".into());
+    }
+    Ok(username)
 }
 
-static MANAGED_SHARE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+fn validate_remote_directory(directory: &str) -> Result<String, String> {
+    let directory = directory.trim().replace('\\', "/");
+    if directory.is_empty()
+        || directory.len() > 2_048
+        || crate::recording_filename::validate_remote_path(&directory).is_err()
+        || directory.split('/').any(|part| part == ".")
+    {
+        return Err("Invalid Soulseek remote directory".into());
+    }
+    Ok(directory)
+}
 
-fn managed_share_paths() -> Result<ManagedSharePaths, String> {
+fn directory_candidates_from_response(
+    username: &str,
+    requested_directory: &str,
+    value: Value,
+) -> Result<DirectoryAudioCandidates, String> {
+    let directory_rows = value
+        .as_array()
+        .or_else(|| value.get("directories").and_then(Value::as_array));
+    let (mut files, reported_count, source_directory, reported_complete) =
+        if let Some(rows) = directory_rows {
+            let requested = requested_directory.replace('\\', "/");
+            let requested_basename = requested.rsplit('/').next().unwrap_or(&requested);
+            let row = rows
+                .iter()
+                .filter_map(|row| serde_json::from_value::<RemoteDirectory>(row.clone()).ok())
+                .find(|row| {
+                    let name = row.name.replace('\\', "/").trim_end_matches('/').to_owned();
+                    name == requested || (rows.len() == 1 && name == requested_basename)
+                })
+                .ok_or("slskd did not return the requested remote directory")?;
+            let normalized_name = row.name.replace('\\', "/").trim_end_matches('/').to_owned();
+            let source_directory = if normalized_name != requested {
+                requested_directory.to_owned()
+            } else {
+                row.name.clone()
+            };
+            let reported_complete = directory_response_complete(&row);
+            (
+                row.files,
+                row.file_count,
+                source_directory,
+                reported_complete,
+            )
+        } else {
+            let row: RemoteDirectory = serde_json::from_value(value)
+                .map_err(|_| "Invalid slskd directory listing response".to_string())?;
+            let name = row.name.replace('\\', "/").trim_end_matches('/').to_owned();
+            let requested = requested_directory
+                .replace('\\', "/")
+                .trim_end_matches('/')
+                .to_owned();
+            if !name.is_empty() && name != requested {
+                return Err("slskd returned a different remote directory".into());
+            }
+            let source_directory = if row.name.is_empty() {
+                requested_directory.to_owned()
+            } else {
+                row.name.clone()
+            };
+            let reported_complete = directory_response_complete(&row);
+            (
+                row.files,
+                row.file_count,
+                source_directory,
+                reported_complete,
+            )
+        };
+
+    let mut complete = reported_count.is_none_or(|count| count == files.len())
+        && reported_complete.unwrap_or(true);
+    if files.len() > MAX_DIRECTORY_FILES {
+        files.truncate(MAX_DIRECTORY_FILES);
+        complete = false;
+    }
+    let requested_key = requested_directory.replace('\\', "/");
+    let source_directory = source_directory.trim_end_matches(['/', '\\']);
+    let mut direct_files = Vec::with_capacity(files.len().min(MAX_DIRECTORY_FILES));
+    for mut file in files {
+        let path = file.filename.replace('\\', "/");
+        let full_path = if !path.contains('/') {
+            let separator = if source_directory.contains('\\') {
+                '\\'
+            } else {
+                '/'
+            };
+            format!("{source_directory}{separator}{}", file.filename)
+        } else {
+            file.filename.clone()
+        };
+        if crate::recording_filename::validate_remote_path(&full_path).is_err()
+            || crate::recording_filename::remote_parent_directory_key(&full_path).as_deref()
+                != Some(requested_key.as_str())
+        {
+            continue;
+        }
+        file.filename = full_path;
+        direct_files.push(file);
+    }
+    let supported_audio_count = direct_files
+        .iter()
+        .filter(|file| {
+            crate::recording_filename::audio_extension(&file.filename).is_ok()
+                && file.size > 0
+                && file.size <= 2 * 1024 * 1024 * 1024
+        })
+        .count();
+    if supported_audio_count > 500 {
+        complete = false;
+    }
+    let response = SearchResponse {
+        username: username.to_owned(),
+        files: direct_files,
+        has_free_upload_slot: None,
+        queue_length: None,
+        upload_speed: None,
+    };
+    let mut candidates = candidates_from_responses(&[response], "");
+    for candidate in &mut candidates {
+        if let Some(crate::models::CandidateSource::Soulseek { search_id, .. }) =
+            candidate.source.as_mut()
+        {
+            *search_id = None;
+        }
+    }
+    Ok(DirectoryAudioCandidates {
+        candidates,
+        complete,
+    })
+}
+
+fn directory_response_complete(directory: &RemoteDirectory) -> Option<bool> {
+    let explicitly_partial = directory.is_partial == Some(true)
+        || directory.partial == Some(true)
+        || directory.is_complete == Some(false)
+        || directory.complete == Some(false);
+    if explicitly_partial {
+        Some(false)
+    } else if directory.is_complete == Some(true) || directory.complete == Some(true) {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedSharePaths {
+    pub(crate) root: PathBuf,
+    pub(crate) compose: PathBuf,
+    pub(crate) config: PathBuf,
+}
+
+pub(crate) static MANAGED_SHARE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+pub(crate) fn managed_share_paths() -> Result<ManagedSharePaths, String> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or("Managed slskd deployment directory is unavailable")?
@@ -867,7 +1101,7 @@ fn compose_mount_source(compose: &str, id: &str) -> Option<String> {
     Some(unquote_yaml_scalar(source))
 }
 
-fn apply_managed_share_texts(
+pub(crate) fn apply_managed_share_texts(
     paths: &ManagedSharePaths,
     old_config: &str,
     old_compose: &str,
@@ -897,20 +1131,29 @@ where
 {
     write_managed_file(&paths.compose, new_compose)?;
     if let Err(error) = write_managed_file(&paths.config, new_config) {
-        let _ = restore_managed_file(&paths.compose, old_compose);
-        return Err(error);
+        return Err(match restore_managed_file(&paths.compose, old_compose) {
+            Ok(()) => error,
+            Err(_) => format!("{error}; restoring the previous Compose file also failed; inspect the private settings backup before restarting the service"),
+        });
     }
     match apply_service() {
         Ok(()) => Ok(()),
         Err(error) => {
-            let _ = restore_managed_file(&paths.compose, old_compose);
-            let _ = restore_managed_file(&paths.config, old_config);
+            let compose_restored = restore_managed_file(&paths.compose, old_compose).is_ok();
+            let config_restored = restore_managed_file(&paths.config, old_config).is_ok();
+            if !compose_restored || !config_restored {
+                return Err(format!(
+                    "{error}; restoring the previous settings files failed; the service was not restarted again. Inspect the private settings backups before retrying"
+                ));
+            }
             if apply_service().is_ok() {
                 Err(format!(
                     "{error}; the prior settings and running service were restored"
                 ))
             } else {
-                Err(format!("{error}; the files were restored, but Docker Compose could not reapply the previous service configuration"))
+                Err(format!(
+                    "{error}; the files were restored, but Docker Compose could not reapply the previous service configuration"
+                ))
             }
         }
     }
@@ -1770,6 +2013,43 @@ mod tests {
         assert_eq!(std::fs::read_to_string(config_path).unwrap(), old_config);
     }
 
+    #[test]
+    fn managed_settings_do_not_claim_restoration_or_restart_after_file_restore_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_path_buf();
+        let compose = root.join("compose.yaml");
+        let config = root.join("slskd.yml");
+        std::fs::write(&compose, "old compose").unwrap();
+        std::fs::write(&config, "old config").unwrap();
+        let paths = ManagedSharePaths {
+            root,
+            compose: compose.clone(),
+            config: config.clone(),
+        };
+        let mut attempts = 0;
+        let error = apply_managed_share_texts_with(
+            &paths,
+            "old config",
+            "old compose",
+            "new config",
+            "new compose",
+            || {
+                attempts += 1;
+                std::fs::remove_file(&compose).unwrap();
+                Err("mock apply failure".into())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(attempts, 1);
+        assert!(error.contains("restoring the previous settings files failed"));
+        assert!(!error.contains("were restored"));
+        assert_eq!(std::fs::read_to_string(config).unwrap(), "old config");
+        assert_eq!(
+            std::fs::read_to_string(compose.with_extension("burrata-backup")).unwrap(),
+            "old compose"
+        );
+    }
+
     #[tokio::test]
     async fn shared_folder_list_and_rescan_use_documented_slskd_endpoints() {
         use axum::{routing::get, Json, Router};
@@ -1803,6 +2083,59 @@ mod tests {
         assert_eq!(shares[0].files, 23);
         client.rescan_shared_folders().await.unwrap();
         assert_eq!(scans.load(Ordering::SeqCst), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn directory_browse_posts_the_exact_opaque_peer_locator() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::{Arc, Mutex};
+        use tokio::net::TcpListener;
+
+        let observed = Arc::new(Mutex::new(None::<Value>));
+        let app = Router::new().route(
+            "/api/v0/users/peer/directory",
+            post({
+                let observed = observed.clone();
+                move |Json(body): Json<Value>| {
+                    let observed = observed.clone();
+                    async move {
+                        *observed.lock().unwrap() = Some(body);
+                        Json(serde_json::json!({
+                            "name":r"shared\L’Impératrice\Odyssée",
+                            "fileCount":1,
+                            "files":[{"filename":"01 - Agitations tropicales.flac","size":4096}]
+                        }))
+                    }
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client = SlskdClient::new(&format!("http://{address}"), "mock-api-key").unwrap();
+        let exact_locator = r"shared\L’Impératrice\Odyssée";
+        let listing = client
+            .directory_audio_candidates("peer", exact_locator)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            observed.lock().unwrap().as_ref().unwrap()["directory"],
+            exact_locator
+        );
+        assert_eq!(listing.candidates.len(), 1);
+        assert_eq!(
+            listing.candidates[0]
+                .source
+                .as_ref()
+                .and_then(|source| match source {
+                    crate::models::CandidateSource::Soulseek { filename, .. } => {
+                        Some(filename.as_str())
+                    }
+                }),
+            Some(r"shared\L’Impératrice\Odyssée\01 - Agitations tropicales.flac")
+        );
         server.abort();
     }
 
@@ -1981,6 +2314,129 @@ mod tests {
             decode_search_responses(serde_json::json!({"responses":[{"response":response}]}))
                 .unwrap();
         assert_eq!(wrapped[0].files[0].size, 12);
+    }
+
+    #[test]
+    fn directory_listing_keeps_exact_peer_path_and_marks_capped_results() {
+        let listing = directory_candidates_from_response(
+            "peer-account",
+            "Music/Artist/Album",
+            serde_json::json!([{
+                "name": "Music\\Artist\\Album",
+                "fileCount": 2,
+                "files": [
+                    {"filename":"01 - Song.flac","size":4000,"bitRate":900,"length":180},
+                    {"filename":"cover.jpg","size":1000}
+                ]
+            }]),
+        )
+        .unwrap();
+        assert!(listing.complete);
+        assert_eq!(listing.candidates.len(), 1);
+        assert_eq!(listing.candidates[0].provider, "slskd");
+        assert_eq!(
+            listing.candidates[0]
+                .source
+                .as_ref()
+                .and_then(|source| match source {
+                    crate::models::CandidateSource::Soulseek {
+                        filename,
+                        search_id,
+                        ..
+                    } => {
+                        assert!(search_id.is_none());
+                        Some(filename.as_str())
+                    }
+                }),
+            Some(r"Music\Artist\Album\01 - Song.flac")
+        );
+        assert_eq!(
+            listing.candidates[0].uploader.as_deref(),
+            Some("peer-account")
+        );
+
+        let partial = directory_candidates_from_response(
+            "peer-account",
+            "Music/Artist/Album",
+            serde_json::json!({
+                "name":"Music/Artist/Album",
+                "fileCount":2,
+                "files":[{"filename":"01 - Song.flac","size":4000}]
+            }),
+        )
+        .unwrap();
+        assert!(!partial.complete);
+
+        let flagged_partial = directory_candidates_from_response(
+            "peer-account",
+            "Music/Artist/Album",
+            serde_json::json!({
+                "name":r"Music\Artist\Album",
+                "fileCount":1,
+                "files":[{"filename":"01 - Song.flac","size":4000}],
+                "isComplete":true,
+                "partial":true
+            }),
+        )
+        .unwrap();
+        assert!(!flagged_partial.complete);
+        assert_eq!(flagged_partial.candidates.len(), 1);
+    }
+
+    #[test]
+    fn directory_listing_rejects_path_traversal_and_wrong_directory() {
+        assert!(validate_remote_username("peer/account").is_err());
+        assert!(validate_remote_directory("Music/../private").is_err());
+        assert!(directory_candidates_from_response(
+            "peer-account",
+            "Music/Artist/Album",
+            serde_json::json!([{"name":"Music/Other/Album","files":[]}]),
+        )
+        .is_err());
+        assert!(directory_candidates_from_response(
+            "peer-account",
+            "Music/Artist/Album",
+            serde_json::json!({
+                "name":"Music/Other/Album",
+                "files":[]
+            }),
+        )
+        .is_err());
+
+        let slash_variant = directory_candidates_from_response(
+            "peer-account",
+            "Music/Artist/Album",
+            serde_json::json!({
+                "name":r"Music\Artist\Album",
+                "files":[{"filename":"01 - Song.flac","size":4000}]
+            }),
+        )
+        .unwrap();
+        assert_eq!(slash_variant.candidates.len(), 1);
+    }
+
+    #[test]
+    fn directory_listing_caps_audio_candidates_and_marks_incomplete() {
+        let files = (0..501)
+            .map(|index| {
+                serde_json::json!({
+                    "filename":format!("Track {index:03}.flac"),
+                    "size":4000
+                })
+            })
+            .collect::<Vec<_>>();
+        let listing = directory_candidates_from_response(
+            "peer-account",
+            "Music/Artist/Album",
+            serde_json::json!({
+                "name":"Music/Artist/Album",
+                "fileCount":501,
+                "files":files
+            }),
+        )
+        .unwrap();
+        assert_eq!(listing.candidates.len(), 500);
+        assert!(!listing.complete);
     }
 
     #[test]
@@ -2337,6 +2793,8 @@ mod tests {
             format_id: None,
             chapter_ids: None,
             soulseek: None,
+            download_layout: Default::default(),
+            playlist_context: None,
         };
         store.save_job(&job).unwrap();
         drop(store);

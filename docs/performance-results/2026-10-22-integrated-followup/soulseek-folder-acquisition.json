@@ -1,0 +1,67 @@
+{
+  "scope": "Six explicitly selected files from one complete Soulseek peer folder; no acoustic identity claim",
+  "files": [
+    {
+      "jobId": "ec1f6f36-72ea-4003-b697-38b1abe256ae",
+      "state": "completed",
+      "assetCount": 1,
+      "hashMatches": true,
+      "codec": "flac",
+      "sampleRate": "44100",
+      "duration": 172.257256,
+      "fullDecode": true
+    },
+    {
+      "jobId": "9262ce9f-a08d-4110-adbf-c260899c576c",
+      "state": "completed",
+      "assetCount": 1,
+      "hashMatches": true,
+      "codec": "flac",
+      "sampleRate": "44100",
+      "duration": 196.874989,
+      "fullDecode": true
+    },
+    {
+      "jobId": "bb90cd08-d5a4-4b11-81aa-cabda6af42df",
+      "state": "completed",
+      "assetCount": 1,
+      "hashMatches": true,
+      "codec": "flac",
+      "sampleRate": "44100",
+      "duration": 217.993537,
+      "fullDecode": true
+    },
+    {
+      "jobId": "3aa239a9-f501-4733-892d-f1dca425b0a5",
+      "state": "completed",
+      "assetCount": 1,
+      "hashMatches": true,
+      "codec": "flac",
+      "sampleRate": "44100",
+      "duration": 73.124989,
+      "fullDecode": true
+    },
+    {
+      "jobId": "3bc87fb7-5bb6-4a71-8648-74b5bceceb7b",
+      "state": "completed",
+      "assetCount": 1,
+      "hashMatches": true,
+      "codec": "flac",
+      "sampleRate": "44100",
+      "duration": 179.002653,
+      "fullDecode": true
+    },
+    {
+      "jobId": "0be646a0-6561-4fbc-a8ee-dd3314c211fd",
+      "state": "completed",
+      "assetCount": 1,
+      "hashMatches": true,
+      "codec": "flac",
+      "sampleRate": "44100",
+      "duration": 198.971814,
+      "fullDecode": true
+    }
+  ],
+  "sourceTagsPreserved": false,
+  "followup": "Original staged files contain title/artist/album/track tags; publication stripped these. Preservation fix implemented after this runtime; subsequent qualification required."
+}

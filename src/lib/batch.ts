@@ -44,6 +44,48 @@ export function isExplicitUnresolvedAudioSearchSource(
   return true;
 }
 
+/**
+ * A folder-download click explicitly selects the exact Soulseek locator already
+ * embedded in each browsed folder row. Preserve that manual source choice when
+ * performer identity is unknown, while requiring matching title/runtime and
+ * rejecting every hard contradiction. This does not authorize a different
+ * candidate or make filename metadata verified identity.
+ */
+export function isExplicitSoulseekFolderSource(
+  track: Track,
+  candidate: Candidate,
+  assessment: BatchMatchAssessment,
+): boolean {
+  const provenance = track.provenance && typeof track.provenance === "object"
+    ? track.provenance as Record<string, unknown> : {};
+  if (provenance.sourceKind !== "soulseekFolder") return false;
+  if (track.provider !== "slskd" || candidate.provider !== "slskd" ||
+      track.id !== candidate.id || candidate.id !== `slskd:${track.providerId}`) return false;
+  if (candidate.permission === "restricted") return false;
+  const selected = provenance.audioCandidate;
+  if (!selected || typeof selected !== "object") return false;
+  const linked = selected as Candidate;
+  const source = candidate.source;
+  const linkedSource = linked.source;
+  const validSource = (value: typeof source): value is NonNullable<typeof source> =>
+    Boolean(value && value.kind === "soulseek" &&
+      typeof value.username === "string" && value.username.trim() &&
+      typeof value.filename === "string" && value.filename.trim() &&
+      Number.isSafeInteger(value.size_bytes) && value.size_bytes > 0);
+  if (candidate.permission === "restricted" || linked.permission === "restricted" ||
+      !validSource(source) || !validSource(linkedSource) ||
+      linked.provider !== "slskd" || linked.id !== candidate.id || linked.url !== candidate.url ||
+      linkedSource.username !== source.username || linkedSource.filename !== source.filename ||
+      linkedSource.size_bytes !== source.size_bytes) return false;
+
+  if (assessment.action === "reject" || assessment.dimensions?.title !== "agree" ||
+      assessment.dimensions?.runtime !== "agree") return false;
+  if (Object.values(assessment.dimensions ?? {}).some(value => value === "conflict")) return false;
+  if (assessment.evidence?.identifierConflict || assessment.evidence?.conflictingVersionObservations ||
+      assessment.evidence?.parsingIncomplete || (assessment.evidence?.unresolvedAnnotations?.length ?? 0) > 0) return false;
+  return true;
+}
+
 /** Resolve one track through an ordered set of sources without opening a chooser. */
 export async function resolveBatchSource(
   providers: string[],

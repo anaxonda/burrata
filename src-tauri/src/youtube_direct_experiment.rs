@@ -477,7 +477,7 @@ impl DirectExperiment {
                 match parsed {
                     Ok(found) => visitor = Some(found),
                     Err(error) if matches!(error.code, "CANCELLED" | "TIMEOUT") => {
-                        return Err(error)
+                        return Err(error);
                     }
                     Err(error) => {
                         visitor_failure = fail("VISITOR_CONTEXT_UNAVAILABLE", source.stage());
@@ -1017,7 +1017,10 @@ mod tests {
             json!({"endpoint":spec.endpoint,"headers":spec.headers,"body":spec.body}),
             golden["expected"]
         );
-        let visitor: Value = serde_json::from_str(include_str!("../../scripts/performance/innertube/fixtures/visionos-01-anonymous-visitor-source.json")).unwrap();
+        let visitor: Value = serde_json::from_str(include_str!(
+            "../../scripts/performance/innertube/fixtures/visionos-01-anonymous-visitor-source.json"
+        ))
+        .unwrap();
         let req: Request = serde_json::from_value(visitor["request"].clone()).unwrap();
         for (i, source) in [VisitorSource::ServiceWorker, VisitorSource::Homepage]
             .into_iter()

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-managed-slskd-download-settings"
+description = "Enables the save_managed_slskd_download_settings command without any pre-configured scope."
+commands.allow = ["save_managed_slskd_download_settings"]
+
+[[permission]]
+identifier = "deny-save-managed-slskd-download-settings"
+description = "Denies the save_managed_slskd_download_settings command without any pre-configured scope."
+commands.deny = ["save_managed_slskd_download_settings"]

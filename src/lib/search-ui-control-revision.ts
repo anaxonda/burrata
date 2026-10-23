@@ -11,12 +11,13 @@ export type SearchUiOccurrenceIdentity = {
 export function searchUiControlFingerprint(input: {
   text: string; submitted: string; mode: string; source: string; kind: string;
   sort: string; direction: string; minimumDuration: string; maximumDuration: string;
+  downloadAvailability?: "all" | "downloaded" | "not-downloaded";
   generation: number; collectionRequest: number; continueSearch: boolean;
   occurrences: SearchUiOccurrenceIdentity[];
 }): string {
   return JSON.stringify([
     input.text, input.submitted, input.mode, input.source, input.kind,
-    input.sort, input.direction, input.minimumDuration, input.maximumDuration,
+    input.sort, input.direction, input.minimumDuration, input.maximumDuration, input.downloadAvailability ?? "all",
     input.generation, input.collectionRequest, input.continueSearch,
     input.occurrences.map(({ sourceId, rowId, rowKind, track }) => [
       sourceId, rowId, rowKind, track.id, track.provider, track.providerId,

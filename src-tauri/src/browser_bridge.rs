@@ -1677,22 +1677,22 @@ fn validate_provider_operation(
     match operation {
         "search" if !object.contains_key("query") => return Err("Search query is required".into()),
         "getPlaylist" if !object.contains_key("playlistId") => {
-            return Err("Playlist ID is required".into())
+            return Err("Playlist ID is required".into());
         }
         operation
             if matches!(operation, "addTracks" | "removeTracks" | "moveTracks")
                 && !object.contains_key("playlistId") =>
         {
-            return Err("Playlist ID is required".into())
+            return Err("Playlist ID is required".into());
         }
         "addTracks" if !object.contains_key("trackUris") => {
-            return Err("Track URIs are required".into())
+            return Err("Track URIs are required".into());
         }
         operation
             if matches!(operation, "removeTracks" | "moveTracks")
                 && !object.contains_key("entryIds") =>
         {
-            return Err("Entry IDs are required".into())
+            return Err("Entry IDs are required".into());
         }
         _ => {}
     }

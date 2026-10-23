@@ -1,0 +1,17 @@
+{
+  "scope": "Linux isolated profile; native output; raw public SoundCloud URI with initially empty provider ID",
+  "sourceUrl": "https://soundcloud.com/thisisharvit/fred-again-b2b-thomas",
+  "resolvedCandidateId": "soundcloud:2288840855",
+  "durationSeconds": 7125.315,
+  "status": "playing",
+  "positionAfterSeek": 3650.758820861678,
+  "seekTargetSeconds": 3600,
+  "seekFirstAudioMs": 1720,
+  "startupFirstAudioMs": 4797,
+  "decoderKind": "ffmpeg",
+  "failure": null,
+  "limitations": [
+    "Current upload duration is 118:45; historical media equivalence is not established.",
+    "Does not establish physical macOS or remote-network behavior."
+  ]
+}

@@ -14,10 +14,13 @@ type WebviewMediaEvent = {
   readyState: number | null;
   networkState: number | null;
   paused: boolean | null;
+  mediaErrorCode?: number;
   currentTime: number | null;
   buffered: BufferedRange[];
 };
+export type WebviewDiagnosticHistoryEvent = WebviewMediaEvent & { attempt: number };
 type MediaSample = Pick<HTMLMediaElement, "readyState" | "networkState" | "paused" | "currentTime"> & {
+  error?: Pick<MediaError, "code"> | null;
   buffered?: Pick<TimeRanges, "length" | "start" | "end"> | null;
 };
 const MEDIA_EVENTS = new Set<WebviewMediaEventType>([
@@ -26,6 +29,7 @@ const MEDIA_EVENTS = new Set<WebviewMediaEventType>([
 ]);
 const MAX_EVENTS = 64;
 const MAX_RANGES = 8;
+const MAX_ATTEMPT = 1_000_000;
 
 function finiteNonnegative(value: number) {
   return Number.isFinite(value) && value >= 0 ? value : null;
@@ -46,17 +50,27 @@ export function createWebviewMediaEventRecorder({
   capacity = MAX_EVENTS,
 }: { enabled?: boolean; now?: () => number; capacity?: number } = {}) {
   const limit = Number.isInteger(capacity) ? Math.max(1, Math.min(MAX_EVENTS, capacity)) : MAX_EVENTS;
+  let active = Boolean(enabled);
   let currentKey: string | null = null;
   let currentOwner: WebviewMediaEventOwner | null = null;
   let events: WebviewMediaEvent[] = [];
+  let attempt = 0;
+  let history: WebviewDiagnosticHistoryEvent[] = [];
 
   return {
-    enabled: Boolean(enabled),
+    get enabled() { return active; },
+    setEnabled(value: boolean) { active = Boolean(value); },
+    beginAttempt() {
+      attempt = Math.min(MAX_ATTEMPT, attempt + 1);
+      currentKey = null; currentOwner = null; events = [];
+      return attempt;
+    },
     record(owner: WebviewMediaEventOwner, type: WebviewMediaEventType | string, media: MediaSample) {
-      if (!enabled || !owner || !MEDIA_EVENTS.has(type as WebviewMediaEventType) || !media) return;
+      if (!active || !owner || !MEDIA_EVENTS.has(type as WebviewMediaEventType) || !media) return;
       const eventType = type as WebviewMediaEventType;
       const key = ownerKey(owner);
       if (key !== currentKey) {
+        if (attempt === 0) attempt = 1;
         currentKey = key;
         currentOwner = {
           sessionId: typeof owner.sessionId === 'string' ? owner.sessionId.slice(0, 128) : null,
@@ -77,7 +91,7 @@ export function createWebviewMediaEventRecorder({
         }
       } catch { /* A detached media element can invalidate TimeRanges during sampling. */ }
       const timestamp = now();
-      events.push({
+      const event: WebviewMediaEvent = {
         atMs: Number.isFinite(timestamp) && timestamp >= 0 ? timestamp : null,
         type: eventType,
         readyState: Number.isInteger(media.readyState) && media.readyState >= 0 && media.readyState <= 4 ? media.readyState : null,
@@ -85,11 +99,15 @@ export function createWebviewMediaEventRecorder({
         paused: typeof media.paused === 'boolean' ? media.paused : null,
         currentTime: finiteNonnegative(media.currentTime),
         buffered,
-      });
+      };
+      if (Number.isInteger(media.error?.code) && media.error!.code >= 1 && media.error!.code <= 4) event.mediaErrorCode = media.error!.code;
+      events.push(event);
+      history.push({...event, attempt});
       if (events.length > limit) events.splice(0, events.length - limit);
+      if (history.length > MAX_EVENTS) history.splice(0, history.length - MAX_EVENTS);
     },
     snapshot(owner: WebviewMediaEventOwner) {
-      if (!enabled || !owner) return null;
+      if (!active || !owner) return null;
       if (ownerKey(owner) !== currentKey) {
         currentKey = null;
         currentOwner = null;
@@ -98,10 +116,19 @@ export function createWebviewMediaEventRecorder({
       }
       return { owner: currentOwner!, events: events.map(event => ({ ...event, buffered: event.buffered.map(range => ({ ...range })) })) };
     },
+    snapshotLatest() {
+      if (!currentKey) return null;
+      return events.map(event => ({ ...event, buffered: event.buffered.map(range => ({ ...range })) }));
+    },
+    snapshotHistory() {
+      return history.map(event => ({...event, buffered:event.buffered.map(range=>({...range}))}));
+    },
     reset() {
       currentKey = null;
       currentOwner = null;
       events = [];
+      attempt = 0;
+      history = [];
     },
   };
 }

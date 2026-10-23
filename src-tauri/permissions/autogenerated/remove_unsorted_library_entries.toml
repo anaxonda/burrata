@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-unsorted-library-entries"
+description = "Enables the remove_unsorted_library_entries command without any pre-configured scope."
+commands.allow = ["remove_unsorted_library_entries"]
+
+[[permission]]
+identifier = "deny-remove-unsorted-library-entries"
+description = "Denies the remove_unsorted_library_entries command without any pre-configured scope."
+commands.deny = ["remove_unsorted_library_entries"]

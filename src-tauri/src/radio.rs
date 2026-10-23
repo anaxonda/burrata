@@ -21,9 +21,10 @@ mod radio_metadata;
 pub use radio_metadata::{
     get_station_details, identify_radio_station, poll_radio_station,
     recognize_captured_sample_cancellable, recognize_captured_sample_uncached,
-    recognize_played_sample, recognize_played_sample_with_capture,
-    recognize_played_samples_progressively, recognize_played_samples_progressively_manual,
-    reconcile_played_radio_metadata, record_played_radio_identification, RadioStationDetails,
+    recognize_captured_sample_with_offset_cancellable, recognize_played_sample,
+    recognize_played_sample_with_capture, recognize_played_samples_progressively,
+    recognize_played_samples_progressively_manual, reconcile_played_radio_metadata,
+    record_played_radio_identification, RadioStationDetails, SongRecRecognition,
 };
 
 pub(crate) use radio_metadata::safe_recognition_artwork_url;
@@ -1786,13 +1787,13 @@ mod tests {
         let mpr = search_radio_stations("MPR".into(), None, None, Some(50))
             .await
             .unwrap();
-        assert!(mpr.iter().any(
-            |station| station.name.to_lowercase().contains("the current")
+        assert!(mpr.iter().any(|station| {
+            station.name.to_lowercase().contains("the current")
                 || station
                     .name
                     .to_lowercase()
                     .contains("minnesota public radio")
-        ));
+        }));
         let north = search_radio_stations("The North 103.3".into(), None, None, Some(10))
             .await
             .unwrap();
@@ -1936,13 +1937,28 @@ mod secure_radio_transport_tests {
                     let request = String::from_utf8_lossy(&bytes[..size]);
                     let path = request.split_whitespace().nth(1).unwrap_or_default();
                     let response = match path {
-                        "/redirect" => "HTTP/1.1 302 Found\r\nLocation: /audio?mount=one\r\nContent-Length: 0\r\n\r\n",
-                        "/loop" => "HTTP/1.1 302 Found\r\nLocation: /loop\r\nContent-Length: 0\r\n\r\n",
-                        "/private" => "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1/private\r\nContent-Length: 0\r\n\r\n",
-                        "/credentials" => "HTTP/1.1 302 Found\r\nLocation: http://user:secret@radio-fixture.test/audio\r\nContent-Length: 0\r\n\r\n",
-                        "/bad" => "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n",
-                        "/slow" => { tokio::time::sleep(Duration::from_secs(2)).await; "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n\r\n" },
-                        _ => "HTTP/1.1 200 OK\r\nContent-Type: audio/aac\r\nTransfer-Encoding: chunked\r\n\r\n",
+                        "/redirect" => {
+                            "HTTP/1.1 302 Found\r\nLocation: /audio?mount=one\r\nContent-Length: 0\r\n\r\n"
+                        }
+                        "/loop" => {
+                            "HTTP/1.1 302 Found\r\nLocation: /loop\r\nContent-Length: 0\r\n\r\n"
+                        }
+                        "/private" => {
+                            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1/private\r\nContent-Length: 0\r\n\r\n"
+                        }
+                        "/credentials" => {
+                            "HTTP/1.1 302 Found\r\nLocation: http://user:secret@radio-fixture.test/audio\r\nContent-Length: 0\r\n\r\n"
+                        }
+                        "/bad" => {
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 0\r\n\r\n"
+                        }
+                        "/slow" => {
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n\r\n"
+                        }
+                        _ => {
+                            "HTTP/1.1 200 OK\r\nContent-Type: audio/aac\r\nTransfer-Encoding: chunked\r\n\r\n"
+                        }
                     };
                     let _ = stream.write_all(response.as_bytes()).await;
                     // Never complete a live body: resolving transport must only inspect headers.

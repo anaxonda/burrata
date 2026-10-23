@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "9";
+pub(crate) const EVALUATOR_VERSION: &str = "10";
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -332,6 +332,77 @@ fn caption_base_without_features(raw: &str) -> String {
     remaining.trim().to_owned()
 }
 
+/// Interpret the less common `Title - Artist, Guest` filename ordering only
+/// for a Soulseek filename caption whose left side is the exact requested
+/// base title and whose right side names every requested performer. This is
+/// request-scoped uploader-caption evidence; extra names remain open-world and
+/// never establish complete credits.
+fn title_first_filename_caption(track: &Track, raw: &str) -> Option<(String, Vec<String>)> {
+    let (raw_title, raw_credits) = raw.split_once(" - ")?;
+    if raw_title.trim().is_empty()
+        || raw_credits.trim().is_empty()
+        || raw.len() > 2048
+        || raw_credits.len() > 1536
+    {
+        return None;
+    }
+
+    let requested = parse_title(&track.title);
+    // A filename cannot establish a requested or candidate edition. Leave any
+    // semantic annotation for the ordinary evaluator to inspect or reject.
+    if requested.version.is_some()
+        || track
+            .version
+            .as_deref()
+            .is_some_and(|version| !version.trim().is_empty())
+    {
+        return None;
+    }
+    let title = parse_recording_text(raw_title.trim());
+    let parsed_credits = parse_recording_text(raw_credits.trim());
+    if title.parsing_incomplete
+        || !title.annotations.is_empty()
+        || parsed_credits.parsing_incomplete
+        || !parsed_credits.annotations.is_empty()
+        || title_key(&title.base_title) != title_key(&requested.title)
+    {
+        return None;
+    }
+
+    let requested_guests = requested
+        .featured_credit
+        .into_iter()
+        .chain(guest_from_title(&track.title))
+        .collect::<Vec<_>>();
+    let required = requested_credit_parts_for_track(track, &track.artist, &requested_guests);
+    if required.is_empty() || required.len() > 16 {
+        return None;
+    }
+
+    let raw_parts = split_credits(raw_credits.trim());
+    if raw_parts.is_empty() || raw_parts.len() > 32 || raw_parts.iter().any(|part| part.len() > 256)
+    {
+        return None;
+    }
+    // Expand a compound caption credit only when its components independently
+    // cover requested credits; otherwise preserve it as one open-world credit.
+    let mut credits = expanded_credits(&raw_parts, &required);
+    let mut seen = std::collections::HashSet::new();
+    credits.retain(|credit| seen.insert(norm_artist(credit)));
+    let actual = credits
+        .iter()
+        .map(|credit| norm_artist(credit))
+        .collect::<Vec<_>>();
+    if required
+        .iter()
+        .map(|credit| norm_artist(credit))
+        .any(|credit| credit.is_empty() || !actual.contains(&credit))
+    {
+        return None;
+    }
+    Some((title.base_title, credits))
+}
+
 fn guest_from_title(raw: &str) -> Vec<String> {
     let raw = strip_caption_presentation(raw);
     let parsed = parse_recording_text(raw);
@@ -439,6 +510,41 @@ fn features_match(expected: &[String], actual: &[String]) -> Comparison {
         Comparison::Conflict
     }
 }
+
+/// Detect one-to-one accent-folded performer coverage without changing the
+/// canonical artist key used anywhere else in matching. Callers must apply
+/// the strict recording/title/runtime guards before using this as evidence.
+fn accent_folded_covers_requested_credits(expected: &[String], actual: &[String]) -> bool {
+    if expected.is_empty() || actual.is_empty() {
+        return false;
+    }
+    let mut expected_seen = std::collections::HashSet::new();
+    let mut matched_actual = std::collections::HashSet::new();
+    let mut used_accent_variant = false;
+    for requested in expected {
+        let requested_key = norm_artist(requested);
+        let folded_key = crate::recording_identity::search_fold(requested);
+        if requested_key.is_empty() || folded_key.is_empty() {
+            return false;
+        }
+        if !expected_seen.insert(requested_key.clone()) {
+            continue;
+        }
+        let matches = actual
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| {
+                crate::recording_identity::search_fold(candidate) == folded_key
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 || !matched_actual.insert(matches[0].0) {
+            return false;
+        }
+        used_accent_variant |= norm_artist(matches[0].1) != requested_key;
+    }
+    used_accent_variant
+}
+
 fn provider_version(meta: &Value) -> Option<String> {
     meta["version"]
         .as_str()
@@ -1334,6 +1440,7 @@ struct ComparisonFacts {
     parsing_incomplete: bool,
     unverified_credit_hint: bool,
     filename_observations_used: bool,
+    accent_folded_performer_match: bool,
     missing_performers: Vec<String>,
     extra_performers: Vec<String>,
     scoped_artist_credit_set_alias: Option<ScopedArtistCreditSetAliasEvidence>,
@@ -1365,6 +1472,8 @@ pub struct ComparedEvidence {
     pub identifier_conflict: bool,
     pub complete_performer_credits: bool,
     pub requested_performer_credits_complete: bool,
+    #[serde(default)]
+    pub accent_folded_performer_match: bool,
     pub scoped_artist_name_alias: Option<ScopedArtistNameAliasEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoped_artist_credit_set_alias: Option<ScopedArtistCreditSetAliasEvidence>,
@@ -1590,6 +1699,32 @@ fn prepare_observations(
             ),
             parsed: parse_text(&observations.normalized_title),
         });
+        if let Some((title, credits)) =
+            title_first_filename_caption(track, &observations.normalized_title)
+        {
+            actual.texts.push(TextObservation {
+                origin: origin(
+                    "sourceMetadata.filenameObservations.titleFirstTitle",
+                    &candidate_group,
+                    EvidenceAuthority::UploaderCaption,
+                ),
+                parsed: parse_text(&title),
+            });
+            for credit in credits {
+                let key = norm_artist(&credit);
+                actual.performers.push(PerformerObservation {
+                    origin: origin(
+                        "sourceMetadata.filenameObservations.titleFirstCredit",
+                        &candidate_group,
+                        EvidenceAuthority::UploaderCaption,
+                    ),
+                    name: credit,
+                    normalized_key: (!key.is_empty()).then_some(key),
+                    role: "performer".into(),
+                    complete: false,
+                });
+            }
+        }
         if let Some(artist) = &observations.folder_artist {
             let key = norm_artist(artist);
             actual.performers.push(PerformerObservation {
@@ -1764,6 +1899,7 @@ pub fn compare_prepared(input: &PreparedMatchInput) -> ComparedEvidence {
             || facts.catalog_id_conflict,
         complete_performer_credits: facts.credits_complete && !facts.names.is_empty(),
         requested_performer_credits_complete: facts.request_credits_complete,
+        accent_folded_performer_match: facts.accent_folded_performer_match,
         scoped_artist_name_alias: None,
         scoped_artist_credit_set_alias: facts.scoped_artist_credit_set_alias.clone(),
         parsing_incomplete: input
@@ -1818,6 +1954,9 @@ fn build_comparison(
         })
         .unwrap_or(&candidate.title);
     let wanted_title = base_title(&request_title.title);
+    let title_first_caption = filename_observations.as_ref().and_then(|observations| {
+        title_first_filename_caption(track, &observations.normalized_title)
+    });
     let known_label = track.label.as_deref().or(meta["label"].as_str());
     let contextual_title = contextual_game_level_title(track, raw_candidate).or_else(|| {
         if canonical_catalog.is_none() {
@@ -1827,13 +1966,15 @@ fn build_comparison(
         }
     });
     let contextual_game_title = contextual_title.is_some();
-    let candidate_title = contextual_title.unwrap_or_else(|| {
-        if canonical_catalog.is_some() {
-            bound_catalog_title(raw_candidate, &wanted_title, meta, known_label)
-        } else {
-            caption_track_title(raw_candidate, &wanted_title, caption_title, known_label)
-        }
-    });
+    let candidate_title = contextual_title
+        .or_else(|| title_first_caption.as_ref().map(|(title, _)| title.clone()))
+        .unwrap_or_else(|| {
+            if canonical_catalog.is_some() {
+                bound_catalog_title(raw_candidate, &wanted_title, meta, known_label)
+            } else {
+                caption_track_title(raw_candidate, &wanted_title, caption_title, known_label)
+            }
+        });
     let requested_version = track
         .version
         .as_deref()
@@ -1949,6 +2090,9 @@ fn build_comparison(
     let mut caption_full_credits = filename_observations.is_none()
         && !caption_names.is_empty()
         && request_credit_parts.len() > 1;
+    if let Some((_, credits)) = &title_first_caption {
+        caption_names.extend(credits.iter().cloned());
+    }
     if let Some(folder_artist) = filename_observations
         .as_ref()
         .and_then(|observations| observations.folder_artist.as_ref())
@@ -2042,8 +2186,8 @@ fn build_comparison(
             )
         }
     };
-    let artists = artist_comparison(MatchLevel::Balanced, false);
-    let artists_flexible = artist_comparison(MatchLevel::Flexible, true);
+    let mut artists = artist_comparison(MatchLevel::Balanced, false);
+    let mut artists_flexible = artist_comparison(MatchLevel::Flexible, true);
     let artists_exact = if structured_credits_complete {
         artist_comparison(MatchLevel::Exact, false)
     } else {
@@ -2086,6 +2230,21 @@ fn build_comparison(
             _ => Comparison::Unknown,
         }
     };
+    // Accent folding is normally search-only. Permit it as comparison-only
+    // performer coverage when exact title, runtime, and ISRC independently
+    // bind the candidate to this recording. This does not change canonical
+    // names, aliases, or Exact-mode decisions, and it cannot override a
+    // closed-world request's additional-credit conflict or edition mismatch.
+    let accent_folded_performer_match = title == Comparison::Agree
+        && runtime == Comparison::Agree
+        && isrc == Comparison::Agree
+        && version != Comparison::Conflict
+        && !request_credits_complete
+        && accent_folded_covers_requested_credits(&request_credit_parts, &names);
+    if accent_folded_performer_match {
+        artists = Comparison::Agree;
+        artists_flexible = Comparison::Agree;
+    }
     let work_ids = [meta["workId"].as_str(), meta["work_id"].as_str()]
         .into_iter()
         .flatten()
@@ -2207,6 +2366,7 @@ fn build_comparison(
         conflicting_candidate_versions,
         request_identifier_conflict: request_identity.identifier_conflict,
         filename_observations_used: filename_observations.is_some(),
+        accent_folded_performer_match,
         parsing_incomplete: request_evidence
             .texts
             .iter()
@@ -2652,6 +2812,80 @@ pub fn assess(
     assess_prepared(&prepare(track, candidate), level, stage)
 }
 
+/// Require a recognized result to agree with the currently playing catalog
+/// recording before its point offset can drive lyric timing. The recognition
+/// fields remain source observations; this function only returns an eligibility
+/// decision and never copies request metadata into them.
+pub(crate) fn recognition_matches_timing_identity(
+    store: &crate::Store,
+    requested: &Track,
+    observed_title: &str,
+    observed_artist: &str,
+) -> bool {
+    if observed_title.trim().is_empty()
+        || observed_title.len() > 512
+        || observed_artist.trim().is_empty()
+        || observed_artist.len() > 512
+    {
+        return false;
+    }
+
+    let observed = Candidate {
+        id: "songrec:current-recognition".into(),
+        provider: "songrec".into(),
+        title: observed_title.to_owned(),
+        source_metadata: Some(serde_json::json!({
+            "sourceMetadataOrigin": "songrecRecognition",
+            "track": observed_title,
+            "artist": observed_artist,
+        })),
+        ..Candidate::default()
+    };
+
+    let requested_title = parse_title(&requested.title);
+    let recognized_title = parse_title(observed_title);
+    if crate::matching::normalize_title_ignoring_intraword_apostrophes(&requested_title.title)
+        != crate::matching::normalize_title_ignoring_intraword_apostrophes(&recognized_title.title)
+    {
+        return false;
+    }
+
+    let requested_artist = crate::matching::normalize_single_artist_name(&requested.artist);
+    let recognized_artist = crate::matching::normalize_single_artist_name(observed_artist);
+    let comparison_track = if requested_artist == recognized_artist {
+        requested.clone()
+    } else {
+        // This is a read of already-cached MusicBrainz profiles only. The
+        // helper requires one unique profile to contain both exact names.
+        let Some(alias) =
+            crate::recording_match_aliases::scoped_name_alias(store, requested, &observed)
+        else {
+            return false;
+        };
+        alias
+    };
+
+    let assessment = assess(
+        &comparison_track,
+        &observed,
+        MatchLevel::Balanced,
+        MatchStage::Resolved,
+    );
+    let any_version = !semantic_version(
+        &requested.title,
+        requested.version.as_deref().unwrap_or_default(),
+    )
+    .is_empty()
+        || !semantic_version(observed_title, "").is_empty();
+    assessment.dimensions.title == Comparison::Agree
+        && assessment.dimensions.artists == Comparison::Agree
+        && if any_version {
+            assessment.dimensions.version == Comparison::Agree
+        } else {
+            assessment.dimensions.version != Comparison::Conflict
+        }
+}
+
 /// Assess against an exact-recording-bound release rendering. This changes
 /// comparison facts only; evidence retains the original request metadata.
 pub(crate) fn assess_with_primary_credit_override(
@@ -2798,6 +3032,94 @@ mod tests {
             ),
             ..Candidate::default()
         }
+    }
+
+    #[test]
+    fn songrec_timing_identity_requires_title_artist_and_version_agreement() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::Store::open(&directory.path().join("timing-identity.sqlite")).unwrap();
+        let track = Track {
+            artist: "Original Artist".into(),
+            title: "Song Name".into(),
+            duration_seconds: Some(210.0),
+            ..Track::default()
+        };
+        assert!(recognition_matches_timing_identity(
+            &store,
+            &track,
+            "Song Name",
+            "Original Artist"
+        ));
+        assert!(!recognition_matches_timing_identity(
+            &store,
+            &track,
+            "Different Song",
+            "Original Artist"
+        ));
+        assert!(!recognition_matches_timing_identity(
+            &store,
+            &track,
+            "Song Name",
+            "Cover Artist"
+        ));
+        assert!(!recognition_matches_timing_identity(
+            &store,
+            &track,
+            "Song Name (Extended Remix)",
+            "Original Artist"
+        ));
+
+        let versioned_track = Track {
+            version: Some("Radio Edit".into()),
+            ..track.clone()
+        };
+        assert!(!recognition_matches_timing_identity(
+            &store,
+            &versioned_track,
+            "Song Name",
+            "Original Artist"
+        ));
+        assert!(recognition_matches_timing_identity(
+            &store,
+            &versioned_track,
+            "Song Name (Radio Edit)",
+            "Original Artist"
+        ));
+    }
+
+    #[test]
+    fn songrec_timing_artist_alias_requires_unique_cached_musicbrainz_profile() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::Store::open(&directory.path().join("timing-alias.sqlite")).unwrap();
+        let track = Track {
+            artist: "Stage Name".into(),
+            title: "Song Name".into(),
+            ..Track::default()
+        };
+
+        assert!(!recognition_matches_timing_identity(
+            &store,
+            &track,
+            "Song Name",
+            "Verified Alias"
+        ));
+        store
+            .set_retained_provider_cache(
+                "artists.profile.musicbrainz",
+                "80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                &json!({
+                    "id":"80fb9c75-af15-4a6b-9528-715f9ef4ebea",
+                    "name":"Stage Name",
+                    "aliases":[{"name":"Verified Alias","type":"Artist name"}],
+                }),
+            )
+            .unwrap();
+        assert!(recognition_matches_timing_identity(
+            &store,
+            &track,
+            "Song Name",
+            "Verified Alias"
+        ));
     }
 
     fn soulseek_candidate(filename: &str) -> Candidate {
@@ -2993,6 +3315,193 @@ mod tests {
             .iter()
             .any(|observation| observation.origin.field.contains("filenameObservations")));
     }
+
+    #[test]
+    fn soulseek_title_first_caption_is_weak_exact_title_and_open_credit_evidence() {
+        let request = Track {
+            artist: "Lamomali & Yamê".into(),
+            title: "Totem".into(),
+            duration_seconds: Some(179.582),
+            isrc: Some("FR11Y2500030".into()),
+            provenance: json!({
+                "artistCredits":[
+                    {"name":"Lamomali","role":"artist credit"},
+                    {"name":"Yamê","role":"artist credit"}
+                ],
+                "manualFields":{}
+            }),
+            ..Track::default()
+        };
+        let filename = "Music/Lamomali/Lamomali Totem/1-57. Totem - Lamomali, -M-, Yamê, Fatoumata Diawara, Toumani Diabaté, Balla Diabaté.flac";
+        let mut candidate = soulseek_candidate(filename);
+        candidate.duration_seconds = Some(179.5);
+
+        let prepared = prepare(&request, &candidate);
+        let title_evidence = prepared
+            .candidate_evidence()
+            .texts
+            .iter()
+            .find(|observation| {
+                observation.origin.field == "sourceMetadata.filenameObservations.titleFirstTitle"
+            })
+            .expect("exact left-side title is retained as its own weak observation");
+        assert_eq!(title_evidence.parsed.base_title, "Totem");
+        assert_eq!(
+            title_evidence.origin.authority,
+            EvidenceAuthority::UploaderCaption
+        );
+        let title_first_credits = prepared
+            .candidate_evidence()
+            .performers
+            .iter()
+            .filter(|observation| {
+                observation.origin.field == "sourceMetadata.filenameObservations.titleFirstCredit"
+            })
+            .collect::<Vec<_>>();
+        assert!(title_first_credits.len() >= 5);
+        assert!(title_first_credits.iter().all(|credit| {
+            credit.origin.authority == EvidenceAuthority::UploaderCaption && !credit.complete
+        }));
+
+        let balanced = assess(
+            &request,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+        );
+        assert_eq!(balanced.dimensions.title, Comparison::Agree);
+        assert_eq!(balanced.dimensions.artists, Comparison::Agree);
+        assert_eq!(balanced.dimensions.runtime, Comparison::Agree);
+        assert_eq!(balanced.relationship, MatchRelationship::Probable);
+        assert_eq!(balanced.action, MatchAction::Accept);
+        assert!(balanced.reasons.contains(&MatchReason::FilenameCaptionOnly));
+        let evidence = balanced.evidence.unwrap();
+        assert_eq!(evidence.proof_strength, ProofStrength::MetadataOnly);
+        assert!(!evidence.complete_performer_credits);
+        assert!(!evidence.requested_performer_credits_complete);
+        assert!(!evidence.extra_performers.is_empty());
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept,
+            "filename captions cannot prove the complete recording credit set"
+        );
+        let flexible = assess(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(flexible.dimensions.title, Comparison::Agree);
+        assert_eq!(flexible.dimensions.artists, Comparison::Agree);
+        assert_eq!(flexible.dimensions.runtime, Comparison::Agree);
+        assert_eq!(flexible.relationship, MatchRelationship::Probable);
+        assert_eq!(flexible.action, MatchAction::Accept);
+        let flexible_evidence = flexible.evidence.unwrap();
+        assert_eq!(
+            flexible_evidence.proof_strength,
+            ProofStrength::MetadataOnly
+        );
+        assert!(!flexible_evidence.complete_performer_credits);
+        assert!(!flexible_evidence.requested_performer_credits_complete);
+
+        let wrong_title = soulseek_candidate(
+            "Music/Lamomali/Lamomali Totem/1-57. Other Song - Lamomali, Yamê.flac",
+        );
+        assert_ne!(
+            assess(
+                &request,
+                &wrong_title,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept,
+            "artist text cannot override a different left-side title"
+        );
+
+        let missing_requested_credit = soulseek_candidate(
+            "Music/Lamomali/Lamomali Totem/1-57. Totem - Lamomali, Fatoumata Diawara.flac",
+        );
+        assert_ne!(
+            assess(
+                &request,
+                &missing_requested_credit,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept,
+            "a title-first caption must account for every requested performer"
+        );
+
+        let conflicting_edition = soulseek_candidate(
+            "Music/Lamomali/Lamomali Totem/1-57. Totem (Live) - Lamomali, Yamê.flac",
+        );
+        assert_ne!(
+            assess(
+                &request,
+                &conflicting_edition,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept,
+            "the title-first parser cannot peel an edition annotation"
+        );
+    }
+
+    #[test]
+    fn browsed_soulseek_folder_row_keeps_raw_caption_assessable_for_explicit_selection() {
+        // browse_soulseek_directory returns an artistless row whose title is
+        // the verified normalized filename caption. The actual source locator
+        // remains attached as audioCandidate and is later checked by the
+        // explicit-folder selector; this assessment must preserve title and
+        // runtime agreement without inventing canonical performer credits.
+        let filename = "Music/Lamomali/Lamomali Totem/1-57. Totem - Lamomali, -M-, Yamê, Fatoumata Diawara, Toumani Diabaté, Balla Diabaté.flac";
+        let mut candidate = soulseek_candidate(filename);
+        candidate.duration_seconds = Some(179.5);
+        let normalized_title = candidate.source_metadata.as_ref().unwrap()["filenameObservations"]
+            ["normalizedTitle"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let browsed_row = Track {
+            id: candidate.id.clone(),
+            provider: "slskd".into(),
+            provider_id: "fixture".into(),
+            artist: String::new(),
+            title: normalized_title,
+            duration_seconds: candidate.duration_seconds,
+            provenance: json!({
+                "sourceKind":"soulseekFolder",
+                "audioCandidate":candidate,
+                "identity":"unverified peer filename"
+            }),
+            ..Track::default()
+        };
+
+        let assessment = assess(
+            &browsed_row,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+        );
+        assert_eq!(assessment.dimensions.title, Comparison::Agree);
+        assert_eq!(assessment.dimensions.runtime, Comparison::Agree);
+        assert_eq!(assessment.dimensions.artists, Comparison::Unknown);
+        assert_ne!(assessment.action, MatchAction::Reject);
+        assert_ne!(assessment.action, MatchAction::Accept);
+        assert_eq!(browsed_row.provider, "slskd");
+        assert_eq!(browsed_row.id, candidate.id);
+        assert_eq!(browsed_row.provenance["sourceKind"], "soulseekFolder");
+    }
+
     #[test]
     fn all_three_levels_serialize_and_assess() {
         for l in [
@@ -3438,6 +3947,185 @@ mod tests {
         );
         assert_eq!(assessment.action, MatchAction::Enrich);
     }
+
+    #[test]
+    fn exact_recording_evidence_allows_only_comparison_level_accent_credit_variant() {
+        let mut request = Track {
+            artist: "Lamomali feat. Seu Jorge, Angélique Kidjo & Ibrahim Maalouf".into(),
+            title: "Le peuple qui danse".into(),
+            duration_seconds: Some(247.944),
+            isrc: Some("FR11Y2500100".into()),
+            provenance: json!({"artistCredits":[
+                {"name":"Lamomali","role":"artist"},
+                {"name":"Seu Jorge","role":"artist"},
+                {"name":"Angélique Kidjo","role":"artist"},
+                {"name":"Ibrahim Maalouf","role":"artist"}
+            ]}),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "monochrome".into(),
+            id: "monochrome:176810682602233856".into(),
+            title: "Lamomali, -M-, Seu Jorge, Ibrahim Maalouf, Angelique Kidjo, Fatoumata Diawara, Toumani Diabaté, Balla Diabaté - Le peuple qui danse".into(),
+            duration_seconds: Some(247.943),
+            source_metadata: Some(json!({
+                "provider":"monochrome",
+                "trackId":"176810682602233856",
+                "catalogTitle":"Le peuple qui danse",
+                "artistNames":["Lamomali","-M-","Seu Jorge","Ibrahim Maalouf","Angelique Kidjo","Fatoumata Diawara","Toumani Diabaté","Balla Diabaté"],
+                "artistCount":8,
+                "duration":247.943,
+                "isrc":"FR11Y2500100"
+            })),
+            ..Candidate::default()
+        };
+        let le_peuple_request = request.clone();
+
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let assessment = assess(&request, &candidate, level, MatchStage::Resolved);
+            assert_eq!(assessment.dimensions.title, Comparison::Agree);
+            assert_eq!(assessment.dimensions.runtime, Comparison::Agree);
+            assert_eq!(assessment.dimensions.isrc, Comparison::Agree);
+            assert_eq!(assessment.dimensions.artists, Comparison::Agree);
+            assert_eq!(assessment.action, MatchAction::Accept);
+            let evidence = assessment.evidence.as_ref().unwrap();
+            assert!(evidence
+                .extra_performers
+                .iter()
+                .any(|credit| credit == "angelique kidjo"));
+            assert!(evidence
+                .extra_performers
+                .iter()
+                .any(|credit| credit == "fatoumata diawara"));
+            assert!(
+                assessment
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .accent_folded_performer_match
+            );
+        }
+        let exact = assess(
+            &request,
+            &candidate,
+            MatchLevel::Exact,
+            MatchStage::Resolved,
+        );
+        assert_ne!(exact.action, MatchAction::Accept);
+
+        // A different performer is not made equivalent by the accent fallback.
+        request.artist = "Lamomali feat. Patrick Wilson".into();
+        request.provenance = json!({"artistCredits":[
+            {"name":"Lamomali","role":"artist"},
+            {"name":"Patrick Wilson","role":"artist"}
+        ]});
+        request.title = "Secret Garden".into();
+        request.isrc = Some("FR11Y2500120".into());
+        request.duration_seconds = Some(251.68);
+        let wrong_performer = Candidate {
+            provider: "monochrome".into(),
+            id: "monochrome:secret-garden".into(),
+            title: "Lamomali - Secret Garden".into(),
+            duration_seconds: Some(251.68),
+            source_metadata: Some(json!({
+                "provider":"monochrome","trackId":"secret-garden",
+                "catalogTitle":"Secret Garden","artistNames":["Lamomali","Patrick Watson"],
+                "artistCount":2,"duration":251.68,"isrc":"FR11Y2500120"
+            })),
+            ..Candidate::default()
+        };
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let assessment = assess(&request, &wrong_performer, level, MatchStage::Resolved);
+            assert_eq!(assessment.dimensions.artists, Comparison::Conflict);
+            assert_ne!(assessment.action, MatchAction::Accept);
+            assert!(
+                !assessment
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .accent_folded_performer_match
+            );
+        }
+
+        // Without the exact identifier, a similar accent spelling is not
+        // enough to resolve otherwise plausible performer credits.
+        let mut unbound = candidate.clone();
+        unbound.source_metadata.as_mut().unwrap()["isrc"] = json!("USZZZ2600001");
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let assessment = assess(&le_peuple_request, &unbound, level, MatchStage::Resolved);
+            assert_eq!(assessment.dimensions.artists, Comparison::Conflict);
+            assert_eq!(assessment.dimensions.isrc, Comparison::Conflict);
+            assert_ne!(assessment.action, MatchAction::Accept);
+            assert!(
+                !assessment
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .accent_folded_performer_match
+            );
+        }
+
+        // Multiple candidate credits with one folded key are ambiguous and
+        // cannot satisfy a missing exact spelling through the fallback.
+        let ambiguous_request = Track {
+            artist: "José Álvarez".into(),
+            title: "El Canto".into(),
+            duration_seconds: Some(181.0),
+            isrc: Some("FR11Y2500100".into()),
+            ..Track::default()
+        };
+        let ambiguous_candidate = Candidate {
+            provider: "monochrome".into(),
+            id: "monochrome:ambiguous-accent-credits".into(),
+            title: "José Álvarez - El Canto".into(),
+            duration_seconds: Some(181.0),
+            source_metadata: Some(json!({
+                "provider":"monochrome","trackId":"ambiguous-accent-credits",
+                "catalogTitle":"El Canto","artistNames":["Jose Alvarez","José Alvarez"],
+                "artistCount":2,"duration":181.0,"isrc":"FR11Y2500100"
+            })),
+            ..Candidate::default()
+        };
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let assessment = assess(
+                &ambiguous_request,
+                &ambiguous_candidate,
+                level,
+                MatchStage::Resolved,
+            );
+            assert_eq!(assessment.dimensions.artists, Comparison::Conflict);
+            assert!(
+                !assessment
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .accent_folded_performer_match
+            );
+        }
+
+        // Exact identifiers cannot suppress an explicit edition conflict.
+        let mut remix = candidate.clone();
+        remix.title = "Lamomali - Le peuple qui danse (Remix)".into();
+        remix.source_metadata.as_mut().unwrap()["catalogTitle"] =
+            json!("Le peuple qui danse (Remix)");
+        remix.source_metadata.as_mut().unwrap()["version"] = json!("Remix");
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let requested_original = Track {
+                version: Some("Original".into()),
+                ..le_peuple_request.clone()
+            };
+            let assessment = assess(&requested_original, &remix, level, MatchStage::Resolved);
+            assert_eq!(assessment.dimensions.version, Comparison::Conflict);
+            assert_ne!(assessment.action, MatchAction::Accept);
+            assert!(
+                !assessment
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .accent_folded_performer_match
+            );
+        }
+    }
     #[test]
     fn exact_isrc_can_resolve_matching_base_title_with_unclassified_gloss() {
         let mut candidate = Candidate {
@@ -3818,7 +4506,9 @@ mod complete_caption_credit_tests {
     #[test]
     fn explicit_feature_and_collaboration_punctuation_is_equivalent_without_alias_guessing() {
         for join in [" & ", " and ", " x ", " X ", " × ", ", "] {
-            let text=format!("Nipsey Hussle{join}Bino Rideaux – Vibe With Me [featuring Leon Thomas] [Official Audio]");
+            let text = format!(
+                "Nipsey Hussle{join}Bino Rideaux – Vibe With Me [featuring Leon Thomas] [Official Audio]"
+            );
             assert_eq!(
                 assess(
                     &requested(),
@@ -3870,17 +4560,41 @@ mod complete_caption_credit_tests {
             "Nipsey Hussle & Bino Rideaux & Another Artist - Vibe With Me (feat. Leon Thomas) (Official Audio)",
             "Nipsey Hussle Tribute & Bino Rideaux - Vibe With Me (feat. Leon Thomas) (Official Audio)",
         ] {
-            assert_ne!(assess(&requested(),&caption(text),MatchLevel::Balanced,MatchStage::Resolved).action,MatchAction::Accept,"{text}");
+            assert_ne!(
+                assess(
+                    &requested(),
+                    &caption(text),
+                    MatchLevel::Balanced,
+                    MatchStage::Resolved
+                )
+                .action,
+                MatchAction::Accept,
+                "{text}"
+            );
         }
     }
     #[test]
     fn presentation_stripping_does_not_hide_semantic_version_conflicts() {
         for version in ["Live", "Instrumental", "Remix", "432Hz"] {
             for text in [
-                format!("Nipsey Hussle x Bino Rideaux - Vibe With Me (feat. Leon Thomas) ({version}) (Official Audio)"),
-                format!("Nipsey Hussle x Bino Rideaux - Vibe With Me ({version}) (feat. Leon Thomas) (Official Audio)"),
+                format!(
+                    "Nipsey Hussle x Bino Rideaux - Vibe With Me (feat. Leon Thomas) ({version}) (Official Audio)"
+                ),
+                format!(
+                    "Nipsey Hussle x Bino Rideaux - Vibe With Me ({version}) (feat. Leon Thomas) (Official Audio)"
+                ),
             ] {
-                assert_ne!(assess(&requested(),&caption(&text),MatchLevel::Balanced,MatchStage::Resolved).action,MatchAction::Accept,"{text}");
+                assert_ne!(
+                    assess(
+                        &requested(),
+                        &caption(&text),
+                        MatchLevel::Balanced,
+                        MatchStage::Resolved
+                    )
+                    .action,
+                    MatchAction::Accept,
+                    "{text}"
+                );
             }
         }
     }

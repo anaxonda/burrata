@@ -198,7 +198,9 @@ fn build_ytdl_raw_options(provider_args: &[std::ffi::OsString]) -> Result<String
             "--js-runtimes" => "js-runtimes",
             "--extractor-args" => "extractor-args",
             _ => {
-                return Err("Managed YouTube provider returned an unsupported yt-dlp option".into())
+                return Err(
+                    "Managed YouTube provider returned an unsupported yt-dlp option".into(),
+                );
             }
         };
         let value = provider_args

@@ -1,0 +1,47 @@
+{
+  "binarySha256": "5251c97a102b14909ad025491cc6e2a8e817b16a3a9af74bffbd74a98612e025",
+  "jobId": "c70f39d6-dd16-4336-8c82-0bbfbc67ba6b",
+  "state": "completed",
+  "assetBoundToJobTrack": true,
+  "hashMatches": true,
+  "codec": "flac",
+  "sampleRate": "44100",
+  "duration": 1746.883628,
+  "fullDecode": true,
+  "trackMetadata": {
+    "title": "Le Départ",
+    "artist": "L’Impératrice",
+    "album": "Odyssée",
+    "albumArtist": "L’Impératrice",
+    "trackNumber": 1,
+    "trackTotal": 6,
+    "discNumber": 1,
+    "discTotal": 1
+  },
+  "fileTags": {
+    "title": "Le Départ",
+    "artist": "L’Impératrice",
+    "album": "Odyssée",
+    "album_artist": "L’Impératrice",
+    "track": "1",
+    "tracktotal": "6"
+  },
+  "sourceProvenance": {
+    "fields": [
+      "title",
+      "artist",
+      "album",
+      "albumArtist",
+      "genre",
+      "label",
+      "releaseDate",
+      "trackNumber",
+      "trackTotal",
+      "discNumber",
+      "discTotal"
+    ],
+    "identity": "unverified source file tags"
+  },
+  "identity": "Source-reported metadata; not independently recognized or catalog-verified",
+  "limitation": "Peer file is 1746.88 seconds and carries first-track tags. Literal tag preservation is verified; recording identity and album splitting are not."
+}

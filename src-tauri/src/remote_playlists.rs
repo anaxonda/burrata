@@ -6220,6 +6220,7 @@ fn normalize_catalog_data(data: Option<&Value>, kind: &str, provider: &str) -> R
             "durationSeconds",
             "url",
             "artworkUrl",
+            "images",
             "isrc",
             "available",
             "explicit",
@@ -6251,6 +6252,7 @@ fn normalize_catalog_data(data: Option<&Value>, kind: &str, provider: &str) -> R
             "releaseDate",
             "url",
             "artworkUrl",
+            "images",
         ],
         "playlist" => &[
             "id",
@@ -6267,6 +6269,19 @@ fn normalize_catalog_data(data: Option<&Value>, kind: &str, provider: &str) -> R
     };
     let mut result = serde_json::Map::new();
     for key in keys {
+        if *key == "images" {
+            if provider == "spotify" {
+                let images = spotify_catalog_artwork_images(
+                    object
+                        .get(*key)
+                        .or_else(|| object.get("album").and_then(|album| album.get("images"))),
+                );
+                if !images.is_empty() {
+                    result.insert("images".into(), Value::Array(images));
+                }
+            }
+            continue;
+        }
         if let Some(value) = object.get(*key) {
             if !bounded_plain_json(value, 0) {
                 return Err("Provider returned invalid catalog metadata".into());
@@ -6298,6 +6313,34 @@ fn normalize_catalog_data(data: Option<&Value>, kind: &str, provider: &str) -> R
         }
     }
     Ok(Value::Object(result))
+}
+fn spotify_catalog_artwork_images(value: Option<&Value>) -> Vec<Value> {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(12)
+        .filter_map(|image| {
+            let url = image.get("url")?.as_str()?;
+            if url.len() > 2048 || !safe_https_asset(url) {
+                return None;
+            }
+            let parsed = url::Url::parse(url).ok()?;
+            if parsed.host_str() != Some("i.scdn.co")
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+                || parsed.port().is_some()
+            {
+                return None;
+            }
+            let width = image.get("width")?.as_u64()?;
+            let height = image.get("height")?.as_u64()?;
+            if width == 0 || height == 0 || width > 10_000 || height > 10_000 {
+                return None;
+            }
+            Some(json!({"url":url,"width":width,"height":height}))
+        })
+        .collect()
 }
 fn bounded_plain_json(value: &Value, depth: usize) -> bool {
     if depth > 4 {
@@ -10421,6 +10464,31 @@ mod tests {
         assert_eq!(normalized["plays"], 3400);
         assert_eq!(normalized["viewCount"], 1200);
         assert_eq!(normalized["playCount"], 3400);
+    }
+
+    #[test]
+    fn spotify_artwork_images_keep_only_identity_provider_dimensions_and_original_urls() {
+        let data = json!({
+            "trackId":"AAAAAAAAAAAAAAAAAAAAAA",
+            "images":[
+                {"url":"https://i.scdn.co/image/small","width":300,"height":300},
+                {"url":"https://i.scdn.co/image/large","width":1200,"height":1200},
+                {"url":"https://i.scdn.co/image/missing-size"},
+                {"url":"https://evil.example/image","width":1200,"height":1200},
+                {"url":"https://i.scdn.co/image/zero","width":0,"height":300},
+                {"url":"https://i.scdn.co/image/oversize","width":12001,"height":12001}
+            ]
+        });
+        let normalized = normalize_catalog_data(Some(&data), "track", "spotify").unwrap();
+        assert_eq!(
+            normalized["images"],
+            json!([
+                {"url":"https://i.scdn.co/image/small","width":300,"height":300},
+                {"url":"https://i.scdn.co/image/large","width":1200,"height":1200}
+            ])
+        );
+        let non_spotify = normalize_catalog_data(Some(&data), "track", "youtube").unwrap();
+        assert!(non_spotify.get("images").is_none());
     }
 
     #[test]

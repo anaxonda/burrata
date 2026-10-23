@@ -54,6 +54,22 @@ describe("PlayingInfo internet-radio links", () => {
 });
 
 describe("PlayingInfo compact metadata", () => {
+  it("separates catalog provenance from the selected audio provider", async () => {
+    const target = render({ ...radioTrack, provider: "catalog", provenance: { catalogProvider: "musicbrainz" } }, {
+      candidate: { id: "yt-one", provider: "youtube", title: "Selected upload", url: "https://youtube.com/watch?v=one", formats: [], reasons: [] },
+    }); await settle();
+    const details = target.querySelector("dl")?.textContent;
+    expect(details).toContain("Metadata sourceMusicBrainz");
+    expect(details).toContain("Audio providerYouTube");
+    expect(details).not.toContain("Catalogcatalog");
+  });
+
+  it("does not invent provenance for a generic catalog entry", async () => {
+    const target = render({ ...radioTrack, provider: "catalog", provenance: {} }); await settle();
+    expect(target.querySelector("dl")?.textContent).not.toContain("Metadata source");
+    expect(target.querySelector("dl")?.textContent).not.toContain("Catalogcatalog");
+  });
+
   it("shows a tempo alternative only for the current non-manual analysis", async () => {
     const provenance = { bpmAnalysis: { bpm: 60.2, relatedTempoAlternativeBpm: 120 } };
     const target = render({...radioTrack, bpm: 60.2, provenance}); await settle();
@@ -66,6 +82,20 @@ describe("PlayingInfo compact metadata", () => {
     }}); await settle();
     expect(target.textContent).not.toContain("estimated");
     expect(target.textContent).not.toContain("alternative");
+  });
+
+  it("shows approximate live BPM separately from the catalog tempo", async () => {
+    const target = render({ ...radioTrack, bpm: 96, provenance: {} }, { liveBpm: {
+      generation: 5, seekSerial: 2, trackId: radioTrack.id, bpm: 128.4, confidence: 0.78,
+      relatedTempoAlternativeBpm: 64.2, windowSeconds: 8,
+    } }); await settle();
+    expect(target.querySelector(".live-bpm")?.textContent).toContain("Live BPM128.4 BPM");
+    expect(target.querySelector(".live-bpm")?.textContent).toContain("approx. · 78% rhythm strength");
+    expect(target.querySelector(".live-bpm")?.textContent).toContain("half/double-time readings can vary");
+    const rows = [...target.querySelectorAll("dl > div")].map(row => row.textContent ?? "");
+    expect(rows).toContain("Tempo96 BPM");
+    expect(rows.find(row => row.includes("Live BPM"))).toContain("128.4 BPM");
+    expect(rows.find(row => row.startsWith("Tempo"))).not.toContain("128.4 BPM");
   });
 
   it("shows source view and play counts, including zero, without fetching metadata", async () => {

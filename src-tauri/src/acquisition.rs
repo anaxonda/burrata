@@ -121,7 +121,28 @@ fn explicit_download_source(track: &Track, candidate: &Candidate) -> bool {
     }
     let selected = &track.provenance["userSelectedSource"];
     if selected.is_object() {
-        return selected["provider"].as_str() == Some(candidate.provider.as_str())
+        let source_matches = if let Some(locator) = selected.get("soulseekLocator") {
+            match (locator, candidate.source.as_ref()) {
+                (
+                    locator,
+                    Some(CandidateSource::Soulseek {
+                        username,
+                        filename,
+                        size_bytes,
+                        ..
+                    }),
+                ) => {
+                    locator["username"].as_str() == Some(username.as_str())
+                        && locator["filename"].as_str() == Some(filename.as_str())
+                        && locator["sizeBytes"].as_u64() == Some(*size_bytes)
+                }
+                _ => false,
+            }
+        } else {
+            track.provenance["sourceKind"].as_str() != Some("soulseekFolder")
+        };
+        return source_matches
+            && selected["provider"].as_str() == Some(candidate.provider.as_str())
             && selected["id"].as_str() == Some(candidate.id.as_str())
             && selected["url"].as_str() == Some(canonical_source_url(&candidate.url).as_str());
     }
@@ -135,13 +156,106 @@ fn explicit_download_source(track: &Track, candidate: &Candidate) -> bool {
         && canonical_source_url(&track.source_url) == canonical_source_url(&candidate.url)
 }
 
+/// Folder browsing is an explicit source choice. It may proceed on incomplete
+/// artist identity only when the candidate exactly matches the locator embedded
+/// in that browsed row and title/runtime have no hard conflicts.
+fn is_explicit_soulseek_folder_source(
+    track: &Track,
+    candidate: &Candidate,
+    assessment: &crate::recording_match::MatchAssessment,
+) -> bool {
+    if track.provenance["sourceKind"].as_str() != Some("soulseekFolder")
+        || track.provider != "slskd"
+        || candidate.provider != "slskd"
+        || track.id != candidate.id
+        || candidate.id != format!("slskd:{}", track.provider_id)
+        || candidate.permission == "restricted"
+    {
+        return false;
+    }
+    let Ok(linked) =
+        serde_json::from_value::<Candidate>(track.provenance["audioCandidate"].clone())
+    else {
+        return false;
+    };
+    if linked.provider != "slskd"
+        || linked.id != candidate.id
+        || linked.url != candidate.url
+        || linked.permission == "restricted"
+    {
+        return false;
+    }
+    let Some(CandidateSource::Soulseek {
+        username,
+        filename,
+        size_bytes,
+        ..
+    }) = candidate.source.as_ref()
+    else {
+        return false;
+    };
+    let Some(CandidateSource::Soulseek {
+        username: linked_username,
+        filename: linked_filename,
+        size_bytes: linked_size_bytes,
+        ..
+    }) = linked.source.as_ref()
+    else {
+        return false;
+    };
+    if username.trim().is_empty()
+        || filename.trim().is_empty()
+        || *size_bytes == 0
+        || *size_bytes > 9_007_199_254_740_991
+        || username != linked_username
+        || filename != linked_filename
+        || size_bytes != linked_size_bytes
+        || assessment.action == crate::recording_match::MatchAction::Reject
+        || assessment.dimensions.title != crate::recording_match::Comparison::Agree
+        || assessment.dimensions.runtime != crate::recording_match::Comparison::Agree
+        || [
+            assessment.dimensions.artists,
+            assessment.dimensions.guests,
+            assessment.dimensions.version,
+            assessment.dimensions.isrc,
+            assessment.dimensions.work,
+        ]
+        .contains(&crate::recording_match::Comparison::Conflict)
+    {
+        return false;
+    }
+    let Some(evidence) = assessment.evidence.as_ref() else {
+        return false;
+    };
+    !evidence.identifier_conflict
+        && !evidence.conflicting_version_observations
+        && !evidence.parsing_incomplete
+        && evidence.unresolved_annotations.is_empty()
+}
+
 fn snapshot_user_selected_source(track: &mut Track, candidate: &Candidate) {
     if track.provenance["userSelectedSource"] == true {
-        track.provenance["userSelectedSource"] = serde_json::json!({
+        let mut selected = serde_json::json!({
             "provider": candidate.provider,
             "id": candidate.id,
             "url": canonical_source_url(&candidate.url),
         });
+        if track.provenance["sourceKind"].as_str() == Some("soulseekFolder") {
+            if let Some(CandidateSource::Soulseek {
+                username,
+                filename,
+                size_bytes,
+                ..
+            }) = candidate.source.as_ref()
+            {
+                selected["soulseekLocator"] = serde_json::json!({
+                    "username": username,
+                    "filename": filename,
+                    "sizeBytes": size_bytes,
+                });
+            }
+        }
+        track.provenance["userSelectedSource"] = selected;
     }
 }
 
@@ -4022,7 +4136,7 @@ where
                 cacheable = true;
             }
             Err(error) if *cancel.borrow() || error == "Cancelled" => {
-                return Err("Cancelled".into())
+                return Err("Cancelled".into());
             }
             Err(_) => cacheable = false, // Keep flat rows available, but retry optional work later.
         }
@@ -4422,7 +4536,19 @@ async fn extract_preview_audio_with_prepared_alternate(
     }
 
     if let Some(trace) = &trace {
-        trace.event("extraction_end", &candidate.provider, serde_json::json!({"durationMs":extraction_started.elapsed().as_millis(), "ok":extraction_result.is_ok()}));
+        let mut details = serde_json::json!({"durationMs":extraction_started.elapsed().as_millis(), "ok":extraction_result.is_ok()});
+        if let Err(error) = &extraction_result {
+            // Classify before redaction, exporting only enum values and an
+            // explicit HTTP status. Never retain helper stderr or signed URLs.
+            let failure = crate::playback_failure::classify_extractor_failure(error);
+            details["category"] = serde_json::json!(failure.category);
+            details["extractorReason"] =
+                serde_json::json!(crate::playback_failure::extractor_diagnostic_reason(error));
+            if let Some(status) = failure.http_status {
+                details["httpStatus"] = serde_json::json!(status);
+            }
+        }
+        trace.event("extraction_end", &candidate.provider, details);
     }
     // Classify stderr before reducing it to a safe, fixed diagnostic. Extractor
     // output may contain signed URLs or account material and must never escape.
@@ -5997,6 +6123,16 @@ pub struct SlskdSearchPoll {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SoulseekDirectoryBrowse {
+    pub username: String,
+    pub directory: String,
+    pub tracks: Vec<Track>,
+    pub candidates: Vec<Candidate>,
+    pub complete: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SoulseekAlbumAssignment {
     pub track_id: String,
     pub candidate: Candidate,
@@ -6712,6 +6848,59 @@ impl AcquisitionManager {
             }),
         );
         Ok(Vec::new())
+    }
+
+    /// Fetch one exact peer directory with bounded response size and preserve
+    /// the exact typed Soulseek locators for later explicit download actions.
+    pub async fn browse_soulseek_directory(
+        &self,
+        username: &str,
+        directory: &str,
+        mut cancel: watch::Receiver<bool>,
+    ) -> Result<SoulseekDirectoryBrowse, String> {
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        let connection = self
+            .inner
+            .connections
+            .slskd()?
+            .ok_or("slskd is disabled in Connections")?;
+        let client = crate::slskd::SlskdClient::new(&connection.base_url, &connection.api_key)?;
+        let listing = tokio::select! {
+            result = client.directory_audio_candidates(username, directory) => result?,
+            _ = cancel.changed() => return Err("Cancelled".into()),
+        };
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        let tracks = listing
+            .candidates
+            .iter()
+            .map(|candidate| {
+                let mut track = slskd_candidate_track(candidate);
+                // A browsed filename is a source choice, not a catalog credit.
+                // Without a catalog request the ordering is ambiguous.
+                track.artist.clear();
+                track.title = candidate
+                    .source_metadata
+                    .as_ref()
+                    .and_then(|metadata| {
+                        metadata["filenameObservations"]["normalizedTitle"].as_str()
+                    })
+                    .unwrap_or(&candidate.title)
+                    .to_owned();
+                track.provenance["sourceKind"] = serde_json::json!("soulseekFolder");
+                track
+            })
+            .collect();
+        Ok(SoulseekDirectoryBrowse {
+            username: username.to_owned(),
+            directory: directory.to_owned(),
+            tracks,
+            candidates: listing.candidates,
+            complete: listing.complete,
+        })
     }
 
     async fn collect_soulseek_album_search(
@@ -7733,9 +7922,32 @@ impl AcquisitionManager {
         if !["source", "mp3"].contains(&request.output_profile.as_str()) {
             return Err("Unknown output profile".into());
         }
+        let playlist_context = request.playlist_context.filter(|context| {
+            !context.id.trim().is_empty()
+                && context.id.chars().count() <= 300
+                && !context.name.trim().is_empty()
+                && context.name.chars().count() <= 160
+                && !context.id.chars().any(char::is_control)
+                && !context.name.chars().any(char::is_control)
+        });
         let id = Uuid::new_v4().to_string();
         if !request.track.provenance.is_object() {
             request.track.provenance = serde_json::json!({});
+        }
+        if request.track.provenance["sourceKind"].as_str() == Some("soulseekFolder") {
+            if let Some(provenance) = request.track.provenance.as_object_mut() {
+                provenance.remove("userSelectedSource");
+            }
+            let assessment = crate::recording_match_context::assess(
+                &self.inner.store,
+                &request.track,
+                &request.candidate,
+                settings.matching_level,
+                crate::recording_match::MatchStage::Resolved,
+            );
+            if is_explicit_soulseek_folder_source(&request.track, &request.candidate, &assessment) {
+                request.track.provenance["userSelectedSource"] = serde_json::json!(true);
+            }
         }
         // A chooser selection is job-local authority. Bind it to the actual
         // selected source so a queued request cannot authorize another result.
@@ -7772,6 +7984,8 @@ impl AcquisitionManager {
             chapter_ids: request.chapter_ids,
             disposition: request.disposition,
             soulseek: None,
+            download_layout: settings.download_layout,
+            playlist_context,
         };
         self.start(job, settings).await
     }
@@ -7861,6 +8075,25 @@ impl AcquisitionManager {
             let client = crate::slskd::SlskdClient::new(&connection.base_url, &connection.api_key)?;
             if let Some(source) = job.candidate.source.as_mut() {
                 client.prepare_retry(source).await?;
+            }
+        }
+        if job.track.provenance["sourceKind"].as_str() == Some("soulseekFolder") {
+            if let Some(provenance) = job.track.provenance.as_object_mut() {
+                provenance.remove("userSelectedSource");
+            }
+            let assessment = crate::recording_match_context::assess(
+                &self.inner.store,
+                &job.track,
+                &job.candidate,
+                download_matching_level(&job.track),
+                crate::recording_match::MatchStage::Resolved,
+            );
+            if is_explicit_soulseek_folder_source(&job.track, &job.candidate, &assessment) {
+                if !job.track.provenance.is_object() {
+                    job.track.provenance = serde_json::json!({});
+                }
+                job.track.provenance["userSelectedSource"] = serde_json::json!(true);
+                snapshot_user_selected_source(&mut job.track, &job.candidate);
             }
         }
         job.soulseek = None;
@@ -8065,7 +8298,7 @@ impl AcquisitionManager {
                     Ok(()) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => {
-                        return Err(format!("Cannot clear failed source staging: {error}"))
+                        return Err(format!("Cannot clear failed source staging: {error}"));
                     }
                 }
                 if let Some(CandidateSource::Soulseek {
@@ -8120,7 +8353,9 @@ impl AcquisitionManager {
             job.track.provenance = serde_json::json!({});
         }
         job.track.provenance["downloadFallbackAttempts"] = serde_json::json!(failures);
-        Err(format!("{first_error}; configured download fallbacks exhausted (no successful recording/quality match)"))
+        Err(format!(
+            "{first_error}; configured download fallbacks exhausted (no successful recording/quality match)"
+        ))
     }
 
     async fn acquire(
@@ -8219,13 +8454,15 @@ impl AcquisitionManager {
                     job.progress = 92.0;
                     self.update(job)?;
                 }
-                let mut source = media::finalize_download(
+                let mut source = media::finalize_download_with_layout(
                     Path::new(&existing.path),
                     &artifact_track,
                     &candidate,
                     settings,
                     "source",
                     &job.id,
+                    job.download_layout,
+                    job.playlist_context.as_ref(),
                 )
                 .await?;
                 let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
@@ -8254,7 +8491,14 @@ impl AcquisitionManager {
                     job.state = "publishing".into();
                     job.progress = 96.0;
                     self.update(job)?;
-                    return media::export_mp3(&source, settings).await.map_err(|error| {
+                    return media::export_mp3_with_layout(
+                        &source,
+                        settings,
+                        job.download_layout,
+                        job.playlist_context.as_ref(),
+                    )
+                    .await
+                    .map_err(|error| {
                         format!(
                             "Verified source copy retained at {}; MP3 export failed: {error}",
                             source.path
@@ -8282,7 +8526,13 @@ impl AcquisitionManager {
                 self.update(job)?;
             }
             return if job.output_profile == "mp3" {
-                media::export_mp3(&existing, settings).await
+                media::export_mp3_with_layout(
+                    &existing,
+                    settings,
+                    job.download_layout,
+                    job.playlist_context.as_ref(),
+                )
+                .await
             } else {
                 Ok(existing)
             };
@@ -8475,7 +8725,7 @@ impl AcquisitionManager {
                                 Err(error) => {
                                     return Err(format!(
                                         "Cannot clear failed-format staging: {error}"
-                                    ))
+                                    ));
                                 }
                             }
                             tokio::fs::create_dir_all(&staging).await.map_err(|error| {
@@ -8743,13 +8993,15 @@ impl AcquisitionManager {
                 let mut chapter_candidate = job.candidate.clone();
                 chapter_candidate.duration_seconds = chapter_track.duration_seconds;
                 let publication_id = format!("{}-chapter-{}", job.id, position);
-                let mut asset = media::finalize_download(
+                let mut asset = media::finalize_download_with_layout(
                     &segment,
                     &chapter_track,
                     &chapter_candidate,
                     settings,
                     "source",
                     &publication_id,
+                    job.download_layout,
+                    job.playlist_context.as_ref(),
                 )
                 .await?;
                 let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
@@ -8773,7 +9025,13 @@ impl AcquisitionManager {
                     })?;
                 media::acknowledge_publication(settings, &publication_id)?;
                 let result_asset = if job.output_profile == "mp3" {
-                    let mut exported = media::export_mp3(&asset, settings).await?;
+                    let mut exported = media::export_mp3_with_layout(
+                        &asset,
+                        settings,
+                        job.download_layout,
+                        job.playlist_context.as_ref(),
+                    )
+                    .await?;
                     let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
                         &self.inner.store,
                         &mut exported,
@@ -8827,13 +9085,15 @@ impl AcquisitionManager {
             selected_assessment.relationship,
             separate_source_identity,
         )?;
-        let mut source = media::finalize_download(
+        let mut source = media::finalize_download_with_layout(
             &path,
             &artifact_track,
             &job.candidate,
             settings,
             "source",
             &job.id,
+            job.download_layout,
+            job.playlist_context.as_ref(),
         )
         .await?;
         if matches!(job.disposition, crate::models::ReplacementDisposition::Keep) {
@@ -8864,9 +9124,14 @@ impl AcquisitionManager {
             job.state = "publishing".into();
             job.progress = 96.0;
             self.update(job)?;
-            media::export_mp3(&source, settings)
-                .await
-                .map_err(|e| format!("Source retained at {}; MP3 export failed: {e}", source.path))
+            media::export_mp3_with_layout(
+                &source,
+                settings,
+                job.download_layout,
+                job.playlist_context.as_ref(),
+            )
+            .await
+            .map_err(|e| format!("Source retained at {}; MP3 export failed: {e}", source.path))
         } else {
             Ok(source)
         }
@@ -10673,6 +10938,162 @@ mod tests {
             .provenance
             .get("downloadAutomaticFallback")
             .is_none());
+    }
+
+    fn soulseek_folder_assessment() -> crate::recording_match::MatchAssessment {
+        use crate::recording_match::{
+            ComparedEvidence, Comparison, MatchAction, MatchDimensions, MatchRelationship,
+            ProofStrength,
+        };
+        let dimensions = MatchDimensions {
+            title: Comparison::Agree,
+            artists: Comparison::Unknown,
+            guests: Comparison::Unknown,
+            version: Comparison::Unknown,
+            runtime: Comparison::Agree,
+            isrc: Comparison::Unknown,
+            work: Comparison::Unknown,
+        };
+        crate::recording_match::MatchAssessment {
+            relationship: MatchRelationship::Unresolved,
+            action: MatchAction::Enrich,
+            reasons: Vec::new(),
+            dimensions: dimensions.clone(),
+            proof_strength: ProofStrength::MetadataOnly,
+            evidence: Some(ComparedEvidence {
+                dimensions,
+                proof_strength: ProofStrength::MetadataOnly,
+                runtime_delta_seconds: Some(0.0),
+                missing_performers: Vec::new(),
+                extra_performers: Vec::new(),
+                unresolved_annotations: Vec::new(),
+                identifier_conflict: false,
+                complete_performer_credits: false,
+                requested_performer_credits_complete: false,
+                accent_folded_performer_match: false,
+                scoped_artist_name_alias: None,
+                scoped_artist_credit_set_alias: None,
+                parsing_incomplete: false,
+                conflicting_version_observations: false,
+                recording_scoped_runtime_variant: None,
+                recording_scoped_credit_variant: None,
+                recording_scoped_isrc_membership: None,
+                recording_scoped_title_alias: None,
+            }),
+        }
+    }
+
+    fn soulseek_folder_track(candidate: &Candidate) -> Track {
+        let provider_id = candidate.id.strip_prefix("slskd:").unwrap();
+        Track {
+            id: candidate.id.clone(),
+            provider: "slskd".into(),
+            provider_id: provider_id.into(),
+            provenance: serde_json::json!({
+                "sourceKind":"soulseekFolder",
+                "audioCandidate":candidate,
+            }),
+            ..Track::default()
+        }
+    }
+
+    fn soulseek_folder_candidate() -> Candidate {
+        Candidate {
+            id: "slskd:peer-file-1".into(),
+            provider: "slskd".into(),
+            url: String::new(),
+            title: "Song.flac".into(),
+            permission: "unknown".into(),
+            source: Some(CandidateSource::Soulseek {
+                username: "peer".into(),
+                filename: "Music/Artist/Album/01 - Song.flac".into(),
+                size_bytes: 1_234_567,
+                bitrate_kbps: Some(900),
+                search_id: None,
+                batch_id: None,
+                transfer_id: None,
+            }),
+            ..Candidate::default()
+        }
+    }
+
+    #[test]
+    fn explicit_soulseek_folder_choice_is_locator_bound_and_keeps_unknown_identity_unverified() {
+        use crate::recording_match::{Comparison, MatchAction};
+
+        let candidate = soulseek_folder_candidate();
+        let track = soulseek_folder_track(&candidate);
+        let assessment = soulseek_folder_assessment();
+        assert_eq!(assessment.action, MatchAction::Enrich);
+        assert_eq!(assessment.dimensions.artists, Comparison::Unknown);
+        assert!(is_explicit_soulseek_folder_source(
+            &track,
+            &candidate,
+            &assessment
+        ));
+        let mut chosen = track.clone();
+        chosen.provenance["userSelectedSource"] = serde_json::json!(true);
+        snapshot_user_selected_source(&mut chosen, &candidate);
+        assert!(explicit_download_source(&chosen, &candidate));
+        let mut legacy_choice = chosen.clone();
+        legacy_choice.provenance["userSelectedSource"]
+            .as_object_mut()
+            .unwrap()
+            .remove("soulseekLocator");
+        assert!(!explicit_download_source(&legacy_choice, &candidate));
+        let mut changed_after_queue = candidate.clone();
+        if let Some(CandidateSource::Soulseek { filename, .. }) =
+            changed_after_queue.source.as_mut()
+        {
+            *filename = "Music/Other/Album/01 - Song.flac".into();
+        }
+        assert!(!explicit_download_source(&chosen, &changed_after_queue));
+
+        let mut wrong_file = candidate.clone();
+        if let Some(CandidateSource::Soulseek { filename, .. }) = wrong_file.source.as_mut() {
+            *filename = "Music/Other/Album/01 - Song.flac".into();
+        }
+        assert!(!is_explicit_soulseek_folder_source(
+            &track,
+            &wrong_file,
+            &assessment
+        ));
+        let mut wrong_size = candidate.clone();
+        if let Some(CandidateSource::Soulseek { size_bytes, .. }) = wrong_size.source.as_mut() {
+            *size_bytes += 1;
+        }
+        assert!(!is_explicit_soulseek_folder_source(
+            &track,
+            &wrong_size,
+            &assessment
+        ));
+        let mut wrong_identity = candidate.clone();
+        wrong_identity.id = "slskd:different-file".into();
+        assert!(!is_explicit_soulseek_folder_source(
+            &track,
+            &wrong_identity,
+            &assessment
+        ));
+        let mut wrong_version = assessment.clone();
+        wrong_version.dimensions.version = Comparison::Conflict;
+        wrong_version
+            .evidence
+            .as_mut()
+            .unwrap()
+            .conflicting_version_observations = true;
+        wrong_version.evidence.as_mut().unwrap().dimensions.version = Comparison::Conflict;
+        assert!(!is_explicit_soulseek_folder_source(
+            &track,
+            &candidate,
+            &wrong_version
+        ));
+        let mut restricted = candidate.clone();
+        restricted.permission = "restricted".into();
+        assert!(!is_explicit_soulseek_folder_source(
+            &track,
+            &restricted,
+            &assessment
+        ));
     }
 
     #[test]
@@ -13397,6 +13818,8 @@ mod tests {
             format_id: None,
             chapter_ids: None,
             soulseek: None,
+            download_layout: DownloadLayout::Flat,
+            playlist_context: None,
         };
         assert!(resumable_soulseek_job(&job));
         for state in ["failed", "cancelled", "completed"] {
@@ -15309,7 +15732,8 @@ mod tests {
         let extraction_started = directory.path().join("extraction-started");
         let (_tool_directory, settings) = fake_tool(&format!(
             "case \"$*\" in *search*) touch '{}'; sleep 60 ;; *extract*) touch '{}'; echo extracted ;; esac",
-            search_started.display(), extraction_started.display()
+            search_started.display(),
+            extraction_started.display()
         ));
         let (_tx, cancel) = idle_cancel();
         let shared_deadline = tokio::time::Instant::now() + Duration::from_millis(80);

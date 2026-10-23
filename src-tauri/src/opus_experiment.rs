@@ -144,7 +144,7 @@ impl OpusSource {
                 Err(SymphoniaError::IoError(error))
                     if error.kind() == io::ErrorKind::UnexpectedEof =>
                 {
-                    return Ok(false)
+                    return Ok(false);
                 }
                 Err(error) => return Err(format!("Opus packet read failed: {error}")),
             };

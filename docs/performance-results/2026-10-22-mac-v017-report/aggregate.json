@@ -1,0 +1,1414 @@
+{
+  "capture": {
+    "appVersion": "0.1.7",
+    "architecture": "aarch64",
+    "droppedEvents": 0,
+    "eventCount": 1682,
+    "helpers": [
+      {
+        "available": true,
+        "name": "yt-dlp",
+        "version": "2026.10.10.233141"
+      },
+      {
+        "available": true,
+        "name": "ffmpeg",
+        "version": "8.1.3"
+      },
+      {
+        "available": true,
+        "name": "ffprobe",
+        "version": "8.1.3"
+      },
+      {
+        "available": true,
+        "name": "JavaScript runtime",
+        "version": "24.21.0"
+      },
+      {
+        "available": false,
+        "name": "yt-dlp-ejs",
+        "version": null
+      }
+    ],
+    "maxEvents": 2000,
+    "platform": "macos",
+    "resolutionCount": 48,
+    "runtimePlayback": {
+      "bufferingCount": 0,
+      "engine": "webview",
+      "recoveryCount": 0,
+      "status": "idle",
+      "targetTriple": "aarch64-apple-darwin"
+    },
+    "settings": {
+      "bandcampFallbackEnabled": true,
+      "fallbackDelayMs": 1500,
+      "fallbackEnabled": true,
+      "fallbackSources": [
+        "youtube",
+        "soundcloud"
+      ],
+      "matchingLevel": "balanced",
+      "overridePlaylistTrackUrls": false,
+      "primaryStreamingSource": "youtube",
+      "startupTimeoutSeconds": 20
+    },
+    "standaloneEventsWithoutResolutionStart": 17,
+    "targetTriple": "aarch64-apple-darwin"
+  },
+  "coverageLimits": [
+    "This report contains sanitized aggregates and encounter-order pseudonyms only; it omits raw resolution IDs, raw fingerprints, event timestamps, titles, artist names, URLs, and error text.",
+    "stream_probe_end records HTTP response status, not physical request count; parallel head/tail probes and redirects mean response rows are not wire-request totals.",
+    "The captured identity-check events all passed, but no identity-check event is emitted for every failure path; absence does not prove identity never rejected a candidate.",
+    "resolution_end category unknown is not a cause classification. Sanitization intentionally removes raw extractor and network errors.",
+    "One app/helper version is present, so this capture cannot establish a helper-version correlation or compare with another version.",
+    "runtimePlayback is a point-in-time snapshot at export; idle and zero recovery/buffering do not prove prior playback did not start or fail."
+  ],
+  "fingerprintCorrelation": {
+    "explicitTrackSourcePairings": [
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-10",
+        "track": "track-11"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-13",
+        "track": "track-12"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-14",
+        "track": "track-12"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-19",
+        "track": "track-13"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 2
+        },
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-20",
+        "track": "track-13"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-21",
+        "track": "track-14"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 2
+        },
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-22",
+        "track": "track-14"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-23",
+        "track": "track-15"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-24",
+        "track": "track-15"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-25",
+        "track": "track-16"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-26",
+        "track": "track-17"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-27",
+        "track": "track-18"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 2
+        },
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-28",
+        "track": "track-18"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 2
+        },
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-29",
+        "track": "track-18"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-30",
+        "track": "track-19"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-31",
+        "track": "track-19"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-32",
+        "track": "track-20"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-33",
+        "track": "track-20"
+      },
+      {
+        "candidateValidationEnd": {
+          "True": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-34",
+        "track": "track-21"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-35",
+        "track": "track-22"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-36",
+        "track": "track-22"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1
+        },
+        "fullIdentityCheck": {
+          "True": 1
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-37",
+        "track": "track-23"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-38",
+        "track": "track-23"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-39",
+        "track": "track-24"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 1,
+          "True": 1
+        },
+        "fullIdentityCheck": {
+          "True": 2
+        },
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-40",
+        "track": "track-25"
+      },
+      {
+        "candidateValidationEnd": {
+          "False": 4
+        },
+        "fullIdentityCheck": {},
+        "providers": [
+          "soundcloud"
+        ],
+        "source": "source-41",
+        "track": "track-25"
+      },
+      {
+        "candidateValidationEnd": {},
+        "fullIdentityCheck": {},
+        "providers": [
+          "youtube"
+        ],
+        "source": "source-42",
+        "track": "track-26"
+      }
+    ],
+    "fingerprintValuesExported": false,
+    "pairingNote": "Only event-local track/source fingerprint pairs are shown; probe status is operation-level and may not identify a specific candidate when an operation evaluated multiple sources.",
+    "trackAliases": [
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 3
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 3,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-01",
+        "unambiguousExtractionTimingMs": {
+          "max": 5083,
+          "median": 4780,
+          "min": 4274,
+          "n": 3,
+          "p90": 5083
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-02",
+        "unambiguousExtractionTimingMs": {
+          "max": 4634,
+          "median": 4634,
+          "min": 4634,
+          "n": 1,
+          "p90": 4634
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-03",
+        "unambiguousExtractionTimingMs": {
+          "max": 4866,
+          "median": 4866,
+          "min": 4866,
+          "n": 1,
+          "p90": 4866
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-04",
+        "unambiguousExtractionTimingMs": {
+          "max": 6141,
+          "median": 6141,
+          "min": 6141,
+          "n": 1,
+          "p90": 6141
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-05",
+        "unambiguousExtractionTimingMs": {
+          "max": 5212,
+          "median": 5212,
+          "min": 5212,
+          "n": 1,
+          "p90": 5212
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-06",
+        "unambiguousExtractionTimingMs": {
+          "max": 4452,
+          "median": 4452,
+          "min": 4452,
+          "n": 1,
+          "p90": 4452
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-07",
+        "unambiguousExtractionTimingMs": {
+          "max": 4675,
+          "median": 4675,
+          "min": 4675,
+          "n": 1,
+          "p90": 4675
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-08",
+        "unambiguousExtractionTimingMs": {
+          "max": 4411,
+          "median": 4411,
+          "min": 4411,
+          "n": 1,
+          "p90": 4411
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-09",
+        "unambiguousExtractionTimingMs": {
+          "max": 6836,
+          "median": 6836,
+          "min": 6836,
+          "n": 1,
+          "p90": 6836
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "soundcloud"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-10",
+        "unambiguousExtractionTimingMs": {
+          "max": 4828,
+          "median": 4828,
+          "min": 4828,
+          "n": 1,
+          "p90": 4828
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 1
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "failed": 1
+        },
+        "pairedSources": [
+          "source-10"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "403": 4
+        },
+        "track": "track-11",
+        "unambiguousExtractionTimingMs": {
+          "max": 6591,
+          "median": 6591,
+          "min": 6591,
+          "n": 1,
+          "p90": 6591
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 1
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-13",
+          "source-14"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 6
+        },
+        "track": "track-12",
+        "unambiguousExtractionTimingMs": {
+          "max": 5823,
+          "median": 5823,
+          "min": 5823,
+          "n": 1,
+          "p90": 5823
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 3
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "cancelled": 1,
+          "failed": 1
+        },
+        "pairedSources": [
+          "source-19",
+          "source-20"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 2,
+        "resolutionProbeHttpStatusCounts": {
+          "403": 4
+        },
+        "track": "track-13",
+        "unambiguousExtractionTimingMs": {
+          "max": 5422,
+          "median": 4956.0,
+          "min": 4490,
+          "n": 2,
+          "p90": 5422
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 3
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-21",
+          "source-22"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 6
+        },
+        "track": "track-14",
+        "unambiguousExtractionTimingMs": {
+          "max": 5677,
+          "median": 5060.0,
+          "min": 4443,
+          "n": 2,
+          "p90": 5677
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "cancelled": 1
+        },
+        "pairedSources": [
+          "source-23",
+          "source-24"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "403": 2
+        },
+        "track": "track-15",
+        "unambiguousExtractionTimingMs": {
+          "max": 5346,
+          "median": 5346,
+          "min": 5346,
+          "n": 1,
+          "p90": 5346
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "cancelled": 1
+        },
+        "pairedSources": [
+          "source-25"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-16",
+        "unambiguousExtractionTimingMs": {
+          "max": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p90": null
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "cancelled": 1
+        },
+        "pairedSources": [
+          "source-26"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-17",
+        "unambiguousExtractionTimingMs": {
+          "max": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p90": null
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 5
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-27",
+          "source-28",
+          "source-29"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 6
+        },
+        "track": "track-18",
+        "unambiguousExtractionTimingMs": {
+          "max": 6113,
+          "median": 5012.5,
+          "min": 3912,
+          "n": 2,
+          "p90": 6113
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 1
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-30",
+          "source-31"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 6
+        },
+        "track": "track-19",
+        "unambiguousExtractionTimingMs": {
+          "max": 8609,
+          "median": 8609,
+          "min": 8609,
+          "n": 1,
+          "p90": 8609
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 1
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-32",
+          "source-33"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 6
+        },
+        "track": "track-20",
+        "unambiguousExtractionTimingMs": {
+          "max": 6310,
+          "median": 6310,
+          "min": 6310,
+          "n": 1,
+          "p90": 6310
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "True": 1
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-34"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 4
+        },
+        "track": "track-21",
+        "unambiguousExtractionTimingMs": {
+          "max": 8728,
+          "median": 8728,
+          "min": 8728,
+          "n": 1,
+          "p90": 8728
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 1
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-35",
+          "source-36"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 6
+        },
+        "track": "track-22",
+        "unambiguousExtractionTimingMs": {
+          "max": 5986,
+          "median": 5986,
+          "min": 5986,
+          "n": 1,
+          "p90": 5986
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 1
+        },
+        "fullIdentityChecks": {
+          "True": 1
+        },
+        "outcomes": {
+          "success": 1
+        },
+        "pairedSources": [
+          "source-37",
+          "source-38"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 2,
+          "403": 6
+        },
+        "track": "track-23",
+        "unambiguousExtractionTimingMs": {
+          "max": 5910,
+          "median": 5910,
+          "min": 5910,
+          "n": 1,
+          "p90": 5910
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "cancelled": 1
+        },
+        "pairedSources": [
+          "source-39"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-24",
+        "unambiguousExtractionTimingMs": {
+          "max": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p90": null
+        }
+      },
+      {
+        "candidateValidationEnds": {
+          "False": 5,
+          "True": 1
+        },
+        "fullIdentityChecks": {
+          "True": 2
+        },
+        "outcomes": {
+          "failed": 1,
+          "success": 3
+        },
+        "pairedSources": [
+          "source-40",
+          "source-41"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 4,
+        "resolutionProbeHttpStatusCounts": {
+          "206": 6,
+          "403": 2
+        },
+        "track": "track-25",
+        "unambiguousExtractionTimingMs": {
+          "max": 10441,
+          "median": 5196.0,
+          "min": 4106,
+          "n": 4,
+          "p90": 10441
+        }
+      },
+      {
+        "candidateValidationEnds": {},
+        "fullIdentityChecks": {},
+        "outcomes": {
+          "cancelled": 1
+        },
+        "pairedSources": [
+          "source-42"
+        ],
+        "pinnedProviderStartEvents": 0,
+        "providers": [
+          "other",
+          "soundcloud",
+          "youtube"
+        ],
+        "resolutionCount": 1,
+        "resolutionProbeHttpStatusCounts": {},
+        "track": "track-26",
+        "unambiguousExtractionTimingMs": {
+          "max": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p90": null
+        }
+      }
+    ]
+  },
+  "httpProbes": {
+    "byAttemptAndStatus": {
+      "attempt1/HTTP206": 38,
+      "attempt1/HTTP403": 37,
+      "attempt2/HTTP206": 14,
+      "attempt2/HTTP403": 21
+    },
+    "byRoleAndStatus": {
+      "head/HTTP206": 26,
+      "head/HTTP403": 30,
+      "tail/HTTP206": 26,
+      "tail/HTTP403": 28
+    },
+    "byStatus": {
+      "206": 52,
+      "403": 58
+    },
+    "resolutionsWithProbesByOutcome": {
+      "cancelled": {
+        "resolutionsWith403": 1,
+        "resolutionsWithProbe": 1
+      },
+      "failed": {
+        "resolutionsWith403": 3,
+        "resolutionsWithProbe": 3
+      },
+      "success": {
+        "resolutionsWith403": 8,
+        "resolutionsWithProbe": 26
+      }
+    },
+    "responseEvents": 110,
+    "retryWaits": {
+      "byAttempt": {
+        "1": 37
+      },
+      "byHttpStatus": {
+        "403": 37
+      },
+      "events": 37,
+      "expectedDelayMs": {
+        "1500": 37
+      }
+    }
+  },
+  "identityAndCandidateGates": {
+    "candidateGate": {
+      "accepted": 84,
+      "candidateRows": 273,
+      "confidenceClass": {
+        "low": 172,
+        "review": 101
+      },
+      "descriptiveDurationWithinFiveSeconds": 112,
+      "evidenceBatches": 31,
+      "recordingCanonicalMatch": 14,
+      "recordingVerifiedAliasMatch": 14,
+      "rejected": 189,
+      "topicCanonicalOrAliasMatch": 0
+    },
+    "identity": {
+      "fullChecks": 13,
+      "mappingChecks": 0,
+      "results": {
+        "True": 13
+      }
+    }
+  },
+  "outcomes": {
+    "byResolutionStartProvider": {
+      "other": {
+        "cancelled": 7,
+        "failed": 2,
+        "success": 17
+      },
+      "soundcloud": {
+        "failed": 12
+      },
+      "youtube": {
+        "failed": 1,
+        "success": 9
+      }
+    },
+    "counts": {
+      "cancelled": 7,
+      "failed": 15,
+      "success": 26
+    },
+    "resolutionEndLatencyByOutcomeMs": {
+      "cancelled": {
+        "max": 6276,
+        "median": 3259,
+        "min": 279,
+        "n": 7,
+        "p90": 6276
+      },
+      "failed": {
+        "max": 9621,
+        "median": 4879,
+        "min": 4281,
+        "n": 15,
+        "p90": 8991
+      },
+      "success": {
+        "max": 12278,
+        "median": 357.5,
+        "min": 194,
+        "n": 26,
+        "p90": 10810
+      }
+    },
+    "resolutionEndLatencyMs": {
+      "max": 12278,
+      "median": 4347.5,
+      "min": 194,
+      "n": 48,
+      "p90": 10720
+    }
+  },
+  "phaseCounts": {
+    "alias_cache_lookup_end": 74,
+    "alias_lookup_skipped": 41,
+    "bandcamp_fallback_end": 16,
+    "bandcamp_fallback_start": 16,
+    "candidate_gate": 53,
+    "candidate_gate_evidence": 31,
+    "candidate_gate_evidence_rows": 31,
+    "direct_youtube_end": 10,
+    "direct_youtube_start": 10,
+    "dns_source_end": 48,
+    "dns_source_start": 48,
+    "dns_stream_end": 38,
+    "dns_stream_start": 38,
+    "extract_and_validate_end": 48,
+    "extract_and_validate_start": 45,
+    "extraction_end": 30,
+    "extraction_start": 44,
+    "full_identity_check": 13,
+    "mapped_direct_youtube_end": 9,
+    "mapped_direct_youtube_start": 9,
+    "mapping_resolve_end": 8,
+    "mapping_resolve_start": 8,
+    "next_preparation_identity_end": 17,
+    "playback_candidate_search_cache_hit": 6,
+    "playback_candidate_search_cache_miss": 25,
+    "prepared_alternate_metadata_reused": 7,
+    "preview_audio_cache_miss": 68,
+    "preview_audio_lookup_end": 53,
+    "preview_audio_lookup_join": 1,
+    "preview_audio_lookup_start": 67,
+    "provider_helper_ready_end": 18,
+    "provider_prepare_end": 44,
+    "provider_prepare_start": 44,
+    "provider_start": 74,
+    "resolution_end": 48,
+    "resolution_start": 48,
+    "search_end": 31,
+    "search_start": 44,
+    "settings_read_end": 48,
+    "settings_read_start": 48,
+    "stream_probe_body_end": 52,
+    "stream_probe_end": 110,
+    "stream_probe_retry_wait": 37,
+    "stream_probe_start": 110,
+    "verified_source_transport_recovery_end": 7,
+    "verified_source_transport_recovery_start": 7
+  },
+  "reportSchemaVersion": 1,
+  "timing": {
+    "reportedStageDurations": {
+      "direct_youtube_end": {
+        "byProvider": {
+          "youtube": {
+            "count": 10,
+            "max": 840,
+            "median": 325.5,
+            "min": 206,
+            "n": 10,
+            "ok": {
+              "False": 1,
+              "True": 9
+            },
+            "p90": 822
+          }
+        },
+        "count": 10,
+        "max": 840,
+        "median": 325.5,
+        "min": 206,
+        "n": 10,
+        "ok": {
+          "False": 1,
+          "True": 9
+        },
+        "p90": 822
+      },
+      "dns_source_end": {
+        "byProvider": {
+          "soundcloud": {
+            "count": 27,
+            "max": 23,
+            "median": 1,
+            "min": 1,
+            "n": 27,
+            "ok": {
+              "True": 27
+            },
+            "p90": 16
+          },
+          "youtube": {
+            "count": 21,
+            "max": 16,
+            "median": 2,
+            "min": 1,
+            "n": 21,
+            "ok": {
+              "True": 21
+            },
+            "p90": 8
+          }
+        },
+        "count": 48,
+        "max": 23,
+        "median": 2.0,
+        "min": 1,
+        "n": 48,
+        "ok": {
+          "True": 48
+        },
+        "p90": 16
+      },
+      "dns_stream_end": {
+        "byProvider": {
+          "youtube": {
+            "count": 38,
+            "max": 43,
+            "median": 14.0,
+            "min": 1,
+            "n": 38,
+            "ok": {
+              "True": 38
+            },
+            "p90": 18
+          }
+        },
+        "count": 38,
+        "max": 43,
+        "median": 14.0,
+        "min": 1,
+        "n": 38,
+        "ok": {
+          "True": 38
+        },
+        "p90": 18
+      },
+      "extraction_end": {
+        "byProvider": {
+          "soundcloud": {
+            "count": 17,
+            "max": 6836,
+            "median": 4634,
+            "min": 3912,
+            "n": 17,
+            "ok": {
+              "False": 16,
+              "True": 1
+            },
+            "p90": 6141
+          },
+          "youtube": {
+            "count": 13,
+            "max": 10441,
+            "median": 5986,
+            "min": 5346,
+            "n": 13,
+            "ok": {
+              "True": 13
+            },
+            "p90": 8728
+          }
+        },
+        "count": 30,
+        "max": 10441,
+        "median": 5279.0,
+        "min": 3912,
+        "n": 30,
+        "ok": {
+          "False": 16,
+          "True": 14
+        },
+        "p90": 6836
+      }
+    },
+    "searchStartToEndElapsedMs": {
+      "soundcloud": {
+        "max": 8641,
+        "median": 4401.0,
+        "min": 0,
+        "n": 14,
+        "p90": 6502
+      },
+      "youtube": {
+        "max": 881,
+        "median": 1,
+        "min": 0,
+        "n": 17,
+        "p90": 870
+      }
+    }
+  }
+}

@@ -20,13 +20,18 @@ const WINDOW_SECONDS: usize = 12;
 pub const RECOGNITION_CAPTURE_WINDOWS: [f64; 3] = [3.0, 6.0, 12.0];
 const MIN_CAPTURE_SECONDS: f64 = RECOGNITION_CAPTURE_WINDOWS[0];
 const CHUNK_SAMPLES: usize = 256;
-const CHANNEL_BATCHES: usize = 16; // 16 * 256 = 4096 bounded queued samples.
+// One mixer callback may consume thousands of stereo frames before the async
+// worker runs. Keep up to 65,536 queued samples (256 KiB, ~0.68 s at 48 kHz
+// stereo), rather than dropping audio halfway through an ordinary callback.
+// Overload still drops batches instead of blocking the audio callback.
+const CHANNEL_BATCHES: usize = 256;
 
 struct SampleBatch {
     generation: u64,
     sample_rate: u32,
     channels: u16,
     samples: Vec<f32>,
+    playback_end_position_seconds: Option<f64>,
 }
 
 struct CaptureRequest {
@@ -39,6 +44,15 @@ struct CaptureSnapshot {
     sample_rate: u32,
     channels: u16,
     samples: Vec<f32>,
+    playback_end_position_seconds: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PcmCaptureTiming {
+    pub start_position_seconds: Option<f64>,
+    pub duration_seconds: f64,
+    pub sample_rate: u32,
+    pub channels: u16,
 }
 
 /// A generation-scoped tap fed by samples at the moment the output consumes
@@ -67,6 +81,7 @@ impl PcmTap {
             let mut sample_rate = 0u32;
             let mut channels = 0u16;
             let mut ring = VecDeque::<f32>::new();
+            let mut playback_end_position_seconds = None;
             loop {
                 tokio::select! {
                     batch = sample_rx.recv() => match batch {
@@ -75,6 +90,7 @@ impl PcmTap {
                             &mut sample_rate,
                             &mut channels,
                             &mut ring,
+                            &mut playback_end_position_seconds,
                             batch,
                         ),
                         None if capture_rx.is_closed() => break,
@@ -91,6 +107,7 @@ impl PcmTap {
                                     &mut sample_rate,
                                     &mut channels,
                                     &mut ring,
+                                    &mut playback_end_position_seconds,
                                     batch,
                                 );
                             }
@@ -102,6 +119,7 @@ impl PcmTap {
                                     sample_rate,
                                     channels,
                                     &ring,
+                                    playback_end_position_seconds,
                                 )
                             };
                             let _ = request.response.send(result);
@@ -133,6 +151,7 @@ impl PcmTap {
             sample_rate: sample_rate.max(1),
             channels: channels.max(1),
             pending: Vec::with_capacity(CHUNK_SAMPLES),
+            pending_playback_end_position_seconds: None,
         }
     }
 
@@ -148,10 +167,53 @@ impl PcmTap {
         }
     }
 
+    /// Copy the most recent requested PCM samples for background analysis.
+    /// This waits for the tap worker and must never be called from the audio
+    /// callback. Keep callers off the UI/runtime worker threads as well.
+    pub fn capture_pcm(
+        &self,
+        generation: u64,
+        seconds: f64,
+    ) -> Result<(u32, u16, Vec<f32>), String> {
+        let snapshot = self.request_snapshot(generation, seconds)?;
+        Ok((snapshot.sample_rate, snapshot.channels, snapshot.samples))
+    }
+
     /// Write the latest requested portion of audible PCM as a 16-bit WAV.
     /// This method waits for the tap worker and must only be called from a
     /// background worker, never from the audio callback.
     pub fn capture_wav(&self, generation: u64, path: &Path, seconds: f64) -> Result<(), String> {
+        let snapshot = self.request_snapshot(generation, seconds)?;
+        write_wav(path, snapshot)
+    }
+
+    /// Capture a WAV and retain the source-position anchor carried by the same
+    /// consumed PCM batches. Unpositioned or discontinuous taps return no start
+    /// position, so callers cannot infer one from request time.
+    pub fn capture_wav_with_timing(
+        &self,
+        generation: u64,
+        path: &Path,
+        seconds: f64,
+    ) -> Result<PcmCaptureTiming, String> {
+        let snapshot = self.request_snapshot(generation, seconds)?;
+        let duration_seconds =
+            snapshot.samples.len() as f64 / snapshot.sample_rate as f64 / snapshot.channels as f64;
+        let start_position_seconds = snapshot
+            .playback_end_position_seconds
+            .map(|end| end - duration_seconds)
+            .filter(|start| start.is_finite() && *start >= 0.0);
+        let timing = PcmCaptureTiming {
+            start_position_seconds,
+            duration_seconds,
+            sample_rate: snapshot.sample_rate,
+            channels: snapshot.channels,
+        };
+        write_wav(path, snapshot)?;
+        Ok(timing)
+    }
+
+    fn request_snapshot(&self, generation: u64, seconds: f64) -> Result<CaptureSnapshot, String> {
         if !seconds.is_finite() || seconds <= 0.0 || seconds > WINDOW_SECONDS as f64 {
             return Err(
                 "PCM capture duration must be greater than zero and at most twelve seconds".into(),
@@ -171,7 +233,7 @@ impl PcmTap {
         let snapshot = response_rx
             .recv()
             .map_err(|_| "PCM tap worker stopped before capture completed".to_owned())??;
-        write_wav(path, snapshot)
+        Ok(snapshot)
     }
 }
 
@@ -184,12 +246,19 @@ pub struct PcmTapWriter {
     sample_rate: u32,
     channels: u16,
     pending: Vec<f32>,
+    pending_playback_end_position_seconds: Option<f64>,
 }
 
 impl PcmTapWriter {
     pub fn push(&mut self, sample: f32) {
+        self.push_with_position(sample, None);
+    }
+
+    pub fn push_with_position(&mut self, sample: f32, playback_end_position_seconds: Option<f64>) {
         self.pending
             .push(if sample.is_finite() { sample } else { 0.0 });
+        self.pending_playback_end_position_seconds = playback_end_position_seconds
+            .filter(|position| position.is_finite() && *position >= 0.0);
         if self.pending.len() == CHUNK_SAMPLES {
             self.flush();
         }
@@ -207,6 +276,7 @@ impl PcmTapWriter {
                 sample_rate: self.sample_rate,
                 channels: self.channels,
                 samples,
+                playback_end_position_seconds: self.pending_playback_end_position_seconds.take(),
             })
             .is_ok()
         {
@@ -227,6 +297,7 @@ fn append_batch(
     sample_rate: &mut u32,
     channels: &mut u16,
     ring: &mut VecDeque<f32>,
+    playback_end_position_seconds: &mut Option<f64>,
     batch: SampleBatch,
 ) {
     if generation.is_some_and(|active| batch.generation < active) {
@@ -240,6 +311,25 @@ fn append_batch(
         *sample_rate = batch.sample_rate;
         *channels = batch.channels;
         ring.clear();
+        *playback_end_position_seconds = None;
+    }
+    let batch_duration =
+        batch.samples.len() as f64 / batch.sample_rate.max(1) as f64 / batch.channels.max(1) as f64;
+    if let (Some(previous_end), Some(batch_end)) = (
+        *playback_end_position_seconds,
+        batch.playback_end_position_seconds,
+    ) {
+        let batch_start = batch_end - batch_duration;
+        let frame_tolerance = 2.0 / batch.sample_rate.max(1) as f64;
+        if (batch_start - previous_end).abs() > frame_tolerance {
+            // A dropped batch, seek, or source discontinuity invalidates the
+            // retained window as a timing anchor.
+            ring.clear();
+        }
+    } else if playback_end_position_seconds.is_some()
+        != batch.playback_end_position_seconds.is_some()
+    {
+        ring.clear();
     }
     let limit = (*sample_rate as usize)
         .saturating_mul(*channels as usize)
@@ -248,6 +338,7 @@ fn append_batch(
     while ring.len() > limit {
         ring.pop_front();
     }
+    *playback_end_position_seconds = batch.playback_end_position_seconds;
 }
 
 fn capture_snapshot(
@@ -255,6 +346,7 @@ fn capture_snapshot(
     sample_rate: u32,
     channels: u16,
     ring: &VecDeque<f32>,
+    playback_end_position_seconds: Option<f64>,
 ) -> Result<CaptureSnapshot, String> {
     let minimum =
         (sample_rate as f64 * channels as f64 * seconds.max(MIN_CAPTURE_SECONDS)).ceil() as usize;
@@ -268,6 +360,7 @@ fn capture_snapshot(
         sample_rate,
         channels,
         samples,
+        playback_end_position_seconds,
     })
 }
 
@@ -313,6 +406,35 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    #[test]
+    fn a_single_stereo_output_callback_fits_without_waiting_for_the_worker() {
+        // The mixer can consume a full device buffer before the async worker
+        // gets scheduled. At 48 kHz stereo, 4096 frames are only 85 ms.
+        let (sender, mut receiver) = mpsc::channel(CHANNEL_BATCHES);
+        let mut writer = PcmTapWriter {
+            sender,
+            current_generation: Arc::new(AtomicU64::new(0)),
+            generation: 1,
+            sample_rate: 48_000,
+            channels: 2,
+            pending: Vec::with_capacity(CHUNK_SAMPLES),
+            pending_playback_end_position_seconds: None,
+        };
+        let samples = 4096 * 2;
+        for index in 0..samples {
+            writer.push_with_position(0.25, Some((index + 1) as f64 / 96_000.0));
+        }
+        writer.flush();
+        let mut captured = 0;
+        while let Ok(batch) = receiver.try_recv() {
+            captured += batch.samples.len();
+        }
+        assert_eq!(
+            captured, samples,
+            "ordinary output bursts must not starve the continuous capture window"
+        );
+    }
+
     #[tokio::test]
     async fn capture_wav_checks_generation_and_three_second_minimum() {
         let tap = PcmTap::new();
@@ -329,14 +451,152 @@ mod tests {
     }
 
     #[test]
+    fn output_callback_bursts_retain_a_continuous_tempo_and_recognition_window() {
+        let (sender, mut receiver) = mpsc::channel(CHANNEL_BATCHES);
+        let mut writer = PcmTapWriter {
+            sender,
+            current_generation: Arc::new(AtomicU64::new(0)),
+            generation: 9,
+            sample_rate: 48_000,
+            channels: 2,
+            pending: Vec::with_capacity(CHUNK_SAMPLES),
+            pending_playback_end_position_seconds: None,
+        };
+        let mut generation = None;
+        let mut rate = 0;
+        let mut channels = 0;
+        let mut ring = VecDeque::new();
+        let mut end = None;
+        let frames = 12 * 48_000;
+        for start in (0..frames).step_by(4096) {
+            for frame in start..(start + 4096).min(frames) {
+                let pulse = frame % 24_000;
+                let sample = if pulse < 480 {
+                    0.8 * (1.0 - pulse as f32 / 480.0)
+                } else {
+                    0.0
+                };
+                for _ in 0..2 {
+                    writer.push_with_position(sample, Some((frame + 1) as f64 / 48_000.0));
+                }
+            }
+            writer.flush();
+            // The worker only runs between device callbacks in this fixture.
+            while let Ok(batch) = receiver.try_recv() {
+                append_batch(
+                    &mut generation,
+                    &mut rate,
+                    &mut channels,
+                    &mut ring,
+                    &mut end,
+                    batch,
+                );
+            }
+        }
+        let capture = capture_snapshot(10.0, rate, channels, &ring, end).unwrap();
+        assert_eq!(capture.samples.len(), 10 * 48_000 * 2);
+        assert!((capture.playback_end_position_seconds.unwrap() - 12.0).abs() < 1e-9);
+        let tempo =
+            crate::live_bpm::estimate_interleaved_pcm(&capture.samples, rate, channels).unwrap();
+        assert!((tempo.bpm - 120.0).abs() <= 1.0, "{tempo:?}");
+        assert!(capture_snapshot(12.0, rate, channels, &ring, end).is_ok());
+    }
+
+    #[test]
+    fn positioned_pcm_window_maps_capture_to_source_time_and_resets_on_discontinuity() {
+        let mut generation = None;
+        let mut sample_rate = 0;
+        let mut channels = 0;
+        let mut ring = VecDeque::new();
+        let mut playback_end = None;
+        append_batch(
+            &mut generation,
+            &mut sample_rate,
+            &mut channels,
+            &mut ring,
+            &mut playback_end,
+            SampleBatch {
+                generation: 4,
+                sample_rate: 10,
+                channels: 1,
+                samples: vec![0.1; 30],
+                playback_end_position_seconds: Some(9.0),
+            },
+        );
+        append_batch(
+            &mut generation,
+            &mut sample_rate,
+            &mut channels,
+            &mut ring,
+            &mut playback_end,
+            SampleBatch {
+                generation: 4,
+                sample_rate: 10,
+                channels: 1,
+                samples: vec![0.2; 30],
+                playback_end_position_seconds: Some(12.0),
+            },
+        );
+        let capture = capture_snapshot(3.0, sample_rate, channels, &ring, playback_end).unwrap();
+        let start = capture.playback_end_position_seconds.unwrap()
+            - capture.samples.len() as f64 / sample_rate as f64 / channels as f64;
+        assert!((start - 9.0).abs() < 1e-9);
+
+        // A seek or dropped batch creates a source-time jump. The old audio
+        // stays out of the new window even though the output generation is same.
+        append_batch(
+            &mut generation,
+            &mut sample_rate,
+            &mut channels,
+            &mut ring,
+            &mut playback_end,
+            SampleBatch {
+                generation: 4,
+                sample_rate: 10,
+                channels: 1,
+                samples: vec![0.3; 30],
+                playback_end_position_seconds: Some(20.0),
+            },
+        );
+        assert_eq!(ring.len(), 30);
+        let capture = capture_snapshot(3.0, sample_rate, channels, &ring, playback_end).unwrap();
+        let start = capture.playback_end_position_seconds.unwrap()
+            - capture.samples.len() as f64 / sample_rate as f64 / channels as f64;
+        assert!((start - 17.0).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn capture_pcm_returns_only_the_requested_latest_generation_window() {
+        let tap = PcmTap::new();
+        let mut writer = tap.writer(17, 100, 2);
+        for sample in 0..2400 {
+            writer.push(sample as f32 / 2400.0);
+        }
+        drop(writer);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let (sample_rate, channels, samples) = tap.capture_pcm(17, 10.0).unwrap();
+        assert_eq!((sample_rate, channels), (100, 2));
+        assert_eq!(samples.len(), 2000);
+        assert!((samples[0] - 400.0 / 2400.0).abs() < f32::EPSILON * 4.0);
+        assert!(tap.capture_pcm(16, 10.0).is_err());
+        let (_, _, long_window) = tap.capture_pcm(17, 11.0).unwrap();
+        assert_eq!(long_window.len(), 2200);
+        assert!(tap.capture_pcm(17, 13.0).is_err());
+    }
+
+    #[test]
     fn progressive_capture_requires_requested_audio_not_only_minimum() {
         let ring = VecDeque::from(vec![0.25; 300]);
         assert_eq!(
-            capture_snapshot(3.0, 100, 1, &ring).unwrap().samples.len(),
+            capture_snapshot(3.0, 100, 1, &ring, None)
+                .unwrap()
+                .samples
+                .len(),
             300
         );
-        assert!(capture_snapshot(6.0, 100, 1, &ring).is_err());
-        assert!(capture_snapshot(12.0, 100, 1, &ring).is_err());
+        assert!(capture_snapshot(6.0, 100, 1, &ring, None).is_err());
+        assert!(capture_snapshot(12.0, 100, 1, &ring, None).is_err());
     }
 
     #[tokio::test]

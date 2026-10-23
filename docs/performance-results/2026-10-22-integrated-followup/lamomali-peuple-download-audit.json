@@ -1,0 +1,33 @@
+{
+  "recording": "Le peuple qui danse",
+  "jobId": "6e85503a-6727-4b77-a173-f2fa1e17da4c",
+  "state": "completed",
+  "provider": "monochrome",
+  "match": "exact recordingIdentifier (ISRC, title, artists and runtime agree)",
+  "fileCount": 1,
+  "fullDecodePassed": true,
+  "hashMatchesAsset": true,
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "aac",
+        "sample_rate": "44100",
+        "channels": 2
+      },
+      {
+        "codec_name": "mjpeg",
+        "bits_per_raw_sample": "8"
+      }
+    ],
+    "format": {
+      "duration": "247.964444",
+      "tags": {
+        "artist": "Lamomali feat. Seu Jorge, Angélique Kidjo & Ibrahim Maalouf",
+        "title": "Le peuple qui danse",
+        "album": "Lamomali Totem"
+      }
+    }
+  }
+}

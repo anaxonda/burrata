@@ -33,6 +33,19 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("ReleaseView", () => {
+  it("filters downloaded and missing tracks without changing album order or identity", async () => {
+    const downloaded={...tracks[0],localAvailability:"available"};
+    const missing={...tracks[1],localAvailability:"missing",localPath:"/music/missing.flac"};
+    const target=render({tracks:[downloaded,missing]});await settle();
+    const filter=target.querySelector<HTMLSelectElement>('[aria-label="Downloaded status"]')!;
+    filter.value="downloaded";filter.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    expect(target.querySelectorAll('.shared-track-list li')).toHaveLength(1);
+    expect(target.querySelector('.shared-track-list')?.textContent).toContain("Zulu");
+    filter.value="not-downloaded";filter.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    expect(target.querySelectorAll('.shared-track-list li')).toHaveLength(1);
+    expect(target.querySelector('.shared-track-list')?.textContent).toContain("Alpha");
+  });
+
   it("opens the album playlist picker with source order and title, independent of filtering", async () => {
     const onAddAlbumToPlaylist = vi.fn();
     const target = render({onAddAlbumToPlaylist});

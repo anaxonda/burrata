@@ -1,0 +1,28 @@
+{
+  "source": "Burrata get_release_tracks, current public MusicBrainz edition",
+  "trackCount": 12,
+  "tracks": [
+    {
+      "title": "Totem",
+      "artist": "Lamomali & Yamê",
+      "isrc": "FR11Y2500030",
+      "durationSeconds": 179.582,
+      "sourceUrl": "https://musicbrainz.org/release/a89f36ab-4e53-417b-b785-b648aa1255ac"
+    },
+    {
+      "title": "Le peuple qui danse",
+      "artist": "Lamomali feat. Seu Jorge, Angélique Kidjo & Ibrahim Maalouf",
+      "isrc": "FR11Y2500100",
+      "durationSeconds": 247.944,
+      "sourceUrl": "https://musicbrainz.org/release/a89f36ab-4e53-417b-b785-b648aa1255ac"
+    },
+    {
+      "title": "Secret Garden",
+      "artist": "Lamomali feat. Patrick Wilson",
+      "isrc": "FR11Y2500120",
+      "durationSeconds": 251.68,
+      "sourceUrl": "https://musicbrainz.org/release/a89f36ab-4e53-417b-b785-b648aa1255ac"
+    }
+  ],
+  "limitation": "Catalog reports Patrick Wilson for Secret Garden. This preserves evidence of the conflict and does not establish a corrected credit or an artist alias."
+}

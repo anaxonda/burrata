@@ -48,4 +48,49 @@ describe("WebView media event recorder", () => {
     recorder.reset();
     expect(recorder.snapshot(owner)).toBeNull();
   });
+
+  it("can follow the diagnostics setting and clears samples when disabled", () => {
+    const recorder = createWebviewMediaEventRecorder();
+    recorder.record(owner, "playing", media());
+    expect(recorder.snapshot(owner)).toBeNull();
+    recorder.setEnabled(true);
+    recorder.record(owner, "waiting", media());
+    expect(recorder.snapshot(owner)?.events).toHaveLength(1);
+    recorder.setEnabled(false);
+    expect(recorder.enabled).toBe(false);
+    expect(recorder.snapshot(owner)).toBeNull();
+    recorder.setEnabled(true);
+    expect(recorder.snapshotLatest()?.map(event=>event.type)).toEqual(["waiting"]);
+    recorder.reset();
+    expect(recorder.snapshotLatest()).toBeNull();
+  });
+
+  it("records only the numeric media error code", () => {
+    const recorder = createWebviewMediaEventRecorder({enabled:true});
+    recorder.record(owner, "error", {...media(), error:{code:3, message:"https://private.invalid/token"} as MediaError});
+    expect(recorder.snapshot(owner)?.events[0]).toMatchObject({type:"error",mediaErrorCode:3});
+    expect(JSON.stringify(recorder.snapshot(owner))).not.toContain("private.invalid");
+  });
+
+  it("can retain a sanitized recent-event view after the UI clears the failed source", () => {
+    const recorder = createWebviewMediaEventRecorder({enabled:true});
+    recorder.record(owner, "error", media());
+    expect(recorder.snapshotLatest()?.map(event => event.type)).toEqual(["error"]);
+    recorder.reset();
+    expect(recorder.snapshotLatest()).toBeNull();
+  });
+
+  it("keeps failed-attempt events across a successful retry until explicit clear", () => {
+    const recorder = createWebviewMediaEventRecorder({enabled:true});
+    expect(recorder.beginAttempt()).toBe(1);
+    recorder.record(owner, "error", {...media(), error:{code:3} as MediaError});
+    expect(recorder.beginAttempt()).toBe(2);
+    recorder.record({...owner, sourceGeneration:5}, "playing", media());
+    recorder.setEnabled(false);
+    expect(recorder.snapshotHistory().map(event=>[event.attempt,event.type])).toEqual([[1,"error"],[2,"playing"]]);
+    recorder.setEnabled(true);
+    expect(recorder.snapshotHistory()).toHaveLength(2);
+    recorder.reset();
+    expect(recorder.snapshotHistory()).toEqual([]);
+  });
 });

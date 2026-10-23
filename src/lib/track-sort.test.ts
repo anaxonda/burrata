@@ -104,3 +104,16 @@ describe("sortTracks", () => {
     expect(parseDurationBound("2:61")).toBeNull();
   });
 });
+
+describe("downloaded status filtering", () => {
+  it("uses positive local availability, preserves repeated occurrences and rejects explicitly missing files", () => {
+    const available=track("available",{localAvailability:"available"});
+    const legacy=track("legacy",{localPath:"/music/legacy.flac"});
+    const missing=track("missing",{localAvailability:"missing",localPath:"/music/missing.flac"});
+    const remote=track("remote",{assetId:"unavailable-asset",localAvailability:"none"});
+    const rows=[available,missing,legacy,remote,available];
+    expect(filterTracks(rows,{availability:"downloaded"})).toEqual([available,legacy,available]);
+    expect(filterTracks(rows,{availability:"not-downloaded"})).toEqual([missing,remote]);
+    expect(rows).toHaveLength(5);
+  });
+});

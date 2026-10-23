@@ -36,6 +36,21 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("PlaybackQueuePanel", () => {
+  it("filters downloaded rows while retaining original queue occurrence indexes", async () => {
+    const onPlay=vi.fn();
+    const downloaded={...track,id:"downloaded",title:"Downloaded recording",localAvailability:"available"};
+    const missing={...track,id:"missing",title:"Missing recording",localAvailability:"missing",localPath:"/missing.flac"};
+    const rows=[track,downloaded,missing];const target=render({tracks:rows,currentIndex:0,onPlay});await tick();
+    const select=target.querySelector<HTMLSelectElement>('[aria-label="Downloaded status"]')!;
+    select.value="downloaded";select.dispatchEvent(new Event("change",{bubbles:true}));await tick();
+    expect(target.querySelectorAll('.queue-list article')).toHaveLength(1);
+    target.querySelector<HTMLButtonElement>('[aria-label="Play Downloaded recording"]')!.click();expect(onPlay).toHaveBeenCalledWith(1);
+    select.value="not-downloaded";select.dispatchEvent(new Event("change",{bubbles:true}));await tick();
+    expect(target.querySelector('[aria-label="Play Downloaded recording"]')).toBeNull();
+    expect(target.querySelector('[aria-label="Play Missing recording"]')).not.toBeNull();
+    expect(rows).toHaveLength(3);
+  });
+
   it("returns focus to the queue action trigger when Escape closes its overflow menu", async () => {
     const target = render();
     const details = target.querySelector<HTMLDetailsElement>("details.queue-more")!;

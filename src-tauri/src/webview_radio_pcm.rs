@@ -165,7 +165,10 @@ mod tests {
             1,
             Some("chapter-a")
         ));
-        assert!(!snapshot_matches(&snapshot, "radio:main", "s1", 4, 2, Some("chapter-b")), "a natural chapter transition invalidates an in-flight capture even when track/session/source/seek are stable");
+        assert!(
+            !snapshot_matches(&snapshot, "radio:main", "s1", 4, 2, Some("chapter-b")),
+            "a natural chapter transition invalidates an in-flight capture even when track/session/source/seek are stable"
+        );
         let no_chapter = serde_json::json!({"status":"playing", "trackId":"radio:main", "sessionId":"s1", "sourceGeneration":4, "seekSerial":2, "previewKind":"audio"});
         assert!(snapshot_matches(
             &no_chapter,

@@ -57,6 +57,19 @@ pub struct SlskdSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct LyricsTranslationSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub target_language: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionSettings {
     #[serde(default)]
     pub slskd: SlskdSettings,
@@ -66,6 +79,8 @@ pub struct ConnectionSettings {
     pub lastfm_enabled: bool,
     #[serde(default)]
     pub acoustid_enabled: bool,
+    #[serde(default)]
+    pub lyrics_translation: LyricsTranslationSettings,
 }
 
 #[derive(Clone)]
@@ -85,6 +100,9 @@ pub struct ConnectionUpdate {
     pub lastfm_api_key: Option<String>,
     #[serde(default)]
     pub acoustid_api_key: Option<String>,
+    /// OpenAI-compatible lyrics translation key; never stored in SQLite/settings.
+    #[serde(default)]
+    pub lyrics_translation_api_key: Option<String>,
     /// When true, changed credentials are held only in memory for this run.
     #[serde(default)]
     pub session_only: bool,
@@ -106,6 +124,8 @@ pub struct ConnectionStatus {
     pub discogs_credential: CredentialStatus,
     pub lastfm_credential: CredentialStatus,
     pub acoustid_credential: CredentialStatus,
+    #[serde(default)]
+    pub lyrics_translation_credential: CredentialStatus,
 }
 
 /// Avoid storing credentials in Settings or SQLite. Session credentials are an
@@ -152,16 +172,22 @@ impl ConnectionManager {
             lastfm_credential: self.credential_status_if_enabled("lastfm", settings.lastfm_enabled),
             acoustid_credential: self
                 .credential_status_if_enabled("acoustid", settings.acoustid_enabled),
+            lyrics_translation_credential: self.credential_status_if_enabled(
+                "lyrics_translation",
+                settings.lyrics_translation.enabled,
+            ),
             settings,
         })
     }
 
     pub fn update(&self, update: ConnectionUpdate) -> Result<ConnectionStatus, String> {
+        update.settings.validate_lyrics_translation()?;
         for (provider, value) in [
             ("slskd", update.slskd_api_key),
             ("discogs", update.discogs_token),
             ("lastfm", update.lastfm_api_key),
             ("acoustid", update.acoustid_api_key),
+            ("lyrics_translation", update.lyrics_translation_api_key),
         ] {
             if let Some(value) = value {
                 self.set_credential(&provider, &value, update.session_only)?;
@@ -338,6 +364,79 @@ impl ConnectionManager {
             downloads_path: settings.downloads_path,
         }))
     }
+
+    pub fn lyrics_translation(&self) -> Result<Option<LyricsTranslationConnection>, String> {
+        let settings = self.settings()?.lyrics_translation;
+        if !settings.enabled {
+            return Ok(None);
+        }
+        settings.validate()?;
+        let api_key = self
+            .credential("lyrics_translation")?
+            .ok_or("Enter a translation API key in Connections")?;
+        Ok(Some(LyricsTranslationConnection {
+            base_url: settings.base_url,
+            model: settings.model,
+            target_language: settings.target_language,
+            api_key,
+        }))
+    }
+}
+
+#[derive(Clone)]
+pub struct LyricsTranslationConnection {
+    pub base_url: String,
+    pub model: String,
+    pub target_language: String,
+    pub api_key: String,
+}
+
+impl ConnectionSettings {
+    fn validate_lyrics_translation(&self) -> Result<(), String> {
+        self.lyrics_translation.validate()
+    }
+}
+
+impl LyricsTranslationSettings {
+    fn validate(&self) -> Result<(), String> {
+        let base_url = self.base_url.trim();
+        let model = self.model.trim();
+        let language = self.target_language.trim();
+        if base_url.len() > 512
+            || model.len() > 128
+            || language.len() > 80
+            || [base_url, model, language]
+                .iter()
+                .any(|value| value.chars().any(char::is_control))
+        {
+            return Err("Lyrics translation settings exceed their limits".into());
+        }
+        if !base_url.is_empty() {
+            let parsed = url::Url::parse(base_url).map_err(|_| {
+                "Translation base URL must be an HTTPS API URL or loopback HTTP URL"
+            })?;
+            let loopback_http = parsed.scheme() == "http"
+                && parsed.host_str().is_some_and(|host| {
+                    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+                });
+            if (parsed.scheme() != "https" && !loopback_http)
+                || parsed.host_str().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+                || parsed.query().is_some()
+                || parsed.fragment().is_some()
+            {
+                return Err("Translation base URL must use HTTPS, or HTTP on loopback, without credentials or query parameters".into());
+            }
+        }
+        if self.enabled && (base_url.is_empty() || model.is_empty() || language.is_empty()) {
+            return Err(
+                "Set a translation API URL, model, and target language before enabling translation"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
 }
 
 fn credential_name(provider: &str) -> Result<&'static str, String> {
@@ -346,6 +445,7 @@ fn credential_name(provider: &str) -> Result<&'static str, String> {
         "discogs" => Ok("discogs"),
         "lastfm" => Ok("lastfm"),
         "acoustid" => Ok("acoustid"),
+        "lyrics_translation" => Ok("lyrics_translation"),
         _ => Err("Unknown credential provider".into()),
     }
 }
@@ -364,6 +464,25 @@ mod tests {
         }
         fn delete(&self, _: &str) -> Result<(), String> {
             Err("keyring locked".into())
+        }
+    }
+
+    #[derive(Default)]
+    struct MemoryKeyring(Mutex<HashMap<String, String>>);
+    impl CredentialStore for MemoryKeyring {
+        fn get(&self, provider: &str) -> Result<Option<String>, String> {
+            Ok(self.0.lock().unwrap().get(provider).cloned())
+        }
+        fn set(&self, provider: &str, secret: &str) -> Result<(), String> {
+            self.0
+                .lock()
+                .unwrap()
+                .insert(provider.into(), secret.into());
+            Ok(())
+        }
+        fn delete(&self, provider: &str) -> Result<(), String> {
+            self.0.lock().unwrap().remove(provider);
+            Ok(())
         }
     }
 
@@ -389,6 +508,79 @@ mod tests {
         assert_eq!(after_restart.credential("slskd").unwrap(), None);
         let status = after_restart.credential_status("slskd").unwrap();
         assert!(!status.present && status.session_only);
+    }
+
+    #[test]
+    fn lyrics_translation_secret_uses_keyring_and_status_never_serializes_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
+        let keyring = Arc::new(MemoryKeyring::default());
+        let manager = ConnectionManager::with_keyring(store.clone(), keyring.clone());
+        let mut settings = ConnectionSettings::default();
+        settings.lyrics_translation = LyricsTranslationSettings {
+            enabled: true,
+            base_url: "https://api.example.test/v1".into(),
+            model: "translate-model".into(),
+            target_language: "fr".into(),
+        };
+        let status = manager
+            .update(ConnectionUpdate {
+                settings,
+                lyrics_translation_api_key: Some("translation-secret".into()),
+                ..ConnectionUpdate::default()
+            })
+            .unwrap();
+        assert!(status.lyrics_translation_credential.present);
+        assert!(!status.lyrics_translation_credential.session_only);
+        assert!(!serde_json::to_string(&status)
+            .unwrap()
+            .contains("translation-secret"));
+        assert!(!store
+            .get_json_preference(SETTINGS_KEY)
+            .unwrap()
+            .unwrap()
+            .to_string()
+            .contains("translation-secret"));
+        assert_eq!(
+            keyring.get("lyrics_translation").unwrap().as_deref(),
+            Some("translation-secret")
+        );
+        let connection = manager.lyrics_translation().unwrap().unwrap();
+        assert_eq!(connection.model, "translate-model");
+        assert_eq!(connection.target_language, "fr");
+        assert_eq!(connection.api_key, "translation-secret");
+    }
+
+    #[test]
+    fn lyrics_translation_settings_allow_https_or_loopback_http_only() {
+        let good = [
+            "https://api.example.test/v1",
+            "http://localhost:1234/v1",
+            "http://127.0.0.1:1234/v1",
+        ];
+        for base_url in good {
+            let settings = LyricsTranslationSettings {
+                enabled: true,
+                base_url: base_url.into(),
+                model: "model".into(),
+                target_language: "en".into(),
+            };
+            assert!(settings.validate().is_ok(), "{base_url}");
+        }
+        for base_url in [
+            "http://example.test/v1",
+            "file:///tmp/api",
+            "https://user:secret@example.test/v1",
+            "https://example.test/v1?token=secret",
+        ] {
+            let settings = LyricsTranslationSettings {
+                enabled: true,
+                base_url: base_url.into(),
+                model: "model".into(),
+                target_language: "en".into(),
+            };
+            assert!(settings.validate().is_err(), "{base_url}");
+        }
     }
 }
 

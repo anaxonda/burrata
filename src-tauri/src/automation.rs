@@ -6130,6 +6130,15 @@ impl AutomationService {
                 require_no_arguments(&a, name)?;
                 self.inspect_webview_media().await?
             }
+            "get_live_bpm" => {
+                require_no_arguments(&a, name)?;
+                match self.playback.get() {
+                    Some(playback) => {
+                        json!(playback.live_bpm().await.map_err(ToolError::failed)?)
+                    }
+                    None => Value::Null,
+                }
+            }
             "interact_queue_ui" => self.interact_queue_ui(&a).await?,
             "set_player_panel" => {
                 self.set_player_panel(parse_player_panel_request(&a)?)
@@ -6291,9 +6300,63 @@ impl AutomationService {
                     crate::recording_match::MatchStage::Resolved,
                 ))
             }
+            "browse_soulseek_directory" => {
+                let (_cancel, receiver) = tokio::sync::watch::channel(false);
+                let browse = self
+                    .acquisition
+                    .browse_soulseek_directory(
+                        &str_arg(&a, "username", 128)?,
+                        &str_arg(&a, "directory", 2048)?,
+                        receiver,
+                    )
+                    .await
+                    .map_err(ToolError::failed)?;
+                // Browsed peer rows remain catalog cache entries, not Library
+                // membership. This makes returned IDs usable by the explicit
+                // download tool without silently adding them to the Library.
+                for track in &browse.tracks {
+                    self.store.cache_track(track).map_err(ToolError::failed)?;
+                }
+                json!(browse)
+            }
             "get_playback_diagnostics_status" => json!(crate::playback_diagnostics::status()),
             "get_playback_diagnostics_report" => json!(crate::playback_diagnostics::export()),
             "clear_playback_diagnostics" => json!(crate::playback_diagnostics::clear()),
+            "get_acquisition_preferences" => {
+                require_no_arguments(&a, name)?;
+                let settings = self.store.settings().map_err(ToolError::failed)?;
+                acquisition_preferences(&settings)
+            }
+            "set_live_bpm_enabled" => {
+                let enabled = a
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| ToolError::bad("enabled must be a boolean"))?;
+                let preferences = update_acquisition_preferences(&self.store, Some(enabled), None)
+                    .map_err(ToolError::failed)?;
+                let _ = self
+                    .app
+                    .emit("acquisition-preferences-changed", preferences.clone());
+                preferences
+            }
+            "set_download_layout" => {
+                let layout = match str_arg(&a, "layout", 32)?.as_str() {
+                    "flat" => DownloadLayout::Flat,
+                    "artistAlbum" => DownloadLayout::ArtistAlbum,
+                    "playlist" => DownloadLayout::Playlist,
+                    _ => {
+                        return Err(ToolError::bad(
+                            "layout must be flat, artistAlbum, or playlist",
+                        ))
+                    }
+                };
+                let preferences = update_acquisition_preferences(&self.store, None, Some(layout))
+                    .map_err(ToolError::failed)?;
+                let _ = self
+                    .app
+                    .emit("acquisition-preferences-changed", preferences.clone());
+                preferences
+            }
             "set_playback_diagnostics_enabled" => {
                 let enabled = a
                     .get("enabled")
@@ -6338,6 +6401,7 @@ impl AutomationService {
                         .ok_or_else(|| ToolError::bad("An explicit candidate is required"))?,
                 )
                 .map_err(|e| ToolError::bad(e.to_string()))?;
+                let playlist_context = download_playlist_context(&a)?;
                 let _guard = self.mutations.lock().await;
                 let key = a
                     .get("idempotencyKey")
@@ -6356,7 +6420,7 @@ impl AutomationService {
                     if key.len() > 200 {
                         return Err(ToolError::bad("idempotencyKey too long"));
                     }
-                    let signature = json!({"trackId":track.id,"candidateId":candidate.id,"formatId":a.get("formatId"),"outputProfile":a.get("outputProfile"),"chapterIds":a.get("chapterIds"),"disposition":a.get("disposition")});
+                    let signature = json!({"trackId":track.id,"candidateId":candidate.id,"formatId":a.get("formatId"),"outputProfile":a.get("outputProfile"),"chapterIds":a.get("chapterIds"),"disposition":a.get("disposition"),"playlistContext":playlist_context.clone()});
                     if let Some(job_id) = idempotent_id(&db, key, "download_candidate", &signature)?
                     {
                         let job = self.store.get_job(&job_id).map_err(ToolError::failed)?;
@@ -6391,6 +6455,7 @@ impl AutomationService {
                         .unwrap_or("source")
                         .into(),
                     chapter_ids,
+                    playlist_context: playlist_context.clone(),
                 };
                 let job = self
                     .acquisition
@@ -6398,7 +6463,7 @@ impl AutomationService {
                     .await
                     .map_err(ToolError::failed)?;
                 if !key.is_empty() {
-                    db[key] = json!({"operation":"download_candidate","signature":{"trackId":job.track.id,"candidateId":job.candidate.id,"formatId":job.format_id,"outputProfile":job.output_profile,"chapterIds":job.chapter_ids,"disposition":a.get("disposition")},"id":job.id});
+                    db[key] = json!({"operation":"download_candidate","signature":{"trackId":job.track.id,"candidateId":job.candidate.id,"formatId":job.format_id,"outputProfile":job.output_profile,"chapterIds":job.chapter_ids,"disposition":a.get("disposition"),"playlistContext":job.playlist_context},"id":job.id});
                     self.store
                         .set_json_preference(IDEMPOTENCY_KEY, &db)
                         .map_err(ToolError::failed)?;
@@ -6729,6 +6794,33 @@ fn public_duration_repair_error(error: &str) -> ToolError {
     }
 }
 
+fn acquisition_preferences(settings: &Settings) -> Value {
+    json!({
+        "liveBpmEnabled": settings.live_bpm_enabled,
+        "downloadLayout": settings.download_layout,
+    })
+}
+
+fn update_acquisition_preferences(
+    store: &Store,
+    live_bpm_enabled: Option<bool>,
+    download_layout: Option<DownloadLayout>,
+) -> Result<Value, String> {
+    // Always load a fresh complete settings value before changing these narrow
+    // fields so secrets, paths, and unrelated user preferences stay intact.
+    let mut settings = store.settings().map_err(|error| error.to_string())?;
+    if let Some(enabled) = live_bpm_enabled {
+        settings.live_bpm_enabled = enabled;
+    }
+    if let Some(layout) = download_layout {
+        settings.download_layout = layout;
+    }
+    store
+        .save_settings(&settings)
+        .map_err(|error| error.to_string())?;
+    Ok(acquisition_preferences(&settings))
+}
+
 fn playback_history_tool(name: &str) -> Option<PlaybackHistoryTool> {
     match name {
         "search_playback_history" | "list_playback_history" => Some(PlaybackHistoryTool::Search),
@@ -6769,6 +6861,8 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "assess_download_source"
         | "get_playback_diagnostics_status"
         | "get_playback_diagnostics_report"
+        | "get_acquisition_preferences"
+        | "browse_soulseek_directory"
         | "download_jobs"
         | "analysis_status"
         | "search_playback_history"
@@ -6796,6 +6890,7 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "capture_main_ui"
         | "inspect_playback_layout"
         | "inspect_webview_media"
+        | "get_live_bpm"
         | "get_slskd_search"
         | "start_slskd_search"
         | "cancel_slskd_search"
@@ -6845,6 +6940,8 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "download_loaded_local_playlist"
         | "retry_download"
         | "set_playback_diagnostics_enabled"
+        | "set_live_bpm_enabled"
+        | "set_download_layout"
         | "clear_playback_diagnostics"
         | "cancel_download"
         | "analyze_library"
@@ -7218,6 +7315,30 @@ fn string_array(a: &Value, k: &str, max: usize) -> Result<Vec<String>, ToolError
         })
         .collect()
 }
+
+fn download_playlist_context(
+    arguments: &Value,
+) -> Result<Option<crate::models::DownloadPlaylistContext>, ToolError> {
+    let Some(value) = arguments.get("playlistContext") else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let context: crate::models::DownloadPlaylistContext = serde_json::from_value(value.clone())
+        .map_err(|error| ToolError::bad(format!("Invalid playlist context: {error}")))?;
+    if context.id.trim().is_empty()
+        || context.id.chars().count() > 300
+        || context.name.trim().is_empty()
+        || context.name.chars().count() > 160
+        || context.id.chars().any(char::is_control)
+        || context.name.chars().any(char::is_control)
+    {
+        return Err(ToolError::bad("Invalid playlist context"));
+    }
+    Ok(Some(context))
+}
+
 fn idempotent_id(
     db: &Value,
     key: &str,
@@ -7234,9 +7355,20 @@ fn idempotent_id(
         .get("id")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::failed("Saved idempotency record is invalid"))?;
-    if value.get("operation").and_then(Value::as_str) != Some(operation)
-        || value.get("signature") != Some(signature)
-    {
+    let signature_matches = if operation == "download_candidate" {
+        let mut saved = value.get("signature").cloned().unwrap_or(Value::Null);
+        let mut requested = signature.clone();
+        if let Some(saved) = saved.as_object_mut() {
+            saved.entry("playlistContext").or_insert(Value::Null);
+        }
+        if let Some(requested) = requested.as_object_mut() {
+            requested.entry("playlistContext").or_insert(Value::Null);
+        }
+        saved == requested
+    } else {
+        value.get("signature") == Some(signature)
+    };
+    if value.get("operation").and_then(Value::as_str) != Some(operation) || !signature_matches {
         return Err(ToolError {
             code: "IDEMPOTENCY_CONFLICT",
             message: "Idempotency key was already used for a different request".into(),
@@ -7422,7 +7554,12 @@ fn playback_history_search_options(
     }
     let limit = limit as u32;
     let offset = usize_arg(arguments, "offset", 1_000_000)?.unwrap_or(0) as u32;
+    let availability = optional_str_arg(arguments, "availability", 24)?;
+    if availability.as_deref().is_some_and(|value| !matches!(value, "all" | "downloaded" | "not-downloaded")) {
+        return Err(ToolError::bad("availability must be all, downloaded, or not-downloaded"));
+    }
     Ok(PlaybackHistorySearchOptions {
+        availability,
         query,
         provider,
         station_id,
@@ -7758,7 +7895,7 @@ fn tool_definitions() -> Vec<Value> {
  ("return_youtube_login_to_music","After completing Google sign-in, return the owned YouTube window to Music; requires the Google sign-in origin and a valid YouTube authentication cookie", "control"),
  ("start_managed_provider_background","Enable the confirmed provider session without reopening login", "control"),
  ("stop_managed_provider_session","Stop provider jobs and close the owned login window", "control"),
- ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_webview_media","Read current WebView audio-element state; read-only and not a physical-audibility measurement", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
+ ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_webview_media","Read current WebView audio-element state; read-only and not a physical-audibility measurement", "read"),("get_live_bpm","Read the opt-in approximate tempo estimate from the latest native playback PCM window; returns null when disabled or unavailable and never edits track metadata", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
  ("discover_music","Search selected music sources with independent result pages", "read"),("poll_music_search","Poll a Soulseek discovery search", "read"),("inspect_source_chapters","Inspect source chapters and register stable chapter tracks", "read"),("get_autotag_status","Get paginated autotag review jobs", "read"),("retry_autotag","Retry an autotag job", "manage"),("repair_download_source_tags","Fill missing tags from the exact completed download source; local-only, no recognition or catalog lookup, identity remains unverified", "manage"),("review_autotag_candidate","Select a catalog candidate for autotag review", "manage"),("apply_autotag_review","Apply approved autotag fields", "manage"),("play_chapter","Play a registered chapter track", "control"),
  ("inspect_spotify_artist_page","Inspect fixed Spotify artist-list guard counts and enums without content or identifiers", "read"),
  ("inspect_spotify_profile_page","Inspect one bounded Spotify profile page or full-profile summary; returns ordered playlist-ID hashes and counts only", "read"),
@@ -7772,7 +7909,7 @@ fn tool_definitions() -> Vec<Value> {
  ("cancel_playing_track_identification","Cancel one native or WebView audio identification request by its captureId UUID", "control"),
  ("play_tracks_queued","Accept an exact playback queue without waiting for sound; caller UUID permits receipt recovery", "control"),("get_playback_operation","Get queued playback operation status by caller UUID", "control"),("cancel_playback_operation","Cancel only the named playback operation; supports pre-cancel", "control"),
  ("playback_state","Get player state", "control"),("play_tracks","Play specific track IDs", "control"),("pause_playback","Pause playback", "control"),("resume_playback","Resume playback", "control"),("queue_tracks","Queue specific track IDs", "control"),("seek_playback","Seek in seconds", "control"),("set_volume","Set volume from 0 to 1", "control"),("create_playlist","Create a playlist", "control"),("add_tracks_to_playlist","Append track IDs to a playlist", "control"),
- ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("get_playback_diagnostics_status","Read bounded playback diagnostic logging status", "read"),("get_playback_diagnostics_report","Read sanitized opt-in playback diagnostic events", "read"),("set_playback_diagnostics_enabled","Enable or disable opt-in playback diagnostic logging", "manage"),("clear_playback_diagnostics","Clear captured playback diagnostic events", "manage"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().map(|(name,description,_scope)|{
+ ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("browse_soulseek_directory","List exact audio files in a Soulseek peer directory; source-reported metadata", "read"),("get_playback_diagnostics_status","Read bounded playback diagnostic logging status", "read"),("get_playback_diagnostics_report","Read sanitized opt-in playback diagnostic events", "read"),("get_acquisition_preferences","Read only the live BPM toggle and download folder layout", "read"),("set_live_bpm_enabled","Set whether live BPM analysis is enabled", "manage"),("set_download_layout","Set the download folder layout", "manage"),("set_playback_diagnostics_enabled","Enable or disable opt-in playback diagnostic logging", "manage"),("clear_playback_diagnostics","Clear captured playback diagnostic events", "manage"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().map(|(name,description,_scope)|{
  let scope=tool_scope(name).unwrap_or("read");
  let (properties,required)=match name{
  "preview_verification_playlist_intent"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]}}),json!(["provider"])),
@@ -7826,19 +7963,21 @@ fn tool_definitions() -> Vec<Value> {
  "repair_spotify_durations_public"|"cancel_public_spotify_duration_repair"|"public_spotify_duration_repair_running"=>(json!({}),json!([])),
  "search_library"=>(json!({"query":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["query"])),
  "list_tracks_page"=>(json!({"view":{"type":"string","enum":["library","favorites","shortlist","collections"]},"collectionId":{"type":"string","maxLength":256},"query":{"type":"string","maxLength":500},"sortField":{"type":"string","enum":["sourceOrder","rank","title","artist","album","duration","durationSeconds","releaseDate","dateAdded","bpm","key","plays","views"]},"direction":{"type":"string","enum":["asc","desc"]},"minDurationSeconds":{"type":"integer","minimum":0,"maximum":4294967295u64},"maxDurationSeconds":{"type":"integer","minimum":0,"maximum":4294967295u64},"availability":{"type":"string","enum":["all","local","not-local"]},"provider":{"type":"string","maxLength":80},"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!(["view"])),
- "search_playback_history"|"list_playback_history"=>(json!({"query":{"type":"string","maxLength":300},"provider":{"type":"string","maxLength":120,"description":"Exact playback provider filter. Use radio for radio songs or non-radio to exclude them."},"stationId":{"type":"string","maxLength":120,"description":"Filter radio playback history to one station"},"from":{"type":"string","maxLength":64,"description":"Inclusive lower bound as YYYY-MM-DD or RFC3339"},"to":{"type":"string","maxLength":64,"description":"Inclusive upper bound as YYYY-MM-DD or RFC3339"},"sort":{"type":"string","enum":["newest","oldest"]},"sortField":{"type":"string","enum":["title","artist","album","duration","releaseDate","dateAdded","sourceOrder","bpm","key","plays","views"]},"direction":{"type":"string","enum":["asc","desc"]},"minDurationSeconds":{"type":"number","minimum":0},"maxDurationSeconds":{"type":"number","minimum":0},"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),
+ "search_playback_history"|"list_playback_history"=>(json!({"availability":{"type":"string","enum":["all","downloaded","not-downloaded"]},"query":{"type":"string","maxLength":300},"provider":{"type":"string","maxLength":120,"description":"Exact playback provider filter. Use radio for radio songs or non-radio to exclude them."},"stationId":{"type":"string","maxLength":120,"description":"Filter radio playback history to one station"},"from":{"type":"string","maxLength":64,"description":"Inclusive lower bound as YYYY-MM-DD or RFC3339"},"to":{"type":"string","maxLength":64,"description":"Inclusive upper bound as YYYY-MM-DD or RFC3339"},"sort":{"type":"string","enum":["newest","oldest"]},"sortField":{"type":"string","enum":["title","artist","album","duration","releaseDate","dateAdded","sourceOrder","bpm","key","plays","views"]},"direction":{"type":"string","enum":["asc","desc"]},"minDurationSeconds":{"type":"number","minimum":0},"maxDurationSeconds":{"type":"number","minimum":0},"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),
  "get_playback_history_entry"=>(json!({"sessionId":{"type":"string","minLength":1,"maxLength":300}}),json!(["sessionId"])),
  "get_track"=>(json!({"trackId":{"type":"string"}}),json!(["trackId"])),"list_playlists"=>(json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),"get_playlist"=>(json!({"playlistId":{"type":"string"},"snapshotId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["playlistId"])),
  "search_tracks"=>(json!({"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["library","musicbrainz","youtube","soundcloud","bandcamp","soulseek","monochrome"]}}}),json!(["query"])),
  "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),
  "playback_state"=>(json!({"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!([])),
- "inspect_webview_media"=>(json!({}),json!([])),
+ "inspect_webview_media"|"get_live_bpm"|"get_acquisition_preferences"=>(json!({}),json!([])),
+ "set_live_bpm_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),
+ "set_download_layout"=>(json!({"layout":{"type":"string","enum":["flat","artistAlbum","playlist"]}}),json!(["layout"])),
  "resize_app_window"=>(json!({"width":{"type":"integer","minimum":320,"maximum":7680},"height":{"type":"integer","minimum":240,"maximum":4320},"restoreMaximized":{"type":"boolean","description":"Whether to maximize the window after resizing; omitted preserves its prior maximized state."}}),json!(["width","height"])),
  "play_tracks_queued"=>(json!({"trackIds":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"string"}},"operationId":{"type":"string","format":"uuid","minLength":36,"maxLength":36}}),json!(["trackIds","operationId"])),
  "get_playback_operation"|"cancel_playback_operation"=>(json!({"operationId":{"type":"string","format":"uuid","minLength":36,"maxLength":36}}),json!(["operationId"])),
  "play_tracks"=>(json!({"trackIds":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"string"}}}),json!(["trackIds"])),"queue_tracks"=>(json!({"trackIds":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"string"}},"mode":{"type":"string","enum":["append","replace","next"]}}),json!(["trackIds"])),"seek_playback"=>(json!({"position":{"type":"number","minimum":0}}),json!(["position"])),"set_volume"=>(json!({"volume":{"type":"number","minimum":0,"maximum":1}}),json!(["volume"])),
  "create_playlist"=>(json!({"name":{"type":"string"},"idempotencyKey":{"type":"string"}}),json!(["name"])),"add_tracks_to_playlist"=>(json!({"playlistId":{"type":"string"},"trackIds":{"type":"array","items":{"type":"string"}},"idempotencyKey":{"type":"string"}}),json!(["playlistId","trackIds"])),
- "search_audio_sources"=>(json!({"trackId":{"type":"string"},"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["youtube","soundcloud","monochrome"]}}}),json!(["providers"])),"inspect_audio_source"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"}}),json!(["trackId","candidate"])),"assess_download_source"=>(json!({"trackId":{"type":"string","minLength":1,"maxLength":300},"candidate":{"type":"object","description":"Explicit provider candidate; track identity is loaded from the saved library entry"}}),json!(["trackId","candidate"])),"set_playback_diagnostics_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),"start_slskd_search"=>(json!({"query":{"type":"string"}}),json!(["query"])),"get_slskd_search"|"cancel_slskd_search"=>(json!({"searchId":{"type":"string"}}),json!(["searchId"])),"download_candidate"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"},"formatId":{"type":"string"},"outputProfile":{"type":"string","enum":["source","mp3"]},"chapterIds":{"type":"array","items":{"type":"string"}},"disposition":{"type":"object","properties":{"mode":{"type":"string","enum":["keep","replace"]},"targetAssetId":{"type":"string"},"expectedHash":{"type":"string"}},"required":["mode"],"additionalProperties":false},"idempotencyKey":{"type":"string"}}),json!(["trackId","candidate"])),
+ "search_audio_sources"=>(json!({"trackId":{"type":"string"},"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["youtube","soundcloud","monochrome"]}}}),json!(["providers"])),"inspect_audio_source"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"}}),json!(["trackId","candidate"])),"assess_download_source"=>(json!({"trackId":{"type":"string","minLength":1,"maxLength":300},"candidate":{"type":"object","description":"Explicit provider candidate; track identity is loaded from the saved library entry"}}),json!(["trackId","candidate"])),"browse_soulseek_directory"=>(json!({"username":{"type":"string","minLength":1,"maxLength":128},"directory":{"type":"string","minLength":1,"maxLength":2048}}),json!(["username","directory"])),"set_playback_diagnostics_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),"start_slskd_search"=>(json!({"query":{"type":"string"}}),json!(["query"])),"get_slskd_search"|"cancel_slskd_search"=>(json!({"searchId":{"type":"string"}}),json!(["searchId"])),"download_candidate"=>(json!({"trackId":{"type":"string"},"candidate":{"type":"object"},"formatId":{"type":"string"},"outputProfile":{"type":"string","enum":["source","mp3"]},"chapterIds":{"type":"array","items":{"type":"string"}},"playlistContext":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":300},"name":{"type":"string","minLength":1,"maxLength":160}},"required":["id","name"],"additionalProperties":false},"disposition":{"type":"object","properties":{"mode":{"type":"string","enum":["keep","replace"]},"targetAssetId":{"type":"string"},"expectedHash":{"type":"string"}},"required":["mode"],"additionalProperties":false},"idempotencyKey":{"type":"string"}}),json!(["trackId","candidate"])),
  "retry_download"|"cancel_download"=>(json!({"jobId":{"type":"string"}}),json!(["jobId"])),"download_jobs"|"analysis_status"=>(json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),"export_mixxx_playlist"=>(json!({"playlistId":{"type":"string"}}),json!(["playlistId"])),"analyze_library"=>(json!({"assetIds":{"type":"array","items":{"type":"string"}},"force":{"type":"boolean"}}),json!([])),_ => (json!({}),json!([]))};
  let mut input_schema=json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
  if name=="search_radio_stations" { input_schema["properties"]["query"]["maxLength"]=json!(100); input_schema["anyOf"]=json!([{"required":["query"]},{"required":["country"]},{"required":["tag"]}]); }
@@ -9521,6 +9660,93 @@ mod tests {
     }
 
     #[test]
+    fn live_bpm_tool_is_read_only_no_argument_and_returns_optional_estimate() {
+        let tool = tool_definitions()
+            .into_iter()
+            .find(|tool| tool["name"] == "get_live_bpm")
+            .expect("live BPM tool");
+        assert_eq!(tool_scope("get_live_bpm"), Some("read"));
+        assert_eq!(tool["scope"], "read");
+        assert_eq!(tool["inputSchema"]["properties"], json!({}));
+        assert_eq!(tool["inputSchema"]["required"], json!([]));
+        assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+        assert!(require_no_arguments(&json!({}), "get_live_bpm").is_ok());
+        assert!(require_no_arguments(&json!({"trackId":"arbitrary"}), "get_live_bpm").is_err());
+        assert!(tool["description"]
+            .as_str()
+            .unwrap()
+            .contains("returns null when disabled or unavailable"));
+    }
+
+    #[test]
+    fn acquisition_preference_tools_are_narrow_and_updates_preserve_unrelated_settings() {
+        let definitions = tool_definitions();
+        for (name, scope) in [
+            ("get_acquisition_preferences", "read"),
+            ("set_live_bpm_enabled", "manage"),
+            ("set_download_layout", "manage"),
+        ] {
+            let tool = definitions
+                .iter()
+                .find(|tool| tool["name"] == name)
+                .unwrap();
+            assert_eq!(tool_scope(name), Some(scope));
+            assert_eq!(tool["scope"], scope);
+            assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+        }
+        let preferences_tool = definitions
+            .iter()
+            .find(|tool| tool["name"] == "get_acquisition_preferences")
+            .unwrap();
+        assert_eq!(preferences_tool["inputSchema"]["properties"], json!({}));
+        assert!(require_no_arguments(&json!({}), "get_acquisition_preferences").is_ok());
+        let live_bpm_tool = definitions
+            .iter()
+            .find(|tool| tool["name"] == "set_live_bpm_enabled")
+            .unwrap();
+        assert_eq!(live_bpm_tool["inputSchema"]["required"], json!(["enabled"]));
+        assert_eq!(
+            live_bpm_tool["inputSchema"]["properties"]["enabled"]["type"],
+            "boolean"
+        );
+        let layout_tool = definitions
+            .iter()
+            .find(|tool| tool["name"] == "set_download_layout")
+            .unwrap();
+        assert_eq!(
+            layout_tool["inputSchema"]["properties"]["layout"]["enum"],
+            json!(["flat", "artistAlbum", "playlist"])
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("acquisition-preferences.sqlite")).unwrap();
+        let mut original = Settings::default();
+        original.theme = "midnight".into();
+        original.music_directory = "/music/library".into();
+        original.preferred_download_source = "youtube".into();
+        store.save_settings(&original).unwrap();
+        let initial = acquisition_preferences(&store.settings().unwrap());
+        assert_eq!(
+            initial,
+            json!({"liveBpmEnabled":false,"downloadLayout":"artistAlbum"})
+        );
+
+        let result =
+            update_acquisition_preferences(&store, Some(true), Some(DownloadLayout::Playlist))
+                .unwrap();
+        assert_eq!(
+            result,
+            json!({"liveBpmEnabled":true,"downloadLayout":"playlist"})
+        );
+        let saved = store.settings().unwrap();
+        assert!(saved.live_bpm_enabled);
+        assert_eq!(saved.download_layout, DownloadLayout::Playlist);
+        assert_eq!(saved.theme, "midnight");
+        assert_eq!(saved.music_directory, "/music/library");
+        assert_eq!(saved.preferred_download_source, "youtube");
+    }
+
+    #[test]
     fn webview_media_event_diagnostics_are_bounded_owned_and_redacted() {
         let base = json!({
             "engine":"webview","applicable":true,"trackId":"t","sessionId":"s","sourceGeneration":7,"seekSerial":2,
@@ -10560,6 +10786,80 @@ mod tests {
                 .code,
             "IDEMPOTENCY_CONFLICT"
         );
+    }
+    #[test]
+    fn download_idempotency_binds_playlist_context_and_treats_legacy_absence_as_none() {
+        let old_signature = json!({"trackId":"track","candidateId":"candidate"});
+        let old_db = json!({"old":{"operation":"download_candidate","signature":old_signature,"id":"job-old"}});
+        let no_context =
+            json!({"trackId":"track","candidateId":"candidate","playlistContext":null});
+        assert_eq!(
+            idempotent_id(&old_db, "old", "download_candidate", &no_context)
+                .unwrap()
+                .as_deref(),
+            Some("job-old")
+        );
+
+        let playlist = json!({"id":"local-1","name":"Road Trip"});
+        let signature =
+            json!({"trackId":"track","candidateId":"candidate","playlistContext":playlist});
+        let db =
+            json!({"key":{"operation":"download_candidate","signature":signature,"id":"job-1"}});
+        assert_eq!(
+            idempotent_id(&db, "key", "download_candidate", &signature)
+                .unwrap()
+                .as_deref(),
+            Some("job-1")
+        );
+        let other_playlist = json!({"trackId":"track","candidateId":"candidate","playlistContext":{"id":"local-2","name":"Road Trip"}});
+        assert_eq!(
+            idempotent_id(&db, "key", "download_candidate", &other_playlist)
+                .unwrap_err()
+                .code,
+            "IDEMPOTENCY_CONFLICT"
+        );
+    }
+
+    #[test]
+    fn download_playlist_context_is_typed_bounded_and_rejects_unknown_fields() {
+        assert_eq!(
+            download_playlist_context(
+                &json!({"playlistContext":{"id":"local-1","name":"Road Trip"}})
+            )
+            .unwrap()
+            .unwrap()
+            .id,
+            "local-1"
+        );
+        assert!(download_playlist_context(&json!({"playlistContext":{"id":"local-1"}})).is_err());
+        assert!(download_playlist_context(
+            &json!({"playlistContext":{"id":"local-1","name":"Road Trip","extra":true}})
+        )
+        .is_err());
+        assert!(
+            download_playlist_context(&json!({"playlistContext":{"id":"local-1","name":" "}}))
+                .is_err()
+        );
+        assert!(download_playlist_context(&json!({})).unwrap().is_none());
+    }
+
+    #[test]
+    fn download_candidate_schema_declares_strict_optional_playlist_context() {
+        let tool = tool_definitions()
+            .into_iter()
+            .find(|tool| tool["name"] == "download_candidate")
+            .unwrap();
+        let context = &tool["inputSchema"]["properties"]["playlistContext"];
+        assert_eq!(context["type"], "object");
+        assert_eq!(context["required"], json!(["id", "name"]));
+        assert_eq!(context["additionalProperties"], false);
+        assert_eq!(context["properties"]["id"]["maxLength"], 300);
+        assert_eq!(context["properties"]["name"]["maxLength"], 160);
+        assert!(!tool["inputSchema"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "playlistContext"));
     }
     #[test]
     fn native_playback_automation_payload_redacts_paths_and_private_or_signed_urls() {

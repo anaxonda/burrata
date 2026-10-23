@@ -81,6 +81,8 @@ fn default_search_limit() -> u32 {
 #[serde(rename_all = "camelCase")]
 pub struct PlaybackHistorySearchOptions {
     #[serde(default)]
+    pub availability: Option<String>,
+    #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
     pub provider: Option<String>,
@@ -342,6 +344,13 @@ impl PlaybackHistory {
         store: &Store,
         options: PlaybackHistorySearchOptions,
     ) -> Result<PlaybackHistoryPage, String> {
+        if options
+            .availability
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "all" | "downloaded" | "not-downloaded"))
+        {
+            return Err("Unsupported playback history downloaded status".into());
+        }
         let query = options
             .query
             .as_deref()
@@ -465,6 +474,12 @@ impl PlaybackHistory {
                 store,
                 decode_history_row(raw_history_row(row).map_err(|e| e.to_string())?)?,
             )?;
+            let downloaded = entry.track.local_availability == "available";
+            if matches!(options.availability.as_deref(), Some("downloaded")) && !downloaded
+                || matches!(options.availability.as_deref(), Some("not-downloaded")) && downloaded
+            {
+                continue;
+            }
             if query.as_deref().is_some_and(|query| {
                 let text = history_search_text(&entry);
                 !query.split_whitespace().all(|term| text.contains(term))
@@ -574,11 +589,25 @@ fn enrich_entry(
 
 fn enrich_track(store: &Store, mut historical: Track) -> Result<Track, String> {
     let Some(current) = store.get_track(&historical.id)? else {
+        historical.local_availability = if historical
+            .local_path
+            .as_deref()
+            .is_some_and(|path| Path::new(path).is_file())
+        {
+            "available"
+        } else {
+            "none"
+        }
+        .into();
         return Ok(historical);
     };
     if current.id != historical.id {
         return Ok(historical);
     }
+    // Availability is current state, not a property of the historical play.
+    historical.local_availability = current.local_availability.clone();
+    historical.local_path = current.local_path.clone();
+    historical.asset_id = current.asset_id.clone();
     let title_is_placeholder = historical.title.trim() == historical.source_url.trim()
         || url::Url::parse(historical.title.trim()).is_ok();
     if title_is_placeholder
@@ -786,6 +815,66 @@ mod tests {
         assert!(!page.has_more);
         assert_eq!(page.items[0].session_id, "target");
         assert_eq!(page.items[0].track.title, "Lágrimas Negras");
+    }
+
+    #[test]
+    fn history_download_filter_uses_current_files_before_counting_and_paging() {
+        let dir = tempdir().unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("history.sqlite")).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        for (index, name) in ["A", "B", "C", "D"].into_iter().enumerate() {
+            let path = dir.path().join(format!("{name}.flac"));
+            if index % 2 == 1 {
+                std::fs::write(&path, b"local fixture").unwrap();
+            }
+            let mut value = track();
+            value.id = name.into();
+            value.title = name.into();
+            value.local_path = Some(path.to_string_lossy().into_owned());
+            // Old snapshots may claim available even after a file is removed.
+            value.local_availability = "available".into();
+            history.record(name, "local", &value, None).unwrap();
+        }
+        let page = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    availability: Some("downloaded".into()),
+                    sort_field: Some("title".into()),
+                    direction: Some("asc".into()),
+                    offset: 1,
+                    limit: 1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert!(!page.has_more);
+        assert_eq!(page.items[0].track.title, "D");
+        let missing = history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    availability: Some("not-downloaded".into()),
+                    limit: 100,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(missing.total, 2);
+        assert!(missing
+            .items
+            .iter()
+            .all(|entry| entry.track.local_availability != "available"));
+        assert!(history
+            .search(
+                &store,
+                PlaybackHistorySearchOptions {
+                    availability: Some("invalid".into()),
+                    ..Default::default()
+                }
+            )
+            .is_err());
     }
 
     #[test]

@@ -2266,9 +2266,12 @@ impl std::fmt::Display for NativeWorkerFailure {
                 "CURSOR_RESET_REQUIRED",
                 "Spotify playlist listing changed. Refresh the profile and retry.",
             ),
-            NativeWorkerFailureKind::OutcomeUnknown => ("OUTCOME_UNKNOWN", "Spotify playlist creation or changes may have succeeded. Do not retry the operation; inspect the provider."),
+            NativeWorkerFailureKind::OutcomeUnknown => (
+                "OUTCOME_UNKNOWN",
+                "Spotify playlist creation or changes may have succeeded. Do not retry the operation; inspect the provider.",
+            ),
             NativeWorkerFailureKind::Cancelled => {
-                return f.write_str("Provider request was cancelled")
+                return f.write_str("Provider request was cancelled");
             }
             NativeWorkerFailureKind::Other => {
                 return f.write_str(match self.transport_reason {
@@ -2952,7 +2955,7 @@ fn spotify_cookie_header(cookies: &[(String, String)]) -> Result<String, String>
             "sp_dc" if sp_dc.is_none() => sp_dc = Some(value.as_str()),
             "sp_key" if sp_key.is_none() => sp_key = Some(value.as_str()),
             "sp_dc" | "sp_key" => {
-                return Err("Spotify sign-in returned an ambiguous session".into())
+                return Err("Spotify sign-in returned an ambiguous session".into());
             }
             _ => {}
         }
@@ -3523,7 +3526,9 @@ impl ManagedProviderSession {
             .map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
         if !valid_creation_receipt {
-            return Err(format!("Playlist {id} may have been created ({url}); worker receipt validation failed. Inspect the provider; DO NOT RETRY creation."));
+            return Err(format!(
+                "Playlist {id} may have been created ({url}); worker receipt validation failed. Inspect the provider; DO NOT RETRY creation."
+            ));
         }
         let (operation, args) = if provider == "spotify" {
             (
@@ -3556,7 +3561,9 @@ impl ManagedProviderSession {
                 .get("nextCursor")
                 .is_some_and(|cursor| !cursor.is_null())
         {
-            return Err(format!("Playlist {id} was created ({url}) but private/empty verification failed. Inspect the provider; DO NOT RETRY creation."));
+            return Err(format!(
+                "Playlist {id} was created ({url}) but private/empty verification failed. Inspect the provider; DO NOT RETRY creation."
+            ));
         }
         let url = if provider == "spotify" {
             format!("https://open.spotify.com/playlist/{id}")
@@ -5233,7 +5240,10 @@ mod tests {
         assert_eq!(failure.kind, NativeWorkerFailureKind::CursorResetRequired);
         assert!(!failure.invalidates_token());
         assert_eq!(failure.retry_after_seconds, None);
-        assert_eq!(failure.to_string(),"CURSOR_RESET_REQUIRED: Spotify playlist listing changed. Refresh the profile and retry.");
+        assert_eq!(
+            failure.to_string(),
+            "CURSOR_RESET_REQUIRED: Spotify playlist listing changed. Refresh the profile and retry."
+        );
         assert!(!failure.to_string().contains("private"));
         assert!(!failure.to_string().contains("secret"));
     }

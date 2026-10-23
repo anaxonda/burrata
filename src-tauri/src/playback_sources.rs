@@ -841,6 +841,7 @@ pub(crate) async fn resolve_candidate_fresh_until(
             if !fresh_candidate_audio_identity_matches(track, &candidate, &audio) {
                 return Err("The refreshed audio source did not resolve to the same provider recording".into());
             }
+            bind_linked_soundcloud_provider_id(&mut candidate, &audio);
             include_candidate_aliases(&mut aliases,track,&candidate,Some(&audio));
             let requires_identity_check = !pinned;
             if !policy_matching::accept(
@@ -889,7 +890,21 @@ fn fresh_candidate_audio_identity_matches(
     audio: &acquisition::PreviewAudio,
 ) -> bool {
     let Some((provider, expected_id)) = candidate.id.split_once(':') else {
-        return false;
+        // A linked SoundCloud page is the selected source identity until the
+        // extractor supplies its numeric provider ID. Keep this exception
+        // limited to the exact canonical page saved on the track.
+        return candidate.provider == "soundcloud"
+            && candidate.id.is_empty()
+            && linked_soundcloud_page_matches(track, candidate)
+            && audio
+                .resolved_provider_id
+                .as_deref()
+                .is_some_and(valid_soundcloud_provider_id)
+            && valid_soundcloud_audio_stream_url(&audio.url)
+            && audio
+                .resolved_title
+                .as_deref()
+                .is_some_and(|title| !title.trim().is_empty());
     };
     if provider != candidate.provider {
         return false;
@@ -915,6 +930,78 @@ fn fresh_candidate_audio_identity_matches(
                 .resolved_title
                 .as_deref()
                 .is_some_and(|title| !title.trim().is_empty())
+    }
+}
+
+fn valid_soundcloud_provider_id(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 20 && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn valid_soundcloud_audio_stream_url(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && (host == "soundcloud.com"
+            || host.ends_with(".soundcloud.com")
+            || host == "sndcdn.com"
+            || host.ends_with(".sndcdn.com")
+            || host == "playback.media-streaming.soundcloud.cloud")
+}
+
+fn linked_soundcloud_page_matches(track: &Track, candidate: &Candidate) -> bool {
+    fn canonical_page(raw: &str) -> Option<String> {
+        let mut url = acquisition::validate_source_url(raw, "soundcloud").ok()?;
+        let host = url.host_str()?;
+        if host != "soundcloud.com" && !host.ends_with(".soundcloud.com") {
+            return None;
+        }
+        let parts = url
+            .path_segments()?
+            .filter(|segment| !segment.is_empty())
+            .collect::<Vec<_>>();
+        if parts.len() != 2
+            || parts[1] == "sets"
+            || matches!(
+                parts[0],
+                "discover" | "search" | "charts" | "you" | "stream"
+            )
+        {
+            return None;
+        }
+        url.set_query(None);
+        url.set_fragment(None);
+        Some(url.to_string())
+    }
+
+    let source_url = track
+        .playback_range
+        .as_ref()
+        .map(|range| range.source_url.as_str())
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or(&track.source_url);
+    canonical_page(source_url)
+        .zip(canonical_page(&candidate.url))
+        .is_some_and(|(source, selected)| source == selected)
+}
+
+fn bind_linked_soundcloud_provider_id(
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+) {
+    if candidate.provider == "soundcloud" && candidate.id.is_empty() {
+        if let Some(id) = audio
+            .resolved_provider_id
+            .as_deref()
+            .filter(|id| valid_soundcloud_provider_id(id))
+        {
+            candidate.id = format!("soundcloud:{id}");
+        }
     }
 }
 
@@ -2646,7 +2733,7 @@ async fn resolve_serial(
                         );
                     }
                     Err(error) if *cancel.borrow() || error == "Cancelled" => {
-                        return Err("Cancelled".into())
+                        return Err("Cancelled".into());
                     }
                     Err(error) => {
                         failures.record(error);
@@ -3199,6 +3286,7 @@ async fn resolve_serial(
                         && !fresh_candidate_audio_identity_matches(track, &candidate, &audio) {
                         return Err("The resolved audio source did not retain the pinned provider recording".to_owned());
                     }
+                    bind_linked_soundcloud_provider_id(&mut candidate, &audio);
                     include_candidate_aliases(
                         &mut verified_artist_aliases,
                         track,
@@ -3325,6 +3413,7 @@ async fn resolve_serial(
                                 failures.record("The resolved audio source did not retain the pinned provider recording".into());
                                 continue;
                             }
+                            bind_linked_soundcloud_provider_id(&mut candidate, &audio);
                             include_candidate_aliases(
                                 &mut verified_artist_aliases,
                                 track,
@@ -5527,6 +5616,7 @@ async fn recover_inner(
             "The refreshed audio source did not resolve to the same provider recording".into(),
         );
     }
+    bind_linked_soundcloud_provider_id(&mut candidate, &audio);
     let pinned = !strict_recording_verification
         || source_resolution_is_pinned(track, false, &settings, true);
     let mut aliases = if pinned {
@@ -7233,6 +7323,86 @@ mod tests {
             &track,
             &youtube,
             &titleless_youtube
+        ));
+    }
+
+    #[test]
+    fn linked_soundcloud_candidate_binds_extractor_id_only_for_same_saved_page() {
+        let track = Track {
+            provider: "soundcloud".into(),
+            source_url: "https://soundcloud.com/itsharvit/fred-again-b2b?utm_source=share".into(),
+            ..Track::default()
+        };
+        let mut candidate = linked_candidate(&track).unwrap();
+        assert!(candidate.id.is_empty());
+        assert_eq!(
+            candidate.url,
+            "https://soundcloud.com/itsharvit/fred-again-b2b"
+        );
+        let audio = acquisition::PreviewAudio {
+            url: "https://cf-media.sndcdn.com/audio.mp3".into(),
+            mime_type: "audio/mpeg".into(),
+            codec: Some("mp3".into()),
+            bitrate_kbps: None,
+            duration_seconds: Some(4725.0),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: Some("Fred again b2b Thomas Bangalter of Daft".into()),
+            resolved_provider_id: Some("1234567890".into()),
+            chapters: None,
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+
+        assert!(fresh_candidate_audio_identity_matches(
+            &track, &candidate, &audio
+        ));
+        bind_linked_soundcloud_provider_id(&mut candidate, &audio);
+        assert_eq!(candidate.id, "soundcloud:1234567890");
+        assert!(fresh_candidate_audio_identity_matches(
+            &track, &candidate, &audio
+        ));
+
+        let mut wrong_page = candidate.clone();
+        wrong_page.id.clear();
+        wrong_page.url = "https://soundcloud.com/itsharvit/another-recording".into();
+        assert!(!fresh_candidate_audio_identity_matches(
+            &track,
+            &wrong_page,
+            &audio
+        ));
+
+        let mut missing_id = audio.clone();
+        missing_id.resolved_provider_id = None;
+        let mut blank_candidate = candidate;
+        blank_candidate.id.clear();
+        assert!(!fresh_candidate_audio_identity_matches(
+            &track,
+            &blank_candidate,
+            &missing_id
+        ));
+        missing_id.resolved_provider_id = Some("not-numeric".into());
+        assert!(!fresh_candidate_audio_identity_matches(
+            &track,
+            &blank_candidate,
+            &missing_id
+        ));
+        missing_id.resolved_provider_id = Some("1234567890".into());
+        missing_id.url = "https://attacker.invalid/audio.mp3".into();
+        assert!(!fresh_candidate_audio_identity_matches(
+            &track,
+            &blank_candidate,
+            &missing_id
+        ));
+
+        let mut mismatched_bound = blank_candidate;
+        mismatched_bound.id = "soundcloud:9876543210".into();
+        assert!(!fresh_candidate_audio_identity_matches(
+            &track,
+            &mismatched_bound,
+            &audio
         ));
     }
 

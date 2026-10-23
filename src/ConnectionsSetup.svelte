@@ -1,22 +1,47 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { call, desktop } from "./lib/api";
-  interface Config { slskd: { enabled: boolean; baseUrl: string; downloadsPath: string }; discogsEnabled: boolean; lastfmEnabled: boolean; acoustidEnabled?: boolean }
+  interface LyricsTranslationConfig { enabled: boolean; baseUrl: string; model: string; targetLanguage: string }
+  interface Config { slskd: { enabled: boolean; baseUrl: string; downloadsPath: string }; discogsEnabled: boolean; lastfmEnabled: boolean; acoustidEnabled?: boolean; lyricsTranslation?: LyricsTranslationConfig }
   interface Credential { present: boolean; sessionOnly: boolean; error?: string | null }
-  interface Status { settings: Config; slskdCredential: Credential; discogsCredential: Credential; lastfmCredential: Credential; acoustidCredential?: Credential }
+  interface Status { settings: Config; slskdCredential: Credential; discogsCredential: Credential; lastfmCredential: Credential; acoustidCredential?: Credential; lyricsTranslationCredential?: Credential }
   interface SlskdShare { id: string; alias: string; localPath?: string | null; remotePath?: string | null; files: number; directories: number; excluded: boolean }
   interface SlskdSharesStatus { managed: boolean; canEdit: boolean; shares: SlskdShare[]; guidance: string; warning?:string|null }
+  interface ManagedDownloadSettings { slots: number; speedLimitKib: number | null; retryAttempts: number; retryDelayMs: number; retryMaxDelayMs: number; partialPolicy: "resume" | "overwrite" }
+  interface ManagedDownloadState { managed: boolean; canEdit: boolean; settings: ManagedDownloadSettings | null; guidance: string }
   let { onChanged = (_status: Status) => {} }: { onChanged?: (status: Status) => void } = $props();
-  let config = $state<Config>({ slskd: { enabled: false, baseUrl: "http://localhost:5030", downloadsPath: "" }, discogsEnabled: false, lastfmEnabled: false });
-  let status = $state<Status | null>(null), slskdKey = $state(""), discogsToken = $state(""), lastfmKey = $state(""), acoustidKey = $state(""), sessionOnly = $state(false);
+  let config = $state<Config>({ slskd: { enabled: false, baseUrl: "http://localhost:5030", downloadsPath: "" }, discogsEnabled: false, lastfmEnabled: false, lyricsTranslation: { enabled: false, baseUrl: "https://api.openai.com/v1", model: "", targetLanguage: "en" } });
+  let status = $state<Status | null>(null), slskdKey = $state(""), discogsToken = $state(""), lastfmKey = $state(""), acoustidKey = $state(""), lyricsTranslationKey = $state(""), sessionOnly = $state(false);
   let clear = $state<Record<string, boolean>>({}), busy = $state(false), message = $state("");
   let checks = $state<{ provider: string; available: boolean; message: string }[]>([]);
   let slskdSharesStatus = $state<SlskdSharesStatus | null>(null), shareDirectoryPath = $state(""), sharesBusy = $state(false), sharesLoading = $state(false), sharesMessage = $state("");
+  let downloadState = $state<ManagedDownloadState | null>(null), downloadDraft = $state<ManagedDownloadSettings>({ slots: 32, speedLimitKib: null, retryAttempts: 3, retryDelayMs: 5000, retryMaxDelayMs: 60000, partialPolicy: "resume" }), downloadBusy = $state(false), downloadLoading = $state(false), downloadMessage = $state("");
   function apply(value: Status) {
     status = value; config = structuredClone(value.settings);
+    config.lyricsTranslation ??= { enabled: false, baseUrl: "https://api.openai.com/v1", model: "", targetLanguage: "en" };
     config.slskd.baseUrl ||= "http://localhost:5030";
     onChanged(value);
     void loadShares(value);
+    void loadDownloadSettings(value);
+  }
+  async function loadDownloadSettings(current = status) {
+    if (!current?.settings.slskd.enabled) { downloadState = null; return; }
+    downloadLoading = true; downloadMessage = "";
+    try {
+      downloadState = await call<ManagedDownloadState>("get_managed_slskd_download_settings");
+      if (downloadState.settings) downloadDraft = structuredClone(downloadState.settings);
+    } catch (error) { downloadMessage = `Could not read download settings: ${String(error)}`; }
+    finally { downloadLoading = false; }
+  }
+  async function saveDownloadSettings() {
+    if (!downloadState?.canEdit) return;
+    downloadBusy = true; downloadMessage = "";
+    try {
+      downloadState = await call<ManagedDownloadState>("save_managed_slskd_download_settings", { settings: downloadDraft });
+      if (downloadState.settings) downloadDraft = structuredClone(downloadState.settings);
+      downloadMessage = downloadState.guidance;
+    } catch (error) { downloadMessage = String(error); }
+    finally { downloadBusy = false; }
   }
   onMount(() => { if (desktop()) void call<Status>("get_connections").then(apply).catch((error) => message = String(error)); });
   async function loadShares(current = status) {
@@ -66,8 +91,9 @@
         ...(discogsToken || clear.discogs ? { discogsToken: clear.discogs ? "" : discogsToken } : {}),
         ...(lastfmKey || clear.lastfm ? { lastfmApiKey: clear.lastfm ? "" : lastfmKey } : {}),
         ...(acoustidKey || clear.acoustid ? { acoustidApiKey: clear.acoustid ? "" : acoustidKey } : {}),
+        ...(lyricsTranslationKey || clear.lyricsTranslation ? { lyricsTranslationApiKey: clear.lyricsTranslation ? "" : lyricsTranslationKey } : {}),
       } }));
-      slskdKey = ""; discogsToken = ""; lastfmKey = ""; acoustidKey = ""; clear = {};
+      slskdKey = ""; discogsToken = ""; lastfmKey = ""; acoustidKey = ""; lyricsTranslationKey = ""; clear = {};
       message = "Connections saved.";
     } catch (error) { message = String(error); }
     finally { busy = false; }
@@ -121,6 +147,27 @@
       {#if slskdSharesStatus?.warning}<p role="status">Could not read the running daemon’s shares: {slskdSharesStatus.warning}</p>{/if}
       {#if sharesMessage}<p role="status">{sharesMessage}</p>{/if}
     </section>
+    <section class="slskd-download-settings" aria-labelledby="slskd-download-settings-title">
+      <h3 id="slskd-download-settings-title">Download behavior</h3>
+      {#if downloadLoading}<p role="status">Reading download settings…</p>
+      {:else if downloadState?.canEdit}
+        <p>These settings apply to all downloads managed by this local slskd service. Speed is in KiB/s; leave it blank for no explicit limit.</p>
+        <label>Concurrent download slots<input aria-label="Concurrent download slots" type="number" min="1" max="500" step="1" bind:value={downloadDraft.slots} /></label>
+        <label>Download speed limit (KiB/s)<input aria-label="Download speed limit (KiB/s)" type="number" min="1" step="1" bind:value={downloadDraft.speedLimitKib} placeholder="No explicit limit" /></label>
+        <label>Automatic retry attempts<input aria-label="Automatic retry attempts" type="number" min="1" max="100" step="1" bind:value={downloadDraft.retryAttempts} /></label>
+        <label>Initial retry delay (ms)<input aria-label="Initial retry delay (ms)" type="number" min="0" max="3600000" step="100" bind:value={downloadDraft.retryDelayMs} /></label>
+        <label>Maximum retry delay (ms)<input aria-label="Maximum retry delay (ms)" type="number" min="0" max="3600000" step="100" bind:value={downloadDraft.retryMaxDelayMs} /></label>
+        <label>Partial download handling<select aria-label="Partial download handling" bind:value={downloadDraft.partialPolicy}><option value="resume">Resume partial files</option><option value="overwrite">Always overwrite partial files</option></select></label>
+        <p class="share-setup-note">{downloadState.guidance}</p>
+        <button disabled={downloadBusy} onclick={() => void saveDownloadSettings()}>{downloadBusy ? "Applying…" : "Apply download settings"}</button>
+      {:else if downloadState}
+        <p class="share-setup-note">{downloadState.guidance}</p>
+        {#if downloadState.settings}<dl>{#each Object.entries(downloadState.settings) as [key, value]}<div><dt>{key}</dt><dd>{value ?? "No explicit limit"}</dd></div>{/each}</dl>{/if}
+      {:else}
+        <p class="share-setup-note">{downloadMessage || "Enable and connect slskd to inspect its download settings."}</p>
+      {/if}
+      {#if downloadMessage && downloadState?.canEdit}<p role="status">{downloadMessage}</p>{/if}
+    </section>
     <button onclick={() => void guide("https://github.com/slskd/slskd#quick-start")}>slskd setup guide ↗</button>
   </details>
   <details>
@@ -147,6 +194,16 @@
     <label class="check"><input type="checkbox" bind:checked={clear.acoustid} /> Remove saved AcoustID key</label>
     <button onclick={()=>void guide("https://acoustid.org/webservice")}>AcoustID setup ↗</button>
   </details>
+  <details id="lyrics-translation-connection"><summary>Lyrics translation · {credentialLabel(status?.lyricsTranslationCredential)}</summary>
+    <p>Optional OpenAI-compatible translation for synchronized lyrics. The original stays visible, and translation runs only after you click Translate in Now Playing. Timed and plain lyrics are supported; source timestamps are kept unchanged. Your provider may charge for use.</p>
+    <label class="check"><input type="checkbox" bind:checked={config.lyricsTranslation!.enabled} /> Enable lyrics translation</label>
+    <label>API endpoint<input aria-label="Lyrics translation endpoint" type="url" autocomplete="url" bind:value={config.lyricsTranslation!.baseUrl} placeholder="https://api.openai.com/v1" /></label>
+    <label>Model<input aria-label="Lyrics translation model" type="text" autocomplete="off" bind:value={config.lyricsTranslation!.model} placeholder="Model name from your provider" /></label>
+    <label>Target language<input aria-label="Lyrics translation target language" type="text" autocomplete="language" bind:value={config.lyricsTranslation!.targetLanguage} placeholder="e.g. Spanish or es" /></label>
+    <label>API key<input aria-label="Lyrics translation API key" type="password" autocomplete="new-password" bind:value={lyricsTranslationKey} placeholder={status?.lyricsTranslationCredential?.present ? "Leave blank to keep saved key" : "Provider API key"} /></label>
+    <label class="check"><input type="checkbox" bind:checked={clear.lyricsTranslation} /> Remove saved translation key</label>
+    <small>Endpoint, model, and language are saved as connection settings. The API key is kept in the secure credential store or in memory for this session; it is never returned to the UI.</small>
+  </details>
   <label class="check"><input type="checkbox" bind:checked={sessionOnly} /> Keep new credentials only for this session</label>
   <small>Credentials use your operating system’s secure store. Choose session-only if it is unavailable; keys are never saved in the library database.</small>
   <div class="detail-actions"><button class="primary" disabled={busy} onclick={() => void save()}>Save connections</button><button disabled={busy} onclick={() => void test()}>Test saved connections</button></div>
@@ -171,4 +228,7 @@
   .slskd-shares li strong,.slskd-shares li small{overflow-wrap:anywhere;margin:0}
   .slskd-shares li strong{font-size:12px}.slskd-shares li small{font-size:10px}
   .remove-share{justify-self:start;margin-top:5px;font-size:11px}
+  .slskd-download-settings{margin:16px 0 8px;padding:12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--surface) 70%,transparent)}
+  .slskd-download-settings h3{margin:0;font-size:14px}
+  .slskd-download-settings dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;font-size:12px}.slskd-download-settings dl div{display:contents}.slskd-download-settings dt{font-weight:600}.slskd-download-settings dd{margin:0;overflow-wrap:anywhere}
 </style>

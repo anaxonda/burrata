@@ -1,4 +1,7 @@
 <script lang="ts">
+  import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
+  let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
+  $effect(()=>{downloadAvailability;selectedRows=[];selectionAnchor=-1;});
   import { planQueueSelectionMove, queueRemovalIndexes } from "./lib/playback-queue";
   import { invertSelection } from "./lib/selection";
   import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
@@ -9,7 +12,7 @@
   import type { Chapter, Track } from "./lib/types";
   import { activeChapter, chapterRelativePosition } from "./lib/chapters";
   import type { PlaybackRange, RangedTrack } from "./lib/chapters";
-  import { playableDuration, type SortDirection, type TrackSortField } from "./lib/track-sort";
+  import { isTrackDownloaded, playableDuration, type SortDirection, type TrackSortField } from "./lib/track-sort";
 
   let {
     tracks,
@@ -108,6 +111,7 @@
   } = $props();
 
   let panel: HTMLElement;
+  const visibleQueueRows = $derived(tracks.map((track,index)=>({track,index})).filter(({track})=>downloadAvailability === "all" || (downloadAvailability === "downloaded" ? isTrackDownloaded(track) : !isTrackDownloaded(track))));
   let selectedRows = $state<number[]>([]);
   let selectionAnchor = -1;
   let draggedRows: number[] = [];
@@ -120,7 +124,7 @@
     if (movingRows) return;
     if (event.shiftKey && selectionAnchor >= 0) {
       const low=Math.min(index,selectionAnchor),high=Math.max(index,selectionAnchor);
-      selectedRows=Array.from({length:high-low+1},(_,at)=>low+at);
+      selectedRows=visibleQueueRows.filter(row=>row.index>=low && row.index<=high).map(row=>row.index);
     } else if (event.ctrlKey || event.metaKey) {
       selectedRows=selectedRows.includes(index)?selectedRows.filter(at=>at!==index):[...selectedRows,index].sort((a,b)=>a-b);
       selectionAnchor=index;
@@ -135,7 +139,7 @@
     else for (const index of ordered) onRemove(index);
   }
   function invertQueueRows() {
-    const scope = Array.from({ length: tracks.length }, (_, index) => String(index));
+    const scope = visibleQueueRows.map(row => String(row.index));
     selectedRows = invertSelection(scope, selectedRows.map(String)).map(Number);
     selectionAnchor = selectedRows[0] ?? -1;
   }
@@ -156,7 +160,7 @@
         if (document.activeElement === focusOrigin || document.activeElement === document.body) {
           const selector = focusOrigin.classList.contains("track-select") ? ".track-select" : ".queue-drag-select";
           const firstSelected = plan.selected[0];
-          if (firstSelected !== undefined) panel?.querySelectorAll<HTMLElement>(`.queue-list article ${selector}`)[firstSelected]?.focus();
+          if (firstSelected !== undefined) panel?.querySelectorAll<HTMLElement>(`.queue-list article ${selector}`)[visibleQueueRows.findIndex(row => row.index === firstSelected)]?.focus();
         }
       }
     }
@@ -245,6 +249,7 @@
     <button class="close" aria-label="Close playback queue" onclick={onClose}>✕</button>
   </header>
 
+  <TrackDownloadFilter bind:value={downloadAvailability} />
   <div class="queue-content">
     {#if tracks.length}
       <section class="queue-list" aria-label="Queued tracks">
@@ -277,7 +282,7 @@
             <button type="button" onclick={() => onSortUpcoming?.(sortField, sortDirection)}>Sort</button>
           </div>
         {/if}
-        {#each tracks as track, index (track.id + ":" + index)}
+        {#each visibleQueueRows as {track,index} (track.id + ":" + index)}
           {@const trackChapters = chaptersByTrack[track.id] ?? []}
           {@const duration=playableDuration(track)}
           <article class:queue-selected={selectedRows.includes(index)} ondragover={event=>{if(draggedRows.length&&!movingRows)event.preventDefault();}} ondrop={event=>{event.preventDefault();if(draggedRows.length){const rows=draggedRows;draggedRows=[];void moveSelection(rows,index-rows.filter(at=>at<index).length,undefined,!event.isTrusted,draggedRevision);}}} class:current={index === currentIndex} class:paused={index === currentIndex && paused} class:buffering={index === currentIndex && buffering} aria-current={index === currentIndex ? "true" : undefined} aria-busy={index === currentIndex && buffering ? "true" : undefined}>
@@ -344,7 +349,7 @@
         </button>
         {#if radioHistoryExpanded}
           <div class="history-list">
-            {#each radioHistory as occurrence (occurrence.id)}
+            {#each radioHistory.filter(item=>downloadAvailability === "all" || (downloadAvailability === "downloaded" ? isTrackDownloaded(item.track) : !isTrackDownloaded(item.track))) as occurrence (occurrence.id)}
               <article class="history-row">
                 <button class="history-play" aria-label={"Play " + occurrence.track.title} onclick={() => onPlayRadioTrack?.(occurrence.track)}>
                   <strong>{occurrence.track.title}</strong><small>{occurrence.track.artist || "Unknown artist"} · {occurrence.stationName}</small>

@@ -659,11 +659,13 @@ mod tests {
     }
 
     fn assert_no_wav_files(directory: &std::path::Path) {
-        assert!(std::fs::read_dir(directory).unwrap().all(|entry| entry
-            .unwrap()
-            .path()
-            .extension()
-            .is_none_or(|ext| ext != "wav")));
+        assert!(std::fs::read_dir(directory).unwrap().all(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .extension()
+                .is_none_or(|ext| ext != "wav")
+        }));
     }
     #[test]
     fn fails_closed_on_webview_audio_ambiguity() {

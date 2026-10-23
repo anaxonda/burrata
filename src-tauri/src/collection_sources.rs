@@ -1368,10 +1368,12 @@ mod tests {
         .unwrap();
         assert_eq!(snapshot.kind, "collection");
         assert!(!snapshot.entries.is_empty());
-        assert!(snapshot.entries.iter().all(|entry| entry
-            .source_url
-            .as_deref()
-            .is_some_and(|url| url.contains("/track/"))));
+        assert!(snapshot.entries.iter().all(|entry| {
+            entry
+                .source_url
+                .as_deref()
+                .is_some_and(|url| url.contains("/track/"))
+        }));
         let chart = crate::browser_bridge::validate_snapshot(&snapshot).unwrap();
         let imported = store.import_browser_chart(&chart, &snapshot).unwrap();
         assert_eq!(

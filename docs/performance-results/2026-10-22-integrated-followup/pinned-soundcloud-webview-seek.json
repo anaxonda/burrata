@@ -1,0 +1,13 @@
+{
+  "scope": "Linux isolated profile; WebView output; exact discovered SoundCloud source",
+  "sourceUrl": "https://soundcloud.com/thisisharvit/fred-again-b2b-thomas",
+  "seekTargetSeconds": 3600,
+  "positionAfterSeek": 3686.773075,
+  "status": "playing",
+  "failure": null,
+  "limitations": [
+    "Raw URL OpenUri lookup returned no exact search result; playback used normal discovery instead.",
+    "Does not establish physical macOS or remote-network behavior.",
+    "No precise WebView seek-first-audio timing was available."
+  ]
+}

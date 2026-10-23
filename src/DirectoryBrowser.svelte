@@ -6,6 +6,8 @@
 </script>
 
 <script lang="ts">
+  import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
+  let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import { onDestroy, tick, untrack } from "svelte";
   import TrackList from "./TrackList.svelte";
   import type { DirectoryAudioFile, DirectoryBrowsePage, DirectoryBrowserRoot, DirectoryScanJob, DirectorySortAvailabilityFields, DirectorySortAvailabilityJob } from "./lib/directory-browser";
@@ -34,6 +36,9 @@
   let selectedRootId = $state("");
   let selectedRelativePath = $state("");
   let page = $state<DirectoryBrowsePage | null>(null);
+  // These rows enumerate existing files, including files not indexed yet.
+  const displayedFiles = $derived(downloadAvailability === "not-downloaded" ? [] : page?.files ?? []);
+
   let loadingRoots = $state(false);
   let loadingPage = $state(false);
   let loadingMore = $state(false);
@@ -69,10 +74,10 @@
   let locationRevision = 0;
   let destroyed = false;
   const selectedRoot = $derived(roots.find(root => root.id === selectedRootId) ?? null);
-  const indexedOccurrences = $derived((page?.files ?? []).flatMap(file => file.track ? [{ file, track: file.track }] : []));
+  const indexedOccurrences = $derived(displayedFiles.flatMap(file => file.track ? [{ file, track: file.track }] : []));
   const orderedRows = $derived.by(() => {
     let trackIndex = 0;
-    return (page?.files ?? []).map(file => file.track
+    return displayedFiles.map(file => file.track
       ? { kind: "track" as const, key: file.path, trackIndex: trackIndex++ }
       : { kind: "status" as const, key: file.path, title: file.name, detail: "Metadata unavailable · Scan this folder to index" });
   });
@@ -429,6 +434,7 @@
 
   {#if selectedRoot}
     <div class="directory-view-tools" aria-label="Directory track view options">
+      <TrackDownloadFilter bind:value={downloadAvailability} />
       <input aria-label="Filter directory tracks" placeholder="Filter tracks by title, artist, album, or filename" bind:value={query} oninput={filterChanged} />
       <label>Sort by<select aria-label="Sort directory tracks" bind:value={sortField} onchange={refreshResults}>
         <option value="filename">Filename</option><option value="sourceOrder">Original order</option>
@@ -448,7 +454,7 @@
     {#if loadingPage}<p class="directory-loading" role="status">Loading folder…</p>
     {:else if page}
       {#if orderedRows.length}<div class="directory-list-scroll" class:virtualized={orderedRows.length > 40} style:flex="1 1 0" style:min-height="0" style:overflow-y={orderedRows.length > 40 ? "hidden" : "auto"}><TrackList presentation="playlist" virtualizationThreshold={40} tracks={indexedOccurrences.map(row => row.track)} {orderedRows} selectionContext={`directory:${selectedRootId}:${selectedRelativePath}`} selectionKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} selectionTracks={indexedOccurrences.map(row => row.track)} selectionTrackKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} listLabel="Audio files" onPlay={playOccurrence} {onDownload} {onFavorite} {onQueue} {onNext} {onPlaylist} {onArtist} onAlbum={onTrackAlbum} {onInfo} {onContext} onAddSelectedToPlaylist={indexedOccurrences.length ? onAddSelectedToPlaylist : undefined} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} meta={(_track, index) => indexedOccurrences[index]?.file.name ?? ""} /></div>{/if}
-      {#if !page.files.length}<p class="directory-empty">No audio files match these filters.</p>{/if}
+      {#if !displayedFiles.length}<p class="directory-empty">No audio files match these filters.</p>{/if}
       {#if page.files.length < page.total}<div class="directory-load-more"><button type="button" disabled={loadingMore} onclick={() => void browseDirectory(page!.relativePath, true)}>{loadingMore ? "Loading…" : `Load more files (${page.total - page.files.length} remaining)`}</button></div>{/if}
     {:else if !error}<p class="directory-empty">Choose a folder to browse.</p>{/if}
   {:else if !loadingRoots}<div class="directory-empty-state"><p>No folders registered yet.</p><button type="button" disabled={rootBusy} onclick={() => void chooseRoot()}>Add a folder to browse</button></div>{/if}

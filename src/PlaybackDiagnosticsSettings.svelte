@@ -4,10 +4,12 @@
   export type PlaybackDiagnosticsStatus = { enabled: boolean; eventCount: number; maxEvents: number };
   type ExportResult = { cancelled: boolean; path?: string; eventCount?: number };
   type NativeCall = <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
-  let { enabled, onEnabledChange, call }: {
+  let { enabled, onEnabledChange, call, getWebviewDiagnostics, onClearWebviewDiagnostics }: {
     enabled: boolean;
     onEnabledChange: (enabled: boolean) => void | Promise<void>;
     call: NativeCall;
+    getWebviewDiagnostics?: () => unknown;
+    onClearWebviewDiagnostics?: () => void;
   } = $props();
 
   let status = $state<PlaybackDiagnosticsStatus | null>(null);
@@ -44,6 +46,7 @@
     working = true; error = ""; message = "";
     try {
       await call("clear_playback_diagnostics");
+      onClearWebviewDiagnostics?.();
       await refresh();
       message = "Playback diagnostic events cleared.";
     } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
@@ -52,7 +55,7 @@
   async function exportReport() {
     working = true; error = ""; message = "";
     try {
-      const result = await call<ExportResult>("export_playback_diagnostics");
+      const result = await call<ExportResult>("export_playback_diagnostics", {webviewContext:getWebviewDiagnostics?.() ?? null});
       if (result?.cancelled) message = "Export cancelled.";
       else if (result?.path) message = `Exported ${result.eventCount ?? status?.eventCount ?? 0} playback diagnostic events to ${result.path}. No report was uploaded.`;
       else message = "Playback diagnostics exported.";
@@ -63,7 +66,7 @@
 
 <section class="playback-diagnostics" aria-labelledby="playback-diagnostics-title">
   <h3 id="playback-diagnostics-title">Playback diagnostics</h3>
-  <p>Optional playback logging records player stages, timing, and source failure categories. Reports include timestamps and hashed track/source references; they exclude credentials and full source URLs. Events are kept in memory; export the report before closing Burrata.</p>
+  <p>Optional playback logging records player stages, timing, and source failure categories. When available, reports include WebView readiness, numeric media error codes, and source format families. They include timestamps and hashed track/source references, but exclude credentials, titles, raw errors, user-agent strings, and full source URLs. Events are kept in memory; export the report before closing Burrata.</p>
   <label class="diagnostics-toggle">
     <input type="checkbox" aria-label="Enable playback diagnostics" checked={enabled} disabled={working} onchange={event => void toggle(event.currentTarget.checked)} />
     <span>Enable playback diagnostics</span>

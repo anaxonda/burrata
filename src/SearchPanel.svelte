@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
+  let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import { onDestroy, onMount, tick } from "svelte";
   import type { ArtistRef, ArtistReleaseRef, ArtistSearchResult } from "./lib/artist-types";
   import type { Candidate, Chapter, Track } from "./lib/types";
@@ -35,7 +37,7 @@
   ];
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset,
-    onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onQueueTracks, onArtist = () => {}, searchArtists, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
+    onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, searchArtists, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {},
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
@@ -46,9 +48,11 @@
     enrichSource?: (url: string) => Promise<Candidate>;
     enrichTrack?: (track: Track) => Promise<Track>;
     onArtist?: (artist: ArtistRef) => void; searchArtists?: (query: string) => Promise<ArtistSearchResult[]>; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track) => void | Promise<void>;
+    loadArtistProfile?: (artist: ArtistRef) => Promise<{ imageUrl?: string | null }>;
     onRemoteResult?: (row: SearchRow) => void;
     onAddRemotePlaylist?: (row: SearchRow, options: { signal: AbortSignal; onProgress: (message: string) => void }) => Promise<{ partial?: boolean; cancelled?: boolean } | void> | void;
     onPlaylistTracks?: (tracks: Track[]) => Promise<void> | void;
+    onDownloadTracks?: (tracks: Track[]) => Promise<void> | void;
     onQueueTracks?: (tracks: Track[], mode: "append" | "next") => void;
     onQueryChange?: (query: string) => void;
     onPlay?: (track: Track, displayedTracks?: Track[], index?: number) => void; onDownload?: (track: Track) => void; onFavorite?: (track: Track) => void; onNext?: (track: Track) => void; onQueue?: (track: Track) => void; onContext?: (track: Track, event: MouseEvent) => void;
@@ -86,6 +90,11 @@
   let sourceChoice = $state("all");
   let customSourceIds = $state<string[]>([]);
   let rowsBySource = $state<Record<string, SearchRow[]>>({});
+  let lazyArtistArtwork = $state<Record<string, string>>({});
+  let lazyArtworkScope = 0;
+  let lazyArtworkQueue: { artist: ArtistRef; scope: number }[] = [];
+  let lazyArtworkActive = 0;
+  let lazyArtworkScheduled = new Set<string>();
   let selectedTrackRows = $state<SearchRow[]>([]);
   let searchSelectionMode = $state(false);
   let playlistImportBusy = $state<string[]>([]);
@@ -103,6 +112,12 @@
   let collapsedSources = $state<Record<string, boolean>>({});
   let chapterExpanded = $state<Record<string, boolean>>({});
   let chaptersByRow = $state<Record<string, Candidate | "loading" | "none" | "unavailable" | "unknown">>({});
+  type SoulseekFolder = { kind?: "peerFolder"; identity: string; peer: string; directory: string; folderName: string; inferredArtist?: string | null; observedFileCount?: number; completeness?: "unknown" };
+  let soulseekFolderTracks = $state<Record<string, Track[]>>({});
+  let soulseekFolderComplete = $state<Record<string, boolean>>({});
+  let soulseekFolderBusy = $state<Record<string, boolean>>({});
+  let soulseekFolderErrors = $state<Record<string, string>>({});
+  let soulseekFolderRequests: Record<string, number> = {};
   let generation = 0;
   let loadingSourceRequests: Record<string, number> = {};
   let soulseekSessions: Record<string, string> = {};
@@ -300,7 +315,7 @@
 
   // Capture only on explicit route navigation, never on playback/scroll ticks.
   function searchNavigationSnapshot() {
-    return { controls:{text,submitted,kind,searchMode,sourceChoice,customSourceIds:[...customSourceIds],collectedSort,collectedDirection,minimumDuration,maximumDuration,continueSearch},
+    return { controls:{text,submitted,kind,searchMode,sourceChoice,customSourceIds:[...customSourceIds],collectedSort,collectedDirection,minimumDuration,maximumDuration,downloadAvailability,continueSearch},
       rowsBySource:{...rowsBySource},overflowRows:{...overflowRows},cursors:{...cursors},
       consumed:Object.fromEntries(Object.entries(consumedPageCursors).map(([id,values])=>[id,[...values]])),
       statuses:{...statuses},errors:{...errors},warnings:{...warnings},incompleteSources:{...incompleteSources},
@@ -356,6 +371,7 @@
       const scopes=await searchNavigationScopes(call,ids);
       if(!current())return;
       ({text,submitted,kind,searchMode,sourceChoice,collectedSort,collectedDirection,minimumDuration,maximumDuration,continueSearch}=saved.controls);
+      downloadAvailability = saved.controls.downloadAvailability ?? "all";
       customSourceIds = validConfiguredSources(saved.controls.customSourceIds);
       lastQueryProp=initialQuery;continuePreferenceLoaded=true;
       const invalid=new Set(ids.filter(id=>!scopes[id]||!saved.accountScopes[id]||scopes[id]!==saved.accountScopes[id]));
@@ -573,6 +589,9 @@
     if (!term) return;
     if (appendSource && loadingSourceRequests[appendSource] === generation) return;
     if (!appendSource) {
+      lazyArtworkScope++;
+      lazyArtworkQueue = [];
+      lazyArtworkScheduled = new Set();
       providerReads.cancelAll();
       collectionReads.cancelAll();
       clearCollectionDeadline();
@@ -610,7 +629,7 @@
           const left = buffered.slice(batch.length);
           overflowRows = { ...overflowRows, [sourceId]: left };
           if (collectionBudget) collectionBudget.used += batch.length;
-          if (batch.length) { mergeRows(sourceId, batch, true); queueVisibleEnrichment(sourceId, request); }
+          if (batch.length) { mergeRows(sourceId, batch, true); queueVisibleEnrichment(sourceId, request); scheduleInitialMusicBrainzArtwork(sourceId, lazyArtworkScope); }
           if (collection && (collectionBudget?.used ?? 0) >= MAX_COLLECTION_RESULTS_PER_ACTION) {
             statuses = { ...statuses, [sourceId]: "Collection action limit reached; collect more to continue" };
             return;
@@ -658,6 +677,7 @@
           if (actionOverflow.length) overflowRows = { ...overflowRows, [sourceId]: [...actionOverflow, ...(overflowRows[sourceId] ?? [])] };
           mergeRows(sourceId, actionRows, append);
           queueVisibleEnrichment(sourceId, request);
+          scheduleInitialMusicBrainzArtwork(sourceId, lazyArtworkScope);
           append = true;
           cursors = { ...cursors, [sourceId]: page.nextCursor ?? null };
           warnings = { ...warnings, [sourceId]: page.warnings ?? [] };
@@ -705,6 +725,7 @@
     statuses = Object.fromEntries(Object.keys(statuses).map(id => [id, "Cancelled"]));
   }
   const durationFilter = $derived({
+    availability: downloadAvailability,
     ...(parseDurationBound(minimumDuration ?? "") !== null ? { minDurationSeconds: parseDurationBound(minimumDuration ?? "")! } : {}),
     ...(parseDurationBound(maximumDuration ?? "") !== null ? { maxDurationSeconds: parseDurationBound(maximumDuration ?? "")! } : {}),
   });
@@ -732,7 +753,7 @@
   function syncSearchControlRevision() {
     const fingerprint = searchUiControlFingerprint({
       text, submitted, mode: searchMode, source: sourceChoice, kind, sort: collectedSort,
-      direction: collectedDirection, minimumDuration, maximumDuration, generation,
+      direction: collectedDirection, minimumDuration, maximumDuration, downloadAvailability, generation,
       collectionRequest, continueSearch,
       occurrences: playableOccurrences.map(item => ({ sourceId: item.sourceId, rowId: item.row.id, rowKind: item.row.kind, track: item.track })),
     });
@@ -899,9 +920,98 @@
     const ref = (data?.artist ?? data?.ref ?? data) as ArtistRef | undefined;
     return ref && (ref.provider === "musicbrainz" || ref.provider === "discogs") && typeof ref.id === "string" ? ref : null;
   }
+  function scheduleMusicBrainzArtwork(row: SearchRow, scope: number) {
+    if (!loadArtistProfile || scope !== lazyArtworkScope || row.sourceId !== "musicbrainz" || row.kind !== "artist" || row.artworkUrl) return;
+    const artist = rowArtist(row);
+    if (!artist || artist.provider !== "musicbrainz") return;
+    const key = `${scope}:${artist.id}`;
+    if (lazyArtistArtwork[key] || lazyArtworkScheduled.has(key)) return;
+    lazyArtworkScheduled.add(key);
+    lazyArtworkQueue.push({ artist, scope });
+    void pumpMusicBrainzArtworkQueue();
+  }
+  async function pumpMusicBrainzArtworkQueue() {
+    while (lazyArtworkActive < 2 && lazyArtworkQueue.length) {
+      const job = lazyArtworkQueue.shift()!;
+      if (job.scope !== lazyArtworkScope) { lazyArtworkScheduled.delete(`${job.scope}:${job.artist.id}`); continue; }
+      lazyArtworkActive++;
+      void loadArtistProfile!(job.artist).then(profile => {
+        if (job.scope === lazyArtworkScope && profile.imageUrl) lazyArtistArtwork = { ...lazyArtistArtwork, [job.artist.id]: profile.imageUrl };
+      }).catch(() => {}).finally(() => {
+        lazyArtworkActive--;
+        lazyArtworkScheduled.delete(`${job.scope}:${job.artist.id}`);
+        void pumpMusicBrainzArtworkQueue();
+      });
+    }
+  }
+  function observeMusicBrainzArtwork(node: HTMLElement, row: SearchRow) {
+    if (!loadArtistProfile || row.sourceId !== "musicbrainz" || row.kind !== "artist" || row.artworkUrl) return { destroy() {} };
+    const scope = lazyArtworkScope;
+    const schedule = () => scheduleMusicBrainzArtwork(row, scope);
+    if (typeof IntersectionObserver === "undefined") return { destroy() {} };
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { schedule(); observer.disconnect(); }
+    });
+    observer.observe(node);
+    return { destroy() { observer.disconnect(); } };
+  }
+  function scheduleInitialMusicBrainzArtwork(sourceId: string, scope: number) {
+    if (sourceId !== "musicbrainz" || scope !== lazyArtworkScope) return;
+    for (const row of (rowsBySource[sourceId] ?? []).filter(row => row.kind === "artist").slice(0, 8)) {
+      if (row.artworkUrl) continue;
+      const artist = rowArtist(row);
+      scheduleMusicBrainzArtwork(row, scope);
+    }
+  }
   function rowAlbum(row: SearchRow): ArtistReleaseRef | null {
     const data = row.data as ArtistReleaseRef | null;
     return data && data.release && data.sourceUrl ? data : null;
+  }
+  function soulseekFolder(row: SearchRow): SoulseekFolder | null {
+    if (row.sourceId !== "soulseek" || !row.data || typeof row.data !== "object") return null;
+    const data = row.data as { soulseekGroup?: unknown };
+    const group = data.soulseekGroup;
+    if (!group || typeof group !== "object") return null;
+    const value = group as Partial<SoulseekFolder>;
+    return value.kind === "peerFolder" && typeof value.identity === "string" && typeof value.peer === "string" && typeof value.directory === "string" && typeof value.folderName === "string"
+      ? value as SoulseekFolder : null;
+  }
+  function soulseekArtistFolders(row: SearchRow): SoulseekFolder[] {
+    if (row.sourceId !== "soulseek" || !row.data || typeof row.data !== "object") return [];
+    const group = (row.data as { soulseekArtistGroup?: unknown }).soulseekArtistGroup;
+    if (!group || typeof group !== "object") return [];
+    const value = group as { kind?: unknown; folders?: unknown };
+    if (value.kind !== "peerArtist" || !Array.isArray(value.folders)) return [];
+    return value.folders.filter((folder): folder is SoulseekFolder => Boolean(folder && typeof folder === "object" && (folder as SoulseekFolder).identity && (folder as SoulseekFolder).peer && (folder as SoulseekFolder).directory && (folder as SoulseekFolder).folderName));
+  }
+  async function browseSoulseekFolder(folder: SoulseekFolder) {
+    if (soulseekFolderBusy[folder.identity]) return;
+    const owner = generation;
+    const request = (soulseekFolderRequests[folder.identity] ?? 0) + 1;
+    soulseekFolderRequests = { ...soulseekFolderRequests, [folder.identity]: request };
+    soulseekFolderBusy = { ...soulseekFolderBusy, [folder.identity]: true };
+    soulseekFolderErrors = { ...soulseekFolderErrors, [folder.identity]: "" };
+    try {
+      const result = await providerReads.read<{ tracks?: Track[]; complete?: boolean }>("browse_soulseek_directory", { username: folder.peer, directory: folder.directory });
+      if (navigationDestroyed || generation !== owner) return;
+      soulseekFolderTracks = { ...soulseekFolderTracks, [folder.identity]: Array.isArray(result.tracks) ? result.tracks : [] };
+      soulseekFolderComplete = { ...soulseekFolderComplete, [folder.identity]: result.complete === true };
+      expanded = { ...expanded, [folder.identity]: true };
+    } catch (failure) {
+      if (!navigationDestroyed && generation === owner) soulseekFolderErrors = { ...soulseekFolderErrors, [folder.identity]: failure instanceof Error ? failure.message : String(failure) };
+    } finally {
+      if (!navigationDestroyed && soulseekFolderRequests[folder.identity] === request) soulseekFolderBusy = { ...soulseekFolderBusy, [folder.identity]: false };
+    }
+  }
+  function sourceReportedFolder(folder: SoulseekFolder) {
+    const evidence = folder.inferredArtist ? ` · inferred artist ${folder.inferredArtist}` : "";
+    const count = Number.isFinite(folder.observedFileCount) ? ` · ${folder.observedFileCount} observed search hit${folder.observedFileCount === 1 ? "" : "s"}` : "";
+    return `Unverified peer folder${evidence}${count}`;
+  }
+  async function toggleSoulseekFolder(folder: SoulseekFolder) {
+    if (expanded[folder.identity]) { expanded = { ...expanded, [folder.identity]: false }; return; }
+    if (Object.prototype.hasOwnProperty.call(soulseekFolderTracks, folder.identity)) { expanded = { ...expanded, [folder.identity]: true }; return; }
+    await browseSoulseekFolder(folder);
   }
   function nonTrackAction(row: SearchRow): string | null {
     if (row.sourceId === "spotify") {
@@ -1066,8 +1176,9 @@
 
 
     </div>
-      <details class="loaded-track-filters"><summary aria-label={`Search filters and playback options${minimumDuration.trim() || maximumDuration.trim() ? ", active duration filters" : ""}`}>Filters &amp; playback{#if minimumDuration.trim() || maximumDuration.trim()} <span class="active-filter-indicator">· Active</span>{/if}</summary><div class="loaded-filter-fields">
+      <details class="loaded-track-filters"><summary aria-label={`Search filters and playback options${minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all" ? ", active duration filters" : ""}`}>Filters &amp; playback{#if minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all"} <span class="active-filter-indicator">· Active</span>{/if}</summary><div class="loaded-filter-fields">
     <label class="continue-setting"><input type="checkbox" aria-label="Play remaining loaded search results" bind:checked={continueSearch} /> Play remaining loaded search results</label>
+    <TrackDownloadFilter bind:value={downloadAvailability} />
     <label>Min duration <input aria-label="Minimum loaded track duration" type="text" inputmode="decimal" placeholder="seconds or mm:ss" value={minimumDuration} oninput={(event) => minimumDuration = event.currentTarget.value} /></label>
     <label>Max duration <input aria-label="Maximum loaded track duration" type="text" inputmode="decimal" placeholder="seconds or mm:ss" value={maximumDuration} oninput={(event) => maximumDuration = event.currentTarget.value} /></label>
       </div></details>
@@ -1091,11 +1202,12 @@
         {#if errors[source.id]}<p class="notice error">{errors[source.id]} <button onclick={() => void runSearch(source.id)}>Retry</button></p>{/if}
         {#each warnings[source.id] ?? [] as warning}<p class="notice">{warning}</p>{/each}
         {#if rows.length}
-          <VirtualResults items={rows} itemKey={identity} estimateHeight={(row) => row.track ? 56 : 76} scrollKey={`${searchMode}:${sourceChoice}:${kind}:${submitted}:${collectedSort}:${collectedDirection}:${minimumDuration}:${maximumDuration}`} regionKey={source.id}>
+          <VirtualResults items={rows} itemKey={identity} estimateHeight={(row) => row.track ? 56 : 76} scrollKey={`${searchMode}:${sourceChoice}:${kind}:${submitted}:${collectedSort}:${collectedDirection}:${minimumDuration}:${maximumDuration}:${downloadAvailability}`} regionKey={source.id}>
           {#snippet children(row, _index)}
             {@const track = row.track}
-            {@const artwork = row.sourceId === "spotify" && ["artist", "profile"].includes(row.kind) ? safeArtworkUrl(row.artworkUrl) : null}
-            <article class="result-row" class:expanded={expanded[identity(row)]} oncontextmenu={track && onContext ? (event) => { event.preventDefault(); onContext?.(track, event); } : undefined}>
+            {@const lazyImage = row.sourceId === "musicbrainz" && row.kind === "artist" ? lazyArtistArtwork[rowArtist(row)?.id ?? ""] : null}
+            {@const artwork = ["spotify", "musicbrainz"].includes(row.sourceId) && ["artist", "profile"].includes(row.kind) ? safeArtworkUrl(lazyImage ?? row.artworkUrl) : null}
+            <article class="result-row" use:observeMusicBrainzArtwork={row} class:expanded={expanded[identity(row)]} oncontextmenu={track && onContext ? (event) => { event.preventDefault(); onContext?.(track, event); } : undefined}>
               <div class="result-main">
                 {#if !track}<div class="result-title">{#if artwork}<span class="spotify-identity-art" aria-hidden="true"><span>♫</span><img src={artwork} alt="" loading="lazy" onerror={(event) => { (event.currentTarget as HTMLImageElement).hidden = true; }} /></span>{/if}<span class="kind-badge">{row.kind === "video" || row.kind === "set" ? "Video / set" : row.kind}</span>{#if nonTrackAction(row)}<button class="open-result" aria-label={`${nonTrackAction(row)}: ${row.title}`} title={row.title} onclick={() => openNonTrackResult(row)}><strong>{row.title}</strong><span>{nonTrackAction(row)} →</span></button>{:else}<strong class="result-row-title" title={row.title}>{row.title}</strong>{/if}</div>{/if}
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
@@ -1115,6 +1227,39 @@
                       {#if cachedChapterState === "loading"}<span class="chapter-lookup-status" role="status">Checking chapters…</span>{:else}<button class="chapter-check" onclick={() => void inspectChapters(row)}>{cachedChapterState === "unavailable" ? "Retry chapter check" : "Check for chapters"}</button>{/if}
                     {/if}
                   {/if}
+                {:else if row.sourceId === "soulseek" && row.kind === "album" && soulseekFolder(row)}
+                  {@const folder = soulseekFolder(row)!}
+                  <p class="soulseek-unverified">Source-reported peer folder · unverified metadata{folder.inferredArtist ? ` · inferred artist ${folder.inferredArtist}` : ""}{Number.isFinite(folder.observedFileCount) ? ` · ${folder.observedFileCount} observed search hits` : ""}. Search hits do not establish the complete folder listing.</p>
+                  <button type="button" class="soulseek-browse" disabled={soulseekFolderBusy[folder.identity]} onclick={() => void toggleSoulseekFolder(folder)}>{soulseekFolderBusy[folder.identity] ? "Browsing peer folder…" : expanded[folder.identity] ? "Hide folder files" : Object.prototype.hasOwnProperty.call(soulseekFolderTracks, folder.identity) ? "Show folder files" : "Browse peer folder"}</button>
+                  {#if soulseekFolderErrors[folder.identity]}<p class="notice error" role="alert">{soulseekFolderErrors[folder.identity]}</p>{/if}
+                  {#if expanded[folder.identity]}
+                    {@const folderTracks = soulseekFolderTracks[folder.identity] ?? []}
+                    <p class="soulseek-folder-status" role="status">{soulseekFolderComplete[folder.identity] ? `Folder listing complete · ${folderTracks.length} audio files` : `Partial folder listing · ${folderTracks.length} audio files; more may exist`}</p>
+                    {#if onDownloadTracks && folderTracks.length}<button type="button" class="soulseek-download-folder" onclick={() => void onDownloadTracks?.(folderTracks)}>Download folder tracks</button>{/if}
+                    {#if onQueueTracks && folderTracks.length}<button type="button" class="soulseek-queue-folder" onclick={() => onQueueTracks?.(folderTracks, "append")}>Add folder to queue</button>{/if}
+                    {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                    {:else if !soulseekFolderBusy[folder.identity]}<p class="search-empty">No audio files were returned for this peer folder.</p>{/if}
+                  {/if}
+                {:else if row.sourceId === "soulseek" && row.kind === "artist"}
+                  {@const artistData = row.data && typeof row.data === "object" ? (row.data as { soulseekArtistGroup?: { inferredName?: string; evidence?: string; folderCount?: number } }).soulseekArtistGroup : undefined}
+                  {@const artistFolders = soulseekArtistFolders(row)}
+                  <p class="soulseek-unverified">Source-derived artist grouping · inferred from peer filename observations. Not a verified artist profile.</p>
+                  {#if artistData?.inferredName}<p class="subtitle">Inferred name: {artistData.inferredName}{artistData.evidence ? ` · ${artistData.evidence}` : ""}{Number.isFinite(artistData.folderCount) ? ` · ${artistData.folderCount} observed folders` : ""}</p>{/if}
+                  {#if artistFolders.length}<div class="soulseek-artist-folders" aria-label={`${row.title} peer folders`}>
+                    {#each artistFolders as folder (folder.identity)}<section class="soulseek-folder-card" aria-label={`${folder.folderName} peer folder`}>
+                      <strong>{folder.folderName}</strong><p class="soulseek-unverified">Source-reported peer folder · unverified metadata{folder.inferredArtist ? ` · inferred artist ${folder.inferredArtist}` : ""}{Number.isFinite(folder.observedFileCount) ? ` · ${folder.observedFileCount} observed search hits` : ""}. Search hits are incomplete until browsed.</p>
+                      <button type="button" class="soulseek-browse" disabled={soulseekFolderBusy[folder.identity]} onclick={() => void toggleSoulseekFolder(folder)}>{soulseekFolderBusy[folder.identity] ? "Browsing peer folder…" : expanded[folder.identity] ? "Hide folder files" : Object.prototype.hasOwnProperty.call(soulseekFolderTracks, folder.identity) ? "Show folder files" : "Browse peer folder"}</button>
+                      {#if soulseekFolderErrors[folder.identity]}<p class="notice error" role="alert">{soulseekFolderErrors[folder.identity]}</p>{/if}
+                      {#if expanded[folder.identity]}
+                        {@const folderTracks = soulseekFolderTracks[folder.identity] ?? []}
+                        <p class="soulseek-folder-status" role="status">{soulseekFolderComplete[folder.identity] ? `Folder listing complete · ${folderTracks.length} audio files` : `Partial folder listing · ${folderTracks.length} audio files; more may exist`}</p>
+                        {#if onDownloadTracks && folderTracks.length}<button type="button" class="soulseek-download-folder" onclick={() => void onDownloadTracks?.(folderTracks)}>Download folder tracks</button>{/if}
+                        {#if onQueueTracks && folderTracks.length}<button type="button" class="soulseek-queue-folder" onclick={() => onQueueTracks?.(folderTracks, "append")}>Add folder to queue</button>{/if}
+                        {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                        {:else if !soulseekFolderBusy[folder.identity]}<p class="search-empty">No audio files were returned for this peer folder.</p>{/if}
+                      {/if}
+                    </section>{/each}
+                  </div>{:else}<p class="soulseek-unverified">No observed folder locators are available for this artist group yet.</p>{/if}
                 {:else if ["playlist","profile","channel"].includes(row.kind) || (row.sourceId==="spotify" && ["album","artist"].includes(row.kind))}
                   {#if ["spotify", "youtube"].includes(row.sourceId) && row.kind === "playlist" && onAddRemotePlaylist}<button class="add-playlist-result" type="button" disabled={playlistImportDone.includes(identity(row))} onclick={() => void addPlaylistResult(row)}>{playlistImportBusy.includes(identity(row)) ? "Adding…" : playlistImportDone.includes(identity(row)) ? "Added to library" : "Add to library"}</button>{#if playlistImportBusy.includes(identity(row))}<span class="notice" role="status">{playlistImportProgress[identity(row)] ?? "Adding playlist…"}</span><button type="button" onclick={() => cancelPlaylistImport(row)}>Cancel import</button>{/if}{#if playlistImportProgress[identity(row)] && !playlistImportBusy.includes(identity(row))}<p class="notice" role="status">{playlistImportProgress[identity(row)]}</p>{/if}{#if playlistImportErrors[identity(row)]}<p class="notice error" role="alert">{playlistImportErrors[identity(row)]}</p>{/if}{/if}
                 {:else if row.kind === "album"}
@@ -1155,4 +1300,10 @@
   @container search-pane (max-width:640px){.search-form{align-items:flex-start;flex-wrap:wrap}.search-form input{flex:1 1 100%}.scope-controls{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}.search-mode{grid-column:1/-1;justify-self:start}.search-in-label{grid-column:1}.scope-controls select{grid-column:2}.library-helper{grid-column:1/-1}.source-group>header{align-items:flex-start;flex-wrap:wrap}.result-title{align-items:flex-start}.chapter-row span{flex-basis:100%}}
   @media(min-width:641px){.search-panel{gap:.45rem;padding:.75rem}.scope-controls{display:flex;justify-content:flex-start;gap:.45rem;min-width:0;flex-wrap:wrap}.scope-controls select{width:260px;max-width:min(260px,45vw);flex:0 1 260px}.library-helper{margin:0}.filters{gap:.3rem}.filters button{padding:.32rem .55rem;font-size:.78rem}.track-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.track-toolbar .collection-controls{align-items:center;gap:.4rem}.track-toolbar .collection-controls label{display:flex;flex-direction:row;align-items:center;gap:.35rem;font-size:.76rem;white-space:nowrap}.track-toolbar .collection-controls select{box-sizing:border-box;height:34px;min-height:34px;padding:0 .55rem;font-size:.78rem;line-height:normal;overflow:visible}.track-toolbar .collection-controls button{min-height:32px;padding:.25rem .55rem;font-size:.76rem}.loaded-track-filters{flex:none;min-width:0}.loaded-track-filters[open]{flex:1 1 100%}.loaded-track-filters>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid var(--border,#454a50);border-radius:7px;padding:.35rem .55rem;font-size:.78rem;color:var(--muted,#a3a8ae)}.loaded-track-filters>summary::-webkit-details-marker{display:none}.loaded-track-filters>summary::after{content:" ▾"}.loaded-track-filters[open]>summary::after{content:" ▴"}.active-filter-indicator{color:var(--accent,#9dbfff)}.loaded-filter-fields{display:flex;align-items:end;gap:.6rem;flex-wrap:wrap;max-width:100%;margin-top:.45rem;padding:.65rem;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--panel,#17191c)}.loaded-filter-fields>label:not(.continue-setting){display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.loaded-filter-fields input:not([type="checkbox"]){box-sizing:border-box;width:132px;min-width:0;height:32px;padding:.25rem .45rem;font-size:.76rem}.loaded-filter-fields .continue-setting{max-width:250px;line-height:1.3}.track-toolbar .collect-more{flex:none;margin:0;min-height:32px;padding:.3rem .6rem;font-size:.78rem}.collection-status{flex-wrap:wrap}}
   @media(min-width:641px){.primary-controls-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.primary-controls-toolbar .scope-controls{flex:0 1 auto}.primary-controls-toolbar .filters{flex:1 1 auto;align-items:center}.track-toolbar .search-playlist-selection{flex:0 1 auto;min-width:0;max-width:100%;margin:0;padding:0;gap:.3rem;flex-wrap:wrap;border:0;font-size:.76rem}.track-toolbar .search-playlist-selection span{margin-right:.2rem}.track-toolbar .search-playlist-selection button{min-height:30px;padding:.25rem .45rem;font-size:.76rem}}
+  .soulseek-unverified,.soulseek-folder-status{margin:.35rem 0;color:var(--muted,#a3a8ae);font-size:.78rem;line-height:1.4}
+  .soulseek-browse,.soulseek-download-folder,.soulseek-queue-folder{margin:.2rem .35rem .35rem 0;border:1px solid var(--border,#454a50);border-radius:7px;background:var(--panel,#17191c);color:var(--text,#eee);padding:.35rem .6rem;cursor:pointer}
+  .soulseek-browse:disabled{opacity:.65;cursor:wait}
+  .soulseek-artist-folders{display:grid;gap:.5rem;margin:.5rem 0}
+  .soulseek-folder-card{padding:.55rem;border:1px solid var(--border,#454a50);border-radius:8px;background:color-mix(in srgb,var(--panel,#17191c) 82%,white 3%)}
+  .soulseek-folder-track-list{margin:.5rem 0;max-height:28rem;overflow:auto}
 </style>

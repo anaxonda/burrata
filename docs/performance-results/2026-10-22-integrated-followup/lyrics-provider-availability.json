@@ -1,0 +1,128 @@
+{
+  "scope": "LRCLIB metadata and availability flags only; lyric text omitted",
+  "queries": [
+    {
+      "query": {
+        "track_name": "Nunca vas a comprender"
+      },
+      "status": 200,
+      "count": 10,
+      "results": [
+        {
+          "title": "Nunca vas a comprender",
+          "artist": "Rita Payés, y, Elisabeth Roma",
+          "album": "Nunca vas a comprender",
+          "duration": 245.0,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Nunca vas a comprender",
+          "artist": "Rita Payés",
+          "album": "COMO LA PIEL",
+          "duration": 233.0,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Nunca vas a comprender",
+          "artist": "Rita Payés",
+          "album": "Baldur's Gate 3 (Original Game Soundtrack)",
+          "duration": 233.0,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Nunca vas a comprender",
+          "artist": "Rita Payés",
+          "album": "Elisabeth Roma",
+          "duration": 245.0,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Nunca vas a comprender",
+          "artist": "Rita Payés; Elisabeth Roma",
+          "album": "Nunca vas a comprender",
+          "duration": 244.0,
+          "synced": true,
+          "plain": true
+        }
+      ]
+    },
+    {
+      "query": {
+        "track_name": "Let It Be",
+        "artist_name": "The Beatles"
+      },
+      "status": 200,
+      "count": 20,
+      "results": [
+        {
+          "title": "Let It Be-(1970-Let It Be)",
+          "artist": "The Beatles",
+          "album": "The Singles Collection 1962–1970",
+          "duration": 231.68,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Let It Be",
+          "artist": "The Beatles",
+          "album": "RollingStone The 500 Greatest Songs of All Time(Ⅰ)",
+          "duration": 243.0,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Let It Be",
+          "artist": "The Beatles",
+          "album": "The Beatles (The Original Studio Recordings)",
+          "duration": 243.0,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Let It Be",
+          "artist": "The Beatles",
+          "album": "Billboard Top 100 Hits 1970",
+          "duration": 243.0,
+          "synced": true,
+          "plain": true
+        },
+        {
+          "title": "Let It Be",
+          "artist": "The Beatles",
+          "album": "1 [2 LP]",
+          "duration": 231.0,
+          "synced": true,
+          "plain": true
+        }
+      ]
+    }
+  ],
+  "defect": "LRCLIB sends both name and trackName. ApiRecord previously aliased name to trackName, causing duplicate-field deserialization errors on valid responses. Alias removed; real-shape regression added.",
+  "qualification": {
+    "nativeTestsPassed": 1777,
+    "nativeTestsFailed": 0,
+    "nativeTestsIgnored": 38,
+    "focusedFrontendTestsPassed": 16,
+    "typecheckErrors": 0,
+    "liveRustResolver": {
+      "status": "synced",
+      "matchedPerformers": true,
+      "durationDeltaSeconds": 1.131,
+      "timedLineCount": 32,
+      "lyricTextLogged": false
+    },
+    "scope": "Final source full suite and explicit ignored live test; no physical lyric timing accuracy claim"
+  },
+  "localBinarySha256": "4d5332fc42de710e9ef41229b2f1e8f8a5a704ef41959a7e0a2ea8665a9622d0",
+  "localRestartPreservation": {
+    "sameTrack": true,
+    "sameIndex": true,
+    "samePosition": true,
+    "sameQueueTotal": true,
+    "paused": true
+  }
+}

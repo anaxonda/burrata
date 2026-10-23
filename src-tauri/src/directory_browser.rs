@@ -1157,8 +1157,9 @@ fn sort_directory_files(
     // and user bounds are compared in displayed whole-second buckets.
     let duration = crate::track_sort_sql::expression("duration", "metadata")
         .expect("shared duration expression");
-    let predicate =
-        format!("(?1 IS NULL OR ({duration})>=?1) AND (?2 IS NULL OR ({duration})<=?2) AND instr(search_text,?3)>0");
+    let predicate = format!(
+        "(?1 IS NULL OR ({duration})>=?1) AND (?2 IS NULL OR ({duration})<=?2) AND instr(search_text,?3)>0"
+    );
     let query = options.query.as_deref().unwrap_or("").trim().to_lowercase();
     let duration_min = options.duration_min.map(f64::floor);
     let duration_max = options.duration_max.map(f64::floor);
@@ -1178,7 +1179,9 @@ fn sort_directory_files(
             .ok_or("Unsupported directory sort field")?
     };
     let direction = if descending { "DESC" } else { "ASC" };
-    let sql = format!("SELECT ordinal FROM files WHERE {predicate} ORDER BY ({expression}) IS NULL ASC,({expression}) {direction},path COLLATE BINARY ASC LIMIT ?4 OFFSET ?5");
+    let sql = format!(
+        "SELECT ordinal FROM files WHERE {predicate} ORDER BY ({expression}) IS NULL ASC,({expression}) {direction},path COLLATE BINARY ASC LIMIT ?4 OFFSET ?5"
+    );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let indices = stmt
         .query_map(
@@ -1956,9 +1959,11 @@ mod tests {
         let (_, cancel) = watch::channel(false);
         let files = collect_audio(&root, &cancel).unwrap();
         assert_eq!(files.len(), 3);
-        assert!(files.iter().all(|path| !path
-            .components()
-            .any(|part| burrata_working_artifact(Path::new(part.as_os_str())))));
+        assert!(files.iter().all(|path| {
+            !path
+                .components()
+                .any(|part| burrata_working_artifact(Path::new(part.as_os_str())))
+        }));
         assert!(base.join(".burrata-staging/staged.mp3").exists());
     }
     #[cfg(unix)]

@@ -11,6 +11,7 @@ use crate::{
     radio::RadioStation,
     storage::Store,
 };
+use serde::Serialize;
 use serde_json::{json, Value};
 #[path = "failed_track_traversal.rs"]
 mod failed_track_traversal;
@@ -443,7 +444,7 @@ fn handoff_stop_is_owned(expected: &str, current: Option<&str>) -> bool {
     current == Some(expected)
 }
 
-#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayingTrackIdentification {
     pub track_id: String,
@@ -451,6 +452,21 @@ pub struct PlayingTrackIdentification {
     pub artist: Option<String>,
     pub artwork_url: Option<String>,
     pub note: String,
+    pub timing_anchor: Option<RecognitionTimingAnchor>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognitionTimingAnchor {
+    /// Shazam's reference-track offset for the first match, in seconds.
+    pub shazam_match_offset_seconds: f64,
+    /// Absolute player-clock position at the first captured PCM sample.
+    pub captured_audio_start_position_seconds: f64,
+    pub captured_audio_duration_seconds: f64,
+    pub source_generation: u64,
+    pub seek_serial: u64,
+    pub track_id: String,
+    pub entry_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1073,6 +1089,16 @@ struct Inner {
 pub struct PlaybackService {
     inner: Arc<Inner>,
 }
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveBpmPlaybackEstimate {
+    pub generation: u64,
+    pub seek_serial: u64,
+    pub track_id: String,
+    #[serde(flatten)]
+    pub estimate: crate::live_bpm::LiveBpmEstimate,
+}
 type QueuedPlaybackCommit = Box<dyn FnOnce(Value) -> Result<(), String> + Send>;
 
 /// The guard is required at this boundary so snapshot capture and receipt commit
@@ -1198,6 +1224,61 @@ impl PlaybackService {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .snapshot_with_failure_history(self.native_enabled(), true)
+    }
+
+    /// Estimate BPM only from the current native playback generation. This is
+    /// opt-in, ephemeral playback data and never updates the Track or tags.
+    pub async fn live_bpm(&self) -> Result<Option<LiveBpmPlaybackEstimate>, String> {
+        if !self.native_enabled() || !self.inner.store.settings()?.live_bpm_enabled {
+            return Ok(None);
+        }
+        let (generation, seek_serial, track_id) = {
+            let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            if state.status != "playing" {
+                return Ok(None);
+            }
+            let Some(track) = state.track() else {
+                return Ok(None);
+            };
+            (state.generation, state.seek_serial, track.id.clone())
+        };
+        let tap = self.inner.output.tap();
+        if tap.available_seconds(generation) < crate::live_bpm::LIVE_BPM_WINDOW_SECONDS as f64 {
+            return Ok(None);
+        }
+
+        let analyzed = tokio::task::spawn_blocking(move || {
+            if tap.available_seconds(generation) < crate::live_bpm::LIVE_BPM_WINDOW_SECONDS as f64 {
+                return None;
+            }
+            let (sample_rate, channels, samples) = tap
+                .capture_pcm(generation, crate::live_bpm::LIVE_BPM_WINDOW_SECONDS as f64)
+                .ok()?;
+            crate::live_bpm::estimate_interleaved_pcm(&samples, sample_rate, channels)
+        })
+        .await
+        .map_err(|error| format!("Live BPM analysis worker failed: {error}"))?;
+        let Some(estimate) = analyzed else {
+            return Ok(None);
+        };
+
+        if !self.native_enabled() || !self.inner.store.settings()?.live_bpm_enabled {
+            return Ok(None);
+        }
+        let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.status != "playing"
+            || state.generation != generation
+            || state.seek_serial != seek_serial
+            || state.track().map(|track| track.id.as_str()) != Some(track_id.as_str())
+        {
+            return Ok(None);
+        }
+        Ok(Some(LiveBpmPlaybackEstimate {
+            generation,
+            seek_serial,
+            track_id,
+            estimate,
+        }))
     }
     fn snapshot_without_queue(&self) -> Value {
         self.inner
@@ -1580,9 +1661,15 @@ impl PlaybackService {
         state.generation = state.generation_counter;
         state.status = "failed".into();
         state.message = if expected_seek_epoch.is_some() {
-            format!("The seek did not become ready before its {} second deadline. Try another position or restart playback.", state.startup_budget.as_secs())
+            format!(
+                "The seek did not become ready before its {} second deadline. Try another position or restart playback.",
+                state.startup_budget.as_secs()
+            )
         } else if startup_only {
-            format!("Playback startup exceeded {} seconds before audio became ready. Check provider availability or choose another source.", state.startup_budget.as_secs())
+            format!(
+                "Playback startup exceeded {} seconds before audio became ready. Check provider availability or choose another source.",
+                state.startup_budget.as_secs()
+            )
         } else {
             "Playback timed out".into()
         };
@@ -3656,7 +3743,16 @@ impl PlaybackService {
         let result_cancelled = cancelled.clone();
         let recognition_cancelled = cancelled.clone();
         let request_id = job.id().to_owned();
-        let (generation, track_id, entry_id, seek_serial, chapter, capture_seconds) = {
+        let (
+            generation,
+            track_id,
+            entry_id,
+            requested_track,
+            seek_serial,
+            chapter,
+            capture_seconds,
+            timing_anchor_eligible,
+        ) = {
             let state = self
                 .inner
                 .state
@@ -3672,13 +3768,16 @@ impl PlaybackService {
                 chapter["startSeconds"].as_f64(),
                 state.position,
             )?;
+            let timing_anchor_eligible = track.playback_range.is_none() && chapter.is_null();
             (
                 state.generation,
                 track.id.clone(),
                 state.entries.get(state.index).cloned().unwrap_or_default(),
+                track.clone(),
                 state.seek_serial,
                 chapter,
                 capture_seconds,
+                timing_anchor_eligible,
             )
         };
         let station = RadioStation {
@@ -3731,8 +3830,8 @@ impl PlaybackService {
                 let tap = tap.clone();
                 let capture = tauri::async_runtime::spawn_blocking(move || {
                     let _cleanup = capture_cleanup;
-                    tap.capture_wav(generation, &capture_path, seconds)?;
-                    Ok::<_, String>(capture_path)
+                    let timing = tap.capture_wav_with_timing(generation, &capture_path, seconds)?;
+                    Ok::<_, String>((capture_path, timing))
                 })
                 .await
                 .map_err(|error| error.to_string())??;
@@ -3740,14 +3839,15 @@ impl PlaybackService {
                     return Err("Audio identification was cancelled".into());
                 }
                 last_attempt = Some(std::time::Instant::now());
-                let identified = crate::radio::recognize_captured_sample_cancellable(
+                let (capture, timing) = capture;
+                let identified = crate::radio::recognize_captured_sample_with_offset_cancellable(
                     &station,
                     &capture,
                     recognition_cancelled.clone(),
                 )
                 .await?;
                 if identified.is_some() {
-                    return Ok(identified);
+                    return Ok(identified.map(|identified| (identified, timing)));
                 }
             }
             Ok(None)
@@ -3782,7 +3882,15 @@ impl PlaybackService {
             recognition.await
         });
         enum RecognitionOutcome {
-            Complete(Result<Option<crate::radio::RadioTrackMetadata>, String>),
+            Complete(
+                Result<
+                    Option<(
+                        crate::radio::SongRecRecognition,
+                        crate::pcm_tap::PcmCaptureTiming,
+                    )>,
+                    String,
+                >,
+            ),
             Invalidated(String),
             TimedOut,
         }
@@ -3824,11 +3932,44 @@ impl PlaybackService {
         {
             return Err("Playback changed during identification".into());
         }
-        let title = recognized.as_ref().map(|track| track.title.clone());
+        let (recognized, capture_timing) = recognized.unzip();
+        let title = recognized
+            .as_ref()
+            .map(|result| result.metadata.title.clone());
         let artwork_url = recognized
             .as_ref()
-            .and_then(|track| track.artwork_url.clone());
-        let artist = recognized.map(|track| track.artist);
+            .and_then(|result| result.metadata.artwork_url.clone());
+        let artist = recognized
+            .as_ref()
+            .map(|result| result.metadata.artist.clone());
+        let timing_identity_matches = recognized.as_ref().is_some_and(|result| {
+            crate::recording_match::recognition_matches_timing_identity(
+                self.inner.store.as_ref(),
+                &requested_track,
+                &result.metadata.title,
+                &result.metadata.artist,
+            )
+        });
+        let timing_anchor = recognized
+            .as_ref()
+            .and_then(|result| result.match_offset_seconds)
+            .zip(capture_timing.and_then(|timing| timing.start_position_seconds))
+            .filter(|_| timing_anchor_eligible && timing_identity_matches)
+            .map(
+                |(shazam_match_offset_seconds, captured_audio_start_position_seconds)| {
+                    RecognitionTimingAnchor {
+                        shazam_match_offset_seconds,
+                        captured_audio_start_position_seconds,
+                        captured_audio_duration_seconds: capture_timing
+                            .map(|timing| timing.duration_seconds)
+                            .unwrap_or_default(),
+                        source_generation: generation,
+                        seek_serial,
+                        track_id: track_id.clone(),
+                        entry_id: entry_id.clone(),
+                    }
+                },
+            );
         let note = if title.is_some() {
             "SongRec identified the current audio; catalog identity is unverified.".into()
         } else {
@@ -3840,6 +3981,7 @@ impl PlaybackService {
             artist,
             artwork_url,
             note,
+            timing_anchor,
         })
     }
 
@@ -4688,7 +4830,7 @@ pub(crate) fn track_failure_category(reason: &str) -> &'static str {
         crate::playback_sources::SOURCE_NO_RESULTS => return "no_audio_results",
         crate::playback_sources::SOURCE_IDENTITY_REJECTED
         | crate::playback_sources::SOURCE_MISSING_DURATION => {
-            return "recording_identity_unverified"
+            return "recording_identity_unverified";
         }
         _ => {}
     }
@@ -6121,11 +6263,20 @@ mod tests {
         let mut state = State::default();
         state.candidate = Some(Candidate::default());
         state.first_audio_ms = Some(100);
-        assert!(can_retry_failed_stream(&state, "Audio stalled for 20 seconds after playback started. Check the connection or choose another source."));
+        assert!(can_retry_failed_stream(
+            &state,
+            "Audio stalled for 20 seconds after playback started. Check the connection or choose another source."
+        ));
         state.recovery = 1;
-        assert!(can_retry_failed_stream(&state, "Audio stalled for 20 seconds after playback started. Check the connection or choose another source."));
+        assert!(can_retry_failed_stream(
+            &state,
+            "Audio stalled for 20 seconds after playback started. Check the connection or choose another source."
+        ));
         state.recovery = 2;
-        assert!(!can_retry_failed_stream(&state, "Audio stalled for 20 seconds after playback started. Check the connection or choose another source."));
+        assert!(!can_retry_failed_stream(
+            &state,
+            "Audio stalled for 20 seconds after playback started. Check the connection or choose another source."
+        ));
     }
 
     #[test]

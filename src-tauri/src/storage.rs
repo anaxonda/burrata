@@ -23,6 +23,52 @@ pub struct TrackPrefixEntry {
     #[serde(rename = "playlistPosition")]
     pub playlist_position: Option<i64>,
 }
+
+/// A reviewable Library entry with no independent favorite, collection, or
+/// local-file reference. This classification does not assert why it was added.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsortedLibraryEntry {
+    pub id: String,
+    pub provider: String,
+    pub provider_id: String,
+    pub artist: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub selection_token: String,
+    pub classification: &'static str,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsortedLibraryPreview {
+    pub entries: Vec<UnsortedLibraryEntry>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryEntrySelection {
+    pub id: String,
+    pub selection_token: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryCleanupSkippedEntry {
+    pub id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsortedLibraryRemovalResult {
+    pub removed_ids: Vec<String>,
+    pub skipped: Vec<LibraryCleanupSkippedEntry>,
+}
+
 /// Explicitly distinguishes an incomplete global scan from a ready map.
 /// The frontend keeps sort choices available while this is pending.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -1716,6 +1762,187 @@ impl Store {
             .map(|v| hydrate(&conn, decode(v)?))
             .collect()
     }
+
+    /// Preview Library entries without a favorite, shortlist, collection, or
+    /// local-file reference. Legacy rows have no reliable saved-vs-searched
+    /// provenance, so this never claims an entry came from search.
+    pub fn preview_unsorted_library_entries(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<UnsortedLibraryPreview> {
+        const MAX_PAGE: usize = 100;
+        const MAX_OFFSET: usize = 1_000_000;
+        if offset > MAX_OFFSET {
+            return Err("Library cleanup offset is out of range".into());
+        }
+        let limit = limit.clamp(1, MAX_PAGE);
+        let limit_sql = i64::try_from(limit).map_err(err)?;
+        let offset_sql = i64::try_from(offset).map_err(err)?;
+        let conn = self.lock_connection()?;
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM catalog_listings l
+                 JOIN recordings r ON r.id=l.recording_id
+                 WHERE l.in_library=1 AND COALESCE(r.favorite,0)=0
+                   AND COALESCE(r.disposition,'')<>'shortlist'
+                   AND NOT EXISTS(SELECT 1 FROM collection_members m WHERE m.recording_id=l.recording_id)
+                   AND NOT EXISTS(SELECT 1 FROM local_assets a WHERE a.recording_id=l.recording_id)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        let raw_rows = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT l.id,l.metadata,l.updated_at,r.manual_metadata FROM catalog_listings l
+                     JOIN recordings r ON r.id=l.recording_id
+                     WHERE l.in_library=1 AND COALESCE(r.favorite,0)=0
+                       AND COALESCE(r.disposition,'')<>'shortlist'
+                       AND NOT EXISTS(SELECT 1 FROM collection_members m WHERE m.recording_id=l.recording_id)
+                       AND NOT EXISTS(SELECT 1 FROM local_assets a WHERE a.recording_id=l.recording_id)
+                     ORDER BY l.rowid DESC LIMIT ?1 OFFSET ?2",
+                )
+                .map_err(err)?;
+            let rows = statement
+                .query_map(params![limit_sql, offset_sql], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })
+                .map_err(err)?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(err)?;
+            rows
+        };
+        let mut entries = Vec::with_capacity(raw_rows.len());
+        for (listing_id, raw_metadata, updated_at, manual_metadata) in raw_rows {
+            let raw_track: Track = decode(raw_metadata.clone())?;
+            let track = hydrate(&conn, raw_track)?;
+            entries.push(UnsortedLibraryEntry {
+                id: listing_id.clone(),
+                provider: track.provider,
+                provider_id: track.provider_id,
+                artist: track.artist,
+                title: track.title,
+                album: track.album,
+                selection_token: unsorted_library_selection_token(
+                    &listing_id,
+                    &updated_at,
+                    &raw_metadata,
+                    &manual_metadata,
+                ),
+                classification: "unsortedLibraryEntry",
+            });
+        }
+        Ok(UnsortedLibraryPreview {
+            entries,
+            total: usize::try_from(total).unwrap_or(0),
+            limit,
+            offset,
+        })
+    }
+
+    /// Demote only exact rows the user reviewed. The token binds each preview
+    /// to its listing metadata and timestamp; protection conditions are
+    /// rechecked atomically. Listing metadata and any local files are retained.
+    pub fn remove_unsorted_library_entries(
+        &self,
+        selections: &[LibraryEntrySelection],
+    ) -> Result<UnsortedLibraryRemovalResult> {
+        const MAX_SELECTIONS: usize = 500;
+        if selections.len() > MAX_SELECTIONS {
+            return Err(format!("Select at most {MAX_SELECTIONS} Library entries").into());
+        }
+        let mut seen = std::collections::HashSet::with_capacity(selections.len());
+        for selection in selections {
+            if selection.id.trim().is_empty()
+                || selection.id.len() > 512
+                || selection.selection_token.len() != 64
+                || !selection
+                    .selection_token
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+                || !seen.insert(selection.id.as_str())
+            {
+                return Err("Library cleanup selection is invalid".into());
+            }
+        }
+        let mut conn = self.lock_connection()?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        let mut removed_ids = Vec::new();
+        let mut skipped = Vec::new();
+        for selection in selections {
+            let current: Option<(String, String, String, bool)> = tx
+                .query_row(
+                    "SELECT l.metadata,l.updated_at,r.manual_metadata,
+                       (l.in_library=1
+                        AND COALESCE(r.favorite,0)=0
+                        AND COALESCE(r.disposition,'')<>'shortlist'
+                        AND NOT EXISTS(SELECT 1 FROM collection_members m WHERE m.recording_id=l.recording_id)
+                        AND NOT EXISTS(SELECT 1 FROM local_assets a WHERE a.recording_id=l.recording_id))
+                     FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
+                     WHERE l.id=?1",
+                    [&selection.id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()
+                .map_err(err)?;
+            let Some((metadata, updated_at, manual_metadata, removable)) = current else {
+                skipped.push(LibraryCleanupSkippedEntry {
+                    id: selection.id.clone(),
+                    reason: "notFound".into(),
+                });
+                continue;
+            };
+            if unsorted_library_selection_token(
+                &selection.id,
+                &updated_at,
+                &metadata,
+                &manual_metadata,
+            ) != selection.selection_token
+            {
+                skipped.push(LibraryCleanupSkippedEntry {
+                    id: selection.id.clone(),
+                    reason: "changedSincePreview".into(),
+                });
+                continue;
+            }
+            if !removable {
+                skipped.push(LibraryCleanupSkippedEntry {
+                    id: selection.id.clone(),
+                    reason: "protectedOrNoLongerInLibrary".into(),
+                });
+                continue;
+            }
+            let changed = tx
+                .execute(
+                    "UPDATE catalog_listings SET in_library=0
+                     WHERE id=?1 AND in_library=1 AND updated_at=?2",
+                    params![selection.id, updated_at],
+                )
+                .map_err(err)?;
+            if changed == 1 {
+                removed_ids.push(selection.id.clone());
+            } else {
+                skipped.push(LibraryCleanupSkippedEntry {
+                    id: selection.id.clone(),
+                    reason: "changedSincePreview".into(),
+                });
+            }
+        }
+        tx.commit().map_err(err)?;
+        Ok(UnsortedLibraryRemovalResult {
+            removed_ids,
+            skipped,
+        })
+    }
+
     /// Read a stable page from a saved view while hydrating only rows on that page.
     /// Exact legacy response contract with cached asset sort projections when ready.
     /// Retains the legacy aggregate/metadata flags, and falls back synchronously
@@ -2119,7 +2346,9 @@ impl Store {
             } else {
                 String::new()
             };
-            let query = format!("SELECT l.id,l.metadata,r.manual_metadata,r.favorite,r.disposition,COUNT(a.id),MAX(a.payload),EXISTS(SELECT 1 FROM local_assets ax JOIN asset_analyses aa ON aa.asset_id=ax.id AND aa.file_hash=ax.hash WHERE ax.recording_id=r.id) FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id {only_multiple_assets} JOIN local_assets a ON a.recording_id=r.id GROUP BY l.id");
+            let query = format!(
+                "SELECT l.id,l.metadata,r.manual_metadata,r.favorite,r.disposition,COUNT(a.id),MAX(a.payload),EXISTS(SELECT 1 FROM local_assets ax JOIN asset_analyses aa ON aa.asset_id=ax.id AND aa.file_hash=ax.hash WHERE ax.recording_id=r.id) FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id {only_multiple_assets} JOIN local_assets a ON a.recording_id=r.id GROUP BY l.id"
+            );
             let mut stmt = conn.prepare(&query).map_err(err)?;
             let rows = stmt
                 .query_map([], |r| {
@@ -2311,9 +2540,23 @@ impl Store {
                     [collection_id.unwrap_or("")], |r| r.get(0),
                 ).unwrap_or(false);
                 if ordered {
-                    ("FROM playlist_ordered_entries e JOIN catalog_listings l ON l.id=e.listing_id JOIN recordings r ON r.id=l.recording_id", vec!["e.collection_id=?".to_string()], vec![collection_id.unwrap_or("").to_owned().into()], "e.position,e.rowid", "e.position", false)
+                    (
+                        "FROM playlist_ordered_entries e JOIN catalog_listings l ON l.id=e.listing_id JOIN recordings r ON r.id=l.recording_id",
+                        vec!["e.collection_id=?".to_string()],
+                        vec![collection_id.unwrap_or("").to_owned().into()],
+                        "e.position,e.rowid",
+                        "e.position",
+                        false,
+                    )
                 } else {
-                    ("FROM (SELECT m.collection_id,m.recording_id,m.position,ROW_NUMBER() OVER(ORDER BY m.position,l.rowid)-1 AS playlist_position FROM collection_members m JOIN catalog_listings l ON l.recording_id=m.recording_id AND l.id=l.recording_id WHERE m.collection_id=?) m JOIN catalog_listings l ON l.recording_id=m.recording_id JOIN recordings r ON r.id=l.recording_id", vec!["l.id=l.recording_id".to_string()], vec![collection_id.unwrap_or("").to_owned().into()], "m.position,l.rowid", "m.playlist_position", false)
+                    (
+                        "FROM (SELECT m.collection_id,m.recording_id,m.position,ROW_NUMBER() OVER(ORDER BY m.position,l.rowid)-1 AS playlist_position FROM collection_members m JOIN catalog_listings l ON l.recording_id=m.recording_id AND l.id=l.recording_id WHERE m.collection_id=?) m JOIN catalog_listings l ON l.recording_id=m.recording_id JOIN recordings r ON r.id=l.recording_id",
+                        vec!["l.id=l.recording_id".to_string()],
+                        vec![collection_id.unwrap_or("").to_owned().into()],
+                        "m.position,l.rowid",
+                        "m.playlist_position",
+                        false,
+                    )
                 }
             }
             "library" => (
@@ -2335,10 +2578,14 @@ impl Store {
         };
         let track_json = if has_page_effective_metadata {
             let revision = crate::track_sort_sql::AVAILABILITY_MASK_REVISION;
-            format!("CASE WHEN l.sort_projection_revision={revision} AND l.sort_metadata_projection IS NOT NULL THEN l.sort_metadata_projection ELSE COALESCE((SELECT metadata FROM page_effective_metadata p WHERE p.id=l.id),CASE WHEN r.manual_metadata='{{}}' THEN l.metadata ELSE json_patch(l.metadata,COALESCE(r.manual_metadata,'{{}}')) END) END")
+            format!(
+                "CASE WHEN l.sort_projection_revision={revision} AND l.sort_metadata_projection IS NOT NULL THEN l.sort_metadata_projection ELSE COALESCE((SELECT metadata FROM page_effective_metadata p WHERE p.id=l.id),CASE WHEN r.manual_metadata='{{}}' THEN l.metadata ELSE json_patch(l.metadata,COALESCE(r.manual_metadata,'{{}}')) END) END"
+            )
         } else if has_local_assets {
             let revision = crate::track_sort_sql::AVAILABILITY_MASK_REVISION;
-            format!("COALESCE(CASE WHEN l.sort_projection_revision={revision} THEN l.sort_metadata_projection END,CASE WHEN r.manual_metadata='{{}}' THEN l.metadata ELSE json_patch(l.metadata,COALESCE(r.manual_metadata,'{{}}')) END)")
+            format!(
+                "COALESCE(CASE WHEN l.sort_projection_revision={revision} THEN l.sort_metadata_projection END,CASE WHEN r.manual_metadata='{{}}' THEN l.metadata ELSE json_patch(l.metadata,COALESCE(r.manual_metadata,'{{}}')) END)"
+            )
         } else {
             "CASE WHEN r.manual_metadata='{}' THEN l.metadata ELSE json_patch(l.metadata,COALESCE(r.manual_metadata,'{}')) END".to_owned()
         };
@@ -2418,9 +2665,13 @@ impl Store {
             // filters once for COUNT, again for a pending EXISTS, and a
             // third time for the availability OR.
             let mask_expr = if has_page_effective_metadata {
-                format!("CASE WHEN l.sort_availability_revision={availability_revision} AND l.sort_availability_mask IS NOT NULL THEN l.sort_availability_mask ELSE (SELECT p.sort_mask FROM page_effective_metadata p WHERE p.id=l.id) END")
+                format!(
+                    "CASE WHEN l.sort_availability_revision={availability_revision} AND l.sort_availability_mask IS NOT NULL THEN l.sort_availability_mask ELSE (SELECT p.sort_mask FROM page_effective_metadata p WHERE p.id=l.id) END"
+                )
             } else {
-                format!("CASE WHEN l.sort_availability_revision={availability_revision} THEN l.sort_availability_mask END")
+                format!(
+                    "CASE WHEN l.sort_availability_revision={availability_revision} THEN l.sort_availability_mask END"
+                )
             };
             let projection_coverage_expr = if check_bpm_projection_coverage {
                 format!(
@@ -2610,7 +2861,9 @@ impl Store {
                 "WITH page_candidates AS MATERIALIZED (SELECT l.id,{metadata_projection} AS page_metadata,{position_expr} AS playlist_position,{sort_expr} AS sort_value,{tie_projection} {from_sql} WHERE {where_sql}) SELECT id,page_metadata,playlist_position FROM page_candidates ORDER BY (sort_value IS NULL) ASC,sort_value {direction},{tie_order} LIMIT ? OFFSET ?"
             )
         } else {
-            format!("SELECT l.id,{metadata_projection},{position_expr} {from_sql} WHERE {where_sql} ORDER BY {order} LIMIT ? OFFSET ?")
+            format!(
+                "SELECT l.id,{metadata_projection},{position_expr} {from_sql} WHERE {where_sql} ORDER BY {order} LIMIT ? OFFSET ?"
+            )
         };
         #[cfg(test)]
         let page_sql_started = profile_enabled.then(std::time::Instant::now);
@@ -2973,7 +3226,9 @@ impl Store {
                     |row| row.get(0),
                 )
                 .map_err(err)?;
-            let sql = format!("SELECT l.metadata FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1{where_sql} ORDER BY l.rowid DESC LIMIT ? OFFSET ?");
+            let sql = format!(
+                "SELECT l.metadata FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1{where_sql} ORDER BY l.rowid DESC LIMIT ? OFFSET ?"
+            );
             let mut page_values = values;
             page_values.push((limit as i64).into());
             page_values.push((offset as i64).into());
@@ -4147,7 +4402,9 @@ impl Store {
             .map(|n| format!("?{n}"))
             .collect::<Vec<_>>()
             .join(",");
-        let sql=format!("SELECT asset_id,file_hash,version,status,payload FROM asset_analyses WHERE asset_id IN ({placeholders}) ORDER BY updated_at DESC");
+        let sql = format!(
+            "SELECT asset_id,file_hash,version,status,payload FROM asset_analyses WHERE asset_id IN ({placeholders}) ORDER BY updated_at DESC"
+        );
         let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(&sql).map_err(err)?;
         let rows = stmt
@@ -4525,7 +4782,9 @@ impl Store {
         } else {
             let expression = crate::track_sort_sql::expression(field, track_json)
                 .ok_or_else(|| format!("Unsupported artist sort field: {field}"))?;
-            format!("CASE WHEN ({expression}) IS NULL THEN 1 ELSE 0 END ASC,({expression}) {direction},sort_order DESC")
+            format!(
+                "CASE WHEN ({expression}) IS NULL THEN 1 ELSE 0 END ASC,({expression}) {direction},sort_order DESC"
+            )
         };
         let page_sql = format!("SELECT asset_json {filtered} ORDER BY {order} LIMIT ? OFFSET ?");
         let mut page_values = values;
@@ -4625,7 +4884,9 @@ impl Store {
             .map(|n| format!("(?{n})"))
             .collect::<Vec<_>>()
             .join(",");
-        let sql = format!("WITH requested(track_id) AS (VALUES {values_sql}), resolved AS (SELECT requested.track_id,COALESCE(catalog_listings.recording_id,requested.track_id) recording_id FROM requested LEFT JOIN catalog_listings ON catalog_listings.id=requested.track_id) SELECT resolved.track_id,local_assets.payload FROM resolved JOIN local_assets ON local_assets.recording_id=resolved.recording_id ORDER BY local_assets.rowid DESC");
+        let sql = format!(
+            "WITH requested(track_id) AS (VALUES {values_sql}), resolved AS (SELECT requested.track_id,COALESCE(catalog_listings.recording_id,requested.track_id) recording_id FROM requested LEFT JOIN catalog_listings ON catalog_listings.id=requested.track_id) SELECT resolved.track_id,local_assets.payload FROM resolved JOIN local_assets ON local_assets.recording_id=resolved.recording_id ORDER BY local_assets.rowid DESC"
+        );
         let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(&sql).map_err(err)?;
         let rows = stmt
@@ -4694,7 +4955,9 @@ impl Store {
         force: bool,
         version: &str,
     ) -> Result<Vec<AnalysisQueueAsset>> {
-        let mut sql = String::from("SELECT rowid,id,path,hash FROM local_assets WHERE COALESCE(json_extract(payload,'$.processing'),'')<>'external-readonly'");
+        let mut sql = String::from(
+            "SELECT rowid,id,path,hash FROM local_assets WHERE COALESCE(json_extract(payload,'$.processing'),'')<>'external-readonly'",
+        );
         let mut values = Vec::<rusqlite::types::Value>::new();
         if let Some(ids) = asset_ids {
             if ids.len() > 200 {
@@ -5114,6 +5377,26 @@ fn promote_track(conn: &Connection, track_id: &str) -> Result<()> {
     }
     Ok(())
 }
+fn unsorted_library_selection_token(
+    id: &str,
+    updated_at: &str,
+    metadata: &str,
+    manual_metadata: &str,
+) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut digest = Sha256::new();
+    digest.update(b"burrata-unsorted-library-selection-v1\0");
+    digest.update(id.as_bytes());
+    digest.update(b"\0");
+    digest.update(updated_at.as_bytes());
+    digest.update(b"\0");
+    digest.update(metadata.as_bytes());
+    digest.update(b"\0");
+    digest.update(manual_metadata.as_bytes());
+    format!("{:x}", digest.finalize())
+}
+
 fn upsert_track(conn: &Connection, track: &Track, promote: bool) -> Result<()> {
     if track.id.is_empty() || track.provider_id.is_empty() || track.provider.is_empty() {
         return Err("Track identity is missing".into());
@@ -5850,6 +6133,157 @@ mod tests {
         let s = Store::open(&d.path().join("library.sqlite")).unwrap();
         (d, s)
     }
+    fn cleanup_selection(store: &Store, id: &str) -> LibraryEntrySelection {
+        let connection = store.connection.lock().unwrap();
+        let (metadata, updated_at, manual_metadata): (String, String, String) = connection
+            .query_row(
+                "SELECT l.metadata,l.updated_at,r.manual_metadata FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id=?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        LibraryEntrySelection {
+            id: id.into(),
+            selection_token: unsorted_library_selection_token(
+                id,
+                &updated_at,
+                &metadata,
+                &manual_metadata,
+            ),
+        }
+    }
+
+    #[test]
+    fn unsorted_library_cleanup_only_demotes_reviewed_unprotected_rows() {
+        let (_directory, store) = db();
+        let removable = store.save_track(&track("cleanup-unsorted", "")).unwrap();
+        let favorite = store.save_track(&track("cleanup-favorite", "")).unwrap();
+        let shortlisted = store.save_track(&track("cleanup-shortlist", "")).unwrap();
+        let collected = store.save_track(&track("cleanup-collection", "")).unwrap();
+        let asset = store.save_track(&track("cleanup-asset", "")).unwrap();
+        store.set_favorite(&favorite, true).unwrap();
+        store
+            .set_disposition(&shortlisted, Some("shortlist"))
+            .unwrap();
+        let collection = store
+            .create_collection("Protected cleanup collection")
+            .unwrap();
+        store
+            .add_to_collection(&collection.id, std::slice::from_ref(&collected))
+            .unwrap();
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO local_assets(id,recording_id,path,hash,payload) VALUES('cleanup-asset-file',?1,'/tmp/cleanup-asset.flac','fixture-hash','{}')",
+                [&asset.id],
+            )
+            .unwrap();
+
+        let preview = store.preview_unsorted_library_entries(100, 0).unwrap();
+        assert_eq!(preview.total, 1);
+        assert_eq!(preview.entries.len(), 1);
+        assert_eq!(preview.entries[0].id, removable.id);
+        assert_eq!(preview.entries[0].classification, "unsortedLibraryEntry");
+        assert!(!preview.entries[0].classification.contains("legacySearch"));
+
+        let selections = vec![
+            LibraryEntrySelection {
+                id: preview.entries[0].id.clone(),
+                selection_token: preview.entries[0].selection_token.clone(),
+            },
+            cleanup_selection(&store, &favorite.id),
+            cleanup_selection(&store, &shortlisted.id),
+            cleanup_selection(&store, &collected.id),
+            cleanup_selection(&store, &asset.id),
+        ];
+        let result = store.remove_unsorted_library_entries(&selections).unwrap();
+        assert_eq!(result.removed_ids, vec![removable.id.clone()]);
+        assert_eq!(result.skipped.len(), 4);
+        assert!(result
+            .skipped
+            .iter()
+            .all(|row| row.reason == "protectedOrNoLongerInLibrary"));
+        assert!(store.get_track(&removable.id).unwrap().is_some());
+        assert_eq!(store.list_tracks("all", None).unwrap().len(), 5);
+        assert_eq!(store.list_tracks("library", None).unwrap().len(), 4);
+        let asset_count: i64 = store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM local_assets WHERE id='cleanup-asset-file' AND recording_id=?1",
+                [&asset.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(asset_count, 1);
+    }
+
+    #[test]
+    fn unsorted_library_cleanup_selection_token_rejects_changed_or_newly_protected_rows() {
+        let (_directory, store) = db();
+        let changed = store.save_track(&track("cleanup-changed", "")).unwrap();
+        let protected = store
+            .save_track(&track("cleanup-protected-later", ""))
+            .unwrap();
+        let preview = store.preview_unsorted_library_entries(100, 0).unwrap();
+        let selection_for = |id: &str| {
+            preview
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .map(|entry| LibraryEntrySelection {
+                    id: entry.id.clone(),
+                    selection_token: entry.selection_token.clone(),
+                })
+                .unwrap()
+        };
+        let changed_selection = selection_for(&changed.id);
+        let protected_selection = selection_for(&protected.id);
+
+        let mut revised = changed.clone();
+        revised.title = "Updated after preview".into();
+        store.update_track(&revised).unwrap();
+        store.set_favorite(&protected, true).unwrap();
+
+        let result = store
+            .remove_unsorted_library_entries(&[changed_selection, protected_selection])
+            .unwrap();
+        assert!(result.removed_ids.is_empty());
+        assert_eq!(result.skipped.len(), 2);
+        assert!(result
+            .skipped
+            .iter()
+            .any(|row| row.id == changed.id && row.reason == "changedSincePreview"));
+        assert!(result
+            .skipped
+            .iter()
+            .any(|row| { row.id == protected.id && row.reason == "protectedOrNoLongerInLibrary" }));
+        assert_eq!(store.list_tracks("library", None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn unsorted_library_cleanup_preview_includes_each_saved_listing_for_merged_recording() {
+        let (_directory, store) = db();
+        let canonical = store.save_track(&track("cleanup-canonical", "")).unwrap();
+        let alternate = store.save_track(&track("cleanup-alternate", "")).unwrap();
+        store
+            .merge_recordings(&canonical.id, std::slice::from_ref(&alternate.id))
+            .unwrap();
+
+        let preview = store.preview_unsorted_library_entries(100, 0).unwrap();
+        let ids = preview
+            .entries
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(preview.total, 2);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(canonical.id.as_str()));
+        assert!(ids.contains(alternate.id.as_str()));
+    }
 
     #[test]
     fn flexible_excerpt_publication_is_transactional_policy_scoped_and_preserves_catalog_row() {
@@ -6191,7 +6625,10 @@ mod tests {
                                     None,
                                 )
                                 .unwrap();
-                            assert_eq!(new, old, "phase={phase} view={view} field={field} direction={direction} offset={offset}");
+                            assert_eq!(
+                                new, old,
+                                "phase={phase} view={view} field={field} direction={direction} offset={offset}"
+                            );
                         }
                     }
                 }
@@ -8984,11 +9421,23 @@ mod tests {
     // Candidate indexes exist only on this ignored benchmark's disposable Store.
     // Keep this out of Store::open until paired SQL and end-to-end gates pass.
     fn benchmark_canonical_metrics_indexes(conn: &Connection, samples: usize, revision: i64) {
-        let coverage = format!("CASE WHEN l.sort_projection_revision={revision} AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END");
+        let coverage = format!(
+            "CASE WHEN l.sort_projection_revision={revision} AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END"
+        );
         let projections = [
             ("count", "COUNT(*)".to_owned()),
-            ("countAndAvailability", format!("COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={revision} THEN l.sort_availability_mask END)")),
-            ("countAvailabilityAndBpmCoverage", format!("COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={revision} THEN l.sort_availability_mask END),MIN({coverage})")),
+            (
+                "countAndAvailability",
+                format!(
+                    "COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={revision} THEN l.sort_availability_mask END)"
+                ),
+            ),
+            (
+                "countAvailabilityAndBpmCoverage",
+                format!(
+                    "COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={revision} THEN l.sort_availability_mask END),MIN({coverage})"
+                ),
+            ),
         ];
         let predicate = "l.id=l.recording_id AND l.in_library=1";
         let table_root: i64 = conn
@@ -9051,13 +9500,28 @@ mod tests {
             .collect::<Vec<_>>();
         let mut index_builds = Vec::new();
         for (name, columns) in [
-            ("bench_canonical_metrics_lean", "sort_availability_revision,sort_availability_mask".to_owned()),
-            ("bench_canonical_metrics_coverage", format!("sort_availability_revision,sort_availability_mask,(CASE WHEN sort_projection_revision={revision} AND sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END)")),
+            (
+                "bench_canonical_metrics_lean",
+                "sort_availability_revision,sort_availability_mask".to_owned(),
+            ),
+            (
+                "bench_canonical_metrics_coverage",
+                format!(
+                    "sort_availability_revision,sort_availability_mask,(CASE WHEN sort_projection_revision={revision} AND sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END)"
+                ),
+            ),
         ] {
             let started = Instant::now();
             conn.execute_batch(&format!("CREATE INDEX {name} ON catalog_listings({columns}) WHERE id=recording_id AND in_library=1;")).unwrap();
             let create_ms = started.elapsed().as_secs_f64() * 1000.0;
-            let bytes: Option<i64> = conn.query_row("SELECT SUM(pgsize) FROM dbstat WHERE name=?1", [name], |row| row.get(0)).ok().flatten();
+            let bytes: Option<i64> = conn
+                .query_row(
+                    "SELECT SUM(pgsize) FROM dbstat WHERE name=?1",
+                    [name],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
             index_builds.push(serde_json::json!({"name":name,"columns":columns,"creationMsSingleObservation":create_ms,"indexBytesIfDbstatAvailable":bytes}));
         }
         let relations = [
@@ -9211,7 +9675,9 @@ mod tests {
                 CHANGED_ROWS
             );
         }
-        let projection=format!("COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={shared_revision} THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision={shared_revision} AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END)");
+        let projection = format!(
+            "COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={shared_revision} THEN l.sort_availability_mask END),MIN(CASE WHEN l.sort_projection_revision={shared_revision} AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END)"
+        );
         let check = |conn: &Connection,
                      indexed: bool,
                      count: usize,
@@ -9226,7 +9692,9 @@ mod tests {
             }
             let mut expected = None;
             for relation in relations {
-                let sql=format!("SELECT {projection} FROM {relation} WHERE l.id=l.recording_id AND l.in_library=1");
+                let sql = format!(
+                    "SELECT {projection} FROM {relation} WHERE l.id=l.recording_id AND l.in_library=1"
+                );
                 let actual: (usize, Option<i64>, Option<i64>) = conn
                     .query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
                     .unwrap_or_else(|error| {
@@ -9830,11 +10298,15 @@ mod tests {
                     let _mode = HydrationMode::set(individual);
                     if iteration == 0 {
                         let projection = if sort == "bpm" {
-                            format!(",MIN(CASE WHEN l.sort_projection_revision={shared_revision} AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END)")
+                            format!(
+                                ",MIN(CASE WHEN l.sort_projection_revision={shared_revision} AND l.sort_metadata_projection IS NOT NULL THEN 1 ELSE 0 END)"
+                            )
                         } else {
                             String::new()
                         };
-                        let sql = format!("SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={shared_revision} THEN l.sort_availability_mask END){projection} FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1");
+                        let sql = format!(
+                            "SELECT COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={shared_revision} THEN l.sort_availability_mask END){projection} FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1"
+                        );
                         let conn = store.connection.lock().unwrap();
                         let plan = conn
                             .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
@@ -10035,11 +10507,20 @@ mod tests {
         let mut output = Vec::new();
         for (phase, projection) in [
             ("count", "COUNT(*)".to_string()),
-            ("countAndAvailability", format!("COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={revision} THEN l.sort_availability_mask END)")),
+            (
+                "countAndAvailability",
+                format!(
+                    "COUNT(*),sort_availability_or(CASE WHEN l.sort_availability_revision={revision} THEN l.sort_availability_mask END)"
+                ),
+            ),
         ] {
             let queries = [
-                format!("SELECT {projection} FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id=l.recording_id AND l.in_library=1"),
-                format!("SELECT {projection} FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1"),
+                format!(
+                    "SELECT {projection} FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id=l.recording_id AND l.in_library=1"
+                ),
+                format!(
+                    "SELECT {projection} FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1"
+                ),
             ];
             let plans = queries.iter().map(|sql| {
                 conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap().query_map([], |row| Ok(serde_json::json!({"id":row.get::<_, i64>(0)?,"parent":row.get::<_, i64>(1)?,"detail":row.get::<_, String>(3)?}))).unwrap().collect::<std::result::Result<Vec<_>, _>>().unwrap()
@@ -10050,11 +10531,24 @@ mod tests {
                 // Alternate pair order to avoid consistently favoring one query.
                 for index in if iteration % 2 == 0 { [0, 1] } else { [1, 0] } {
                     let started = Instant::now();
-                    let result: (usize, Option<i64>) = conn.query_row(&queries[index], [], |row| Ok((row.get(0)?, if phase == "count" { None } else { row.get(1)? }))).unwrap();
+                    let result: (usize, Option<i64>) = conn
+                        .query_row(&queries[index], [], |row| {
+                            Ok((
+                                row.get(0)?,
+                                if phase == "count" { None } else { row.get(1)? },
+                            ))
+                        })
+                        .unwrap();
                     let elapsed = started.elapsed().as_secs_f64() * 1000.0;
                     assert_eq!(result.0, 50_000);
-                    if let Some(expected) = expected { assert_eq!(result, expected); } else { expected = Some(result); }
-                    if iteration >= 3 { timings[index].push(elapsed); }
+                    if let Some(expected) = expected {
+                        assert_eq!(result, expected);
+                    } else {
+                        expected = Some(result);
+                    }
+                    if iteration >= 3 {
+                        timings[index].push(elapsed);
+                    }
                 }
             }
             let summaries = timings.into_iter().map(|samples| {

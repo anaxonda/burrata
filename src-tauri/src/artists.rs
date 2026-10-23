@@ -42,6 +42,7 @@ pub struct ArtistRef {
 pub struct ArtistSearchResult {
     pub artist: ArtistRef,
     pub name: String,
+    pub image_url: Option<String>,
     pub sort_name: Option<String>,
     pub disambiguation: Option<String>,
     pub artist_type: Option<String>,
@@ -429,6 +430,7 @@ impl ArtistService {
         if !provider_succeeded && warnings.iter().any(|warning| warning.contains(" failed:")) {
             return Err(warnings.join("; "));
         }
+        self.attach_cached_musicbrainz_artist_images(&mut results);
         Ok(ArtistSearchPage {
             query: query.into(),
             page,
@@ -460,7 +462,7 @@ impl ArtistService {
         }
         let offset = (page - 1) * page_size;
         let cache_id = format!("{}:{page}:{page_size}", query.to_lowercase());
-        let (results, total, has_more) = match provider {
+        let (mut results, total, has_more) = match provider {
             "musicbrainz" => {
                 let params = vec![
                     ("query", query.to_owned()),
@@ -484,7 +486,7 @@ impl ArtistService {
                     .into_iter()
                     .flatten()
                     .filter_map(parse_musicbrainz_artist)
-                    .collect();
+                    .collect::<Vec<ArtistSearchResult>>();
                 let more = count.is_some_and(|n| offset + page_size < n);
                 (rows, count, more)
             }
@@ -515,7 +517,7 @@ impl ArtistService {
                     .into_iter()
                     .flatten()
                     .filter_map(parse_discogs_artist)
-                    .collect();
+                    .collect::<Vec<ArtistSearchResult>>();
                 let count = data["pagination"]["items"]
                     .as_u64()
                     .map(|n| n.min(u32::MAX as u64) as u32);
@@ -526,6 +528,9 @@ impl ArtistService {
             }
             _ => return Err("Unsupported artist search provider".into()),
         };
+        if provider == "musicbrainz" {
+            self.attach_cached_musicbrainz_artist_images(&mut results);
+        }
         Ok(ArtistSearchPage {
             query: query.into(),
             page,
@@ -764,6 +769,44 @@ impl ArtistService {
             .store
             .set_provider_cache(namespace, qid, &payload, PROFILE_TTL);
         image
+    }
+
+    fn attach_cached_musicbrainz_artist_images(&self, results: &mut [ArtistSearchResult]) {
+        for result in results
+            .iter_mut()
+            .filter(|result| result.artist.provider == "musicbrainz")
+        {
+            result.image_url = self.cached_musicbrainz_artist_image(&result.artist.id);
+        }
+    }
+
+    /// Reuse portrait enrichment already loaded by an artist profile without
+    /// making one or more extra HTTP requests per search result.
+    pub fn cached_musicbrainz_artist_image(&self, artist_id: &str) -> Option<String> {
+        if !valid_mbid(artist_id) {
+            return None;
+        }
+        if let Ok(Some(cached)) = self
+            .store
+            .get_provider_cache("artists.portrait.artist.v1", artist_id)
+        {
+            if let Some(image) = cached["imageUrl"].as_str().and_then(secure_url) {
+                return Some(image);
+            }
+        }
+        let profile = self
+            .store
+            .get_provider_cache("artists.profile.musicbrainz", artist_id)
+            .ok()??;
+        let qid = profile["relations"]
+            .as_array()?
+            .iter()
+            .find_map(|relation| wikidata_item_id(relation["url"]["resource"].as_str()?))?;
+        let portrait = self
+            .store
+            .get_provider_cache("artists.portrait.wikidata.v1", &qid)
+            .ok()??;
+        portrait["imageUrl"].as_str().and_then(secure_url)
     }
 
     pub async fn get_artist_profile(
@@ -1040,6 +1083,16 @@ impl ArtistService {
                         provider: Some("wikimedia".into()),
                     });
                 }
+            }
+        }
+        if artist.provider == "musicbrainz" {
+            if let Some(image) = image_url.as_deref() {
+                let _ = self.store.set_provider_cache(
+                    "artists.portrait.artist.v1",
+                    &artist.id,
+                    &json!({"imageUrl":image}),
+                    PROFILE_TTL,
+                );
             }
         }
         let releases = self
@@ -2265,6 +2318,7 @@ fn parse_musicbrainz_artist(value: &Value) -> Option<ArtistSearchResult> {
             id: id.clone(),
         },
         name,
+        image_url: None,
         sort_name: value["sort-name"].as_str().map(str::to_owned),
         disambiguation: nonempty(value["disambiguation"].as_str()),
         artist_type: value["type"].as_str().map(str::to_owned),
@@ -2309,6 +2363,7 @@ fn parse_discogs_artist(value: &Value) -> Option<ArtistSearchResult> {
             id: id.clone(),
         },
         name,
+        image_url: None,
         sort_name: None,
         disambiguation: nonempty(value["profile"].as_str()).map(|s| s.chars().take(140).collect()),
         artist_type: None,
@@ -2699,6 +2754,7 @@ pub(crate) fn parse_musicbrainz_release_tracks(
             provenance: json!({"sourceKind":"catalog", "catalogProvider":"musicbrainz", "sourceUrl":release_url,
                 "requestedReleaseSourceUrl":requested_source_url, "releaseId":edition_id,
                 "releaseGroupId":data["release-group"]["id"],
+                "artworkAlternates":musicbrainz_artwork_urls(data, "release", edition_id),
                 "mediumPosition":medium, "trackPosition":position, "occurrence":occurrence,
                 "trackPositionOrdinal":source_track_position, "sourceMediumPosition":source_medium_position,
                 "recordingId":reference_id, "trackGuid":source_track_guid, "artistCredits":credits, "representativeEdition":representative}),
@@ -3296,40 +3352,61 @@ fn named_items(value: &Value) -> Vec<String> {
 }
 
 fn musicbrainz_release_group_search_query(query: &str) -> String {
-    // Album discovery accepts either a release title or an artist name. Keep
-    // user text inside literal phrases so Lucene operators cannot change the
-    // query's meaning.
-    let phrase = query
-        .chars()
-        .flat_map(|character| {
-            if matches!(
-                character,
-                '+' | '-'
-                    | '&'
-                    | '|'
-                    | '!'
-                    | '('
-                    | ')'
-                    | '{'
-                    | '}'
-                    | '['
-                    | ']'
-                    | '^'
-                    | '"'
-                    | '~'
-                    | '*'
-                    | '?'
-                    | ':'
-                    | '\\'
-                    | '/'
-            ) {
-                vec!['\\', character]
-            } else {
-                vec![character]
-            }
-        })
-        .collect::<String>();
-    format!("releasegroup:\"{phrase}\" OR artist:\"{phrase}\" OR artistname:\"{phrase}\"")
+    // Keep the full literal query for title-only and artist-only searches,
+    // then add bounded artist/title splits for combined natural-language
+    // queries such as "Kendrick Lamar good kid".
+    let escaped_phrase = |phrase: &str| {
+        phrase
+            .chars()
+            .flat_map(|character| {
+                if matches!(
+                    character,
+                    '+' | '-'
+                        | '&'
+                        | '|'
+                        | '!'
+                        | '('
+                        | ')'
+                        | '{'
+                        | '}'
+                        | '['
+                        | ']'
+                        | '^'
+                        | '"'
+                        | '~'
+                        | '*'
+                        | '?'
+                        | ':'
+                        | '\\'
+                        | '/'
+                ) {
+                    vec!['\\', character]
+                } else {
+                    vec![character]
+                }
+            })
+            .collect::<String>()
+    };
+    let phrase = escaped_phrase(query);
+    let mut clauses = vec![
+        format!("releasegroup:\"{phrase}\""),
+        format!("artist:\"{phrase}\""),
+        format!("artistname:\"{phrase}\""),
+    ];
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    if (3..=8).contains(&words.len()) {
+        for split in 1..words.len() {
+            let left = escaped_phrase(&words[..split].join(" "));
+            let right = escaped_phrase(&words[split..].join(" "));
+            clauses.push(format!(
+                "(artistname:\"{left}\" AND releasegroup:\"{right}\")"
+            ));
+            clauses.push(format!(
+                "(releasegroup:\"{left}\" AND artistname:\"{right}\")"
+            ));
+        }
+    }
+    clauses.join(" OR ")
 }
 
 fn string_array(value: &Value) -> Vec<String> {
@@ -3726,10 +3803,69 @@ mod tests {
             musicbrainz_release_group_search_query("Nipsey Hussle"),
             "releasegroup:\"Nipsey Hussle\" OR artist:\"Nipsey Hussle\" OR artistname:\"Nipsey Hussle\""
         );
+        let combined = musicbrainz_release_group_search_query("Kendrick Lamar good kid");
+        assert!(combined.contains("(artistname:\"Kendrick Lamar\" AND releasegroup:\"good kid\")"));
+        assert!(combined.contains("(releasegroup:\"Kendrick Lamar\" AND artistname:\"good kid\")"));
+        let injected = musicbrainz_release_group_search_query("Nipsey\" OR artist:*");
+        assert!(injected.contains("Nipsey\\\" OR artist\\:\\*"));
+        assert!(!injected.contains("OR artist:*\""));
+    }
+
+    #[tokio::test]
+    async fn musicbrainz_artist_search_reuses_cached_portrait_without_extra_fetches() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 2048];
+            loop {
+                let n = stream.read(&mut chunk).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..n]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let body = r#"{"count":1,"artists":[{"id":"00000000-0000-4000-8000-000000000111","name":"Fixture Artist"}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temp.path().join("cached-artist-image.sqlite")).unwrap());
+        store
+            .set_provider_cache(
+                "artists.portrait.artist.v1",
+                "00000000-0000-4000-8000-000000000111",
+                &json!({"imageUrl":"https://commons.wikimedia.org/fixture.jpg"}),
+                3600,
+            )
+            .unwrap();
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+        let page = service
+            .search_artists_for(
+                "musicbrainz",
+                "Fixture Artist",
+                1,
+                25,
+                &ArtistCredentials::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.results.len(), 1);
         assert_eq!(
-            musicbrainz_release_group_search_query("Nipsey\" OR artist:*"),
-            "releasegroup:\"Nipsey\\\" OR artist\\:\\*\" OR artist:\"Nipsey\\\" OR artist\\:\\*\" OR artistname:\"Nipsey\\\" OR artist\\:\\*\""
+            page.results[0].image_url.as_deref(),
+            Some("https://commons.wikimedia.org/fixture.jpg")
         );
+        server.await.unwrap();
     }
 
     #[tokio::test]
@@ -3756,7 +3892,7 @@ mod tests {
                 .next()
                 .unwrap_or_default()
                 .to_owned();
-            let body = r#"{"count":1,"release-groups":[{"id":"00000000-0000-4000-8000-000000000011","title":"Victory Lap","artist-credit":[{"name":"Nipsey Hussle","artist":{"id":"00000000-0000-4000-8000-000000000012","name":"Nipsey Hussle"}}]}]}"#;
+            let body = r#"{"count":1,"release-groups":[{"id":"00000000-0000-4000-8000-000000000011","title":"good kid, m.A.A.d city","artist-credit":[{"name":"Kendrick Lamar","artist":{"id":"00000000-0000-4000-8000-000000000012","name":"Kendrick Lamar"}}]}]}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),
@@ -3772,22 +3908,25 @@ mod tests {
         let page = service
             .search_albums_for(
                 "musicbrainz",
-                "Nipsey Hussle",
+                "Kendrick Lamar good kid",
                 1,
                 &ArtistCredentials::default(),
             )
             .await
             .unwrap();
         assert_eq!(page.items.len(), 1);
-        assert_eq!(page.items[0].title, "Victory Lap");
-        assert_eq!(page.items[0].credits[0].name, "Nipsey Hussle");
+        assert_eq!(page.items[0].title, "good kid, m.A.A.d city");
+        assert_eq!(page.items[0].credits[0].name, "Kendrick Lamar");
         let request_line = server.await.unwrap();
         let request_path = request_line.split_whitespace().nth(1).unwrap();
         let request_url = Url::parse(&format!("http://localhost{request_path}")).unwrap();
         let params = request_url
             .query_pairs()
             .collect::<std::collections::HashMap<_, _>>();
-        assert_eq!(params.get("query").map(|value| value.as_ref()), Some("releasegroup:\"Nipsey Hussle\" OR artist:\"Nipsey Hussle\" OR artistname:\"Nipsey Hussle\""));
+        assert_eq!(
+            params.get("query").map(|value| value.as_ref()),
+            Some(musicbrainz_release_group_search_query("Kendrick Lamar good kid").as_str())
+        );
         assert_eq!(params.get("limit").map(|value| value.as_ref()), Some("25"));
         assert_eq!(params.get("offset").map(|value| value.as_ref()), Some("0"));
     }
@@ -4347,6 +4486,8 @@ mod tests {
         let rows = parse_musicbrainz_release_tracks(
             &json!({
                 "title":"Compilation", "artist-credit":[{"name":"Various Artists"}],
+                "cover-art-archive":{"front":true},
+                "release-group":{"id":"00000000-0000-4000-8000-000000000005"},
                 "media":[{"position":1,"tracks":[
                     {"id":"not-a-recording-mbid","number":"1","position":1,"title":"One","recording":{"id":recording,"length":95000}},
                     {"id":"00000000-0000-4000-8000-000000000004","number":"1","position":1,"title":"One (reprise)","recording":{"length":97000,"artist-credit":[{"name":"Guest"}]}}
@@ -4362,6 +4503,10 @@ mod tests {
         assert_eq!(rows[1].artist, "Guest");
         assert_ne!(rows[0].id, rows[1].id);
         assert_eq!(rows[0].provenance["recordingId"], recording);
+        assert_eq!(rows[0].provenance["artworkAlternates"], json!([
+            "https://coverartarchive.org/release/00000000-0000-4000-8000-000000000002/front-250",
+            "https://coverartarchive.org/release-group/00000000-0000-4000-8000-000000000005/front-250"
+        ]));
         assert_eq!(rows[0].provenance["trackGuid"], "not-a-recording-mbid");
         assert_eq!(rows[0].track_number, Some(1));
         assert_eq!(rows[0].disc_number, Some(1));
@@ -4567,7 +4712,8 @@ mod tests {
                 paths.push(request.lines().next().unwrap_or_default().to_owned());
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(), body
+                    body.len(),
+                    body
                 );
                 stream.write_all(response.as_bytes()).await.unwrap();
             }

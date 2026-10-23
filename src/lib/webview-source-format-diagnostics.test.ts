@@ -8,7 +8,7 @@ describe("WebView source format diagnostics", () => {
       expectedContentLength: 123456, url: "https://private.invalid/?token=secret", headers: { authorization: "secret" },
     };
     const safe = sanitizeWebviewSourceFormatDiagnostics(raw, "direct");
-    expect(safe).toEqual({ codec: "mp4a.40.2", mimeType: "audio/mp4", formatId: "140", hasVideo: false, expectedContentLength: 123456, streamKind: "direct" });
+    expect(safe).toEqual({ codec: "aac", mimeType: "audio/mp4", formatId: "140", hasVideo: false, expectedContentLength: 123456, streamKind: "direct" });
     expect(JSON.stringify(safe)).not.toContain("private.invalid");
     expect(JSON.stringify(safe)).not.toContain("secret");
   });

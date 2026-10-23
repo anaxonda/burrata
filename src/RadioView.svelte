@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
+  let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import TrackDurationFilter from "./TrackDurationFilter.svelte";
   import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
   import { onMount } from "svelte";
@@ -129,6 +131,9 @@
   let editStreamSaving = $state(false);
   let editedStationUrl = $state("");
   let stationEditRequest = 0;
+  let alternateStreamResults = $state<RadioStationSearchResult[]>([]);
+  let alternateStreamSearching = $state(false);
+  let alternateStreamRequest = 0;
   let stationActionError = $state("");
   let stationActionStatus = $state("");
   let historyQuery = $state("");
@@ -210,6 +215,9 @@
   $effect(() => {
     selectedStationId;
     stationEditRequest++;
+    alternateStreamRequest++;
+    alternateStreamResults = [];
+    alternateStreamSearching = false;
     editStreamOpen = false;
     editedStationUrl = "";
     stationActionStatus = "";
@@ -385,6 +393,7 @@
   const stationHistoryTracks = $derived.by(() => {
     const lower = parseDurationBound(historyMinDuration), upper = parseDurationBound(historyMaxDuration);
     const tracks = filterTracks(visibleHistory.map(trackForMetadata), {
+      availability: downloadAvailability,
       ...(lower === null ? {} : { minDurationSeconds: lower }),
       ...(upper === null ? {} : { maxDurationSeconds: upper }),
     });
@@ -533,6 +542,37 @@
       if (request === stationEditRequest && selectedStationId === stationId) stationActionError = String(failure);
     } finally { editStreamSaving = false; }
   }
+  function sameStreamUrl(left: string, right: string) {
+    return left.trim().replace(/\/$/, "").toLocaleLowerCase() === right.trim().replace(/\/$/, "").toLocaleLowerCase();
+  }
+  async function searchAlternateStreams() {
+    if (!selectedStation || !editStreamOpen) return;
+    const station = selectedStation;
+    const request = ++alternateStreamRequest;
+    alternateStreamSearching = true;
+    alternateStreamResults = [];
+    stationActionError = "";
+    try {
+      const results = await call<RadioStationSearchResult[]>("search_radio_stations", {
+        query: station.name, country: station.country || null, tag: stationTags(station, 1)[0] || null, limit: 20,
+      });
+      if (request !== alternateStreamRequest || !editStreamOpen || selectedStationId !== station.id) return;
+      alternateStreamResults = results.filter(candidate => !sameStreamUrl(candidate.streamUrl, station.streamUrl));
+    } catch (failure) {
+      if (request === alternateStreamRequest && selectedStationId === station.id) stationActionError = String(failure);
+    } finally {
+      if (request === alternateStreamRequest) alternateStreamSearching = false;
+    }
+  }
+  function cancelStationUrlEdit() {
+    stationEditRequest++;
+    alternateStreamRequest++;
+    alternateStreamResults = [];
+    alternateStreamSearching = false;
+    editStreamOpen = false;
+    editedStationUrl = "";
+    stationActionError = "";
+  }
   async function removeStation(station: RadioStation) {
     stationActionError = "";
     try {
@@ -588,8 +628,8 @@
       {#if selectedStation.country || selectedStation.tags?.length || selectedStation.codec || selectedStation.bitrateKbps || selectedStation.bitrate || selectedStation.language}
         <p class="station-details">{[selectedStation.country, selectedStation.language, stationTags(selectedStation).join(" · "), selectedStation.codec, (selectedStation.bitrateKbps ?? selectedStation.bitrate) ? `${selectedStation.bitrateKbps ?? selectedStation.bitrate} kbps` : ""].filter(Boolean).join(" · ")}</p>
       {/if}
-      <div class="station-actions"><button class="add-button" onclick={() => onPlayStation(selectedStation)}>▶ Play station</button><button class="remove-station" onclick={() => { editedStationUrl = selectedStation.streamUrl; editStreamOpen = !editStreamOpen; stationActionError = ""; stationActionStatus = ""; }}>{editStreamOpen ? "Cancel URL edit" : "Edit stream URL"}</button>{#if removable(selectedStation)}<button class="remove-station" aria-label={`Remove ${selectedStation.name}`} onclick={() => void removeStation(selectedStation)}>Remove station</button>{/if}</div>
-      {#if editStreamOpen}<form class="edit-station-url" onsubmit={(event) => { event.preventDefault(); void saveStationStreamUrl(); }}><label for="radio-stream-url">Stream URL</label><input id="radio-stream-url" aria-label="Edit stream URL" type="url" disabled={editStreamSaving} bind:value={editedStationUrl} maxlength="2048" required /><button class="add-button" disabled={editStreamSaving || !editedStationUrl.trim()}>{editStreamSaving ? "Saving…" : "Save stream URL"}</button><small>The new stream will be used the next time you play this station.</small></form>{/if}
+      <div class="station-actions"><button class="add-button" onclick={() => onPlayStation(selectedStation)}>▶ Play station</button><button class="remove-station" onclick={() => { if (editStreamOpen) cancelStationUrlEdit(); else { editedStationUrl = selectedStation.streamUrl; editStreamOpen = true; alternateStreamResults = []; } stationActionError = ""; stationActionStatus = ""; }}>{editStreamOpen ? "Cancel URL edit" : "Edit stream URL"}</button>{#if removable(selectedStation)}<button class="remove-station" aria-label={`Remove ${selectedStation.name}`} onclick={() => void removeStation(selectedStation)}>Remove station</button>{/if}</div>
+      {#if editStreamOpen}<form class="edit-station-url" onsubmit={(event) => { event.preventDefault(); void saveStationStreamUrl(); }}><label for="radio-stream-url">Stream URL</label><input id="radio-stream-url" aria-label="Edit stream URL" type="url" disabled={editStreamSaving} bind:value={editedStationUrl} maxlength="2048" required /><button type="button" disabled={alternateStreamSearching || editStreamSaving} onclick={() => void searchAlternateStreams()}>{alternateStreamSearching ? "Searching…" : "Find alternate streams"}</button>{#if alternateStreamResults.length}<ul aria-label="Alternate streams" class="search-results">{#each alternateStreamResults as candidate (candidate.id)}<li><div><strong>{candidate.name}</strong><small>{[candidate.country, candidate.codec, (candidate.bitrateKbps ?? candidate.bitrate) ? `${candidate.bitrateKbps ?? candidate.bitrate} kbps` : "Reported stream details"].filter(Boolean).join(" · ")}</small></div><button type="button" onclick={() => { editedStationUrl = candidate.streamUrl; }}>{"Use URL"}</button></li>{/each}</ul>{:else if !alternateStreamSearching}<small>Search directory matches by station name. Check the stream before saving; reported codec and bitrate may vary.</small>{/if}<button class="add-button" disabled={editStreamSaving || !editedStationUrl.trim()}>{editStreamSaving ? "Saving…" : "Save stream URL"}</button><button type="button" class="remove-station" disabled={editStreamSaving} onclick={cancelStationUrlEdit}>Cancel URL edit</button><small>The new stream will be used the next time you play this station.</small></form>{/if}
       {#if stationActionStatus}<p role="status">{stationActionStatus}</p>{/if}
       {#if stationActionError}<p role="alert" class="error">{stationActionError}</p>{/if}
       {#if playingStationId === selectedStation.id}<button class="identify-button" disabled={recognizing || identifyingPlayingStation} onclick={() => void identifyCurrentSong(selectedStation.id)}>{recognizing || identifyingPlayingStation ? "Identifying…" : "Identify current song"}</button>{/if}
@@ -606,7 +646,7 @@
   {#if selectedStation}
     <section class="history" aria-label={`Recently heard on ${selectedStation?.name ?? "Radio Paradise"}`}>
       <h2>Station history <small>your listening history</small></h2>
-      <div class="history-tools track-browser-controls"><label>Search station history<input aria-label="Search station history" type="search" bind:value={historyQuery} placeholder="Title or artist" /></label><label>History order<select aria-label="Sort station history" bind:value={historySort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label><label>Sort tracks<select aria-label="Sort station history tracks" bind:value={historyTrackSort}><option value="sourceOrder">History order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select></label><label>Direction<select aria-label="Sort direction" bind:value={historyTrackSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><TrackDurationFilter bind:minDuration={historyMinDuration} bind:maxDuration={historyMaxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" />{#if onOpenHistory}<button class="full-history" onclick={() => onOpenHistory?.(selectedStation.id)}>Full listening history →</button>{/if}</div>
+      <div class="history-tools track-browser-controls"><label>Search station history<input aria-label="Search station history" type="search" bind:value={historyQuery} placeholder="Title or artist" /></label><label>History order<select aria-label="Sort station history" bind:value={historySort}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label><label>Sort tracks<select aria-label="Sort station history tracks" bind:value={historyTrackSort}><option value="sourceOrder">History order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select></label><label>Direction<select aria-label="Sort direction" bind:value={historyTrackSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><TrackDurationFilter bind:minDuration={historyMinDuration} bind:maxDuration={historyMaxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" /><TrackDownloadFilter bind:value={downloadAvailability} />{#if onOpenHistory}<button class="full-history" onclick={() => onOpenHistory?.(selectedStation.id)}>Full listening history →</button>{/if}</div>
       <section class="radio-playlist-capture" aria-label="Save played songs to playlist">
         <label><input type="checkbox" checked={playlistOption.enabled} disabled={playlistLoading || playlistSaving} onchange={(event) => void savePlaylistOption(event.currentTarget.checked)} /> Automatically add identified songs I hear to a local playlist</label>
         <label>Playlist<select aria-label="Radio capture playlist" bind:value={playlistTarget} disabled={playlistLoading || playlistSaving} onchange={() => {if (playlistOption.enabled) void savePlaylistOption(true);}}><option value="">New playlist: {selectedStation.name}</option>{#each playlistTargets as target (target.id)}<option value={target.id}>{target.name}</option>{/each}</select></label>

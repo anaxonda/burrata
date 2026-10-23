@@ -230,6 +230,12 @@ fn sanitize_detail_value(key: &str, value: &Value, depth: usize) -> Option<Value
             && value.bytes().all(|byte| byte.is_ascii_digit()))
         .then(|| Value::String(value.to_owned()));
     }
+    if key == "sharedLookupId" {
+        let value = value.as_str()?;
+        return uuid::Uuid::parse_str(value)
+            .ok()
+            .map(|id| Value::String(id.to_string()));
+    }
     if matches!(key, "sourceFingerprint" | "trackFingerprint") {
         let value = value.as_str()?;
         return is_hex_fingerprint(value).then(|| Value::String(value.to_ascii_lowercase()));
@@ -335,6 +341,13 @@ fn bool_key(key: &str) -> bool {
             | "requestedVersionPresent"
             | "descriptiveVersionTextPresentOrNotRequired"
             | "hasResults"
+            | "providerIdMatches"
+            | "resolvedTitlePresent"
+            | "topicUploader"
+            | "requestedVersion"
+            | "reused"
+            | "sameSearchRow"
+            | "verifiedCreditSets"
     )
 }
 
@@ -348,6 +361,10 @@ fn number_key(key: &str) -> bool {
             | "attempt"
             | "attemptCount"
             | "count"
+            | "cacheHits"
+            | "cacheMisses"
+            | "waiterCount"
+            | "flightWaiters"
             | "resultCount"
             | "observedElapsedMs"
             | "responseCount"
@@ -388,6 +405,9 @@ fn number_key(key: &str) -> bool {
             | "bitrate"
             | "bitrateKbps"
             | "durationSeconds"
+            | "catalogDuration"
+            | "resolvedDuration"
+            | "aliases"
             | "contentLength"
             | "expectedContentLength"
             | "rangeStart"
@@ -421,7 +441,10 @@ fn bounded_number(key: &str, number: &Number) -> Option<Number> {
             10_000_000
         } else if key == "expiresInSeconds" {
             2_592_000
-        } else if key == "durationSeconds" {
+        } else if matches!(
+            key,
+            "durationSeconds" | "catalogDuration" | "resolvedDuration"
+        ) {
             86_400
         } else if matches!(
             key,
@@ -444,7 +467,8 @@ fn bounded_number(key: &str, number: &Number) -> Option<Number> {
         return None;
     }
     let limit = match key {
-        "windowSeconds" | "durationSeconds" | "expiresInSeconds" => 86_400.0,
+        "windowSeconds" | "durationSeconds" | "catalogDuration" | "resolvedDuration"
+        | "expiresInSeconds" => 86_400.0,
         "sampleRate" | "sampleRateHz" => 384_000.0,
         "channels" => 32.0,
         "bitDepth" => 64.0,
@@ -471,10 +495,25 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
         "codec" => Some(&[
             "opus", "aac", "mp3", "flac", "vorbis", "alac", "pcm", "unknown",
         ]),
-        "container" => Some(&["webm", "m4a", "mp4", "flac", "mp3", "ogg", "wav", "unknown"]),
+        "container" => Some(&[
+            "webm", "m4a", "mp4", "flac", "mp3", "ogg", "wav", "aac", "m3u8", "mpegts", "unknown",
+        ]),
         "source" => Some(&[
-            "amazon", "tidal", "qobuz", "deezer", "spotify", "youtube", "apple", "bandcamp",
-            "direct", "cache", "network", "other", "unknown",
+            "amazon",
+            "tidal",
+            "qobuz",
+            "deezer",
+            "spotify",
+            "youtube",
+            "apple",
+            "bandcamp",
+            "soundcloud",
+            "monochrome",
+            "direct",
+            "cache",
+            "network",
+            "other",
+            "unknown",
         ]),
         "cacheSource" => Some(&[
             "memory",
@@ -489,6 +528,22 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "extractor",
             "resolver",
             "direct",
+            "other",
+        ]),
+        "extractorReason" => Some(&[
+            "geo_restricted",
+            "subscription_required",
+            "provider_client",
+            "unsupported_url",
+            "cancelled",
+            "timeout",
+            "network",
+            "rate_limited",
+            "access_denied",
+            "private",
+            "removed",
+            "format_unavailable",
+            "source_unavailable",
             "other",
         ]),
         "category" => Some(&[
@@ -566,7 +621,9 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "waiting_for_worker",
             "after_wait",
         ]),
-        "errorClass" => Some(&["timeout", "connect", "request", "body", "other"]),
+        "errorClass" | "dnsErrorClass" | "probeErrorClass" => {
+            Some(&["timeout", "connect", "request", "body", "other"])
+        }
         "proofKind" => Some(&[
             "recording",
             "verified_extractor",
@@ -837,6 +894,61 @@ mod tests {
     }
 
     #[test]
+    fn sanitizer_retains_safe_identity_evidence_and_drops_private_text() {
+        let details = sanitize_details(json!({
+            "providerIdMatches":true,
+            "resolvedTitlePresent":false,
+            "topicUploader":true,
+            "requestedVersion":false,
+            "reused":true,
+            "sameSearchRow":false,
+            "verifiedCreditSets":true,
+            "catalogDuration":214.0,
+            "resolvedDuration":218.5,
+            "aliases":12,
+            "title":"private title",
+            "artist":"private artist",
+            "url":"https://cdn.example/signed?token=private-token",
+            "error":"private raw error"
+        }));
+
+        assert_eq!(details["providerIdMatches"], true);
+        assert_eq!(details["resolvedTitlePresent"], false);
+        assert_eq!(details["topicUploader"], true);
+        assert_eq!(details["requestedVersion"], false);
+        assert_eq!(details["reused"], true);
+        assert_eq!(details["sameSearchRow"], false);
+        assert_eq!(details["verifiedCreditSets"], true);
+        assert_eq!(details["catalogDuration"], 214.0);
+        assert_eq!(details["resolvedDuration"], 218.5);
+        assert_eq!(details["aliases"], 12);
+
+        let encoded = serde_json::to_string(&details).unwrap();
+        for secret in [
+            "private title",
+            "private artist",
+            "https://",
+            "private-token",
+            "private raw error",
+        ] {
+            assert!(!encoded.contains(secret), "leaked {secret}: {encoded}");
+        }
+    }
+
+    #[test]
+    fn sanitizer_bounds_identity_durations_and_alias_count() {
+        let details = sanitize_details(json!({
+            "catalogDuration":100_000.0,
+            "resolvedDuration":-1.0,
+            "aliases":u64::MAX
+        }));
+
+        assert_eq!(details["catalogDuration"], 86_400.0);
+        assert!(details.get("resolvedDuration").is_none());
+        assert_eq!(details["aliases"], 1_000_000);
+    }
+
+    #[test]
     fn ring_is_bounded_and_disable_stops_new_events() {
         let mut events = EventRing::default();
         for index in 0..=MAX_EVENTS {
@@ -894,6 +1006,29 @@ mod tests {
     }
 
     #[test]
+    fn extractor_reasons_retain_only_fixed_labels() {
+        for reason in [
+            "geo_restricted",
+            "subscription_required",
+            "provider_client",
+            "access_denied",
+            "other",
+        ] {
+            let safe = sanitize_details(
+                json!({"extractorReason":reason,"httpStatus":403,"stderr":"private token=secret"}),
+            );
+            assert_eq!(safe["extractorReason"], reason);
+            assert_eq!(safe["httpStatus"], 403);
+            assert!(safe.get("stderr").is_none());
+        }
+        assert!(sanitize_details(
+            json!({"extractorReason":"https://private.invalid/?token=secret"})
+        )
+        .get("extractorReason")
+        .is_none());
+    }
+
+    #[test]
     fn redirect_diagnostic_classes_and_status_are_retained() {
         for class in ["googlevideo", "account", "other", "invalid"] {
             let safe = sanitize_details(json!({
@@ -943,6 +1078,7 @@ mod tests {
             "rangeStart":0,
             "rangeEnd":1023,
             "expiresInSeconds":60,
+            "sharedLookupId":"550e8400-e29b-41d4-a716-446655440000",
             "errorClass":"connect",
             "rawError":"private URL https://secret.invalid"
         });
@@ -964,6 +1100,7 @@ mod tests {
             "rangeStart",
             "rangeEnd",
             "expiresInSeconds",
+            "sharedLookupId",
             "errorClass",
         ] {
             assert!(sanitized.details.contains_key(field), "lost {field}");

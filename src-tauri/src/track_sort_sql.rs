@@ -417,16 +417,22 @@ pub fn duration_expression(metadata: &str) -> String {
     let start = format!("CAST(json_extract({metadata},'$.playbackRange.startTime') AS REAL)");
     let end = format!("CAST(json_extract({metadata},'$.playbackRange.endTime') AS REAL)");
     let duration = format!("CAST(json_extract({metadata},'$.durationSeconds') AS REAL)");
-    format!("CASE WHEN json_extract({metadata},'$.playbackRange') IS NOT NULL THEN CASE WHEN json_extract({metadata},'$.playbackRange.endTime') IS NOT NULL AND json_extract({metadata},'$.playbackRange.startTime') IS NOT NULL AND {end}-{start}>0 THEN {end}-{start} END ELSE CASE WHEN {duration}>0 THEN {duration} END END")
+    format!(
+        "CASE WHEN json_extract({metadata},'$.playbackRange') IS NOT NULL THEN CASE WHEN json_extract({metadata},'$.playbackRange.endTime') IS NOT NULL AND json_extract({metadata},'$.playbackRange.startTime') IS NOT NULL AND {end}-{start}>0 THEN {end}-{start} END ELSE CASE WHEN {duration}>0 THEN {duration} END END"
+    )
 }
 
 fn date_expression(value: &str) -> String {
     // Avoid crossing the Rust UDF boundary for the common missing-metadata case.
-    format!("CASE WHEN typeof({value})='text' AND length(trim({value}))>0 THEN strict_sort_date({value}) END")
+    format!(
+        "CASE WHEN typeof({value})='text' AND length(trim({value}))>0 THEN strict_sort_date({value}) END"
+    )
 }
 
 fn key_expression(metadata: &str) -> String {
-    let key = format!("lower(replace(replace(replace(trim(json_extract({metadata},'$.key')),'♯','#'),'♭','b'),' ',''))");
+    let key = format!(
+        "lower(replace(replace(replace(trim(json_extract({metadata},'$.key')),'♯','#'),'♭','b'),' ',''))"
+    );
     let mut cases = Vec::new();
     for n in 1..=12 {
         let pitch = (n * 7 + 1) % 12;
@@ -499,7 +505,9 @@ fn count_expression(metadata: &str, names: &[&str]) -> String {
     );
     // Keep the remote fallback for invalid top-level values, while skipping UDF calls when a
     // source has no count at all (common for sparse provider metadata).
-    format!("COALESCE(CASE WHEN {top} IS NOT NULL AND {top_type} IN ('integer','real','text') THEN strict_sort_count({top}) END,CASE WHEN {remote} IS NOT NULL AND {remote_type} IN ('integer','real','text') THEN strict_sort_count({remote}) END)")
+    format!(
+        "COALESCE(CASE WHEN {top} IS NOT NULL AND {top_type} IN ('integer','real','text') THEN strict_sort_count({top}) END,CASE WHEN {remote} IS NOT NULL AND {remote_type} IN ('integer','real','text') THEN strict_sort_count({remote}) END)"
+    )
 }
 
 #[cfg(test)]

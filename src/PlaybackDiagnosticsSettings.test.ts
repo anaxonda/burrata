@@ -21,7 +21,7 @@ describe("PlaybackDiagnosticsSettings", () => {
     const instance = mount(PlaybackDiagnosticsSettings, { target, props: { enabled: false, onEnabledChange, call } as never });
     destroy = () => unmount(instance); await settle();
     expect(target.textContent).toContain("7 of 500 diagnostic events stored");
-    expect(target.textContent).toContain("exclude credentials and full source URLs");
+    expect(target.textContent).toContain("exclude credentials, titles, raw errors, user-agent strings, and full source URLs");
     const toggle = target.querySelector<HTMLInputElement>("[aria-label='Enable playback diagnostics']")!;
     toggle.click(); await settle();
     expect(onEnabledChange).toHaveBeenCalledWith(true);
@@ -35,13 +35,40 @@ describe("PlaybackDiagnosticsSettings", () => {
       return undefined;
     });
     const target = document.createElement("div"); document.body.append(target);
-    const instance = mount(PlaybackDiagnosticsSettings, { target, props: { enabled: true, onEnabledChange: vi.fn(), call } as never });
+    let retained: unknown = {status:"failed",mediaEvents:[{type:"error",mediaErrorCode:3}]};
+    const getWebviewDiagnostics = vi.fn(() => retained);
+    const onClearWebviewDiagnostics = vi.fn(() => {retained=null;});
+    const instance = mount(PlaybackDiagnosticsSettings, { target, props: { enabled: true, onEnabledChange: vi.fn(), call, getWebviewDiagnostics, onClearWebviewDiagnostics } as never });
     destroy = () => unmount(instance); await settle();
     target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(2)")!.click(); await settle();
     expect(call).toHaveBeenCalledWith("clear_playback_diagnostics");
+    expect(onClearWebviewDiagnostics).toHaveBeenCalledOnce();
     expect(target.textContent).toContain("Playback diagnostic events cleared");
     target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(3)")!.click(); await settle();
-    expect(call).toHaveBeenCalledWith("export_playback_diagnostics");
+    expect(call).toHaveBeenCalledWith("export_playback_diagnostics", {webviewContext:null});
     expect(target.textContent).toContain("Exported 2 playback diagnostic events to /tmp/playback-diagnostics.json");
+  });
+
+  it("attaches frontend playback context only while diagnostic logging is enabled", async () => {
+    const call = vi.fn(async (command: string) => command === "export_playback_diagnostics" ? {cancelled:true} : {enabled:true,eventCount:0,maxEvents:500});
+    const getWebviewDiagnostics = vi.fn(() => ({status:"playing",mediaEvents:[]}));
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(PlaybackDiagnosticsSettings, {target, props:{enabled:true,onEnabledChange:vi.fn(),call,getWebviewDiagnostics} as never});
+    destroy = () => unmount(instance); await settle();
+    target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(3)")!.click(); await settle();
+    expect(getWebviewDiagnostics).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith("export_playback_diagnostics", {webviewContext:{status:"playing",mediaEvents:[]}});
+  });
+
+  it("exports retained WebView evidence after logging is disabled", async () => {
+    const call = vi.fn(async (command: string) => command === "export_playback_diagnostics" ? {cancelled:true} : {enabled:false,eventCount:3,maxEvents:500});
+    const retained = {status:"failed",startupFailure:{phase:"play",mediaErrorCode:3},mediaEvents:[{type:"error",mediaErrorCode:3}]};
+    const getWebviewDiagnostics = vi.fn(() => retained);
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(PlaybackDiagnosticsSettings, {target, props:{enabled:false,onEnabledChange:vi.fn(),call,getWebviewDiagnostics} as never});
+    destroy = () => unmount(instance); await settle();
+    target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(3)")!.click(); await settle();
+    expect(getWebviewDiagnostics).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith("export_playback_diagnostics", {webviewContext:retained});
   });
 });

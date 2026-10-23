@@ -1,0 +1,166 @@
+{
+  "scope": "Current live Soulseek results; catalog-bound assessment; no acoustic identity claim",
+  "results": [
+    {
+      "recording": "totem",
+      "candidateTitle": "1-08. Totem - Lamomali, -M-, Yam\u00ea, Fatoumata Diawara, Toumani Diabat\u00e9, Balla Diabat\u00e9",
+      "assessment": {
+        "action": "accept",
+        "dimensions": {
+          "artists": "agree",
+          "guests": "unknown",
+          "isrc": "unknown",
+          "runtime": "agree",
+          "title": "agree",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "evidence": {
+          "accentFoldedPerformerMatch": false,
+          "completePerformerCredits": false,
+          "conflictingVersionObservations": false,
+          "dimensions": {
+            "artists": "agree",
+            "guests": "unknown",
+            "isrc": "unknown",
+            "runtime": "agree",
+            "title": "agree",
+            "version": "unknown",
+            "work": "unknown"
+          },
+          "extraPerformers": [
+            "m",
+            "fatoumata diawara",
+            "toumani diabat\u00e9",
+            "balla diabat\u00e9",
+            "lamomali m yam\u00ea fatoumata diawara toumani diabat\u00e9 balla diabat\u00e9"
+          ],
+          "identifierConflict": false,
+          "missingPerformers": [],
+          "parsingIncomplete": false,
+          "proofStrength": "metadataOnly",
+          "requestedPerformerCreditsComplete": false,
+          "runtimeDeltaSeconds": -0.5819999999999936,
+          "scopedArtistNameAlias": null,
+          "unresolvedAnnotations": []
+        },
+        "proofStrength": "metadataOnly",
+        "reasons": [
+          "titleAgrees",
+          "artistAgrees",
+          "runtimeAgrees",
+          "filenameCaptionOnly"
+        ],
+        "relationship": "probable"
+      }
+    },
+    {
+      "recording": "peuple",
+      "candidateTitle": "1-64. Le peuple qui danse - Lamomali, -M-, Seu Jorge, Ibrahim Maalouf, Angelique Kidjo, Fatoumata Diawara, Toumani Diabat\u00e9, Balla Diabat\u00e9",
+      "assessment": {
+        "action": "reject",
+        "dimensions": {
+          "artists": "conflict",
+          "guests": "unknown",
+          "isrc": "unknown",
+          "runtime": "agree",
+          "title": "conflict",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "evidence": {
+          "accentFoldedPerformerMatch": false,
+          "completePerformerCredits": false,
+          "conflictingVersionObservations": false,
+          "dimensions": {
+            "artists": "conflict",
+            "guests": "unknown",
+            "isrc": "unknown",
+            "runtime": "agree",
+            "title": "conflict",
+            "version": "unknown",
+            "work": "unknown"
+          },
+          "extraPerformers": [
+            "lamomali m seu jorge ibrahim maalouf angelique kidjo fatoumata diawara toumani diabat\u00e9 balla diabat\u00e9"
+          ],
+          "identifierConflict": false,
+          "missingPerformers": [
+            "lamomali",
+            "seu jorge",
+            "ang\u00e9lique kidjo",
+            "ibrahim maalouf"
+          ],
+          "parsingIncomplete": false,
+          "proofStrength": "metadataOnly",
+          "requestedPerformerCreditsComplete": false,
+          "runtimeDeltaSeconds": -0.9439999999999884,
+          "scopedArtistNameAlias": null,
+          "unresolvedAnnotations": []
+        },
+        "proofStrength": "metadataOnly",
+        "reasons": [
+          "runtimeAgrees",
+          "filenameCaptionOnly",
+          "titleConflict",
+          "artistConflict"
+        ],
+        "relationship": "unresolved"
+      }
+    },
+    {
+      "recording": "secret",
+      "candidateTitle": "1-66. Secret Garden - Lamomali, -M-, Patrick Watson, Fatoumata Diawara, Toumani Diabat\u00e9, Balla Diabat\u00e9",
+      "assessment": {
+        "action": "reject",
+        "dimensions": {
+          "artists": "conflict",
+          "guests": "unknown",
+          "isrc": "unknown",
+          "runtime": "agree",
+          "title": "conflict",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "evidence": {
+          "accentFoldedPerformerMatch": false,
+          "completePerformerCredits": false,
+          "conflictingVersionObservations": false,
+          "dimensions": {
+            "artists": "conflict",
+            "guests": "unknown",
+            "isrc": "unknown",
+            "runtime": "agree",
+            "title": "conflict",
+            "version": "unknown",
+            "work": "unknown"
+          },
+          "extraPerformers": [
+            "lamomali m patrick watson fatoumata diawara toumani diabat\u00e9 balla diabat\u00e9"
+          ],
+          "identifierConflict": false,
+          "missingPerformers": [
+            "lamomali",
+            "patrick wilson"
+          ],
+          "parsingIncomplete": false,
+          "proofStrength": "metadataOnly",
+          "requestedPerformerCreditsComplete": false,
+          "runtimeDeltaSeconds": -0.6800000000000068,
+          "scopedArtistNameAlias": null,
+          "unresolvedAnnotations": []
+        },
+        "proofStrength": "metadataOnly",
+        "reasons": [
+          "runtimeAgrees",
+          "filenameCaptionOnly",
+          "titleConflict",
+          "artistConflict"
+        ],
+        "relationship": "unresolved"
+      }
+    }
+  ],
+  "totemDownloadJob": "e8c3545e-349f-43e8-a0bc-244dd4113079",
+  "totemObservedState": "waiting_for_peer"
+}

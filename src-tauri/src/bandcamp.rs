@@ -342,7 +342,10 @@ mod tests {
             "https://user@t4.bcbits.com/stream/0123456789abcdef0123456789abcdef/mp3-128/292222166?token=x",
             "https://t4.bcbits.com:444/stream/0123456789abcdef0123456789abcdef/mp3-128/292222166?token=x",
         ] {
-            assert!(validate_stream_url(invalid, "292222166").is_err(), "{invalid}");
+            assert!(
+                validate_stream_url(invalid, "292222166").is_err(),
+                "{invalid}"
+            );
         }
     }
 

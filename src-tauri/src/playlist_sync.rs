@@ -410,7 +410,14 @@ fn sync_playlists_with_scan(
     }
     status.synchronized = status.sources.iter().filter(|s| s.state == "bound").count();
     if perf_trace {
-        eprintln!("[perf] playlist_sync.reconcile_counts sources={} collections_bound={} migrated={} repaired={} elapsed_ms={}", status.sources.len(), status.synchronized, status.migrated_generated_imports, status.repaired_track_metadata, reconcile_started.elapsed().as_millis());
+        eprintln!(
+            "[perf] playlist_sync.reconcile_counts sources={} collections_bound={} migrated={} repaired={} elapsed_ms={}",
+            status.sources.len(),
+            status.synchronized,
+            status.migrated_generated_imports,
+            status.repaired_track_metadata,
+            reconcile_started.elapsed().as_millis()
+        );
     }
     Ok(status)
 }

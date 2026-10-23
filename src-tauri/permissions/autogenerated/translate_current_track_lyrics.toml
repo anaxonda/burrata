@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-translate-current-track-lyrics"
+description = "Enables the translate_current_track_lyrics command without any pre-configured scope."
+commands.allow = ["translate_current_track_lyrics"]
+
+[[permission]]
+identifier = "deny-translate-current-track-lyrics"
+description = "Denies the translate_current_track_lyrics command without any pre-configured scope."
+commands.deny = ["translate_current_track_lyrics"]

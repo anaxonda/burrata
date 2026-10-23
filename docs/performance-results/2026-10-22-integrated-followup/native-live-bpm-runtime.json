@@ -1,0 +1,25 @@
+{
+  "binarySha256": "f404d9daa5cdf2f1f1b97a8bac1aa4fe7a9211e15302774811bc1eba66a76296",
+  "estimates": [
+    null,
+    null,
+    {
+      "bpm": 60.2,
+      "confidence": 0.3751776247888426,
+      "windowSeconds": 10,
+      "relatedTempoAlternativeBpm": null
+    },
+    null
+  ],
+  "sameTrackBeforeRestore": true,
+  "positionProgress": 19.644081632653062,
+  "originalPreference": false,
+  "scope": "Actual native output PCM; availability and approximate estimation verified, no physical tempo-accuracy claim",
+  "restoration": "Same track, original paused position and disabled live BPM setting restored through MCP",
+  "restorationVerified": {
+    "sameTrack": true,
+    "sameIndex": true,
+    "position": 41.76321995464853,
+    "paused": true
+  }
+}

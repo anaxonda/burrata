@@ -480,9 +480,11 @@ mod tests {
         );
         worker.join().unwrap();
         let requests = requests.lock().unwrap();
-        assert!(requests.iter().all(|request| request
-            .to_ascii_lowercase()
-            .contains("x-fixture-source: retained\r\n")));
+        assert!(requests.iter().all(|request| {
+            request
+                .to_ascii_lowercase()
+                .contains("x-fixture-source: retained\r\n")
+        }));
         assert!(requests[1]
             .to_ascii_lowercase()
             .contains("range: bytes=4-7\r\n"));
@@ -839,7 +841,9 @@ mod tests {
                 let mut origin_thread = Some(origin);
                 let cleanup_finished =
                     join_origin_bounded(&mut origin_result, &mut origin_thread).await;
-                panic!("initial HTTP stream setup failed ({error}); fixture_cleanup={cleanup_finished}");
+                panic!(
+                    "initial HTTP stream setup failed ({error}); fixture_cleanup={cleanup_finished}"
+                );
             }
         };
         let reader = match StreamDownload::from_stream(

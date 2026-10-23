@@ -1488,13 +1488,18 @@ mod tests {
         let good = make(original, 219.0);
         assert!(is_provisional_playback_candidate(&track, &good));
         assert!(playback_recording_matches_verified_extractor(&track, &good));
-        for wrong in ["Kacey Musgraves - Everybody Wants To Be A Cowboy (Official Lyric Video)",
+        for wrong in [
+            "Kacey Musgraves - Everybody Wants To Be A Cowboy (Official Lyric Video)",
             "Kacey Musgraves, Wrong Guest - Everybody Wants To Be A Cowboy (Official Lyric Video)",
             "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Live)",
             "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Remix)",
             "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Official Music Video)",
-            "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Preview)"] {
-            assert!(!playback_recording_matches_verified_extractor(&track,&make(wrong,219.0)),"{wrong}");
+            "Kacey Musgraves, Billy Strings - Everybody Wants To Be A Cowboy (Preview)",
+        ] {
+            assert!(
+                !playback_recording_matches_verified_extractor(&track, &make(wrong, 219.0)),
+                "{wrong}"
+            );
         }
         assert!(!playback_recording_matches_verified_extractor(
             &track,
@@ -1699,6 +1704,8 @@ mod tests {
             format_id: None,
             chapter_ids: None,
             soulseek: None,
+            download_layout: Default::default(),
+            playlist_context: None,
         }
     }
     #[test]
@@ -2166,7 +2173,9 @@ mod tests {
         };
         assert!(playback_recording_matches(
             &track,
-            &candidate("Mike Dunn, DJ Tai - (I'm Sick) I've Been Infected Wit House Musick (DJ Tai Vocal Remix)")
+            &candidate(
+                "Mike Dunn, DJ Tai - (I'm Sick) I've Been Infected Wit House Musick (DJ Tai Vocal Remix)"
+            )
         ));
         assert!(!playback_recording_matches(
             &track,
@@ -2293,7 +2302,10 @@ mod tests {
             ),
         ] {
             let wrong = make(title, duration);
-            assert!(!is_provisional_playback_candidate(&track, &wrong), "{title}");
+            assert!(
+                !is_provisional_playback_candidate(&track, &wrong),
+                "{title}"
+            );
             assert!(!playback_recording_matches(&track, &wrong), "{title}");
             assert!(
                 !playback_recording_matches_verified_extractor(&track, &wrong),
@@ -2437,7 +2449,10 @@ mod tests {
             ),
         ] {
             let wrong = make(title, duration);
-            assert!(!is_provisional_playback_candidate(&track, &wrong), "{title}");
+            assert!(
+                !is_provisional_playback_candidate(&track, &wrong),
+                "{title}"
+            );
             assert!(!playback_recording_matches(&track, &wrong), "{title}");
             assert!(
                 !playback_recording_matches_verified_extractor(&track, &wrong),

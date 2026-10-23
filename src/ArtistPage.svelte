@@ -1,11 +1,14 @@
 <script lang="ts">
+  import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
+  let topDownloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
+  let releaseDownloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import TrackDurationFilter from "./TrackDurationFilter.svelte";
   import { allTrackSortFieldsAvailable, trackSortAvailability, trackSortAvailabilityForSources, trackSortOptionLabel, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import type { Track } from "./lib/types";
   import TrackList from "./TrackList.svelte";
   import ArtworkImage from "./ArtworkImage.svelte";
   import { musicBrainzCover, trackArtworkSources } from "./lib/catalog-artwork";
-  import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
+  import { isTrackDownloaded, filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
   import type {
     ArtistPageProps, ArtistRef, ArtistSearchResult, ArtistProfile, ArtistReleaseRef,
     ArtistReleasePage, ArtistTrackPage, ArtistCollaborationPage, MetadataReview,
@@ -237,7 +240,7 @@
       query: localArtistQuery,
       ...(minimum === null ? {} : { minDurationSeconds: minimum }),
       ...(maximum === null ? {} : { maxDurationSeconds: maximum }),
-    }).filter(track => localArtistAvailability === "all" || (localArtistAvailability === "on-device" ? Boolean(track.localPath || track.localAvailability === "available") : !track.localPath && track.localAvailability !== "available"));
+    }).filter(track => localArtistAvailability === "all" || (localArtistAvailability === "on-device" ? isTrackDownloaded(track) : !isTrackDownloaded(track)));
     const bySortTrack = new Map(sourceOccurrences.map(row => [row.sortTrack, row]));
     return sortTracks(filtered, localArtistSort, localArtistDirection).map(row => { const item = bySortTrack.get(row)!; return { track: item.track, sourceIndex: item.sourceIndex }; });
   });
@@ -264,6 +267,7 @@
     const occurrences = source.map((track, sourceIndex) => ({ track, sourceIndex, sortTrack: { ...track } }));
     const bySortTrack = new Map(occurrences.map(row => [row.sortTrack, row]));
     const filtered = filterTracks(occurrences.map(row => row.sortTrack), {
+      availability: topDownloadAvailability,
       query: topTrackQuery,
       ...(minimum === null ? {} : { minDurationSeconds: minimum }),
       ...(maximum === null ? {} : { maxDurationSeconds: maximum }),
@@ -420,6 +424,7 @@
     const bySortTrack = new Map<Track, (typeof occurrences)[number]>();
     for (const occurrence of occurrences) bySortTrack.set(occurrence.sortTrack, occurrence);
     const filtered = filterTracks(occurrences.map(occurrence => occurrence.sortTrack), {
+      availability: releaseDownloadAvailability,
       query: releaseTrackQuery,
       ...(minimum === null ? {} : { minDurationSeconds: minimum }),
       ...(maximum === null ? {} : { maxDurationSeconds: maximum }),
@@ -481,7 +486,7 @@
   const visibleSourceOccurrences = $derived.by(() => {
     const source = tracks?.items ?? [];
     const items = source.map((track, sourceIndex) => ({ track, sourceIndex, sortTrack: { ...track } })).filter((row) => !trackQuery.trim() || normalizeName(`${row.track.title} ${row.track.artist} ${row.track.album ?? ""} ${row.track.version ?? ""} ${row.track.releaseDate ?? ""}`).includes(normalizeName(trackQuery)))
-      .filter(({track}) => trackAvailability === "all" || (trackAvailability === "on-device" ? Boolean(track.localPath || track.localAvailability === "available") : !track.localPath && track.localAvailability !== "available"));
+      .filter(({track}) => trackAvailability === "all" || (trackAvailability === "on-device" ? isTrackDownloaded(track) : !isTrackDownloaded(track)));
     const minimum = parseDurationBound(trackMinDuration), maximum = parseDurationBound(trackMaxDuration);
     const filtered = filterTracks(items.map(row => row.sortTrack), {
       ...(minimum === null ? {} : { minDurationSeconds: minimum }),
@@ -760,7 +765,7 @@
               <option value="views" disabled={!topAvailability.views}>{trackSortOptionLabelForSources(topAvailability, "views", "Views", ["lastfm-top-tracks"])}</option>
             </select></label>
             <label>Direction<select aria-label="Artist top track sort direction" bind:value={topTrackDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-            <TrackDurationFilter bind:minDuration={topTrackMinDuration} bind:maxDuration={topTrackMaxDuration} minLabel="Minimum artist top track duration" maxLabel="Maximum artist top track duration" />
+            <TrackDurationFilter bind:minDuration={topTrackMinDuration} bind:maxDuration={topTrackMaxDuration} minLabel="Minimum artist top track duration" maxLabel="Maximum artist top track duration" /><TrackDownloadFilter bind:value={topDownloadAvailability} />
             <span>{visibleTopTracks.length} of {profile.topTracks.length} loaded tracks</span>
           </div>
           {#if visibleTopTracks.length}<TrackList presentation="playlist" tracks={visibleTopTracks} selectionContext={`artist-top:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}`} selectionKeys={visibleTopTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={profile.topTracks} selectionTrackKeys={profile.topTracks.map((_, index) => String(index))} listLabel="Artist top tracks" onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else}<p class="muted">No loaded top tracks match these filters.</p>{/if}{:else}<p class="muted">Last.fm top tracks are unavailable for this artist or no API key is configured.</p>{/if}
@@ -811,7 +816,7 @@
                   </select>
                 </label>
                 <label>Direction<select aria-label="Release track sort direction" bind:value={releaseTrackSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-                <TrackDurationFilter bind:minDuration={releaseTrackMinDuration} bind:maxDuration={releaseTrackMaxDuration} minLabel="Minimum loaded release track duration" maxLabel="Maximum loaded release track duration" />
+                <TrackDurationFilter bind:minDuration={releaseTrackMinDuration} bind:maxDuration={releaseTrackMaxDuration} minLabel="Minimum loaded release track duration" maxLabel="Maximum loaded release track duration" /><TrackDownloadFilter bind:value={releaseDownloadAvailability} />
                 <span>{visibleReleaseTracks.length} of {sourceTracks.length} loaded tracks</span>
               </div>
               {#if visibleReleaseTracks.length}

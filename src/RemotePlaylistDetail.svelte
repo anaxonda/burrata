@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
+  let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import { onDestroy, tick, untrack } from "svelte";
   import TrackList from "./TrackList.svelte";
@@ -73,6 +75,7 @@
     const occurrences = tracks.map((track, sourceIndex) => ({ track, sourceIndex, sortObject: { ...track } }));
     const bySortObject = new Map(occurrences.map(row => [row.sortObject, row]));
     const filtered = filterTracks(occurrences.map(row => row.sortObject), {
+      availability: downloadAvailability,
       query: filter,
       ...(lower === null ? {} : { minDurationSeconds: lower }),
       ...(upper === null ? {} : { maxDurationSeconds: upper }),
@@ -338,7 +341,7 @@
       <select aria-label="Sort playlist tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Playlist order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", [provider])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", [provider])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", [provider])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", [provider])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", [provider])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", [provider])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", [provider])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", [provider])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", [provider])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", [provider])}</option></select>
     </label>
     <label>Direction<select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-    <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} />
+    <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} /><TrackDownloadFilter bind:value={downloadAvailability} />
   </div>
   {#if loading}<p class="remote-detail-status" role="status">Loading playlist…</p>{/if}
   {#if error}<p class="remote-detail-error" role="alert">{error}</p>{/if}

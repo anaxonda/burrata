@@ -16,8 +16,16 @@ export function sanitizeWebviewSourceFormatDiagnostics(
   streamKind: unknown,
 ): WebviewSourceFormatDiagnostics {
   const length = value.expectedContentLength;
+  const rawCodec = typeof value.codec === "string" ? value.codec.toLowerCase() : "";
+  const codec = rawCodec === "mp3" || rawCodec === "mpeg" || rawCodec === "mpga" ? "mp3"
+    : rawCodec === "aac" || rawCodec.startsWith("mp4a.") ? "aac"
+    : rawCodec === "opus" ? "opus"
+    : rawCodec === "vorbis" ? "vorbis"
+    : rawCodec === "flac" ? "flac"
+    : rawCodec === "alac" ? "alac"
+    : rawCodec === "pcm" ? "pcm" : null;
   return {
-    codec: safeToken(value.codec, /^[A-Za-z0-9][A-Za-z0-9._+-]*$/, 64),
+    codec,
     mimeType: safeToken(value.mimeType, /^[A-Za-z0-9][A-Za-z0-9.+-]*\/[A-Za-z0-9][A-Za-z0-9.+-]*$/, 96),
     formatId: safeToken(value.formatId, /^[A-Za-z0-9][A-Za-z0-9.+-]*$/, 40),
     hasVideo: typeof value.hasVideo === "boolean" ? value.hasVideo : null,

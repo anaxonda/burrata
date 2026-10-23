@@ -2660,7 +2660,10 @@ mod live_qualification {
         let names = verified_wikidata_alias_names(&store, id, &profile);
         assert!(names.iter().any(|name| name == "Lakis Chalkias"));
         assert!(names.iter().any(|name| name == "Lakis Halkias"));
-        println!("Verified exact artist authority aliases from independent shared identifiers; {} names; no Spotify recording proof asserted",names.len());
+        println!(
+            "Verified exact artist authority aliases from independent shared identifiers; {} names; no Spotify recording proof asserted",
+            names.len()
+        );
     }
 }
 

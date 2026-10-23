@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { isExplicitUnresolvedAudioSearchSource, resolveBatchSource, verifiedBatchSource } from "./batch";
+import { isExplicitSoulseekFolderSource, isExplicitUnresolvedAudioSearchSource, resolveBatchSource, verifiedBatchSource } from "./batch";
 import type { Candidate, Track } from "./types";
 const candidate = (id: string, confidence = "high"): Candidate => ({
   id,
@@ -67,6 +67,82 @@ describe("selected batch acquisition", () => {
     );
     expect(result.candidate?.id).toBe(linked.id);
     expect(find).not.toHaveBeenCalled();
+  });
+
+  it("retains only the exact explicitly selected Soulseek folder locator when identity is unverified", async () => {
+    const linked: Candidate = {
+      ...candidate("slskd:folder-file", "low"),
+      provider: "slskd", url: "", title: "Totem - Lamomali, Yamê", durationSeconds: 179.5,
+      source: { kind: "soulseek", username: "folder-peer", filename: "Music/Album/57 - Totem.flac", size_bytes: 4096 },
+    };
+    const track: Track = {
+      id: linked.id, provider: "slskd", providerId: "folder-file", sourceUrl: "",
+      artist: "", title: linked.title, durationSeconds: 179.5, favorite: false,
+      provenance: { sourceKind: "soulseekFolder", audioCandidate: linked },
+    };
+    const assessment = {
+      action: "enrich" as const, relationship: "unresolved" as const,
+      proofStrength: "metadataOnly" as const,
+      dimensions: { title: "agree" as const, runtime: "agree" as const, artists: "unknown" as const,
+        guests: "unknown" as const, version: "unknown" as const, isrc: "unknown" as const, work: "unknown" as const },
+      evidence: { identifierConflict: false, conflictingVersionObservations: false,
+        parsingIncomplete: false, unresolvedAnnotations: [] },
+    };
+    expect(isExplicitSoulseekFolderSource(track, linked, assessment)).toBe(true);
+
+    const find = vi.fn(async () => []);
+    const result = await resolveBatchSource(
+      ["slskd"], linked, find, (_provider, rows) => rows,
+      async row => row, async () => assessment, () => false,
+      row => row.provider === "slskd" && Boolean(row.source?.filename), undefined,
+      (row, decision) => isExplicitSoulseekFolderSource(track, row, decision),
+    );
+    expect(result.candidate?.id).toBe(linked.id);
+    expect(find).not.toHaveBeenCalled();
+
+    expect(isExplicitSoulseekFolderSource(
+      { ...track, provenance: { sourceKind: "catalog", audioCandidate: linked } }, linked, assessment,
+    )).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, { ...linked, id: "slskd:other" }, assessment)).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, { ...linked, provider: "youtube" }, assessment)).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, {
+      ...linked, source: { ...linked.source!, filename: "Music/Other/57 - Totem.flac" },
+    }, assessment)).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, {
+      ...linked, source: { ...linked.source!, username: "other-peer" },
+    }, assessment)).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, {
+      ...linked, source: { ...linked.source!, size_bytes: linked.source!.size_bytes + 1 },
+    }, assessment)).toBe(false);
+    expect(isExplicitSoulseekFolderSource({
+      ...track,
+      provenance: { sourceKind: "soulseekFolder", audioCandidate: {
+        ...linked, source: { ...linked.source!, filename: "Music/Other/57 - Totem.flac" },
+      } },
+    }, linked, assessment)).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, {
+      ...linked, permission: "restricted",
+    }, assessment)).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, linked, {
+      ...assessment,
+      dimensions: { ...assessment.dimensions, artists: "conflict" },
+    })).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, linked, {
+      ...assessment,
+      dimensions: { ...assessment.dimensions, version: "conflict" },
+    })).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, linked, {
+      ...assessment,
+      evidence: { ...assessment.evidence, parsingIncomplete: true },
+    })).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, linked, {
+      ...assessment,
+      evidence: { ...assessment.evidence, identifierConflict: true },
+    })).toBe(false);
+    expect(isExplicitSoulseekFolderSource(track, linked, {
+      ...assessment,
+      evidence: { ...assessment.evidence, unresolvedAnnotations: [{ value: "Live" }] },
+    })).toBe(false);
   });
 
   it("does not use the linked-source exception for mismatches, conflicts, non-audioSearch rows, or restricted sources", () => {

@@ -330,6 +330,7 @@ impl WebViewIdentification {
             artist: result_artist,
             artwork_url,
             note,
+            timing_anchor: None,
         })
     }
 }

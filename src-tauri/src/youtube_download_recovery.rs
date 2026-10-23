@@ -216,6 +216,8 @@ mod tests {
             format_id: None,
             chapter_ids: None,
             soulseek: None,
+            download_layout: Default::default(),
+            playlist_context: None,
         }
     }
 

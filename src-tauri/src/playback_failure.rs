@@ -96,7 +96,8 @@ pub fn classify(reason: &str) -> PlaybackFailure {
     use FailureStage as Stage;
     let message = reason.trim().to_lowercase();
     let status = http_status(&message);
-    let exact_no_match = reason == "No audio results were returned by the available providers. Open the catalog source or choose another source.";
+    let exact_no_match = reason
+        == "No audio results were returned by the available providers. Open the catalog source or choose another source.";
     let exact_identity = [
         "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
         "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.",
@@ -339,6 +340,57 @@ pub fn classify_extractor_failure(reason: &str) -> PlaybackFailure {
     }
     value
 }
+
+/// Additional diagnostic detail only. Keep transport/queue policy unchanged;
+/// these fixed labels distinguish likely remote access causes without stderr.
+pub(crate) fn extractor_diagnostic_reason(raw: &str) -> &'static str {
+    let message = raw.to_lowercase();
+    if has_any(
+        &message,
+        &[
+            "not available in your country",
+            "not available in your region",
+            "geo-restricted",
+            "geographic restriction",
+        ],
+    ) {
+        "geo_restricted"
+    } else if has_any(
+        &message,
+        &[
+            "soundcloud go+",
+            "requires a subscription",
+            "subscription required",
+            "premium subscription",
+        ],
+    ) {
+        "subscription_required"
+    } else if has_any(
+        &message,
+        &[
+            "unable to extract client id",
+            "unable to extract client_id",
+            "invalid client_id",
+        ],
+    ) {
+        "provider_client"
+    } else if message.contains("unsupported url") {
+        "unsupported_url"
+    } else {
+        match classify_extractor_failure(raw).category {
+            FailureCategory::Cancelled => "cancelled",
+            FailureCategory::Timeout => "timeout",
+            FailureCategory::Network => "network",
+            FailureCategory::RateLimited => "rate_limited",
+            FailureCategory::SourceAccess => "access_denied",
+            FailureCategory::SourcePrivate => "private",
+            FailureCategory::SourceDeleted => "removed",
+            FailureCategory::UnsupportedAudio => "format_unavailable",
+            FailureCategory::SourceUnavailable => "source_unavailable",
+            _ => "other",
+        }
+    }
+}
 /// Fixed safe messages preserve failure classes without exposing stderr/URLs/account material.
 pub fn safe_extractor_error(raw: &str) -> String {
     let value = classify_extractor_failure(raw);
@@ -374,13 +426,40 @@ pub fn sanitize_extractor_failure(raw: &str) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn extractor_diagnostic_reasons_distinguish_remote_access_without_raw_output() {
+        for (message, expected) in [
+            (
+                "This track is not available in your country",
+                "geo_restricted",
+            ),
+            (
+                "This track requires a subscription",
+                "subscription_required",
+            ),
+            ("Unable to extract client id", "provider_client"),
+            ("Unsupported URL", "unsupported_url"),
+            ("HTTP Error 403", "access_denied"),
+            ("Requested format is not available", "format_unavailable"),
+            ("HTTP Error 429", "rate_limited"),
+            ("Unrecognized failure", "other"),
+        ] {
+            let raw = format!(
+                "{message} https://private.invalid/media?token=secret Authorization: Bearer secret"
+            );
+            assert_eq!(extractor_diagnostic_reason(&raw), expected);
+        }
+    }
+    #[test]
     fn extractor_messages_are_safe_and_preserve_classes() {
         for raw in [
             "ERROR HTTP Error 403 https://private.invalid/stream?token=secret Authorization: Bearer secret",
             "HTTP Error 429 cookie=secret /home/user/secret",
-            "network connection failed token=secret", "Private video token=secret",
-            "Requested format is not available file:///private/secret", "Cancelled token=secret",
-            "No playable audio match was found", "The resolved audio source identity does not match this recording",
+            "network connection failed token=secret",
+            "Private video token=secret",
+            "Requested format is not available file:///private/secret",
+            "Cancelled token=secret",
+            "No playable audio match was found",
+            "The resolved audio source identity does not match this recording",
         ] {
             let safe = safe_extractor_error(raw);
             assert!(!safe.contains("secret") && !safe.contains("private.invalid"));

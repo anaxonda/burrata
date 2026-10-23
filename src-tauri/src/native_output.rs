@@ -1859,7 +1859,7 @@ impl Iterator for QueuedSamples {
             }
             self.samples_played.fetch_add(1, Ordering::Relaxed);
             self.buffering.store(false, Ordering::Relaxed);
-            self.tap_writer.push(value);
+            self.push_tap_sample(value);
             return Some(value);
         }
         if self.exhausted {
@@ -1876,7 +1876,7 @@ impl Iterator for QueuedSamples {
                     self.samples_played.fetch_add(1, Ordering::Relaxed);
                     self.buffering.store(false, Ordering::Relaxed);
                     if let Some(sample) = value {
-                        self.tap_writer.push(sample);
+                        self.push_tap_sample(sample);
                     }
                 }
                 value
@@ -1902,6 +1902,14 @@ impl Iterator for QueuedSamples {
     }
 }
 impl QueuedSamples {
+    fn push_tap_sample(&mut self, sample: f32) {
+        let played_samples = self.samples_played.load(Ordering::Relaxed) as f64;
+        let frame_position = self.initial_position
+            + played_samples / self.sample_rate.max(1) as f64 / self.channels.max(1) as f64;
+        self.tap_writer
+            .push_with_position(sample, Some(frame_position));
+    }
+
     fn start_diagnostics(&self) -> Option<DecoderDiagnostics> {
         self.decoder_diagnostics
             .lock()
@@ -3477,7 +3485,13 @@ mod tests {
             owner.stop(); // kill+wait before joining pipes on timeout/error.
         }
         let ((stdout, stdout_bytes), (stderr, stderr_bytes)) = owner.collect();
-        let output = format!("stdout({stdout_bytes}bytes, retained={}):\n{}\nstderr({stderr_bytes}bytes, retained={}):\n{}", stdout.len(), String::from_utf8_lossy(&stdout), stderr.len(), String::from_utf8_lossy(&stderr));
+        let output = format!(
+            "stdout({stdout_bytes}bytes, retained={}):\n{}\nstderr({stderr_bytes}bytes, retained={}):\n{}",
+            stdout.len(),
+            String::from_utf8_lossy(&stdout),
+            stderr.len(),
+            String::from_utf8_lossy(&stderr)
+        );
         match outcome {
             Ok(status) => assert!(
                 status.success(),
@@ -4243,7 +4257,11 @@ mod tests {
                     );
                 }
                 assert!(session.storage_faults.get().is_none());
-                eprintln!("paced_body_gap delayed={delayed} consumed={consumed} elapsedMs={} firstRealMs={}", origin.elapsed().as_millis(), first_real_ms.unwrap());
+                eprintln!(
+                    "paced_body_gap delayed={delayed} consumed={consumed} elapsedMs={} firstRealMs={}",
+                    origin.elapsed().as_millis(),
+                    first_real_ms.unwrap()
+                );
             }));
             // Same explicit owned cancellation/decoder completion protocol as the fast fixture.
             playback.cancel.store(true, Ordering::Release);
@@ -5017,7 +5035,10 @@ mod tests {
                     "cleanupCompleted":cleanup.is_ok(),
                     "failure":"prefix_not_ready"})
             );
-            panic!("stalled FFmpeg fixture did not write its prefix in time ({prefix_ready_ms}ms; cleanupCompleted={})", cleanup.is_ok());
+            panic!(
+                "stalled FFmpeg fixture did not write its prefix in time ({prefix_ready_ms}ms; cleanupCompleted={})",
+                cleanup.is_ok()
+            );
         }
         cancelled.store(true, Ordering::Relaxed);
         let cancel_started = Instant::now();

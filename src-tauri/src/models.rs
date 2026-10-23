@@ -151,6 +151,47 @@ mod date_added_compatibility_tests {
     }
 }
 
+#[cfg(test)]
+mod download_layout_compatibility_tests {
+    use super::{DownloadJob, DownloadLayout, Settings};
+
+    #[test]
+    fn fresh_settings_are_organized_but_legacy_settings_remain_flat() {
+        assert_eq!(
+            Settings::default().download_layout,
+            DownloadLayout::ArtistAlbum
+        );
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("downloadLayout");
+        let legacy: Settings = serde_json::from_value(value).unwrap();
+        assert_eq!(legacy.download_layout, DownloadLayout::Flat);
+        for (wire, expected) in [
+            ("flat", DownloadLayout::Flat),
+            ("artistAlbum", DownloadLayout::ArtistAlbum),
+            ("playlist", DownloadLayout::Playlist),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<DownloadLayout>(&format!("\"{wire}\"")).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn pre_layout_download_jobs_recover_with_flat_snapshot() {
+        let mut value = serde_json::json!({
+            "id":"legacy", "track":{}, "candidate":{}, "state":"queued",
+            "progress":0.0, "error":null, "outputPath":null, "createdAt":"",
+            "outputProfile":"source"
+        });
+        value["track"] = serde_json::to_value(super::Track::default()).unwrap();
+        value["candidate"] = serde_json::to_value(super::Candidate::default()).unwrap();
+        let job: DownloadJob = serde_json::from_value(value).unwrap();
+        assert_eq!(job.download_layout, DownloadLayout::Flat);
+        assert!(job.playlist_context.is_none());
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Genre {
@@ -280,6 +321,30 @@ pub struct DownloadRequest {
     pub disposition: ReplacementDisposition,
     #[serde(default)]
     pub chapter_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub playlist_context: Option<DownloadPlaylistContext>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadLayout {
+    Flat,
+    ArtistAlbum,
+    Playlist,
+}
+
+impl Default for DownloadLayout {
+    fn default() -> Self {
+        Self::Flat
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadPlaylistContext {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -317,6 +382,10 @@ pub struct DownloadJob {
     pub chapter_ids: Option<Vec<String>>,
     #[serde(default)]
     pub soulseek: Option<SoulseekProgress>,
+    #[serde(default)]
+    pub download_layout: DownloadLayout,
+    #[serde(default)]
+    pub playlist_context: Option<DownloadPlaylistContext>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -331,9 +400,13 @@ pub struct Collection {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub music_directory: String,
+    #[serde(default)]
+    pub download_layout: DownloadLayout,
     pub auto_preview: bool,
     #[serde(default)]
     pub playback_diagnostics_enabled: bool,
+    #[serde(default)]
+    pub live_bpm_enabled: bool,
     #[serde(default = "default_matching_level")]
     pub matching_level: crate::recording_match::MatchLevel,
     #[serde(default)]
@@ -423,8 +496,10 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             music_directory: String::new(),
+            download_layout: DownloadLayout::ArtistAlbum,
             auto_preview: false,
             playback_diagnostics_enabled: false,
+            live_bpm_enabled: false,
             matching_level: default_matching_level(),
             pause_on_source_open: false,
             source_open_at_position: false,
@@ -526,6 +601,28 @@ mod matching_level_settings_tests {
             let restored: Settings = serde_json::from_value(value).unwrap();
             assert_eq!(restored.matching_level, level);
         }
+    }
+}
+
+#[cfg(test)]
+mod live_bpm_settings_tests {
+    use super::Settings;
+
+    #[test]
+    fn live_bpm_defaults_off_for_legacy_settings_and_round_trips() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("liveBpmEnabled");
+        let restored: Settings = serde_json::from_value(legacy).unwrap();
+        assert!(!restored.live_bpm_enabled);
+
+        let enabled = Settings {
+            live_bpm_enabled: true,
+            ..Settings::default()
+        };
+        let encoded = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(encoded["liveBpmEnabled"], true);
+        let round_trip: Settings = serde_json::from_value(encoded).unwrap();
+        assert!(round_trip.live_bpm_enabled);
     }
 }
 

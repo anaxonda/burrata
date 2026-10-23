@@ -654,7 +654,7 @@ pub(crate) async fn resolve(
         {
             Ok(audio) => audio,
             Err(error) if *cancel.borrow() || error == "Cancelled" => {
-                return Err("Cancelled".into())
+                return Err("Cancelled".into());
             }
             Err(_) => continue,
         };

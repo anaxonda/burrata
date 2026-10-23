@@ -26,6 +26,8 @@ const MAX_ICY_BYTES: usize = 1024 * 1024;
 const SONGREC_CAPTURE_SECONDS: u8 = 12;
 const RECOGNITION_COOLDOWN: Duration = Duration::from_secs(90);
 const RECOGNITION_CACHE_LIMIT: usize = 128;
+const MAX_SHAZAM_OFFSET_SECONDS: f64 = 24.0 * 60.0 * 60.0;
+const MAX_SHAZAM_SYNC_SKEW: f64 = 0.001;
 static SONGREC_GATE: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
 static RECOGNITION_STATE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, RecognitionState>>> =
     std::sync::OnceLock::new();
@@ -39,6 +41,17 @@ struct PlayedRadioEvidence {
 static PLAYED_RADIO_EVIDENCE: std::sync::OnceLock<
     std::sync::Mutex<HashMap<(String, u64), PlayedRadioEvidence>>,
 > = std::sync::OnceLock::new();
+
+/// Parsed SongRec identity plus the optional reference-time offset from its
+/// first Shazam match. The offset/skew are untrusted provider data. Shazam
+/// associates the top-level track with the first match within the same
+/// response; match and track IDs are opaque and aren't assumed interchangeable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SongRecRecognition {
+    pub metadata: RadioTrackMetadata,
+    pub match_offset_seconds: Option<f64>,
+    pub match_time_skew: Option<f64>,
+}
 fn played_radio_evidence() -> &'static std::sync::Mutex<HashMap<(String, u64), PlayedRadioEvidence>>
 {
     PLAYED_RADIO_EVIDENCE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
@@ -166,7 +179,9 @@ fn recognition_policy_for(
                 );
             }
             if now.saturating_duration_since(state.attempted_at) < RECOGNITION_COOLDOWN {
-                return RecognitionPolicy::Skip("Song recognition was tried recently; Burrata will retry shortly if stream metadata remains unavailable.");
+                return RecognitionPolicy::Skip(
+                    "Song recognition was tried recently; Burrata will retry shortly if stream metadata remains unavailable.",
+                );
             }
         }
         RecognitionMode::Manual => {
@@ -846,6 +861,22 @@ pub async fn recognize_captured_sample_cancellable(
     parse_songrec_output(station, output)
 }
 
+/// Playback-identification variant that preserves the validated Shazam
+/// reference offset needed for an explicit, user-invoked lyric sync action.
+pub async fn recognize_captured_sample_with_offset_cancellable(
+    station: &RadioStation,
+    wav_path: &Path,
+    cancel: watch::Receiver<bool>,
+) -> Result<Option<SongRecRecognition>, String> {
+    let Some(songrec) = find_executable(&["songrec", "SongRec"]) else {
+        return Err("SongRec is not installed. Burrata will not install recognition software automatically.".into());
+    };
+    let gate = SONGREC_GATE.get_or_init(|| Mutex::new(()));
+    let output =
+        run_songrec_cancellable(&songrec, wav_path, cancel, gate, Duration::from_secs(45)).await?;
+    parse_songrec_output_with_offset(station, output)
+}
+
 async fn recognition_cancelled(cancel: &mut watch::Receiver<bool>) {
     loop {
         if *cancel.borrow() {
@@ -1050,6 +1081,13 @@ fn parse_songrec_output(
     station: &RadioStation,
     stdout: Vec<u8>,
 ) -> Result<Option<RadioTrackMetadata>, String> {
+    Ok(parse_songrec_output_with_offset(station, stdout)?.map(|result| result.metadata))
+}
+
+fn parse_songrec_output_with_offset(
+    station: &RadioStation,
+    stdout: Vec<u8>,
+) -> Result<Option<SongRecRecognition>, String> {
     // SongRec emits no JSON when it has no match. Empty output is a clean
     // no-result; nonempty malformed output is an explicit provider failure.
     if stdout.iter().all(u8::is_ascii_whitespace) {
@@ -1083,7 +1121,8 @@ fn parse_songrec_output(
     let (Some(title), Some(artist)) = (title, artist) else {
         return Ok(None);
     };
-    Ok(Some(RadioTrackMetadata {
+    crate::lyrics::retain_shazam_lyrics(track);
+    let metadata = RadioTrackMetadata {
         identifiers: Some(crate::recording_identity::RecognitionIdentifiers::from_songrec(track)),
         station_id: station.id.clone(),
         artist,
@@ -1096,7 +1135,37 @@ fn parse_songrec_output(
         source_url: station.source_url.clone(),
         observed_at: Some(chrono::Utc::now().to_rfc3339()),
         metadata_confidence: "SongRec audio-fingerprint result; catalog identity unverified".into(),
+    };
+    let first_match = value["matches"]
+        .as_array()
+        .and_then(|matches| matches.first());
+    // `matches[0]` and `track` are associated by their position in this single
+    // Shazam response (as used by ShazamIO); their opaque IDs can differ.
+    let match_offset_seconds = first_match
+        .and_then(|matched| matched["offset"].as_f64())
+        .and_then(bounded_songrec_match_offset);
+    // `timeskew` is a fractional timeline-rate difference. A single offset
+    // cannot safely synchronize lines when the recognized excerpt is played
+    // at another rate. Keep only finite, plausible fractions, and provide an
+    // anchor only when the skew is explicitly present and negligible.
+    let match_time_skew = first_match
+        .and_then(|matched| matched["timeskew"].as_f64())
+        .and_then(finite_songrec_time_skew);
+    let match_offset_seconds = match_offset_seconds
+        .filter(|_| match_time_skew.is_some_and(|skew| skew.abs() <= MAX_SHAZAM_SYNC_SKEW));
+    Ok(Some(SongRecRecognition {
+        metadata,
+        match_offset_seconds,
+        match_time_skew,
     }))
+}
+
+fn bounded_songrec_match_offset(offset: f64) -> Option<f64> {
+    (offset.is_finite() && (0.0..=MAX_SHAZAM_OFFSET_SECONDS).contains(&offset)).then_some(offset)
+}
+
+fn finite_songrec_time_skew(skew: f64) -> Option<f64> {
+    skew.is_finite().then_some(skew)
 }
 
 /// Preserve only bounded network image URLs supplied by recognition itself.
@@ -1697,6 +1766,59 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(parse_songrec_output(&station, b"not-json".to_vec()).is_err());
+    }
+
+    #[test]
+    fn songrec_parser_anchors_first_match_without_id_equality_only_at_negligible_finite_skew() {
+        let station = station();
+        let parse = |payload: &str| {
+            parse_songrec_output_with_offset(&station, payload.as_bytes().to_vec()).unwrap()
+        };
+        let result = parse(
+            r#"{"matches":[{"id":"opaque-match-id","offset":42.375,"timeskew":0.0009}],"track":{"key":"different-opaque-track-key","title":"Song","subtitle":"Artist"}}"#,
+        )
+        .unwrap();
+        assert_eq!(result.metadata.title, "Song");
+        assert_eq!(result.match_offset_seconds, Some(42.375));
+        assert_eq!(result.match_time_skew, Some(0.0009));
+
+        for payload in [
+            // Missing skew cannot substantiate a synchronized clock.
+            r#"{"matches":[{"id":"match","offset":42.375}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+            r#"{"matches":[{"id":"match","offset":42.375,"timeskew":0.0011}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+            r#"{"matches":[{"id":"match","offset":42.375,"timeskew":null}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+            r#"{"matches":[{"id":"match","offset":-0.1,"timeskew":0.0}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+            r#"{"matches":[{"id":"match","offset":86401.0,"timeskew":0.0}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+            r#"{"matches":[{"id":"match","offset":"42.3","timeskew":0.0}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+        ] {
+            assert_eq!(parse(payload).unwrap().match_offset_seconds, None);
+        }
+
+        let zero_skew = parse(
+            r#"{"matches":[{"id":"match","offset":42.375,"timeskew":0.0}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+        )
+        .unwrap();
+        assert_eq!(zero_skew.match_offset_seconds, Some(42.375));
+        assert_eq!(zero_skew.match_time_skew, Some(0.0));
+
+        let boundary_skew = parse(
+            r#"{"matches":[{"id":"match","offset":42.375,"timeskew":0.001}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+        )
+        .unwrap();
+        assert_eq!(boundary_skew.match_offset_seconds, Some(42.375));
+        assert_eq!(boundary_skew.match_time_skew, Some(0.001));
+
+        let finite_large_skew = parse(
+            r#"{"matches":[{"id":"match","offset":42.375,"timeskew":1.1}],"track":{"key":"track","title":"Song","subtitle":"Artist"}}"#,
+        )
+        .unwrap();
+        assert_eq!(finite_large_skew.match_time_skew, Some(1.1));
+        assert_eq!(finite_large_skew.match_offset_seconds, None);
+        assert_eq!(finite_songrec_time_skew(f64::NAN), None);
+        assert_eq!(finite_songrec_time_skew(f64::INFINITY), None);
+        assert_eq!(finite_songrec_time_skew(f64::NEG_INFINITY), None);
+        assert_eq!(bounded_songrec_match_offset(f64::NAN), None);
+        assert_eq!(bounded_songrec_match_offset(f64::INFINITY), None);
     }
 
     #[tokio::test]

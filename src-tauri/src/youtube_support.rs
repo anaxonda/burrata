@@ -726,8 +726,16 @@ impl YouTubeSupportManager {
             !provider.as_ref().is_ok_and(|v| v.args.is_empty()) && self.provider_assets_ready();
         let mut invocation = match provider {
             Ok(invocation) => invocation,
-            Err(_) => return diagnosis(false, DiagnosisCategory::TokenProvider, version, false, false,
-                "The bundled anonymous token provider could not start. Check the provider bundle and Node runtime.")
+            Err(_) => {
+                return diagnosis(
+                    false,
+                    DiagnosisCategory::TokenProvider,
+                    version,
+                    false,
+                    false,
+                    "The bundled anonymous token provider could not start. Check the provider bundle and Node runtime.",
+                );
+            }
         };
         let mut command = Command::new(executable);
         command.args([
@@ -746,38 +754,39 @@ impl YouTubeSupportManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let output =
-            match run_capped(command, Duration::from_secs(45), 64 * 1024).await {
-                Err(e) if e.contains("timed out") => {
-                    return diagnosis(
-                        false,
-                        DiagnosisCategory::Network,
-                        version,
-                        provider_available,
-                        false,
-                        "YouTube extraction exceeded 45 seconds. Check your connection and retry.",
-                    )
-                }
-                Err(e) if e.contains("output limit") => {
-                    return diagnosis(
-                        false,
-                        DiagnosisCategory::Unsupported,
-                        version,
-                        provider_available,
-                        false,
-                        "yt-dlp returned an unexpectedly large response; no data was retained.",
-                    )
-                }
-                Err(_) => return diagnosis(
+        let output = match run_capped(command, Duration::from_secs(45), 64 * 1024).await {
+            Err(e) if e.contains("timed out") => {
+                return diagnosis(
+                    false,
+                    DiagnosisCategory::Network,
+                    version,
+                    provider_available,
+                    false,
+                    "YouTube extraction exceeded 45 seconds. Check your connection and retry.",
+                );
+            }
+            Err(e) if e.contains("output limit") => {
+                return diagnosis(
+                    false,
+                    DiagnosisCategory::Unsupported,
+                    version,
+                    provider_available,
+                    false,
+                    "yt-dlp returned an unexpectedly large response; no data was retained.",
+                );
+            }
+            Err(_) => {
+                return diagnosis(
                     false,
                     DiagnosisCategory::MissingRuntime,
                     version,
                     provider_available,
                     false,
                     "yt-dlp could not start. Check the bundled or configured yt-dlp executable.",
-                ),
-                Ok(output) => output,
-            };
+                );
+            }
+            Ok(output) => output,
+        };
         if !output.status.success() {
             let category = classify_ytdlp_error(&String::from_utf8_lossy(&output.stderr));
             let message = diagnosis_message(&category);
@@ -807,7 +816,7 @@ impl YouTubeSupportManager {
                     provider_available,
                     false,
                     "yt-dlp did not return a recognized YouTube audio stream URL.",
-                )
+                );
             }
         };
         let client = match Client::builder().timeout(Duration::from_secs(15)).build() {
@@ -820,7 +829,7 @@ impl YouTubeSupportManager {
                     provider_available,
                     false,
                     "Could not initialize the audio stream check.",
-                )
+                );
             }
         };
         let response = client
@@ -829,17 +838,58 @@ impl YouTubeSupportManager {
             .send()
             .await;
         match response {
-            Ok(response) if response.status().is_success() && (response.status() == reqwest::StatusCode::PARTIAL_CONTENT || response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("audio/") || v.starts_with("video/") || v == "application/octet-stream")) => {
-                if provider_available { self.provider_verified.store(true, Ordering::Relaxed); }
-                diagnosis(true, DiagnosisCategory::Ready, version, provider_available, true,
-                    "YouTube metadata extraction and a short audio stream access check both succeeded.")
+            Ok(response)
+                if response.status().is_success()
+                    && (response.status() == reqwest::StatusCode::PARTIAL_CONTENT
+                        || response
+                            .headers()
+                            .get(reqwest::header::CONTENT_TYPE)
+                            .and_then(|v| v.to_str().ok())
+                            .is_some_and(|v| {
+                                v.starts_with("audio/")
+                                    || v.starts_with("video/")
+                                    || v == "application/octet-stream"
+                            })) =>
+            {
+                if provider_available {
+                    self.provider_verified.store(true, Ordering::Relaxed);
+                }
+                diagnosis(
+                    true,
+                    DiagnosisCategory::Ready,
+                    version,
+                    provider_available,
+                    true,
+                    "YouTube metadata extraction and a short audio stream access check both succeeded.",
+                )
             }
-            Ok(response) if response.status() == reqwest::StatusCode::FORBIDDEN => diagnosis(false, DiagnosisCategory::ExpiredStream, version, provider_available, false,
-                "YouTube returned 403 for the selected audio stream. The stream URL may have expired; retry extraction."),
-            Ok(response) => diagnosis(false, DiagnosisCategory::Network, version, provider_available, false,
-                &format!("The selected audio stream did not accept a short access check (HTTP {}).", response.status().as_u16())),
-            Err(_) => diagnosis(false, DiagnosisCategory::Network, version, provider_available, false,
-                "The selected audio stream could not be reached. Check your connection and retry."),
+            Ok(response) if response.status() == reqwest::StatusCode::FORBIDDEN => diagnosis(
+                false,
+                DiagnosisCategory::ExpiredStream,
+                version,
+                provider_available,
+                false,
+                "YouTube returned 403 for the selected audio stream. The stream URL may have expired; retry extraction.",
+            ),
+            Ok(response) => diagnosis(
+                false,
+                DiagnosisCategory::Network,
+                version,
+                provider_available,
+                false,
+                &format!(
+                    "The selected audio stream did not accept a short access check (HTTP {}).",
+                    response.status().as_u16()
+                ),
+            ),
+            Err(_) => diagnosis(
+                false,
+                DiagnosisCategory::Network,
+                version,
+                provider_available,
+                false,
+                "The selected audio stream could not be reached. Check your connection and retry.",
+            ),
         }
     }
 
@@ -1128,13 +1178,27 @@ fn classify_ytdlp_error(stderr: &str) -> DiagnosisCategory {
 }
 fn diagnosis_message(category: &DiagnosisCategory) -> &'static str {
     match category {
-        DiagnosisCategory::MissingRuntime => "yt-dlp could not find a usable JavaScript runtime. Check the bundled Node runtime.",
-        DiagnosisCategory::MissingEjs => "The yt-dlp JavaScript challenge solver (EJS) is missing or could not run.",
-        DiagnosisCategory::TokenProvider => "The anonymous BgUtils token provider failed. Check its matching plugin, helper, and Node runtime.",
-        DiagnosisCategory::LoginRequired => "YouTube requires sign-in for this video or network. Burrata does not use account cookies.",
-        DiagnosisCategory::Http403 => "YouTube returned HTTP 403. Retry with the current yt-dlp nightly or run this check again later.",
-        DiagnosisCategory::ExpiredStream => "YouTube returned an expired stream. Re-extract the video to get a fresh audio URL.",
-        DiagnosisCategory::VideoUnavailable => "YouTube reports that this video is unavailable. Check that it is public and playable in your region.",
+        DiagnosisCategory::MissingRuntime => {
+            "yt-dlp could not find a usable JavaScript runtime. Check the bundled Node runtime."
+        }
+        DiagnosisCategory::MissingEjs => {
+            "The yt-dlp JavaScript challenge solver (EJS) is missing or could not run."
+        }
+        DiagnosisCategory::TokenProvider => {
+            "The anonymous BgUtils token provider failed. Check its matching plugin, helper, and Node runtime."
+        }
+        DiagnosisCategory::LoginRequired => {
+            "YouTube requires sign-in for this video or network. Burrata does not use account cookies."
+        }
+        DiagnosisCategory::Http403 => {
+            "YouTube returned HTTP 403. Retry with the current yt-dlp nightly or run this check again later."
+        }
+        DiagnosisCategory::ExpiredStream => {
+            "YouTube returned an expired stream. Re-extract the video to get a fresh audio URL."
+        }
+        DiagnosisCategory::VideoUnavailable => {
+            "YouTube reports that this video is unavailable. Check that it is public and playable in your region."
+        }
         DiagnosisCategory::Unsupported => "yt-dlp did not recognize this video URL.",
         _ => "YouTube extraction failed. Check your connection and try again.",
     }

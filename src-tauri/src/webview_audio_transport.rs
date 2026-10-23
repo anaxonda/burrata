@@ -119,11 +119,21 @@ impl RangeTrace {
     }
 
     fn headers(&self, status: StatusCode, headers: &HeaderMap) {
-        eprintln!("[audio-range] id={} generation={} phase=response status={} range={} status_range={} content_range={} content_length={} elapsed_ms={}",
-            self.id, self.generation, status.as_u16(), self.range,
-            if self.range == "none" { "not_requested" } else { "requested" },
+        eprintln!(
+            "[audio-range] id={} generation={} phase=response status={} range={} status_range={} content_range={} content_length={} elapsed_ms={}",
+            self.id,
+            self.generation,
+            status.as_u16(),
+            self.range,
+            if self.range == "none" {
+                "not_requested"
+            } else {
+                "requested"
+            },
             normalized_content_range(headers.get(header::CONTENT_RANGE)),
-            normalized_content_length(headers.get(header::CONTENT_LENGTH)), self.started.elapsed().as_millis());
+            normalized_content_length(headers.get(header::CONTENT_LENGTH)),
+            self.started.elapsed().as_millis()
+        );
     }
 
     fn add_bytes(&mut self, length: usize) {
@@ -138,9 +148,16 @@ impl RangeTrace {
             return;
         }
         self.finished = true;
-        eprintln!("[audio-range] id={} generation={} phase=body_end outcome={} bytes={} first_byte_ms={} elapsed_ms={}",
-            self.id, self.generation, outcome, self.bytes,
-            self.first_byte_ms.map_or_else(|| "none".into(), |value| value.to_string()), self.started.elapsed().as_millis());
+        eprintln!(
+            "[audio-range] id={} generation={} phase=body_end outcome={} bytes={} first_byte_ms={} elapsed_ms={}",
+            self.id,
+            self.generation,
+            outcome,
+            self.bytes,
+            self.first_byte_ms
+                .map_or_else(|| "none".into(), |value| value.to_string()),
+            self.started.elapsed().as_millis()
+        );
     }
 }
 
