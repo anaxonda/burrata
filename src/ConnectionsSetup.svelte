@@ -24,22 +24,27 @@
     void loadShares(value);
     void loadDownloadSettings(value);
   }
+  function applyDownloadState(value: ManagedDownloadState) {
+    // Clone the plain IPC response before assigning it to reactive state.
+    const draft = value.settings ? structuredClone(value.settings) : null;
+    downloadState = value;
+    if (draft) downloadDraft = draft;
+  }
   async function loadDownloadSettings(current = status) {
     if (!current?.settings.slskd.enabled) { downloadState = null; return; }
-    downloadLoading = true; downloadMessage = "";
+    downloadLoading = true; downloadMessage = ""; downloadState = null;
     try {
-      downloadState = await call<ManagedDownloadState>("get_managed_slskd_download_settings");
-      if (downloadState.settings) downloadDraft = structuredClone(downloadState.settings);
+      applyDownloadState(await call<ManagedDownloadState>("get_managed_slskd_download_settings"));
     } catch (error) { downloadMessage = `Could not read download settings: ${String(error)}`; }
     finally { downloadLoading = false; }
   }
   async function saveDownloadSettings() {
-    if (!downloadState?.canEdit) return;
+    if (!downloadState?.canEdit || downloadBusy || downloadLoading) return;
     downloadBusy = true; downloadMessage = "";
     try {
-      downloadState = await call<ManagedDownloadState>("save_managed_slskd_download_settings", { settings: downloadDraft });
-      if (downloadState.settings) downloadDraft = structuredClone(downloadState.settings);
-      downloadMessage = downloadState.guidance;
+      const updated = await call<ManagedDownloadState>("save_managed_slskd_download_settings", { settings: downloadDraft });
+      applyDownloadState(updated);
+      downloadMessage = updated.guidance;
     } catch (error) { downloadMessage = String(error); }
     finally { downloadBusy = false; }
   }
@@ -128,7 +133,7 @@
     <section class="slskd-shares" aria-labelledby="slskd-shares-title">
       <h3 id="slskd-shares-title">Folders shared by slskd</h3>
       <p class="sharing-warning">Files in shared folders are visible to other Soulseek users. Share only music you intend to make public; never your home or personal-document folders.</p>
-      <p class="share-setup-note">Burrata reads slskd’s configured shares but does not add or remove folders. Manage shared directories in your slskd configuration, then rescan them here.</p>
+      <p class="share-setup-note">Burrata reads slskd’s configured shares. Use the folder controls below for the managed local service; for a separately configured service, edit its slskd configuration and rescan here.</p>
       {#if sharesLoading}<p role="status">Reading configured shares…</p>
       {:else if slskdSharesStatus?.shares.length}<ul aria-label="Configured shared folders">{#each slskdSharesStatus.shares as share (share.id)}<li><strong>{share.alias || share.localPath || share.remotePath || "Shared folder"}</strong>{#if share.localPath || share.remotePath}<small>{share.localPath ?? share.remotePath}</small>{/if}<small>{share.files} files · {share.directories} folders{#if share.excluded} · exclusions applied{/if}</small>{#if slskdSharesStatus.managed && slskdSharesStatus.canEdit && /^[a-f0-9]{16}$/i.test(share.id)}<button class="remove-share" disabled={sharesBusy} onclick={() => void removeManagedShare(share.id)}>Remove this folder</button>{/if}</li>{/each}</ul>
       {:else}<p class="empty-shares">No shared folders reported by slskd.</p>{/if}

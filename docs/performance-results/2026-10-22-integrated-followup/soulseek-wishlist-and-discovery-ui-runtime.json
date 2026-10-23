@@ -1,0 +1,57 @@
+{
+  "runtimeCommit": "e35a34a434293874d0b80b209619fad5da699b0a",
+  "scope": "Isolated Linux X11 profile, existing local slskd connection read-only; no new credentials or file transfers requested.",
+  "wishlist": {
+    "query": "Lamomali Totem",
+    "explicitSave": true,
+    "duplicateSaveEntryCount": 1,
+    "scheduledCheckCandidateCount": 181,
+    "pausedStatePersisted": true,
+    "pausedStateAndCountSurvivedRelaunch": true,
+    "reviewOpenedSoulseekTrackSearch": true,
+    "wishlistAbsentFromSearchView": true,
+    "removalPersistedEntryCount": 0,
+    "downloadJobsBefore": 0,
+    "downloadJobsAfter": 0
+  },
+  "discovery": {
+    "artistGroupingCompleted": true,
+    "artistMetadataMarkedInferred": true,
+    "albumFolderSearchCompleted": true,
+    "observedSearchHitsInBrowsedFolder": 12,
+    "completePeerDirectoryAudioFiles": 12,
+    "folderDownloadWasNotStarted": true
+  },
+  "managedSettings": {
+    "liveReadFailed": "DataCloneError when cloning a reactive proxy; form showed defaults.",
+    "actualApplyRestart": "Not attempted; two remotely queued transfers were present and had no matching saved Burrata transfer IDs.",
+    "nonterminalDownloadsBefore": 2,
+    "nonterminalDownloadsAfter": 2,
+    "uploadsBefore": 0,
+    "uploadsAfter": 0,
+    "daemonNotRestartedDuringTest": true,
+    "configurationFilesUnchanged": true,
+    "fix": "Clone plain get/apply responses before assigning reactive state; clear stale editable state during loading.",
+    "regression": "Nondefault 17-slot/2048-KiB response reproduced default-32 failure before the fix; load and apply-response refresh now pass.",
+    "liveFixVerification": "Pending rebuilt app.",
+    "focusedFrontendTests": 69,
+    "typecheck": "0 errors, 0 warnings",
+    "frontendFullTests": 1275,
+    "frontendFiles": 107,
+    "productionFrontendBuild": "passed",
+    "commandContracts": 8
+  },
+  "normalProfileRestored": {
+    "queueEntriesCompared": 200,
+    "allEntryIdsEqual": true,
+    "currentTrackAndEntryEqual": true,
+    "currentIndexEqual": true,
+    "pausedEqual": true,
+    "positionExactlyEqual": true
+  },
+  "limitations": [
+    "Candidate counts are source search results, not verified recordings.",
+    "No protocol-level wishlist or closed-app scheduling claim.",
+    "Managed daemon write/restart remains unqualified while existing transfers are queued."
+  ]
+}

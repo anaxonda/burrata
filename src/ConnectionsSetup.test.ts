@@ -148,3 +148,25 @@ describe("ConnectionsSetup Soulseek shares", () => {
     expect(callMock.mock.calls.some(([command]) => command === "save_managed_slskd_download_settings")).toBe(false);
   });
 });
+
+it("loads nondefault managed values and refreshes from the raw apply response without clone errors",async()=>{
+  const initial={slots:17,speedLimitKib:2048,retryAttempts:7,retryDelayMs:9000,retryMaxDelayMs:36000,partialPolicy:"overwrite" as const};
+  const refreshed={...initial,slots:18,speedLimitKib:1024};
+  callMock.mockImplementation(async(command:string)=>{
+    if(command==="get_connections")return status;
+    if(command==="get_slskd_shares")return{managed:true,canEdit:true,shares:[],guidance:"Managed service"};
+    if(command==="get_managed_slskd_download_settings")return{managed:true,canEdit:true,settings:initial,guidance:"Current settings"};
+    if(command==="save_managed_slskd_download_settings")return{managed:true,canEdit:true,settings:refreshed,guidance:"Applied settings"};
+    throw new Error(`Unexpected command ${command}`);
+  });
+  const target=render();await settle();
+  expect(target.querySelector<HTMLInputElement>('[aria-label="Concurrent download slots"]')?.value).toBe("17");
+  expect(target.querySelector<HTMLInputElement>('[aria-label="Download speed limit (KiB/s)"]')?.value).toBe("2048");
+  expect(target.querySelector<HTMLInputElement>('[aria-label="Automatic retry attempts"]')?.value).toBe("7");
+  expect(target.textContent).not.toMatch(/Could not read download settings|DataCloneError|cannot be cloned/);
+  target.querySelector<HTMLButtonElement>(".slskd-download-settings button")!.click();await settle();
+  expect(callMock).toHaveBeenCalledWith("save_managed_slskd_download_settings",{settings:initial});
+  expect(target.querySelector<HTMLInputElement>('[aria-label="Concurrent download slots"]')?.value).toBe("18");
+  expect(target.querySelector<HTMLInputElement>('[aria-label="Download speed limit (KiB/s)"]')?.value).toBe("1024");
+  expect(target.textContent).toContain("Applied settings");expect(target.textContent).not.toMatch(/DataCloneError|cannot be cloned/);
+});

@@ -1244,7 +1244,7 @@
                   {@const artistData = row.data && typeof row.data === "object" ? (row.data as { soulseekArtistGroup?: { inferredName?: string; evidence?: string; folderCount?: number } }).soulseekArtistGroup : undefined}
                   {@const artistFolders = soulseekArtistFolders(row)}
                   <p class="soulseek-unverified">Source-derived artist grouping · inferred from peer filename observations. Not a verified artist profile.</p>
-                  {#if artistData?.inferredName}<p class="subtitle">Inferred name: {artistData.inferredName}{artistData.evidence ? ` · ${artistData.evidence}` : ""}{Number.isFinite(artistData.folderCount) ? ` · ${artistData.folderCount} observed folders` : ""}</p>{/if}
+                  {#if artistData?.inferredName}<p class="subtitle">Inferred name: {artistData.inferredName}{artistData.evidence ? " · Peer folder metadata" : ""}{Number.isFinite(artistData.folderCount) ? ` · ${artistData.folderCount} observed folders` : ""}</p>{/if}
                   {#if artistFolders.length}<div class="soulseek-artist-folders" aria-label={`${row.title} peer folders`}>
                     {#each artistFolders as folder (folder.identity)}<section class="soulseek-folder-card" aria-label={`${folder.folderName} peer folder`}>
                       <strong>{folder.folderName}</strong><p class="soulseek-unverified">Source-reported peer folder · unverified metadata{folder.inferredArtist ? ` · inferred artist ${folder.inferredArtist}` : ""}{Number.isFinite(folder.observedFileCount) ? ` · ${folder.observedFileCount} observed search hits` : ""}. Search hits are incomplete until browsed.</p>

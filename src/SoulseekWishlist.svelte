@@ -35,5 +35,5 @@
 </details>
 {/if}
 <style>
-.wishlist{margin:.75rem;padding:.75rem;border:1px solid var(--border,#454a50);border-radius:8px}.wishlist p,.entry small{color:var(--muted,#a3a8ae);font-size:.82rem}.entry{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}.entry label{flex:1;min-width:180px;overflow-wrap:anywhere}.entry input{margin-right:.4rem}.entry small{flex:1;min-width:140px}
+.wishlist{margin:.75rem;padding:.75rem;border:1px solid var(--border,#454a50);border-radius:8px}.wishlist p,.entry small{color:var(--muted,#a3a8ae);font-size:.82rem}.entry{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}.entry label{display:flex;align-items:center;gap:.4rem;flex:1;min-width:180px;overflow-wrap:anywhere}.entry input{width:auto;flex:none;margin-right:0}.entry small{flex:1;min-width:140px}
 </style>
