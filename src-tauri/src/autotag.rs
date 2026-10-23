@@ -2901,7 +2901,7 @@ pub(crate) async fn songrec_excerpt_guarded(
     };
     let output = tokio::time::timeout(
         Duration::from_secs(50),
-        crate::radio::recognize_captured_sample_uncached(&station, &wav),
+        crate::radio::recognize_captured_sample_guarded(&station, &wav, check),
     )
     .await;
     match output {

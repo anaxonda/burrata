@@ -836,12 +836,31 @@ pub async fn recognize_captured_sample_uncached(
     station: &RadioStation,
     wav_path: &Path,
 ) -> Result<Option<RadioTrackMetadata>, String> {
+    recognize_captured_sample_guarded(station, wav_path, || Ok(())).await
+}
+
+async fn with_checked_songrec_gate<T>(
+    gate: &Mutex<()>,
+    check: impl Fn() -> Result<(), String>,
+    operation: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    check()?;
+    let _permit = gate.lock().await;
+    // Waiting for another recognition must never retain stale consent.
+    check()?;
+    operation.await
+}
+
+pub(crate) async fn recognize_captured_sample_guarded(
+    station: &RadioStation,
+    wav_path: &Path,
+    check: impl Fn() -> Result<(), String>,
+) -> Result<Option<RadioTrackMetadata>, String> {
     let Some(songrec) = find_executable(&["songrec", "SongRec"]) else {
         return Err("SongRec is not installed. Burrata will not install recognition software automatically.".into());
     };
     let gate = SONGREC_GATE.get_or_init(|| Mutex::new(()));
-    let _permit = gate.lock().await;
-    let output = run_songrec(&songrec, wav_path).await?;
+    let output = with_checked_songrec_gate(gate, check, run_songrec(&songrec, wav_path)).await?;
     parse_songrec_output(station, output)
 }
 
@@ -1201,6 +1220,53 @@ fn find_executable(names: &[&str]) -> Option<std::path::PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn revoked_consent_after_gate_wait_never_polls_recognizer() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let gate = Arc::new(tokio::sync::Mutex::new(()));
+        let held = gate.lock().await;
+        let allowed = Arc::new(AtomicBool::new(true));
+        let submitted = Arc::new(AtomicBool::new(false));
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let work = {
+            let gate = gate.clone();
+            let allowed = allowed.clone();
+            let submitted = submitted.clone();
+            tokio::spawn(async move {
+                let entered = std::sync::Mutex::new(Some(entered));
+                super::with_checked_songrec_gate(
+                    &gate,
+                    || {
+                        // Read the initial consent before waking the revoker,
+                        // so this fixture necessarily reaches the held gate.
+                        let result = if allowed.load(Ordering::SeqCst) {
+                            Ok(())
+                        } else {
+                            Err("consent revoked".into())
+                        };
+                        if let Some(entered) = entered.lock().unwrap().take() {
+                            let _ = entered.send(());
+                        }
+                        result
+                    },
+                    async {
+                        submitted.store(true, Ordering::SeqCst);
+                        Ok(())
+                    },
+                )
+                .await
+            })
+        };
+        waiting.await.unwrap();
+        allowed.store(false, Ordering::SeqCst);
+        drop(held);
+        assert_eq!(work.await.unwrap().unwrap_err(), "consent revoked");
+        assert!(!submitted.load(Ordering::SeqCst));
+    }
+
     #[cfg(unix)]
     async fn fake_songrec_cleanup(cancel_after_ready: bool) {
         use std::os::unix::fs::PermissionsExt;

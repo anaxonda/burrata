@@ -18,6 +18,7 @@ pub use radio_artwork::resolve_station_artwork;
 
 #[path = "radio_metadata.rs"]
 mod radio_metadata;
+pub(crate) use radio_metadata::recognize_captured_sample_guarded;
 pub use radio_metadata::{
     get_station_details, identify_radio_station, poll_radio_station,
     recognize_captured_sample_cancellable, recognize_captured_sample_uncached,

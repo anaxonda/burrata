@@ -29,13 +29,22 @@
     "Synthetic acquisition/publication end-to-end fixtures",
     "Crash orphan cleanup",
     "Frontend weak-candidate selection and explicit Settings consent UI",
-    "Final workflow qualification",
-    "Recheck consent after waiting for shared SongRec service gate, directly before its child submission"
+    "Final workflow qualification"
   ],
   "finalFullNative": {
     "passed": 1816,
     "failed": 0,
     "ignored": 41,
     "log": "/tmp/burrata-verification-acquisition-final-native.log"
+  },
+  "submissionBoundary": {
+    "test": "Consent revoked while shared recognition gate is held; recognizer future is never polled",
+    "externalRequests": 0,
+    "fullNative": {
+      "passed": 1817,
+      "failed": 0,
+      "ignored": 41,
+      "log": "/tmp/burrata-recognition-gate-full-native.log"
+    }
   }
 }
