@@ -1,0 +1,23 @@
+{
+  "scope": "Catalog lookup outage handling in configured post-download autotag workflow; pre-download audio verification remains separate",
+  "behavior": [
+    "MusicBrainz recording-search and Discogs lookup errors no longer prevent subsequent configured recognition fallbacks.",
+    "If no candidate or recognition succeeds, the first catalog error is retained instead of misreporting a clean no-match.",
+    "Failed optional release context marks otherwise valid candidates review-only; it cannot trigger automatic tag application.",
+    "Fingerprint settings and external-service consent requirements are unchanged."
+  ],
+  "tests": {
+    "focusedAutotagPassed": 33,
+    "fullNativePassed": 1799,
+    "fullNativeIgnored": 40,
+    "fullFrontendPassed": 1279,
+    "frontendFilesPassed": 107,
+    "contractsPassed": 8,
+    "formatCheck": "passed"
+  },
+  "limitations": [
+    "Service results were simulated in the new regression; no live audio/fingerprint request made.",
+    "This does not add pre-download sample verification or prove the historical Por ella failure cause.",
+    "Recognizer-service errors themselves keep their existing behavior."
+  ]
+}

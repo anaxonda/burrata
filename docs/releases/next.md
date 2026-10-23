@@ -24,3 +24,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Apply verified recording aliases to lyrics already cached from Shazam recognition, without requesting another identification.
 
 - Preserve successful SongRec recognition for tag review when a later catalog lookup fails, while keeping catalog identity unverified.
+
+- Continue configured tag-identification fallbacks after catalog lookup outages, retain total-failure errors and require review for incomplete release context.

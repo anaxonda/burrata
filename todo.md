@@ -19,6 +19,8 @@ Work through the reported issues and all original todo requirements. The priorit
 
 ## Implemented and locally checked
 
+- [x] Continue configured autotag recognition fallbacks after MusicBrainz/Discogs lookup outages. Preserve a total-failure error, and require review when optional release context could not be fetched. All 1,799 native and 1,279 frontend tests pass; eight contracts and formatting pass. This remains post-download identification, not the unfinished pre-download verification workflow. [Evidence](docs/performance-results/2026-10-22-integrated-followup/autotag-initial-catalog-fallback-qualification.json).
+
 - [x] Retain completed two-excerpt SongRec recognition when its subsequent catalog lookup or optional release-context enrichment fails. Recognition stays reviewable; no missing catalog/release fields or automatic identity are inferred. All 1,798 native tests pass (40 opt-in tests ignored). Initial pre-recognition metadata failures and the larger pre-download workflow remain open. [Regression evidence](docs/performance-results/2026-10-22-integrated-followup/autotag-recognition-retention-qualification.json).
 
 - [x] Explain batch download rejection dimensions. Matching recording identifier/title/runtime with conflicting performer credits now requests catalog/source credit review; actual connection errors are retained without a duplicate policy error. All 19 batch tests pass; saved metadata and acceptance rules are unchanged.

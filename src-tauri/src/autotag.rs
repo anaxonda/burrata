@@ -130,6 +130,38 @@ fn songrec_catalog_outcome(
     }
 }
 
+fn catalog_result_or_empty<T: Default>(result: Result<T, String>, errors: &mut Vec<String>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => {
+            errors.push(error);
+            T::default()
+        }
+    }
+}
+
+fn finish_autotag_lookup(
+    candidates: Vec<AutoTagCandidate>,
+    recognition: Option<AudioRecognition>,
+    mut errors: Vec<String>,
+) -> Result<AutoTagLookup, String> {
+    if candidates.is_empty() && recognition.is_none() && !errors.is_empty() {
+        return Err(errors.remove(0));
+    }
+    Ok(AutoTagLookup {
+        candidates,
+        recognition,
+    })
+}
+
+fn mark_release_context_unavailable(candidate: &mut AutoTagCandidate) {
+    if !candidate.fields.provenance.is_object() {
+        candidate.fields.provenance = json!({});
+    }
+    candidate.fields.provenance["releaseContextUnavailable"] = json!(true);
+    candidate.evidence.push("Catalog release context is unavailable; review required without inferring missing release fields.".into());
+}
+
 struct AutoTagLookup {
     candidates: Vec<AutoTagCandidate>,
     recognition: Option<AudioRecognition>,
@@ -951,7 +983,11 @@ impl AutoTagger {
                 recognition,
             });
         }
-        let results = self.artists.recording_search(&search_source).await?;
+        let mut catalog_errors = Vec::new();
+        let results = catalog_result_or_empty(
+            self.artists.recording_search(&search_source).await,
+            &mut catalog_errors,
+        );
         let rows = results["recordings"]
             .as_array()
             .cloned()
@@ -968,12 +1004,17 @@ impl AutoTagger {
             .is_some_and(|album| !album.trim().is_empty())
         {
             for candidate in matches.iter_mut().take(3) {
-                self.enrich_release_context(candidate, &search_source)
-                    .await?;
+                if let Err(error) = self.enrich_release_context(candidate, &search_source).await {
+                    catalog_errors.push(error);
+                    mark_release_context_unavailable(candidate);
+                }
             }
         }
         if matches.is_empty() {
-            matches.extend(self.discogs_match(&search_source, credentials).await?);
+            matches.extend(catalog_result_or_empty(
+                self.discogs_match(&search_source, credentials).await,
+                &mut catalog_errors,
+            ));
         }
         if matches.is_empty() && !source_reported_identity && allow_fingerprinting {
             if let Some(key) = acoustid_key.filter(|key| !key.trim().is_empty()) {
@@ -1026,10 +1067,8 @@ impl AutoTagger {
                 if candidate.fields.provenance["releaseContextAttempted"] != true {
                     if let Err(error) = self.enrich_release_context(candidate, &search_source).await
                     {
-                        if recognition.is_none() {
-                            return Err(error);
-                        }
-                        candidate.evidence.push("Catalog release context is unavailable; retain the audio recognition for review without inferring missing release fields.".into());
+                        catalog_errors.push(error);
+                        mark_release_context_unavailable(candidate);
                     }
                 }
             }
@@ -1037,10 +1076,7 @@ impl AutoTagger {
         for candidate in &mut matches {
             add_source_reported_lookup_evidence(candidate, &source_reported_fields);
         }
-        Ok(AutoTagLookup {
-            candidates: matches,
-            recognition,
-        })
+        finish_autotag_lookup(matches, recognition, catalog_errors)
     }
 
     async fn enrich_release_context(
@@ -2180,7 +2216,8 @@ fn duration_compatible(a: f64, b: f64) -> bool {
 }
 
 fn can_auto_apply(source: &Track, candidate: &AutoTagCandidate, excerpt_only: bool) -> bool {
-    if source_conflicts(source, candidate)
+    if candidate.fields.provenance["releaseContextUnavailable"] == true
+        || source_conflicts(source, candidate)
         || source_reported_identity_requires_review(source, candidate)
     {
         return false;
@@ -3641,6 +3678,34 @@ mod tests {
             reported.provenance["sourceReportedMetadata"]["identityStatus"],
             "source_reported_unverified"
         );
+    }
+
+    #[test]
+    fn catalog_outage_allows_recognition_fallback_but_does_not_hide_total_failure() {
+        let mut errors = Vec::new();
+        let rows: Value = catalog_result_or_empty(Err("catalog offline".into()), &mut errors);
+        assert!(rows.is_null());
+        let recognized = AudioRecognition {
+            provider: "songrec".into(),
+            artist: "Synthetic artist".into(),
+            title: "Synthetic title".into(),
+            isrc: None,
+            shazam_id: None,
+            excerpt_count: 2,
+        };
+        let result =
+            finish_autotag_lookup(vec![], Some(recognized.clone()), errors.clone()).unwrap();
+        assert_eq!(result.recognition, Some(recognized));
+        assert!(result.candidates.is_empty());
+        assert!(
+            matches!(finish_autotag_lookup(vec![], None, errors), Err(error) if error == "catalog offline")
+        );
+        assert!(finish_autotag_lookup(vec![], None, vec![]).is_ok());
+        let source = track("Synthetic artist", "Synthetic title", Some(180.0));
+        let mut partial = candidate("Synthetic artist", "Synthetic title", Some(180.0));
+        assert!(can_auto_apply(&source, &partial, false));
+        mark_release_context_unavailable(&mut partial);
+        assert!(!can_auto_apply(&source, &partial, false));
     }
 
     #[test]
