@@ -1,0 +1,61 @@
+{
+  "checkpoint": "418379c95592b96140da7f194c21f17e4991ef8d",
+  "binarySha256": "dd22ea62ca88d46fe1b564cc7755ff801e58b8d34ce6243ee4f7586a4cf42f6a",
+  "platform": "Linux X11; embedded custom-protocol frontend",
+  "isolatedInitial": {
+    "engine": "native",
+    "paused": true,
+    "position": 19.5,
+    "entryIds": [
+      "engine-first",
+      "engine-second"
+    ],
+    "currentIndex": 1
+  },
+  "observedAfterApply": {
+    "savedEngine": "webview",
+    "paused": true,
+    "position": 19.5,
+    "entryIds": [
+      "engine-first",
+      "engine-second"
+    ],
+    "currentIndex": 1,
+    "volume": 0.42,
+    "repeat": "all",
+    "shuffle": true
+  },
+  "restartQualification": "Passed in both directions with a persistent supervisor; distinct new app PIDs and authenticated post-restart session snapshots were observed. The earlier disappearing child was a launcher-lifecycle confounder.",
+  "normalProfileRestored": {
+    "fullQueueEntriesCompared": 200,
+    "allEntryIdsEqual": true,
+    "trackAndSelectedEntryEqual": true,
+    "currentIndexEqual": true,
+    "positionExactlyEqual": true,
+    "pausedEqual": true,
+    "secondRestorationExact": true
+  },
+  "scope": "Synthetic isolated queue only. No remote Mac or physical-audibility qualification.",
+  "supervisedChecks": {
+    "browserToNative": {
+      "newProcessObserved": true,
+      "entryIdsPreserved": true,
+      "selectedIndex": 1,
+      "position": 19.5,
+      "paused": true,
+      "volume": 0.8,
+      "repeat": "all",
+      "shuffle": false
+    },
+    "nativeToBrowser": {
+      "newProcessObserved": true,
+      "entryIdsPreserved": true,
+      "selectedIndex": 1,
+      "position": 19.5,
+      "paused": true,
+      "volume": 0.37,
+      "repeat": "all",
+      "shuffle": true
+    }
+  }
+}

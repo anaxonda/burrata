@@ -1,4 +1,4 @@
-# Next Burrata release — draft
+# Burrata v0.1.8 — draft
 
 These notes describe the current development checkpoint. They are not a published release or a claim that all runtime and installer checks have passed.
 
