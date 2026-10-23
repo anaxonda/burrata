@@ -27,11 +27,12 @@
   ],
   "focusedTests": 12,
   "typecheck": "0 errors, 0 warnings",
-  "rendererQualification": "Pending rebuilt app; current embedded checkpoint predates the follow-up.",
+  "rendererQualification": "Rebuilt embedded app 0d69064 launched successfully, preserving all 200 normal queue IDs, selected entry and paused playhead. The fullscreen screenshot still looks coarse; actual upgraded hero dimensions are not exposed by the current inspector. Visible upgrade remains unproven and open.",
   "normalQueuePreserved": {
     "entriesCompared": 200,
     "allEntryIdsEqual": true,
     "positionExactlyEqual": true,
     "paused": true
-  }
+  },
+  "runtimeBinarySha256": "5fdb96ee14e9c8985cd132465b1036d82fb94eeb8644315a91ac6d062f4b7276"
 }

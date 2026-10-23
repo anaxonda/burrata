@@ -1,0 +1,117 @@
+{
+  "tag": "v0.1.8",
+  "sourceCommit": "03c5e637f3e905ca7484ae77a7da14cb120ecf22",
+  "url": "https://github.com/anaxonda/burrata/releases/tag/v0.1.8",
+  "publishedAt": "2026-10-23T11:20:52Z",
+  "regular": true,
+  "latestVerified": true,
+  "ciRun": 39938174398,
+  "taggedRun": 39940720808,
+  "allRunsPassed": true,
+  "installedSmoke": [
+    {
+      "artifact": "smoke-evidence-linux-x64-03c5e637f3e905ca7484ae77a7da14cb120ecf22",
+      "status": "passed",
+      "checks": [
+        "installer",
+        "packagedTools",
+        "mediaFixtures",
+        "webviewAudioFixture",
+        "guiStartup",
+        "nativeHost",
+        "mcp",
+        "linuxAudio",
+        "webviewAudio"
+      ],
+      "webviewAudioClockAdvanceSeconds": 0.914
+    },
+    {
+      "artifact": "smoke-evidence-macos-arm64-03c5e637f3e905ca7484ae77a7da14cb120ecf22",
+      "status": "passed",
+      "checks": [
+        "installer",
+        "transportSecurity",
+        "packagedTools",
+        "mediaFixtures",
+        "webviewAudioFixture",
+        "guiStartup",
+        "nativeHost",
+        "mcp",
+        "webviewAudio"
+      ],
+      "webviewAudioClockAdvanceSeconds": 1.006
+    },
+    {
+      "artifact": "smoke-evidence-windows-x64-03c5e637f3e905ca7484ae77a7da14cb120ecf22",
+      "status": "passed",
+      "checks": [
+        "installer",
+        "packagedTools",
+        "mediaFixtures",
+        "webviewAudioFixture",
+        "guiStartup",
+        "nativeHost",
+        "mcp",
+        "webviewAudio"
+      ],
+      "webviewAudioClockAdvanceSeconds": 0.909
+    }
+  ],
+  "publicDownloadVerification": {
+    "tag": "v0.1.8",
+    "commit": "03c5e637f3e905ca7484ae77a7da14cb120ecf22",
+    "unauthenticatedPublicHttp": true,
+    "assets": [
+      {
+        "name": "Burrata-0.1.8-1.x86_64.rpm",
+        "bytes": 253566793,
+        "sha256": "63c7ada1b3038cb1c53ff03c7d550bfdc77d6349e493d35f3975173fec7376c3",
+        "matchesManifestAndAssetDigest": true
+      },
+      {
+        "name": "Burrata_0.1.8_aarch64.dmg",
+        "bytes": 173534203,
+        "sha256": "001fad90637466e8646eb12cbbbd2ab3d871dafb9afd80ae7538fe17435eb243",
+        "matchesManifestAndAssetDigest": true
+      },
+      {
+        "name": "Burrata_0.1.8_amd64.AppImage",
+        "bytes": 382949880,
+        "sha256": "ee240d43e4cd5803ac6c067512d11e88563a2617f7753ac8832b217af6c1f8e6",
+        "matchesManifestAndAssetDigest": true
+      },
+      {
+        "name": "Burrata_0.1.8_amd64.deb",
+        "bytes": 253224800,
+        "sha256": "2ad874ab77b8242449df3ebfa80f55c409b0fc931adf4240ee7cd3f164a0fb87",
+        "matchesManifestAndAssetDigest": true
+      },
+      {
+        "name": "Burrata_0.1.8_x64-setup.exe",
+        "bytes": 342448774,
+        "sha256": "e53a4910014335e1c3cf37736e7056e411933cfecd3ed499c23b92c01b10637c",
+        "matchesManifestAndAssetDigest": true
+      },
+      {
+        "name": "chrome-extension-0.2.3.zip",
+        "bytes": 94491,
+        "sha256": "e4ce0c8af7cc91e09fa69209eb06bef181a05f1c8c5b8de9654a73de0c39ae73",
+        "matchesManifestAndAssetDigest": true
+      },
+      {
+        "name": "firefox-extension-0.2.3.xpi",
+        "bytes": 130447,
+        "sha256": "9a8ba4f435c8f4485cfe1c5e2ffb93a904192dbfad02b7ae2c44e4560ea1b88b",
+        "matchesManifestAndAssetDigest": true
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "bytes": 651,
+        "sha256": "425d12deb07be83707adace4c3423c43b80b1010af00a0e4b3ddd847a656a4ad",
+        "matchesManifestAndAssetDigest": true
+      }
+    ]
+  },
+  "supportUrl": "https://github.com/anaxonda/burrata/releases/tag/support-v0.1.8",
+  "scope": "Installed DMG/NSIS/DEB smoke and bounded local WebView media-clock checks. RPM/AppImage built and checksummed; no separate installed smoke. Not physical Mac audibility, provider availability or the reported remote network."
+}
