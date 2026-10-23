@@ -19,6 +19,8 @@ Work through the reported issues and all original todo requirements. The priorit
 
 ## Implemented and locally checked
 
+- [x] Retain completed two-excerpt SongRec recognition when its subsequent catalog lookup or optional release-context enrichment fails. Recognition stays reviewable; no missing catalog/release fields or automatic identity are inferred. All 1,798 native tests pass (40 opt-in tests ignored). Initial pre-recognition metadata failures and the larger pre-download workflow remain open. [Regression evidence](docs/performance-results/2026-10-22-integrated-followup/autotag-recognition-retention-qualification.json).
+
 - [x] Explain batch download rejection dimensions. Matching recording identifier/title/runtime with conflicting performer credits now requests catalog/source credit review; actual connection errors are retained without a duplicate policy error. All 19 batch tests pass; saved metadata and acceptance rules are unchanged.
 
 - [ ] Finish new lyric alias and translation qualification. Verified MusicBrainz title/performer aliases now feed bounded LRCLIB fallback searches, including Cyrillic when supplied by the catalog. Two alias tests, 15 lyric tests, five local translation tests, 23 focused frontend tests and two request tests pass; typecheck is clean. The full current frontend suite passes 1,278 tests and the native suite passes 1,791 with 40 explicitly ignored. Keyless Google adapter remains live-unqualified after HTTP 429. Real OpenRouter test is awaiting explicit destination approval following automatic review rejection. [Worktree evidence](docs/performance-results/2026-10-22-integrated-followup/lyrics-alias-translation-qualification.json).

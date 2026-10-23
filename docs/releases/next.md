@@ -22,3 +22,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Honor bounded LRC file timing offsets in the display clock while keeping the original lyric timestamps intact. Resetting manual timing preserves the file offset.
 
 - Apply verified recording aliases to lyrics already cached from Shazam recognition, without requesting another identification.
+
+- Preserve successful SongRec recognition for tag review when a later catalog lookup fails, while keeping catalog identity unverified.

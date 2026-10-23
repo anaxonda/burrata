@@ -1,0 +1,24 @@
+{
+  "sourceCommit": "0dd695ff3f5d58ac151d0b7709a99ce8e5f830b3",
+  "scope": "One existing selected saved-track native resume; not a full archived-case or Mac qualification",
+  "track": "I wish it wasnt",
+  "provider": "youtube",
+  "quality": {
+    "bitrateKbps": 129.505,
+    "channels": 2,
+    "codec": "mp4a.40.2",
+    "expectedContentLength": 3602119,
+    "formatHasVideo": false,
+    "formatId": "140",
+    "mimeType": "audio/mp4",
+    "sampleRate": 44100
+  },
+  "played": true,
+  "positionAdvancedSeconds": 78.25124716553287,
+  "all200QueueIdsUnchanged": true,
+  "selectedEntryUnchanged": true,
+  "indexUnchanged": true,
+  "restoredPaused": true,
+  "restoredPositionDeltaSeconds": 0,
+  "noNewIdentification": true
+}

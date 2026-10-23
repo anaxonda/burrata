@@ -70,6 +70,66 @@ struct SongRecOutcome {
     candidate: Option<AutoTagCandidate>,
 }
 
+// Catalog outages must not erase a successful two-excerpt audio recognition.
+// Keeping recognition alone never authorizes catalog tags or automatic identity binding.
+fn songrec_catalog_outcome(
+    source: &Track,
+    recognition: AudioRecognition,
+    rows: Result<Value, String>,
+) -> SongRecOutcome {
+    let Ok(rows) = rows else {
+        return SongRecOutcome {
+            recognition,
+            candidate: None,
+        };
+    };
+    let recognized_isrc = recognition.isrc.clone();
+    let identified = Track {
+        artist: recognition.artist.clone(),
+        title: recognition.title.clone(),
+        duration_seconds: source.duration_seconds,
+        isrc: recognized_isrc.clone(),
+        ..Track::default()
+    };
+    let candidate_rows = if let Some(isrc) = recognized_isrc.as_deref() {
+        unique_musicbrainz_rows_for_isrc(&rows, isrc)
+    } else {
+        rows["recordings"].as_array().cloned().unwrap_or_default()
+    };
+    let mut candidates = candidate_rows
+        .iter()
+        .filter_map(|row| candidate_from_mb(row, &identified))
+        .collect::<Vec<_>>();
+    if let Some(isrc) = recognized_isrc.as_ref() {
+        for candidate in &mut candidates {
+            candidate.fields.isrc = Some(isrc.clone());
+        }
+    }
+    candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
+    if candidates.len() != 1 || candidates[0].score < 0.96 {
+        return SongRecOutcome {
+            recognition,
+            candidate: None,
+        };
+    }
+    let mut candidate = candidates.remove(0);
+    candidate.evidence.push(if recognized_isrc.is_some() {
+            "SongRec recognized two non-overlapping excerpts consistently; exact ISRC resolved one matching MusicBrainz recording.".into()
+        } else {
+            "SongRec recognized two non-overlapping excerpts consistently; MusicBrainz artist, title, and duration also matched.".into()
+        });
+    if source_conflicts(source, &candidate) {
+        candidate.evidence.push(
+            "Recognized artist or title conflicts with the downloaded source; review required."
+                .into(),
+        );
+    }
+    SongRecOutcome {
+        recognition,
+        candidate: Some(candidate),
+    }
+}
+
 struct AutoTagLookup {
     candidates: Vec<AutoTagCandidate>,
     recognition: Option<AudioRecognition>,
@@ -964,8 +1024,13 @@ impl AutoTagger {
         {
             for candidate in matches.iter_mut().take(3) {
                 if candidate.fields.provenance["releaseContextAttempted"] != true {
-                    self.enrich_release_context(candidate, &search_source)
-                        .await?;
+                    if let Err(error) = self.enrich_release_context(candidate, &search_source).await
+                    {
+                        if recognition.is_none() {
+                            return Err(error);
+                        }
+                        candidate.evidence.push("Catalog release context is unavailable; retain the audio recognition for review without inferring missing release fields.".into());
+                    }
                 }
             }
         }
@@ -1423,47 +1488,11 @@ impl AutoTagger {
                 format!("recording?query=isrc%3A{isrc}&limit=100&inc=artist-credits+isrcs+genres");
             self.artists
                 .json_for_metadata("musicbrainz", &query, "autotag.songrec.isrc", isrc, None)
-                .await?
+                .await
         } else {
-            self.artists.recording_search(&identified).await?
+            self.artists.recording_search(&identified).await
         };
-        let candidate_rows = if let Some(isrc) = recognized_isrc.as_deref() {
-            unique_musicbrainz_rows_for_isrc(&rows, isrc)
-        } else {
-            rows["recordings"].as_array().cloned().unwrap_or_default()
-        };
-        let mut candidates = candidate_rows
-            .iter()
-            .filter_map(|row| candidate_from_mb(row, &identified))
-            .collect::<Vec<_>>();
-        if let Some(isrc) = recognized_isrc.as_ref() {
-            for candidate in &mut candidates {
-                candidate.fields.isrc = Some(isrc.clone());
-            }
-        }
-        candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
-        if candidates.len() != 1 || candidates[0].score < 0.96 {
-            return Ok(Some(SongRecOutcome {
-                recognition,
-                candidate: None,
-            }));
-        }
-        let mut candidate = candidates.remove(0);
-        candidate.evidence.push(if recognized_isrc.is_some() {
-            "SongRec recognized two non-overlapping excerpts consistently; exact ISRC resolved one matching MusicBrainz recording.".into()
-        } else {
-            "SongRec recognized two non-overlapping excerpts consistently; MusicBrainz artist, title, and duration also matched.".into()
-        });
-        if source_conflicts(source, &candidate) {
-            candidate.evidence.push(
-                "Recognized artist or title conflicts with the downloaded source; review required."
-                    .into(),
-            );
-        }
-        Ok(Some(SongRecOutcome {
-            recognition,
-            candidate: Some(candidate),
-        }))
+        Ok(Some(songrec_catalog_outcome(source, recognition, rows)))
     }
 
     pub async fn apply(
@@ -3612,6 +3641,32 @@ mod tests {
             reported.provenance["sourceReportedMetadata"]["identityStatus"],
             "source_reported_unverified"
         );
+    }
+
+    #[test]
+    fn successful_songrec_recognition_survives_catalog_outage_without_catalog_binding() {
+        let source = track(
+            "Synthetic source artist",
+            "Synthetic source title",
+            Some(180.0),
+        );
+        let recognition = AudioRecognition {
+            provider: "songrec".into(),
+            artist: "Synthetic recognized artist".into(),
+            title: "Synthetic recognized title".into(),
+            isrc: Some("USABC2600001".into()),
+            shazam_id: Some("synthetic-recognition".into()),
+            excerpt_count: 2,
+        };
+        for rows in [
+            Err("MusicBrainz temporarily unavailable".into()),
+            Ok(json!({"recordings":[]})),
+        ] {
+            let outcome = songrec_catalog_outcome(&source, recognition.clone(), rows);
+            assert_eq!(outcome.recognition, recognition);
+            assert!(outcome.candidate.is_none());
+            assert_eq!(source.artist, "Synthetic source artist");
+        }
     }
 
     #[test]

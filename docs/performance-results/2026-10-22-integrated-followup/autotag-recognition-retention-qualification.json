@@ -1,0 +1,20 @@
+{
+  "scope": "Post-recognition catalog failure handling; does not implement pre-download audio verification",
+  "change": "Keep successful two-excerpt SongRec recognition available for review if its subsequent MusicBrainz recording lookup or optional release-context enrichment fails. Do not manufacture a catalog match, release fields or automatic identity binding.",
+  "regression": "Simulated catalog outage and empty catalog result both retain recognized title/performer/ISRC and two-excerpt evidence, with no catalog candidate.",
+  "tests": {
+    "focusedAutotagPassed": 32,
+    "fullNativePassed": 1798,
+    "fullNativeIgnored": 40,
+    "failures": 0
+  },
+  "limitations": [
+    "Initial metadata lookup failures before recognition remain outside this fix.",
+    "Historical Por ella tagging failure has not been proven to use this exact path.",
+    "No live audio recognition requested; no normal tags changed."
+  ],
+  "rawUserDiagnosticRechecked": {
+    "appVersion": "0.1.7",
+    "fresh018ReportPresent": false
+  }
+}
