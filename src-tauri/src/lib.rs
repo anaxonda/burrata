@@ -5358,7 +5358,7 @@ async fn export_playback_diagnostics(
         tokio::time::timeout(std::time::Duration::from_secs(2), command.output())
             .await
             .ok()
-            .and_then(Result::ok)
+            .and_then(|output| output.ok())
             .filter(|output| output.status.success())
             .and_then(|output| String::from_utf8(output.stdout).ok())
             .and_then(|value| playback_diagnostics_context::safe_os_version(&value))
