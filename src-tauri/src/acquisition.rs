@@ -7952,6 +7952,11 @@ impl AcquisitionManager {
         // A chooser selection is job-local authority. Bind it to the actual
         // selected source so a queued request cannot authorize another result.
         snapshot_user_selected_source(&mut request.track, &request.candidate);
+        // A newly requested job is distinct from any previous completed or
+        // interrupted verification carried in a saved track's provenance.
+        if let Some(provenance) = request.track.provenance.as_object_mut() {
+            provenance.remove("downloadAudioVerificationAttempted");
+        }
         // The matching policy belongs to the queued request. A settings change
         // while a job is waiting must not silently change its identity policy.
         request.track.provenance["downloadMatchingLevel"] =
@@ -8099,6 +8104,10 @@ impl AcquisitionManager {
                 job.track.provenance["userSelectedSource"] = serde_json::json!(true);
                 snapshot_user_selected_source(&mut job.track, &job.candidate);
             }
+        }
+        // Only an explicit user retry clears the no-replay marker.
+        if let Some(provenance) = job.track.provenance.as_object_mut() {
+            provenance.remove("downloadAudioVerificationAttempted");
         }
         job.soulseek = None;
         job.state = "queued".into();
@@ -8564,8 +8573,17 @@ impl AcquisitionManager {
             crate::recording_match::MatchStage::Resolved,
         );
         let explicitly_selected = explicit_download_source(&job.track, &job.candidate);
+        let needs_verification = !explicitly_selected
+            && crate::download_verification::needs_staged_verification(
+                &job.track,
+                &job.candidate,
+                &selected_assessment,
+                &self.inner.store.settings()?,
+                job.chapter_ids.as_ref().is_some_and(|ids| !ids.is_empty()),
+            );
         if selected_assessment.action != crate::recording_match::MatchAction::Accept
             && !explicitly_selected
+            && !needs_verification
         {
             return Err(
                 "The selected source did not meet the automatic recording match policy".into(),
@@ -8605,9 +8623,26 @@ impl AcquisitionManager {
             }),
         );
         job.track.provenance = Value::Object(provenance);
-        let staging = PathBuf::from(&settings.music_directory)
-            .join(".burrata-staging")
-            .join(&job.id);
+        let staging_parent = PathBuf::from(&settings.music_directory).join(".burrata-staging");
+        let owned_verification_staging = if needs_verification {
+            tokio::fs::create_dir_all(&staging_parent)
+                .await
+                .map_err(|error| error.to_string())?;
+            Some(
+                tempfile::Builder::new()
+                    .prefix("verification-")
+                    .tempdir_in(&staging_parent)
+                    .map_err(|error| format!("Cannot create staging directory: {error}"))?,
+            )
+        } else {
+            None
+        };
+        // Uncertain transfers are never resumed from an unverified previous file.
+        // This owner removes the temporary transfer on every return/drop path.
+        let staging = owned_verification_staging
+            .as_ref()
+            .map(|owned| owned.path().to_owned())
+            .unwrap_or_else(|| staging_parent.join(&job.id));
         tokio::fs::create_dir_all(&staging)
             .await
             .map_err(|e| format!("Cannot create staging directory: {e}"))?;
@@ -8846,11 +8881,37 @@ impl AcquisitionManager {
         if job.track.provenance["downloadFallbackRequiresLossless"] == true {
             media::verify_lossless_fallback(&path, settings).await?;
         }
-        job.state = "validating".into();
+        job.state = if needs_verification {
+            "identifying"
+        } else {
+            "validating"
+        }
+        .into();
         self.update(job)?;
         admission
             .begin_processing(&self.inner.slots, &mut rx)
             .await?;
+        let staged_recognition = if let Some(owned) = owned_verification_staging.as_ref() {
+            // Persist before any fingerprint submission. A crash must never
+            // replay identification automatically, even if it lost the result.
+            job.track.provenance["downloadAudioVerificationAttempted"] = serde_json::json!(true);
+            self.update(job)?;
+            Some(
+                crate::staged_recognition::verify_staged_file(
+                    &self.inner.store,
+                    &job.track,
+                    &job.track,
+                    owned,
+                    &path,
+                    true,
+                    download_matching_level(&job.track),
+                    &rx,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
         if !used_cached_chapter_source {
             if let Some(key) = chapter_source_key.as_deref() {
                 self.inner
@@ -8906,6 +8967,13 @@ impl AcquisitionManager {
         } else {
             None
         };
+        if let Some(recognition) = staged_recognition.as_ref() {
+            recognition
+                .recheck(&self.inner.store, &job.track, &job.track, &path, true, &rx)
+                .await?;
+            job.track.provenance["actualSourceVerification"] =
+                serde_json::json!("audio_verified_staged");
+        }
         // Make the cancellation boundary atomic with cancel(): after publication starts,
         // removing the signal prevents a racing request from reporting false cancellation.
         {
@@ -10035,6 +10103,7 @@ impl AcquisitionProvider for AcquisitionManager {
 
 fn resumable_soulseek_job(job: &DownloadJob) -> bool {
     job.state == "interrupted"
+        && job.track.provenance["downloadAudioVerificationAttempted"] != true
         && job.candidate.provider == "slskd"
         && job.candidate.permission != "restricted"
         && matches!(
@@ -13826,6 +13895,9 @@ mod tests {
             playlist_context: None,
         };
         assert!(resumable_soulseek_job(&job));
+        job.track.provenance = serde_json::json!({"downloadAudioVerificationAttempted":true});
+        assert!(!resumable_soulseek_job(&job));
+        job.track.provenance = serde_json::json!({});
         for state in ["failed", "cancelled", "completed"] {
             job.state = state.into();
             assert!(!resumable_soulseek_job(&job));

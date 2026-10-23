@@ -872,12 +872,16 @@ impl Store {
                 "completed" | "failed" | "cancelled" | "interrupted"
             ) {
                 job.state = "interrupted".into();
-                job.error = Some(if job.candidate.provider == "slskd" {
-                    "Application stopped; the existing Soulseek transfer will be reconciled on startup.".into()
-                } else {
-                    "Application stopped before this job completed. Review and retry explicitly."
+                job.error = Some(
+                    if job.track.provenance["downloadAudioVerificationAttempted"] == true {
+                        "Audio verification was interrupted; recognition will not be retried automatically. Review and retry explicitly.".into()
+                    } else if job.candidate.provider == "slskd" {
+                        "Application stopped; the existing Soulseek transfer will be reconciled on startup.".into()
+                    } else {
+                        "Application stopped before this job completed. Review and retry explicitly."
                         .into()
-                });
+                    },
+                );
                 store.save_job(&job)?;
             }
         }

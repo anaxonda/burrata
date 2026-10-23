@@ -50,6 +50,7 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
 }
 pub fn may_switch(job: &DownloadJob, error: &str, settings: &Settings, cancelled: bool) -> bool {
     settings.download_fallback_enabled
+        && job.track.provenance["downloadAudioVerificationAttempted"] != true
         && !cancelled
         && error != "Cancelled"
         && job.chapter_ids.as_ref().is_none_or(|ids| ids.is_empty())
@@ -1714,6 +1715,9 @@ mod tests {
         settings.download_fallback_enabled = true;
         let mut job = job();
         assert!(may_switch(&job, "HTTP 404", &settings, false));
+        job.track.provenance = serde_json::json!({"downloadAudioVerificationAttempted":true});
+        assert!(!may_switch(&job, "HTTP 404", &settings, false));
+        job.track.provenance = serde_json::json!({});
         assert!(!may_switch(&job, "HTTP 404", &settings, true));
         assert!(!may_switch(&job, "Cancelled", &settings, false));
         for state in ["validating", "tagging", "publishing", "completed"] {

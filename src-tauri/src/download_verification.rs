@@ -27,6 +27,27 @@ impl DownloadAssessment {
     }
 }
 
+pub(crate) fn needs_staged_verification(
+    track: &crate::models::Track,
+    candidate: &crate::models::Candidate,
+    assessment: &MatchAssessment,
+    settings: &crate::models::Settings,
+    has_chapters: bool,
+) -> bool {
+    track.provenance["downloadAudioVerificationEnabled"] == true
+        && settings.download_audio_verification_enabled
+        && track.provenance["downloadAudioVerificationAttempted"] != true
+        && !has_chapters
+        && track.playback_range.is_none()
+        && track.provenance["isExcerpt"] != true
+        && !track.provenance["chapter"].is_object()
+        && candidate.permission != "restricted"
+        && track
+            .duration_seconds
+            .is_some_and(|duration| duration.is_finite() && (50.0..=86_400.0).contains(&duration))
+        && eligible_for_identification(assessment)
+}
+
 pub(crate) fn eligible_for_identification(assessment: &MatchAssessment) -> bool {
     use Comparison::{Agree, Conflict};
     use MatchReason::*;
@@ -193,6 +214,66 @@ mod tests {
             evidence: None,
         }
     }
+    #[test]
+    fn admission_needs_queued_and_live_consent_and_never_replays_or_identifies_excerpts() {
+        let mut track = crate::models::Track {
+            duration_seconds: Some(180.0),
+            provenance: serde_json::json!({}),
+            ..Default::default()
+        };
+        let candidate = crate::models::Candidate::default();
+        let mut settings = crate::models::Settings::default();
+        settings.download_audio_verification_enabled = true;
+        assert!(!needs_staged_verification(
+            &track,
+            &candidate,
+            &weak(),
+            &settings,
+            false
+        ));
+        track.provenance["downloadAudioVerificationEnabled"] = serde_json::json!(true);
+        assert!(needs_staged_verification(
+            &track,
+            &candidate,
+            &weak(),
+            &settings,
+            false
+        ));
+        settings.download_audio_verification_enabled = false;
+        assert!(!needs_staged_verification(
+            &track,
+            &candidate,
+            &weak(),
+            &settings,
+            false
+        ));
+        settings.download_audio_verification_enabled = true;
+        assert!(!needs_staged_verification(
+            &track,
+            &candidate,
+            &weak(),
+            &settings,
+            true
+        ));
+        track.provenance["downloadAudioVerificationAttempted"] = serde_json::json!(true);
+        assert!(!needs_staged_verification(
+            &track,
+            &candidate,
+            &weak(),
+            &settings,
+            false
+        ));
+        track.provenance["downloadAudioVerificationAttempted"] = serde_json::json!(false);
+        track.provenance["isExcerpt"] = serde_json::json!(true);
+        assert!(!needs_staged_verification(
+            &track,
+            &candidate,
+            &weak(),
+            &settings,
+            false
+        ));
+    }
+
     #[test]
     fn shared_identifier_never_overrides_recording_policy_or_measured_runtime() {
         let root = tempfile::tempdir().unwrap();
