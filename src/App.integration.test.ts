@@ -11778,3 +11778,26 @@ it("keeps the wishlist in Downloads settings and reviews a saved query in Soulse
   expect(document.querySelector<HTMLSelectElement>('select[aria-label="Search in"]')?.value).toBe("soulseek");
   expect(document.querySelector<HTMLInputElement>('input[aria-label="Search music"]')?.value).toBe("Synthetic wishlist track");
 });
+
+it("keeps the selected public artwork source available for fullscreen upgrades after caching",async()=>{
+  const remote="https://yt3.googleusercontent.com/SyntheticAsset_123=w120-h120-l90-rj";
+  const cached="asset://localhost/cached-qualification-art.jpg";
+  const probes:string[]=[];
+  class ImageProbe {
+    naturalWidth=1200;naturalHeight=1200;
+    onload:(()=>void)|null=null;onerror:(()=>void)|null=null;
+    set src(value:string){probes.push(value);queueMicrotask(()=>this.onload?.());}
+  }
+  vi.stubGlobal("Image",ImageProbe);
+  const track={...savedTrack,provider:"youtube",artworkUrl:remote};
+  nativePlaybackSnapshot=makeNativeSnapshot({status:"paused",track,trackId:track.id,queue:[track],currentIndex:0});
+  const original=mocks.call.getMockImplementation()!;
+  mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="cache_artwork"?cached:original(command,args));
+  const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+  document.querySelector<HTMLButtonElement>('[aria-label="Full-screen Now Playing"]')!.click();await settle();
+  const image=document.querySelector<HTMLImageElement>(".now-playing-view .hero-art img")!;
+  expect(image.src).toBe(cached);
+  Object.defineProperty(image,"naturalWidth",{configurable:true,value:120});image.dispatchEvent(new Event("load"));await settle();
+  expect(probes).toContain(remote.replace("w120-h120","w600-h600"));
+  expect(document.querySelector<HTMLImageElement>(".now-playing-view .hero-art img")?.src).toContain("=w600-h600-l90-rj");
+});

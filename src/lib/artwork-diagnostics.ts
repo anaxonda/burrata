@@ -18,7 +18,7 @@ export async function inspectArtworkImages(root: Document, artworkUrl: string, b
     const actualPath = ownedAssetPath(url), expectedPath = ownedAssetPath(artworkUrl);
     return actualPath !== null && expectedPath !== null && actualPath === expectedPath;
   };
-  const images = ([ ["footer", "footer.player .mini-art img"], ["details", ".playing-info .track-hero img"] ] as const).map(([role, selector]) => {
+  const images = ([ ["footer", "footer.player .mini-art img"], ["details", ".playing-info .track-hero img"], ["fullscreen", ".now-playing-view .hero-art img"] ] as const).map(([role, selector]) => {
     const image = root.querySelector<HTMLImageElement>(selector);
     const src = image?.src ?? "", currentSrc = image?.currentSrc ?? "";
     const loadState = !image ? "absent" : !image.complete ? "loading" : image.naturalWidth > 0 ? "loaded" : "failed";

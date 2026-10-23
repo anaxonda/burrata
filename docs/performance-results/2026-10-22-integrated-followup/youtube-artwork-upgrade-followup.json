@@ -34,5 +34,18 @@
     "positionExactlyEqual": true,
     "paused": true
   },
-  "runtimeBinarySha256": "5fdb96ee14e9c8985cd132465b1036d82fb94eeb8644315a91ac6d062f4b7276"
+  "runtimeBinarySha256": "5fdb96ee14e9c8985cd132465b1036d82fb94eeb8644315a91ac6d062f4b7276",
+  "cacheSourceDefect": "cacheCover replaces frontend track.artworkUrl with its cached local URL. YouTube candidate derivation therefore lost the public source URL even though native snapshots retained it. App now passes the original URL from its existing cache binding into fullscreen upgrade selection while keeping the cached image as fallback.",
+  "cacheSourceRegression": "Full App integration starts with the cached 120-pixel image and proves the same original asset is requested and displayed at a larger size.",
+  "verification": {
+    "frontendFullTests": 1274,
+    "frontendFiles": 107,
+    "nativeFullPassed": 1786,
+    "nativeFailed": 0,
+    "nativeIgnored": 38,
+    "typecheck": "0 errors, 0 warnings",
+    "commandContracts": 8,
+    "frontendBuild": "passed",
+    "liveRenderer": "Pending rebuilt source with cache-binding fix and fullscreen dimension inspection."
+  }
 }

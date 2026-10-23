@@ -1241,10 +1241,10 @@ fn sanitize_artwork_diagnostics(report: &Value) -> Result<Value, ToolError> {
     let raw_images = raw
         .get("images")
         .and_then(Value::as_array)
-        .filter(|images| images.len() == 2)
+        .filter(|images| (2..=3).contains(&images.len()))
         .ok_or_else(|| ToolError::bad("Invalid artwork diagnostic images"))?;
     let mut images = Vec::new();
-    for (image, role) in raw_images.iter().zip(["footer", "details"]) {
+    for (image, role) in raw_images.iter().zip(["footer", "details", "fullscreen"]) {
         if image.get("role").and_then(Value::as_str) != Some(role) {
             return Err(ToolError::bad("Invalid artwork diagnostic role"));
         }
@@ -9840,6 +9840,13 @@ mod tests {
         assert!(!report.to_string().contains("asset://"));
         assert!(report["probeSrcScheme"].is_null());
         assert!(report["images"][0]["srcScheme"].is_null());
+        let mut fullscreen = fixture();
+        fullscreen["artworkDiagnostics"]["images"].as_array_mut().unwrap().push(json!({"role":"fullscreen","present":true,"complete":true,"naturalWidth":1200,"naturalHeight":1200,"urlScheme":"https","src":"private-url"}));
+        let sanitized = sanitize_artwork_diagnostics(&fullscreen).unwrap();
+        assert_eq!(sanitized["images"][2]["naturalWidth"], 1200.);
+        assert!(!sanitized.to_string().contains("private"));
+        fullscreen["artworkDiagnostics"]["images"][2]["role"] = json!("arbitrary");
+        assert!(sanitize_artwork_diagnostics(&fullscreen).is_err());
         let mut extended = fixture();
         extended["artworkDiagnostics"]["probeSrcScheme"] = json!("asset");
         extended["artworkDiagnostics"]["probeCurrentSrcScheme"] = json!("http");

@@ -22,6 +22,7 @@ describe("fixed player artwork diagnostics", () => {
     expect(report.images).toEqual([
       { role: "footer", present: false, complete: false, naturalWidth: 0, naturalHeight: 0, urlScheme: "none", srcScheme: "none", currentSrcScheme: "none", srcMatchesExpected: false, currentSrcMatchesExpected: false, loadState: "absent" },
       { role: "details", present: false, complete: false, naturalWidth: 0, naturalHeight: 0, urlScheme: "none", srcScheme: "none", currentSrcScheme: "none", srcMatchesExpected: false, currentSrcMatchesExpected: false, loadState: "absent" },
+      { role: "fullscreen", present: false, complete: false, naturalWidth: 0, naturalHeight: 0, urlScheme: "none", srcScheme: "none", currentSrcScheme: "none", srcMatchesExpected: false, currentSrcMatchesExpected: false, loadState: "absent" },
     ]);
     expect(construct).not.toHaveBeenCalled();
     expect(JSON.stringify(report)).not.toMatch(/private|secret|https:\/\//);
@@ -34,7 +35,7 @@ describe("fixed player artwork diagnostics", () => {
     const details = document.querySelector<HTMLImageElement>(".playing-info img")!;
     details.src = "https://private.example/footer.jpg";
     const report = await inspectArtworkImages(document, privateAsset, false);
-    expect(report.images).toHaveLength(2);
+    expect(report.images).toHaveLength(3);
     expect(report.images[0]).toMatchObject({ role: "footer", present: true, complete: true, naturalWidth: 640, naturalHeight: 640, urlScheme: "http", srcScheme: "asset", currentSrcScheme: "http", srcMatchesExpected: true, currentSrcMatchesExpected: true, loadState: "loaded" });
     expect(report.images[1]).toMatchObject({ role: "details", srcScheme: "https", srcMatchesExpected: false });
     expect(JSON.stringify(report)).not.toMatch(/private|cover\.jpg|footer\.jpg|asset:\/\/|asset\.localhost/);
@@ -104,4 +105,13 @@ describe("fixed player artwork diagnostics", () => {
     expect(report).toMatchObject({ probeStatus: "failed", cspBlocked: true, probeOnError: true });
     expect(JSON.stringify(report)).not.toContain("private");
   });
+});
+
+it("measures fullscreen image dimensions without returning its remote URL",async()=>{
+  document.body.innerHTML='<section class="now-playing-view"><div class="hero-art"><img src="https://private.invalid/image?secret=1"></div></section>';
+  const image=document.querySelector("img")!;
+  Object.defineProperties(image,{complete:{value:true},naturalWidth:{value:1200},naturalHeight:{value:1200}});
+  const report=await inspectArtworkImages(document,"",false);
+  expect(report.images[2]).toMatchObject({role:"fullscreen",present:true,complete:true,naturalWidth:1200,naturalHeight:1200,loadState:"loaded"});
+  expect(JSON.stringify(report)).not.toMatch(/private|secret|https:\/\//);
 });

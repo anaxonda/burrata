@@ -8,8 +8,8 @@
   import type { Track } from "./lib/types";
   import { fullscreenArtworkUpgradeCandidates } from "./lib/fullscreen-artwork";
   import type { ArtistProfile, ArtistRef } from "./lib/artist-types";
-  let { track, lyricsTrack = track, absolutePosition = 0, loadLyrics, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, nextTrack = null, title, artworkUrl, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, onFavorite }: {
-    track: Track; nextTrack?: Track | null; title: string; artworkUrl?: string | null; bottom?: number; context?: string;
+  let { track, lyricsTrack = track, absolutePosition = 0, loadLyrics, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, nextTrack = null, title, artworkUrl, sourceArtworkUrl, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, onFavorite }: {
+    track: Track; nextTrack?: Track | null; title: string; artworkUrl?: string | null; sourceArtworkUrl?: string | null; bottom?: number; context?: string;
     lyricsTrack?: Track; absolutePosition?: number; loadLyrics?: () => Promise<CurrentTrackLyrics>; syncLyrics?: () => Promise<LyricsSyncResult | null>; syncScope?: string;
     translationEnabled?: boolean; translationCredentialPresent?: boolean; translateLyrics?: (sourceHash: string, lines: {id:string;timeSeconds:number|null;text:string}[]) => Promise<import("./lib/lyrics-translation").LyricsTranslationResult>;
     loadArtist: (track: Track) => Promise<ArtistProfile | null>;
@@ -38,7 +38,7 @@
 <section class="now-playing-view" style:padding-bottom={`${bottom + 48}px`} style:scroll-padding-bottom={`${bottom}px`} aria-label="Expanded Now Playing">
   <header><div><small>{context === "Now playing" ? "NOW PLAYING" : "PLAYING FROM"}</small>{#if context !== "Now playing"}<strong>{context}</strong>{/if}</div><button bind:this={closeButton!} onclick={onClose} aria-label="Close full-screen Now Playing" title="Close (Escape)">⤢</button></header>
   <div class="content">
-    <div class="hero-art"><ArtworkImage urls={[artworkUrl, track.artworkUrl]} upgradeCandidates={fullscreenArtworkUpgradeCandidates(track)} /></div>
+    <div class="hero-art"><ArtworkImage urls={[artworkUrl, track.artworkUrl]} upgradeCandidates={fullscreenArtworkUpgradeCandidates(sourceArtworkUrl ? {...track, artworkUrl:sourceArtworkUrl} : track)} /></div>
     <div class="recording"><h1>{title}</h1><button class="artist-link" onclick={onArtist}>{track.artist || "Artist unknown"}</button>{#if track.album}<button class="album-link" disabled={!onAlbum} onclick={onAlbum}>{track.album}</button>{/if}<button class="favorite" onclick={onFavorite} aria-label={track.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={track.favorite}>{track.favorite ? "♥" : "♡"}</button></div>
     <div class="cards">
       <article class="artist-card"><ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} />{#if loadRecording}<RecordingInformation {track} {loadRecording} onRelease={onRecordingRelease} onArtist={onArtistRef} />{/if}</article>
