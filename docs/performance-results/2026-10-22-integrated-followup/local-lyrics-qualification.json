@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-23",
+  "scope": "Local worktree regression qualification; installed UI remains pending",
+  "sources": [
+    "same-basename .lrc sidecar",
+    "embedded text lyric tag exposed by Lofty"
+  ],
+  "selection": "Current native snapshot or visible player local path, registered asset and recording ID; title/performer/runtime must agree; excerpts excluded",
+  "validation": [
+    "canonical regular file paths",
+    "audio SHA-256 agrees with registered asset",
+    "sidecar maximum 64 KiB, bounded read, UTF-8 and no NUL",
+    "embedded lyric text maximum 64 KiB",
+    "existing source hashes and ordered lyric line IDs retained"
+  ],
+  "tests": {
+    "readerTestsPassed": 3,
+    "realEmbeddedFixture": "Synthetic silent FLAC, embedded lyric paragraphs written and read back",
+    "bindingTest": "Registered selected asset succeeds; other recording, conflicting performer and changed audio reject",
+    "frontendTestsPassed": 1278,
+    "frontendFilesPassed": 107,
+    "nativeTestsPassed": 1795,
+    "nativeTestsIgnored": 40,
+    "typecheck": "0 errors, 0 warnings",
+    "productionBuild": "passed"
+  },
+  "limitations": [
+    "Does not establish online choir lyric availability",
+    "Does not prove that a manually supplied sidecar uses the same mastering timeline",
+    "No automatic timing stretch or file edits",
+    "No installed GUI qualification yet"
+  ],
+  "normalAudioFilesEdited": false
+}

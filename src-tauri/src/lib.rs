@@ -36,6 +36,7 @@ pub mod install_integration;
 pub mod linux_webview_output;
 pub mod live_bpm;
 pub mod local_audio;
+mod local_lyrics;
 pub mod lyrics;
 mod lyrics_aliases;
 pub mod lyrics_translation;

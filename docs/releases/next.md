@@ -16,3 +16,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Add bounded LRCLIB fallbacks using verified title and performer aliases, including non-Latin scripts supplied by the catalog. Keep recording, credit and duration checks; preserve guest credits.
 - Offer a keyless Google Translate adapter alongside an OpenAI-compatible provider. Local response/line-identity checks pass, but live Google requests returned HTTP 429 and real API qualification remains pending; do not treat this as verified live availability.
 - Explain download recording-credit conflicts and keep inspection/connection errors distinct from recording-policy rejections.
+
+- Read same-name `.lrc` sidecars and embedded lyric text from the selected registered local audio file before online lookup, retaining source hashes and rejecting changed audio or unrelated recording bindings.

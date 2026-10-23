@@ -8,7 +8,7 @@ describe("visibleLyricsTrack", () => {
       title: "Nunca vas a comprender", artist: "Rita Payés & Elisabeth Roma", album: "Como la piel", durationSeconds: 244.631,
       favorite: false, provenance: {},
     })).toEqual({
-      trackId: "reported-nunca", trackName: "Nunca vas a comprender", artistName: "Rita Payés & Elisabeth Roma", albumName: "Como la piel",
+      trackId: "reported-nunca", localPath: null, trackName: "Nunca vas a comprender", artistName: "Rita Payés & Elisabeth Roma", albumName: "Como la piel",
       durationSeconds: 244.631, playbackRange: null,
     });
   });

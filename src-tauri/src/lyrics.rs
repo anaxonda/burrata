@@ -34,6 +34,8 @@ pub struct LyricsRequest {
 pub struct LyricsRequestInput {
     #[serde(default)]
     pub track_id: Option<String>,
+    #[serde(default)]
+    pub local_path: Option<String>,
     pub track_name: String,
     pub artist_name: String,
     pub album_name: Option<String>,
@@ -247,16 +249,16 @@ fn shazam_fallback(request: &LyricsRequest, primary: LyricsResponse) -> LyricsRe
         .unwrap_or(primary)
 }
 
+fn valid_request(request: &LyricsRequest) -> bool {
+    valid_text(&request.track_name)
+        && valid_text(&request.artist_name)
+        && request.album_name.as_deref().is_none_or(valid_text)
+        && request.duration_seconds.is_finite()
+        && (1.0..=3600.0).contains(&request.duration_seconds)
+}
+
 pub async fn get_current_track_lyrics(request: LyricsRequest) -> LyricsResponse {
-    if !valid_text(&request.track_name)
-        || !valid_text(&request.artist_name)
-        || request
-            .album_name
-            .as_deref()
-            .is_some_and(|album| !valid_text(album))
-        || !request.duration_seconds.is_finite()
-        || !(1.0..=3600.0).contains(&request.duration_seconds)
-    {
+    if !valid_request(&request) {
         return response("invalidRequest");
     }
     let key = request_key(&request);
@@ -355,9 +357,22 @@ pub async fn get_current_track_lyrics_with_catalog(
     } else {
         visible.as_ref().and_then(|input| input.track_id.clone())
     };
+    let selected_path = if native {
+        snapshot["track"]["localPath"].as_str().map(str::to_owned)
+    } else {
+        visible.as_ref().and_then(|input| input.local_path.clone())
+    };
     let Some(request) = request_for_current_track(snapshot, visible) else {
         return response("noCurrentTrack");
     };
+    if !valid_request(&request) {
+        return response("invalidRequest");
+    }
+    if let (Some(id), Some(path)) = (track_id.as_deref(), selected_path.as_deref()) {
+        if let Some(result) = local_lyrics(store, id, path, &request).await {
+            return result;
+        }
+    }
     let primary = get_current_track_lyrics(request.clone()).await;
     if !matches!(
         primary.status.as_str(),
@@ -396,6 +411,50 @@ pub async fn get_current_track_lyrics_with_catalog(
         Ok(Some(result)) => result,
         _ => primary,
     }
+}
+
+async fn local_lyrics(
+    store: &crate::Store,
+    track_id: &str,
+    selected_path: &str,
+    request: &LyricsRequest,
+) -> Option<LyricsResponse> {
+    let track = store.get_track(track_id).ok()??;
+    if track.playback_range.is_some()
+        || normalized(&track.title) != normalized(&request.track_name)
+        || normalized(&track.artist) != normalized(&request.artist_name)
+        || track
+            .duration_seconds
+            .is_none_or(|d| (d - request.duration_seconds).abs() > 2.0)
+    {
+        return None;
+    }
+    let asset = store.get_asset_by_path(selected_path).ok()??;
+    if asset.recording_id != track_id {
+        return None;
+    }
+    let raw = crate::local_lyrics::read(&asset).await?;
+    let mut result = classify_record(
+        request,
+        ApiRecord {
+            track_name: request.track_name.clone(),
+            artist_name: request.artist_name.clone(),
+            album_name: request.album_name.clone(),
+            duration: request.duration_seconds,
+            instrumental: false,
+            synced_lyrics: Some(raw.text.clone()),
+            plain_lyrics: (!raw.sidecar).then_some(raw.text),
+        },
+    );
+    if !matches!(result.status.as_str(), "synced" | "unsynced") {
+        return None;
+    }
+    result.provider = if raw.sidecar {
+        "localLrc"
+    } else {
+        "embeddedLyrics"
+    };
+    Some(result)
 }
 
 fn matching_variant_record(
@@ -1279,9 +1338,68 @@ mod tests {
         assert_eq!(request_from_snapshot(&no_album).unwrap().album_name, None);
     }
 
+    #[tokio::test]
+    async fn local_sidecar_is_bound_to_registered_recording_and_unchanged_audio() {
+        use crate::models::{LocalAsset, Track};
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path().canonicalize().unwrap();
+        let audio = dir.join("selected.flac");
+        std::fs::write(&audio, b"synthetic audio identity fixture").unwrap();
+        std::fs::write(audio.with_extension("lrc"), "[00:01] Synthetic lyric line").unwrap();
+        let store = crate::Store::open(&dir.join("test.sqlite")).unwrap();
+        let req = request();
+        let track = Track {
+            id: "local:fixture".into(),
+            provider: "local".into(),
+            provider_id: "fixture".into(),
+            source_url: audio.to_string_lossy().into_owned(),
+            title: req.track_name.clone(),
+            artist: req.artist_name.clone(),
+            duration_seconds: Some(req.duration_seconds),
+            ..Track::default()
+        };
+        let asset = LocalAsset {
+            id: "asset-fixture".into(),
+            recording_id: track.id.clone(),
+            path: audio.to_str().unwrap().into(),
+            hash: format!("{:x}", Sha256::digest(std::fs::read(&audio).unwrap())),
+            source_codec: "flac".into(),
+            final_codec: "flac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: track.duration_seconds,
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "fixture".into(),
+            track: track.clone(),
+        };
+        store.save_asset(&asset).unwrap();
+        let result = local_lyrics(&store, &track.id, &asset.path, &req)
+            .await
+            .unwrap();
+        assert_eq!(result.provider, "localLrc");
+        assert_eq!(result.status, "synced");
+        assert!(local_lyrics(&store, "another-recording", &asset.path, &req)
+            .await
+            .is_none());
+        let mut wrong = req.clone();
+        wrong.artist_name = "Other performer".into();
+        assert!(local_lyrics(&store, &track.id, &asset.path, &wrong)
+            .await
+            .is_none());
+        std::fs::write(&audio, b"changed outside app").unwrap();
+        assert!(local_lyrics(&store, &track.id, &asset.path, &req)
+            .await
+            .is_none());
+    }
+
     fn visible_input() -> LyricsRequestInput {
         LyricsRequestInput {
             track_id: None,
+            local_path: None,
             track_name: "Visible Song".into(),
             artist_name: "Visible Artist".into(),
             album_name: None,

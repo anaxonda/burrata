@@ -5,7 +5,7 @@
 
   export type CurrentTrackLyrics = {
     status: "synced" | "unsynced" | "instrumental" | "notFound" | "unmatched" | "unavailable" | "noCurrentTrack" | "invalidRequest" | "providerUnavailable";
-    provider: "lrclib" | "shazam";
+    provider: "lrclib" | "shazam" | "localLrc" | "embeddedLyrics";
     sourceHash?: string;
     match?: { trackName: string; artistName: string; albumName?: string | null; durationSeconds?: number | null; durationDeltaSeconds?: number | null };
     lines?: { id?: string; timeSeconds: number | null; text: string }[];

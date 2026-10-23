@@ -2,6 +2,7 @@ import type { Track } from "./types";
 
 export interface VisibleLyricsTrack {
   trackId: string;
+  localPath: string | null;
   trackName: string;
   artistName: string;
   albumName: string | null;
@@ -14,6 +15,7 @@ export function visibleLyricsTrack(track: Track | null | undefined): VisibleLyri
   if (!track) return undefined;
   return {
     trackId: track.id,
+    localPath: track.localPath ?? null,
     trackName: track.title,
     artistName: track.artist,
     albumName: track.album ?? null,
