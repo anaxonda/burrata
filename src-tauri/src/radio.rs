@@ -260,6 +260,11 @@ fn apply_radio_station_url_overrides(
     let overrides = load_radio_station_url_overrides(store)?;
     for station in stations {
         if let Some(url) = overrides.get(&station.id) {
+            if station.stream_url != *url {
+                // Codec/bitrate describe the original stream, not the station.
+                station.codec = None;
+                station.bitrate_kbps = None;
+            }
             station.stream_url.clone_from(url);
         }
     }
@@ -292,6 +297,10 @@ pub async fn edit_radio_station_url(
     }
     let mut saved = load_saved_radio_stations(store)?;
     if let Some(station) = saved.iter_mut().find(|station| station.id == station_id) {
+        if station.stream_url != stream_url {
+            station.codec = None;
+            station.bitrate_kbps = None;
+        }
         station.stream_url = stream_url;
         save_radio_stations(store, &saved)?;
     } else {
@@ -1655,6 +1664,8 @@ mod tests {
         let main = edited.iter().find(|station| station.id == "main").unwrap();
         assert_eq!(main.name, "My Main Mix");
         assert_eq!(main.stream_url, "https://radio.example/custom-live");
+        assert_eq!(main.codec, None);
+        assert_eq!(main.bitrate_kbps, None);
         drop(store);
         let reopened = Store::open(&path).unwrap();
         let main = get_radio_stations_saved(&reopened)
@@ -1664,6 +1675,8 @@ mod tests {
             .unwrap();
         assert_eq!(main.name, "My Main Mix");
         assert_eq!(main.stream_url, "https://radio.example/custom-live");
+        assert_eq!(main.codec, None);
+        assert_eq!(main.bitrate_kbps, None);
     }
 
     #[tokio::test]
@@ -1681,7 +1694,9 @@ mod tests {
         .into_iter()
         .find(|station| station.name == "Custom station")
         .unwrap();
-        let browser = station_for_search("Directory station");
+        let mut browser = station_for_search("Directory station");
+        browser.codec = Some("MP3".into());
+        browser.bitrate_kbps = Some(128);
         add_radio_station(browser.clone(), &store).unwrap();
         let edited = edit_radio_station_url(
             custom.id.clone(),
@@ -1713,9 +1728,15 @@ mod tests {
                 .stream_url,
             "https://radio.example/directory-new"
         );
+        let saved_browser = edited.iter().find(|item| item.id == browser.id).unwrap();
+        assert_eq!(saved_browser.codec, None);
+        assert_eq!(saved_browser.bitrate_kbps, None);
         drop(store);
         let reopened = Store::open(&path).unwrap();
         let stations = get_radio_stations_saved(&reopened).unwrap();
+        let saved_browser = stations.iter().find(|item| item.id == browser.id).unwrap();
+        assert_eq!(saved_browser.codec, None);
+        assert_eq!(saved_browser.bitrate_kbps, None);
         assert_eq!(
             stations
                 .iter()

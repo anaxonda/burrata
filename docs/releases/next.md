@@ -8,3 +8,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 
 - Fix managed Soulseek settings loading and Apply-result refresh after a reactive-object cloning error. Preserve nondefault values and keep failed reads from presenting an editable default form.
 - Keep wishlist checkboxes beside their query labels, replace internal artist-evidence paths with readable source labels, and correct the managed-folder guidance.
+
+- Clear stale station codec and bitrate labels when its stream URL changes; retain station identity and saved listening history.

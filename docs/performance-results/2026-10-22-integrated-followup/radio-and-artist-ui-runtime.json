@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-23",
+  "runtimeCommit": "5251368",
+  "platform": "Linux",
+  "musicBrainzAlbumSearch": {
+    "query": "kendrick lamar good kid",
+    "returnedTitles": [
+      "Good Kid Done Good",
+      "good kid, m.A.A.d city"
+    ],
+    "expectedReleaseGroupFound": "499c19c8-0dab-4824-884b-6191d145e95b"
+  },
+  "artistPortraits": {
+    "musicbrainz": {
+      "profile": "isolated",
+      "query": "Kendrick Lamar",
+      "searchStatus": "complete",
+      "loadedResults": 25,
+      "kendrickPortraitVisuallyLoaded": true,
+      "missingPortraitsNotInvented": true
+    },
+    "spotify": {
+      "profile": "normal existing connection",
+      "query": "Kendrick Lamar",
+      "searchStatus": "complete",
+      "loadedResults": 30,
+      "visuallyLoadedPortraits": [
+        "Kendrick Lamar",
+        "Eminem",
+        "SZA"
+      ],
+      "isolatedAttempt": "no_sources; isolated profile has no Spotify connection",
+      "credentialsChanged": false,
+      "allResultsImagesClaimed": false
+    }
+  },
+  "stationAlternativeUrls": {
+    "profile": "isolated",
+    "stationId": "main",
+    "searchCompleted": true,
+    "codecAndBitrateLabelsVisible": true,
+    "searchAndSelectionDidNotChangeSavedUrl": true,
+    "explicitSaveChangedUrl": true,
+    "stationIdsAndCountPreserved": true,
+    "originalUrlRestored": true,
+    "stationPlaybackStarted": false,
+    "normalStationConfigurationChanged": false,
+    "foundFollowup": "Changing from original FLAC to selected AAC left the old codec label. Reproduced native regression failed with Some(FLAC) versus None; source fix clears codec/bitrate only when stream URL changes, for both built-in overrides and saved stations.",
+    "qualityLabelFix": {
+      "radioTestsPassed": 23,
+      "failed": 0,
+      "ignored": 3,
+      "savedStateReopenCovered": true,
+      "liveRebuiltUiVerification": "pending",
+      "reproductionLogSha256": "03d0cc6965ea3466f013408c47a9495486c165fe918e32d2d3dab6cb9ba43147",
+      "fixedTestsLogSha256": "3013c016084cc305d25089011d215e96be6757630fd63d113ac1ab44735cbf4b"
+    }
+  },
+  "normalRestoration": {
+    "all200QueueOccurrenceIdsMatched": true,
+    "selectedEntryMatched": true,
+    "pausedMatched": true,
+    "positionMatchedExactly": true
+  },
+  "privateScreenshotsSha256": {
+    "radioAlternatives": "976771158bdfdae41a99e68ce74036f6b897ce9aa77fa5339a6f731dc42716e4",
+    "musicbrainzPortrait": "62992c4e13236d07d6c69446e634252c51a0d24d8f2f1e7bc95613b88f12b119",
+    "spotifyPortraits": "2d3c825e879591892e616a03a444577520de224f3f634557e4c6f02bd22d350c"
+  },
+  "limits": [
+    "This qualifies the named searches and visible portraits, not every artist or provider response.",
+    "No stream was played and no higher audio quality was inferred from a directory bitrate claim."
+  ]
+}
