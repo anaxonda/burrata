@@ -27,14 +27,14 @@
   ],
   "focusedTests": 12,
   "typecheck": "0 errors, 0 warnings",
-  "rendererQualification": "Rebuilt embedded app 0d69064 launched successfully, preserving all 200 normal queue IDs, selected entry and paused playhead. The fullscreen screenshot still looks coarse; actual upgraded hero dimensions are not exposed by the current inspector. Visible upgrade remains unproven and open.",
+  "rendererQualification": "Passed on Linux: the actual loaded fullscreen image measures 600x600 while the footer keeps its cached 120x120 image. Screenshot inspection confirms the same album artwork is visibly sharper. All 200 queue occurrence IDs, selected entry, paused state and exact playhead survive the update.",
   "normalQueuePreserved": {
     "entriesCompared": 200,
     "allEntryIdsEqual": true,
     "positionExactlyEqual": true,
     "paused": true
   },
-  "runtimeBinarySha256": "5fdb96ee14e9c8985cd132465b1036d82fb94eeb8644315a91ac6d062f4b7276",
+  "runtimeBinarySha256": "0a00e1287934834a5b803ba59e463a998f2bff3a52b79f30c3da351a6ddd280c",
   "cacheSourceDefect": "cacheCover replaces frontend track.artworkUrl with its cached local URL. YouTube candidate derivation therefore lost the public source URL even though native snapshots retained it. App now passes the original URL from its existing cache binding into fullscreen upgrade selection while keeping the cached image as fallback.",
   "cacheSourceRegression": "Full App integration starts with the cached 120-pixel image and proves the same original asset is requested and displayed at a larger size.",
   "verification": {
@@ -46,6 +46,29 @@
     "typecheck": "0 errors, 0 warnings",
     "commandContracts": 8,
     "frontendBuild": "passed",
-    "liveRenderer": "Pending rebuilt source with cache-binding fix and fullscreen dimension inspection."
-  }
+    "liveRenderer": "Passed Linux; actual fullscreen natural dimensions 600x600, footer 120x120."
+  },
+  "priorRuntimeBinarySha256": "5fdb96ee14e9c8985cd132465b1036d82fb94eeb8644315a91ac6d062f4b7276",
+  "runtimeSourceCommit": "e35a34a434293874d0b80b209619fad5da699b0a",
+  "loadedImageMeasurements": [
+    {
+      "role": "footer",
+      "present": true,
+      "complete": true,
+      "naturalWidth": 120,
+      "naturalHeight": 120,
+      "loadState": "loaded",
+      "srcScheme": "asset"
+    },
+    {
+      "role": "fullscreen",
+      "present": true,
+      "complete": true,
+      "naturalWidth": 600,
+      "naturalHeight": 600,
+      "loadState": "loaded",
+      "srcScheme": "https"
+    }
+  ],
+  "layoutScope": "This check qualifies image resolution. Existing layout findings include backdrop/footer bounding-box intersections and are not represented as an all-layouts-passed result."
 }
