@@ -2,7 +2,7 @@
 
 These notes describe the current development checkpoint. They are not a published release or a claim that all runtime and installer checks have passed.
 
-- Expand playback diagnostic reports with WebView startup and media-event history, extraction failure categories, helper versions and the macOS version. Enable diagnostics in Settings → Advanced, reproduce the issue, and export the report before closing Burrata.
+- Expand playback diagnostic reports with WebView startup and media-event history, extraction failure categories, helper versions and the macOS version. Enable diagnostics in Settings → Advanced, reproduce the issue, and export the report before closing Burrata. [Capture instructions](https://github.com/anaxonda/burrata/blob/main/docs/install.md#capture-a-playback-diagnostic-report).
 - Preserve explicitly linked SoundCloud recordings during resolution. Open YouTube and SoundCloud URLs directly instead of treating them as text searches.
 - Add on-demand synced and plain lyrics. Maximize the lyrics panel, or use the microphone button in the player to open fullscreen lyrics directly. Escape returns to the previous screen.
 - Add optional side-by-side lyric translation using an OpenAI-compatible provider, model and your own API key. Translation starts only when selected. Reuse lyric text included in an existing Shazam identification when available; this does not start an audio upload or provide a general Shazam web lookup.

@@ -11762,3 +11762,19 @@ describe("audio engine switch session handoff",()=>{
     finally {spy.mockRestore();}
   });
 });
+
+it("keeps the wishlist in Downloads settings and reviews a saved query in Soulseek Search",async()=>{
+  slskdConnectionEnabled=true;
+  const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+  expect(document.querySelector("details.wishlist")).toBeNull();
+  [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
+  [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button=>button.textContent?.trim()==="Downloads")!.click();await settle();
+  const panel=document.querySelector<HTMLDetailsElement>("details.wishlist")!;expect(panel).not.toBeNull();panel.open=true;
+  const query=panel.querySelector<HTMLInputElement>('[aria-label="Soulseek wishlist query"]')!;query.value="Synthetic wishlist track";query.dispatchEvent(new Event("input",{bubbles:true}));await settle();
+  [...panel.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent?.includes("Save search"))!.click();await settle();
+  expect(JSON.parse(localStorage.getItem("burrata.soulseek.wishlist.v1")!).entries).toHaveLength(1);
+  [...panel.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent==="Search now")!.click();await settle();
+  expect(document.querySelector("details.wishlist")).toBeNull();
+  expect(document.querySelector<HTMLSelectElement>('select[aria-label="Search in"]')?.value).toBe("soulseek");
+  expect(document.querySelector<HTMLInputElement>('input[aria-label="Search music"]')?.value).toBe("Synthetic wishlist track");
+});

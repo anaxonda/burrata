@@ -81,7 +81,7 @@ The same extension downloads work on all three systems:
 | Firefox | `firefox-extension-<extension-version>.xpi` | [Firefox steps](../extension/README.md#firefox) |
 | Chrome / Chromium / Edge | `chrome-extension-<extension-version>.zip` | [Chrome/Edge steps](../extension/README.md#chrome-chromium-and-edge) |
 
-The extension has its own version. Apps **0.1.6** and **0.1.5** package extension **0.2.3**; app **0.1.3** shipped extension **0.2.2**.
+The extension has its own version. Apps **0.1.7**, **0.1.6** and **0.1.5** package extension **0.2.3**; app **0.1.3** shipped extension **0.2.2**.
 Installing the extension alone is not enough: also use **Settings → Connections →
 Browser companion → Connect browser companion** in Burrata, then restart your
 browser. See the [complete companion guide](../extension/README.md#install).
@@ -125,3 +125,22 @@ Update the extension using its [browser-specific instructions](../extension/READ
 Soulseek requires a separately configured [slskd service](../deploy/slskd/README.md).
 The external mpv player is optional and separately installed. Neither is required
 for ordinary Burrata setup.
+
+
+### Capture a playback diagnostic report
+
+1. Open **Settings → Advanced → Playback diagnostics** and enable **Enable playback diagnostics**.
+2. Select **Clear diagnostic events** to start a focused capture. Reproduce one failure, then try one working comparison without changing playback or matching settings.
+3. Return to Advanced and select **Export report…**. Save the JSON **before closing or restarting Burrata**; events are held in memory.
+4. Include the track names and where you started them (Library, album, search or a direct link), plus the visible error. For a seek failure, include the requested position. Track names are excluded from the report, so supply those separately.
+
+The report is saved locally and is not uploaded automatically. It contains bounded
+player events and timings, sanitized source-failure categories and hashed track/source
+references. The expanded report in v0.1.8 also includes WebView startup/media-event
+history, playback settings, helper versions and the macOS version when available.
+It excludes credentials, full media URLs and raw helper errors.
+
+If starting from Library fails while **Play album** works, capture both attempts in
+the same session. This helps distinguish source selection, extraction, access denial
+and player startup. Existing library data survives replacing the app; deleting and
+reinstalling the application alone does not reset saved tracks or settings.
