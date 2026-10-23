@@ -1,0 +1,25 @@
+{
+  "scope": "Post-download recognition evidence fidelity and tag-review display; not staged publication authorization",
+  "behavior": [
+    "Retain agreeingIdentifiers only for identifiers explicitly observed with the same value in both excerpts.",
+    "Normalize agreeing ISRC formats; still reject contradictory identifiers.",
+    "Preserve the existing combined identifier for ordinary recognition review when only one excerpt supplies it.",
+    "Legacy records with excerptCount=2 but no agreement field default to empty agreement evidence.",
+    "Tag review labels ISRC agreement only when the explicit agreeing identifier matches the displayed ISRC."
+  ],
+  "tests": {
+    "focusedAutotagPassed": 36,
+    "tagReviewUiPassed": 11,
+    "fullNativePassed": 1802,
+    "fullNativeIgnored": 40,
+    "fullFrontendPassed": 1282,
+    "frontendFilesPassed": 107,
+    "contractsPassed": 8,
+    "typecheck": "0 errors, 0 warnings",
+    "formatting": "passed"
+  },
+  "limits": [
+    "No staged-file/source proof binding, explicit opt-in or publication gate yet.",
+    "No live recognition request or normal file metadata change made."
+  ]
+}

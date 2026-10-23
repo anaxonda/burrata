@@ -46,9 +46,10 @@
       "Explicit opt-in and queued-policy snapshot",
       "Server-computed uncertain candidate admission",
       "Staging identifying state and publication gate",
-      "Typed per-excerpt proof and catalog crosswalk validation bound to the staged-file hash",
+      "Catalog crosswalk validation and staged-file/source hash binding for the new per-excerpt evidence",
       "Cancellation, revocation and cleanup coverage throughout the complete staged workflow"
     ],
-    "proofCaution": "The existing combined AudioRecognition can retain an ISRC supplied by only one excerpt. It must not be treated as proof of two independent agreeing ISRC observations; the staged verifier needs per-excerpt agreement evidence."
+    "proofCaution": "The combined isrc field can still come from one excerpt. The staged verifier must use agreeingIdentifiers plus independently validated catalog crosswalks and staged-file/source binding; excerptCount alone is insufficient.",
+    "perExcerptIdentifiers": "AudioRecognition now retains agreeingIdentifiers only for ISRC/Shazam/Apple values observed with the same value in both excerpts. Legacy records default to no agreement evidence. Tag review labels explicit ISRC agreement."
   }
 }

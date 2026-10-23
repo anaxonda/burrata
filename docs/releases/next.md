@@ -28,3 +28,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Continue configured tag-identification fallbacks after catalog lookup outages, retain total-failure errors and require review for incomplete release context.
 
 - Separate two-excerpt recognition from optional catalog enrichment and keep recognition excerpts in request-owned private temporary directories. Unix cancellation cleanup is covered by a real subprocess fixture.
+
+- Retain which recording identifiers agree in both recognized excerpts. Show explicit ISRC agreement in tag review without inferring it for older recognition records.

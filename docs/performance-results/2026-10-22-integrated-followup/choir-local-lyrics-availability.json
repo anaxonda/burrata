@@ -1,0 +1,32 @@
+{
+  "scope": "Read-only embedded lyric-tag and same-name sidecar inspection of four registered local copies of the reported choir recording",
+  "results": [
+    {
+      "assetId": "46b17ceb-0142-468e-9625-b22460b034de",
+      "probeSucceeded": true,
+      "lyricTags": [],
+      "sameNameLrcPresent": false
+    },
+    {
+      "assetId": "606815df-5cfd-4ccf-8445-d7e9a657d561",
+      "probeSucceeded": true,
+      "lyricTags": [],
+      "sameNameLrcPresent": false
+    },
+    {
+      "assetId": "437ada01-a29e-48bd-b384-49f26fbe6ace",
+      "probeSucceeded": true,
+      "lyricTags": [],
+      "sameNameLrcPresent": false
+    },
+    {
+      "assetId": "6e235366-a74c-42f3-82cf-816d3707cd61",
+      "probeSucceeded": true,
+      "lyricTags": [],
+      "sameNameLrcPresent": false
+    }
+  ],
+  "lyricTextPublished": false,
+  "audioOrFingerprintsSent": false,
+  "filesModified": false
+}

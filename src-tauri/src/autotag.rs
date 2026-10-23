@@ -63,6 +63,10 @@ pub struct AudioRecognition {
     pub isrc: Option<String>,
     pub shazam_id: Option<String>,
     pub excerpt_count: u8,
+    /// Identifiers explicitly observed with the same value in both excerpts.
+    /// Legacy records default to no agreement, regardless of excerpt_count.
+    #[serde(default)]
+    pub agreeing_identifiers: crate::recording_identity::RecognitionIdentifiers,
 }
 
 struct SongRecOutcome {
@@ -112,6 +116,26 @@ fn consistent_songrec_excerpts(
     {
         return None;
     }
+    let agreeing_identifiers = crate::recording_identity::RecognitionIdentifiers {
+        isrc: identifiers_a
+            .isrc
+            .as_deref()
+            .zip(identifiers_b.isrc.as_deref())
+            .filter(|(a, b)| crate::recording_identity::same_isrc(a, b))
+            .and_then(|(a, _)| crate::recording_identity::normalize_isrc(a)),
+        shazam_id: identifiers_a
+            .shazam_id
+            .as_ref()
+            .zip(identifiers_b.shazam_id.as_ref())
+            .filter(|(a, b)| a == b)
+            .map(|(a, _)| a.clone()),
+        apple_music_url: identifiers_a
+            .apple_music_url
+            .as_ref()
+            .zip(identifiers_b.apple_music_url.as_ref())
+            .filter(|(a, b)| a == b)
+            .map(|(a, _)| a.clone()),
+    };
     let recognized_isrc = identifiers_a
         .isrc
         .or(identifiers_b.isrc)
@@ -123,6 +147,7 @@ fn consistent_songrec_excerpts(
         isrc: recognized_isrc.clone(),
         shazam_id: identifiers_a.shazam_id.or(identifiers_b.shazam_id),
         excerpt_count: 2,
+        agreeing_identifiers,
     })
 }
 
@@ -2914,6 +2939,7 @@ mod tests {
             isrc: Some("FRZ089900030".into()),
             shazam_id: Some("10222041".into()),
             excerpt_count: 2,
+            agreeing_identifiers: Default::default(),
         });
         let encoded = serde_json::to_value(&job).unwrap();
         let decoded: AutoTagJob = serde_json::from_value(encoded.clone()).unwrap();
@@ -2936,6 +2962,7 @@ mod tests {
             isrc: Some("FR-Z08-99-00030".into()),
             shazam_id: Some("10222041".into()),
             excerpt_count: 2,
+            agreeing_identifiers: Default::default(),
         };
         let metadata = recognition_metadata(
             &recognition,
@@ -2967,6 +2994,7 @@ mod tests {
             isrc: None,
             shazam_id: None,
             excerpt_count: 2,
+            agreeing_identifiers: Default::default(),
         };
         assert!(recognition_metadata(&recognition, &[]).is_err());
         assert!(recognition_metadata(&recognition, &["isrc".into()]).is_err());
@@ -3724,6 +3752,32 @@ mod tests {
     }
 
     #[test]
+    fn identifier_agreement_requires_observation_in_both_excerpts() {
+        let first = synthetic_songrec_metadata();
+        let mut second = first.clone();
+        second.identifiers.as_mut().unwrap().isrc = Some("US-ABC-26-00001".into());
+        let agreed =
+            consistent_songrec_excerpts(Some(first.clone()), Some(second.clone())).unwrap();
+        assert_eq!(
+            agreed.agreeing_identifiers.isrc.as_deref(),
+            Some("USABC2600001")
+        );
+        assert_eq!(
+            agreed.agreeing_identifiers.shazam_id.as_deref(),
+            Some("12345")
+        );
+        second.identifiers = None;
+        let single = consistent_songrec_excerpts(Some(first), Some(second)).unwrap();
+        assert_eq!(single.isrc.as_deref(), Some("USABC2600001"));
+        assert_eq!(single.agreeing_identifiers, Default::default());
+        let mut old = serde_json::to_value(single).unwrap();
+        old.as_object_mut().unwrap().remove("agreeingIdentifiers");
+        let legacy: AudioRecognition = serde_json::from_value(old).unwrap();
+        assert_eq!(legacy.excerpt_count, 2);
+        assert_eq!(legacy.agreeing_identifiers, Default::default());
+    }
+
+    #[test]
     fn two_excerpt_agreement_is_available_without_catalog_and_rejects_conflicts() {
         let first = synthetic_songrec_metadata();
         let result = consistent_songrec_excerpts(Some(first.clone()), Some(first.clone())).unwrap();
@@ -3796,6 +3850,7 @@ mod tests {
             isrc: None,
             shazam_id: None,
             excerpt_count: 2,
+            agreeing_identifiers: Default::default(),
         };
         let result =
             finish_autotag_lookup(vec![], Some(recognized.clone()), errors.clone()).unwrap();
@@ -3826,6 +3881,7 @@ mod tests {
             isrc: Some("USABC2600001".into()),
             shazam_id: Some("synthetic-recognition".into()),
             excerpt_count: 2,
+            agreeing_identifiers: Default::default(),
         };
         for rows in [
             Err("MusicBrainz temporarily unavailable".into()),

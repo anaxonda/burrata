@@ -51,6 +51,16 @@ function render(
 }
 
 describe("AutotagReview recognition evidence", () => {
+  it.each([
+    {agreement: {isrc:"FRZ089900030"}, expected:true},
+    {agreement: {isrc:"FRZ089900031"}, expected:false},
+    {agreement: undefined, expected:false},
+  ])("labels double-excerpt ISRC evidence only when explicitly retained: $expected", ({agreement, expected}) => {
+    const target=render({recognition:{provider:"songrec",artist:"Synthetic artist",title:"Synthetic title",
+      isrc:"FRZ089900030",excerptCount:2,agreeingIdentifiers:agreement}});
+    expect(target.querySelector(".recognition-isrc")?.textContent?.includes("agrees in both excerpts")).toBe(expected);
+  });
+
   it("shows two-excerpt recognition and ISRC while marking catalog identity unverified", () => {
     const target = render({
       message: "Audio recognition matched two separate excerpts, but no unique catalog recording was resolved.",

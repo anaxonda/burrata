@@ -19,6 +19,7 @@
     isrc?: string | null;
     shazamId?: string | null;
     excerptCount: number;
+    agreeingIdentifiers?: { isrc?: string | null; shazamId?: string | null; appleMusicUrl?: string | null };
   };
   export type AutotagJob = {
     assetId: string;
@@ -187,7 +188,7 @@
       <div class="recognition-heading"><strong>Audio recognition</strong><span>{currentJob.recognition.excerptCount} excerpts</span></div>
       <p class="recognition-warning">Recognized metadata only; catalog identity is unverified.</p>
       <div class="recognition-result"><strong>{currentJob.recognition.artist}</strong><span>{currentJob.recognition.title}</span></div>
-      {#if currentJob.recognition.isrc}<p class="recognition-isrc">Recognized ISRC: <code>{currentJob.recognition.isrc}</code></p>{/if}
+      {#if currentJob.recognition.isrc}<p class="recognition-isrc">Recognized ISRC: <code>{currentJob.recognition.isrc}</code>{#if currentJob.recognition.excerptCount >= 2 && currentJob.recognition.agreeingIdentifiers?.isrc === currentJob.recognition.isrc} · agrees in both excerpts{/if}</p>{/if}
       {#if currentJob.status === "recognition_applied"}
         <p class="recognition-applied">Selected recognition tags applied. Catalog identity remains unverified.</p>
       {:else if onApplyRecognition && currentJob.status === "review" && currentJob.recognition.excerptCount >= 2 && recognitionDiffs.length}
