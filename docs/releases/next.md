@@ -30,3 +30,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Separate two-excerpt recognition from optional catalog enrichment and keep recognition excerpts in request-owned private temporary directories. Unix cancellation cleanup is covered by a real subprocess fixture.
 
 - Retain which recording identifiers agree in both recognized excerpts. Show explicit ISRC agreement in tag review without inferring it for older recognition records.
+
+- Expose fullscreen lyrics through the finite player-panel API. Live isolated Linux UI checks cover `.lrc` timing offsets and embedded plain lyrics; the normal 200-entry queue and paused position were restored exactly.

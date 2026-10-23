@@ -1,0 +1,47 @@
+{
+  "sourceCommit": "7e75f58",
+  "artifact": {
+    "commit": "7e75f58",
+    "sha256": "be91204d6a8183bb8ed019db4f4142cd57533eac69759ff9b56d65c2b682ccbf",
+    "profile": "dev; debug symbols disabled; custom-protocol embedded frontend"
+  },
+  "scope": "Linux X11 rebuilt native binary; disposable profile and synthetic local audio/lyrics. Platform installer qualification remains pending.",
+  "tests": {
+    "syncedSidecar": "Fullscreen pane displays both synthetic LRC lines.",
+    "sourceOffset": "Seek acknowledged paused position 5.75 s; the subsequent capture highlights the line with original 6.00 s timestamp, +0.50 s source offset and manual adjustment 0.0 s.",
+    "embeddedText": "Fullscreen pane displays both embedded paragraphs with their blank separation.",
+    "finiteControl": "Opening/closing pane acknowledged by mounted UI; unavailable player returns failure in regression.",
+    "fixtureAudioHashesUnchanged": true,
+    "isolatedDownloads": 0,
+    "externalCredentialsConfigured": false,
+    "recognitionSubmitted": false
+  },
+  "screenshots": {
+    "lyrics-runtime-sidecar.png": {
+      "width": 954,
+      "height": 1036
+    },
+    "lyrics-runtime-offset.png": {
+      "width": 954,
+      "height": 1036
+    },
+    "lyrics-runtime-embedded.png": {
+      "width": 954,
+      "height": 1036
+    }
+  },
+  "normalRestoration": {
+    "all200QueueIdsUnchanged": true,
+    "selectedEntryUnchanged": true,
+    "indexUnchanged": true,
+    "pausedRestored": true,
+    "positionDeltaSeconds": 0.0
+  },
+  "limits": [
+    "No physical macOS or Windows runtime qualification.",
+    "No paid translation request or Google free live-translation success established.",
+    "Synthetic local content does not establish the choir recording lyric availability.",
+    "App-scoped API controls were used; trusted OS input is not claimed."
+  ],
+  "disposableProfileRemoved": true
+}
