@@ -7,6 +7,8 @@ export interface BatchSourceResult {
 }
 
 export interface BatchMatchAssessment {
+  /** Server eligibility only; never authorizes enqueue or publication. */
+  identificationEligible?: boolean;
   action: "inspect" | "accept" | "enrich" | "reject";
   relationship: "exact" | "probable" | "alternative" | "unresolved";
   proofStrength?: "metadataOnly" | "recordingIdentifier" | "audioFingerprint";

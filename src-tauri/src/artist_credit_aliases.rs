@@ -1728,6 +1728,32 @@ pub(crate) fn verified_musicbrainz_occurrence(
     })
 }
 
+/// Recording-specific ISRC linkage; release-wide ISRC lists are insufficient.
+pub(crate) fn verified_musicbrainz_recording_isrc_membership(
+    store: &Store,
+    track: &Track,
+    isrc: &str,
+) -> Option<String> {
+    let occurrence = verified_musicbrainz_occurrence(store, track)?;
+    let normalized = crate::recording_identity::normalize_isrc(isrc)?;
+    let release = store
+        .get_provider_cache(RELEASE_CACHE, &occurrence.release_id)
+        .ok()??;
+    let row = exact_release_occurrence(
+        &release,
+        &occurrence.release_id,
+        &occurrence.recording_id,
+        &occurrence.track_guid,
+    )?;
+    row["recording"]["isrcs"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .filter_map(crate::recording_identity::normalize_isrc)
+        .any(|code| code == normalized)
+        .then_some(occurrence.recording_id)
+}
+
 fn verified_occurrence_ids(track: &Track) -> Option<(&str, &str, &str)> {
     if track.provider != "catalog"
         || track.provenance["sourceKind"].as_str() != Some("catalog")
@@ -2236,6 +2262,68 @@ mod tests {
         ] {
             assert!(!flat.matches(incomplete), "{incomplete}");
         }
+    }
+
+    #[test]
+    fn recognition_crosswalk_requires_exact_recording_isrc_not_release_codes() {
+        let mut release = release_fixture();
+        let code = "BGABC2600001";
+        release["isrcs"] = json!([code]);
+        let parsed = |raw: &Value| {
+            crate::artists::parse_musicbrainz_release_tracks(
+                raw,
+                "4f7f6950-29cc-448d-a25b-445e383612f1",
+                "https://musicbrainz.org/release/4f7f6950-29cc-448d-a25b-445e383612f1",
+                false,
+                None,
+            )
+            .remove(0)
+        };
+        let track = parsed(&release);
+        let (_root, store) = cached_store(&release, None);
+        assert_eq!(
+            verified_musicbrainz_recording_isrc_membership(&store, &track, code),
+            None
+        );
+        release["media"][0]["tracks"][0]["recording"]["isrcs"] = json!([code]);
+        let mut track = parsed(&release);
+        track.isrc = None;
+        let (_root, store) = cached_store(&release, None);
+        assert_eq!(
+            verified_musicbrainz_recording_isrc_membership(&store, &track, code),
+            Some("d0b8d1b1-05c3-4422-ae75-a5aae859d8dd".into())
+        );
+        assert_eq!(
+            verified_musicbrainz_recording_isrc_membership(&store, &track, "BGABC2600002"),
+            None
+        );
+        let mut edited = track.clone();
+        edited.title = "Different recording".into();
+        assert_eq!(
+            verified_musicbrainz_recording_isrc_membership(&store, &edited, code),
+            None
+        );
+        let mut recognition = crate::autotag::AudioRecognition {
+            provider: "songrec".into(),
+            title: track.title.clone(),
+            artist: track.artist.clone(),
+            isrc: Some(code.into()),
+            shazam_id: None,
+            excerpt_count: 2,
+            agreeing_identifiers: crate::recording_identity::RecognitionIdentifiers {
+                isrc: Some(code.into()),
+                ..Default::default()
+            },
+        };
+        assert!(matches!(
+            crate::download_verification::recognized_identifier_link(&store, &track, &recognition),
+            Some(crate::download_verification::IdentifierLink::VerifiedCatalogRecording { .. })
+        ));
+        recognition.agreeing_identifiers.isrc = None;
+        assert_eq!(
+            crate::download_verification::recognized_identifier_link(&store, &track, &recognition),
+            None
+        );
     }
 
     #[test]

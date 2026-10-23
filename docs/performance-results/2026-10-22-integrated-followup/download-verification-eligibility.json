@@ -1,0 +1,56 @@
+{
+  "scope": "Server-computed eligibility exposed by assess_download_candidate; no automatic admission or publication permission",
+  "tests": {
+    "passed": 3,
+    "failed": 0,
+    "log": "/tmp/burrata-download-verification-eligibility-tests.log"
+  },
+  "covers": [
+    "Accepted sources skip identification",
+    "Unknown title or runtime refuses eligibility",
+    "Artist, guest, version, ISRC and source identity conflicts refuse eligibility",
+    "Restricted access, previews, conflicting request identifiers and incomplete parsing refuse eligibility"
+  ],
+  "remaining": [
+    "Connect server eligibility to batch selection and acquisition",
+    "Recheck explicit consent before submissions",
+    "Staged recognition and independent catalog crosswalk",
+    "Publication, cancellation and cleanup integration"
+  ],
+  "batchRegression": {
+    "passed": 19,
+    "failed": 0
+  },
+  "finalRetest": {
+    "passed": 3,
+    "failed": 0,
+    "log": "/tmp/burrata-download-verification-eligibility-final-tests.log"
+  },
+  "identifierTests": {
+    "passed": 4,
+    "failed": 0,
+    "log": "/tmp/burrata-download-verification-identifier-final-tests.log"
+  },
+  "catalogCrosswalkTest": {
+    "passed": 1,
+    "failed": 0,
+    "log": "/tmp/burrata-verification-crosswalk-tests.log",
+    "covers": [
+      "Request without ISRC links through exact cached recording row",
+      "Release-wide ISRC alone refuses linkage",
+      "Different recording ISRC refuses linkage",
+      "Edited title invalidates cached occurrence",
+      "Missing explicit two-excerpt agreement refuses linkage"
+    ]
+  },
+  "fullNative": {
+    "passed": 1811,
+    "failed": 0,
+    "ignored": 41,
+    "log": "/tmp/burrata-download-verification-crosswalk-full-native.log"
+  },
+  "typecheck": {
+    "errors": 0,
+    "warnings": 0
+  }
+}

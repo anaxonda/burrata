@@ -29,6 +29,7 @@ pub mod connections;
 pub mod diagnostic_metrics;
 mod directory_browser;
 pub mod discovery;
+mod download_verification;
 pub mod external_player;
 pub mod imports;
 pub mod install_integration;
@@ -5255,14 +5256,17 @@ fn assess_download_candidate(
     state: State<'_, AppState>,
     track: Track,
     candidate: Candidate,
-) -> Result<recording_match::MatchAssessment> {
+) -> Result<download_verification::DownloadAssessment> {
     let level = state.store.settings()?.matching_level;
-    Ok(recording_match_context::assess(
+    let assessment = recording_match_context::assess(
         &state.store,
         &track,
         &candidate,
         level,
         recording_match::MatchStage::Resolved,
+    );
+    Ok(download_verification::DownloadAssessment::new(
+        assessment, &track, &candidate,
     ))
 }
 #[tauri::command]
