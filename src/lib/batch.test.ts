@@ -183,6 +183,30 @@ describe("selected batch acquisition", () => {
     expect(result.failures.some((message) => message.includes("not accepted by recording match policy"))).toBe(true);
   });
 
+  it("explains matching-identifier credit conflicts without accepting or duplicating the rejection", async () => {
+    const source = candidate("credit-conflict");
+    const result = await resolveBatchSource(
+      ["youtube"], undefined, async () => [source], (_provider, rows) => rows,
+      async row => row, async () => ({ action: "reject", relationship: "unresolved",
+        dimensions: { isrc: "agree", title: "agree", runtime: "agree", artists: "conflict" } }),
+      () => false, () => false,
+    );
+    expect(result.candidate).toBeUndefined();
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("recording identifier, title and duration agree");
+    expect(result.failures[0]).toContain("review catalog and source credits");
+  });
+
+  it("reports an inspection failure once instead of mislabeling it as a recording mismatch", async () => {
+    const result = await resolveBatchSource(
+      ["youtube"], undefined, async () => [candidate("offline")], (_provider, rows) => rows,
+      async () => { throw new Error("connection failed"); }, accepted, () => false, () => false,
+    );
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toContain("connection failed");
+    expect(result.failures[0]).not.toContain("recording match policy");
+  });
+
   it("rejects inspection that changes the selected provider source", async () => {
     const original = candidate("original");
     const result = await resolveBatchSource(

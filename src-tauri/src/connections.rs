@@ -55,9 +55,19 @@ pub struct SlskdSettings {
     pub downloads_path: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LyricsTranslationProvider {
+    #[default]
+    OpenaiCompatible,
+    GoogleFree,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricsTranslationSettings {
+    #[serde(default)]
+    pub provider: LyricsTranslationProvider,
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
@@ -174,7 +184,9 @@ impl ConnectionManager {
                 .credential_status_if_enabled("acoustid", settings.acoustid_enabled),
             lyrics_translation_credential: self.credential_status_if_enabled(
                 "lyrics_translation",
-                settings.lyrics_translation.enabled,
+                settings.lyrics_translation.enabled
+                    && settings.lyrics_translation.provider
+                        == LyricsTranslationProvider::OpenaiCompatible,
             ),
             settings,
         })
@@ -371,10 +383,14 @@ impl ConnectionManager {
             return Ok(None);
         }
         settings.validate()?;
-        let api_key = self
-            .credential("lyrics_translation")?
-            .ok_or("Enter a translation API key in Connections")?;
+        let api_key = if settings.provider == LyricsTranslationProvider::GoogleFree {
+            String::new()
+        } else {
+            self.credential("lyrics_translation")?
+                .ok_or("Enter a translation API key in Connections")?
+        };
         Ok(Some(LyricsTranslationConnection {
+            provider: settings.provider,
             base_url: settings.base_url,
             model: settings.model,
             target_language: settings.target_language,
@@ -385,6 +401,7 @@ impl ConnectionManager {
 
 #[derive(Clone)]
 pub struct LyricsTranslationConnection {
+    pub provider: LyricsTranslationProvider,
     pub base_url: String,
     pub model: String,
     pub target_language: String,
@@ -410,6 +427,21 @@ impl LyricsTranslationSettings {
                 .any(|value| value.chars().any(char::is_control))
         {
             return Err("Lyrics translation settings exceed their limits".into());
+        }
+        if self.provider == LyricsTranslationProvider::GoogleFree {
+            let mut parts = language.split('-');
+            let first = parts.next().unwrap_or_default();
+            let valid = (2..=3).contains(&first.len())
+                && first.bytes().all(|c| c.is_ascii_alphabetic())
+                && parts.all(|part| {
+                    (2..=8).contains(&part.len()) && part.bytes().all(|c| c.is_ascii_alphanumeric())
+                });
+            if self.enabled && !valid {
+                return Err(
+                    "For Google Translate, use a language code such as en, fr, es, or pt-BR".into(),
+                );
+            }
+            return Ok(());
         }
         if !base_url.is_empty() {
             let parsed = url::Url::parse(base_url).map_err(|_| {
@@ -518,6 +550,7 @@ mod tests {
         let manager = ConnectionManager::with_keyring(store.clone(), keyring.clone());
         let mut settings = ConnectionSettings::default();
         settings.lyrics_translation = LyricsTranslationSettings {
+            provider: LyricsTranslationProvider::OpenaiCompatible,
             enabled: true,
             base_url: "https://api.example.test/v1".into(),
             model: "translate-model".into(),
@@ -552,6 +585,42 @@ mod tests {
     }
 
     #[test]
+    fn google_lyrics_translation_needs_no_key_and_preserves_legacy_provider() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
+        let manager = ConnectionManager::with_keyring(store, Arc::new(MemoryKeyring::default()));
+        let mut settings = ConnectionSettings::default();
+        settings.lyrics_translation = LyricsTranslationSettings {
+            provider: LyricsTranslationProvider::GoogleFree,
+            enabled: true,
+            target_language: "fr".into(),
+            ..Default::default()
+        };
+        let status = manager
+            .update(ConnectionUpdate {
+                settings,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(!status.lyrics_translation_credential.present);
+        let connection = manager.lyrics_translation().unwrap().unwrap();
+        assert_eq!(connection.provider, LyricsTranslationProvider::GoogleFree);
+        assert!(connection.api_key.is_empty());
+        let legacy: LyricsTranslationSettings = serde_json::from_value(serde_json::json!({"enabled":true,"baseUrl":"https://api.example/v1","model":"model","targetLanguage":"French"})).unwrap();
+        assert_eq!(legacy.provider, LyricsTranslationProvider::OpenaiCompatible);
+        assert!(legacy.validate().is_ok());
+        let mut free = LyricsTranslationSettings {
+            provider: LyricsTranslationProvider::GoogleFree,
+            enabled: true,
+            target_language: "French".into(),
+            ..Default::default()
+        };
+        assert!(free.validate().is_err());
+        free.target_language = "pt-BR".into();
+        assert!(free.validate().is_ok());
+    }
+
+    #[test]
     fn lyrics_translation_settings_allow_https_or_loopback_http_only() {
         let good = [
             "https://api.example.test/v1",
@@ -560,6 +629,7 @@ mod tests {
         ];
         for base_url in good {
             let settings = LyricsTranslationSettings {
+                provider: LyricsTranslationProvider::OpenaiCompatible,
                 enabled: true,
                 base_url: base_url.into(),
                 model: "model".into(),
@@ -574,6 +644,7 @@ mod tests {
             "https://example.test/v1?token=secret",
         ] {
             let settings = LyricsTranslationSettings {
+                provider: LyricsTranslationProvider::OpenaiCompatible,
                 enabled: true,
                 base_url: base_url.into(),
                 model: "model".into(),

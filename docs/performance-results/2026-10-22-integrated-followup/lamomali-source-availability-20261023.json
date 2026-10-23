@@ -1,0 +1,90 @@
+{
+  "date": "2026-10-23",
+  "scope": "Current provider and saved-catalog checks; no global alias or saved metadata correction applied.",
+  "totem": {
+    "trackId": "catalog:musicbrainz:a89f36ab-4e53-417b-b785-b648aa1255ac:1:3:1:c04e4eb5-e223-4c71-8e5b-4346ab91efac",
+    "isrc": "FR11Y2500030",
+    "matching": {
+      "action": "accept",
+      "relationship": "exact",
+      "proofStrength": "recordingIdentifier"
+    },
+    "existingAacCandidates": [
+      "176810667792146432",
+      "166992075870408704"
+    ],
+    "bothAacInspections": "Monochrome audio connection failed",
+    "downloadJobId": "d2e99e2d-e8c3-4e3e-aef4-4bca2d6879dc",
+    "observedProvider": "slskd",
+    "observedState": "waiting_for_peer",
+    "bytesReceived": 356861,
+    "progressPercent": 1.4310815548980522,
+    "queuePosition": 232,
+    "lastProgressAt": "2026-10-23T15:35:47.210184289+00:00",
+    "fallbackAttempts": [
+      {
+        "provider": "monochrome",
+        "error": "Monochrome audio connection failed"
+      },
+      {
+        "provider": "youtube",
+        "error": "No permitted recording match meeting the fallback quality policy"
+      },
+      {
+        "provider": "soundcloud",
+        "error": "No permitted recording match meeting the fallback quality policy"
+      }
+    ],
+    "completed": false,
+    "leftQueued": true
+  },
+  "secretGarden": {
+    "savedArtist": "Lamomali feat. Patrick Wilson",
+    "musicbrainzRecordingId": "ff34ea25-b3f9-4315-9dc2-0b277afa7c82",
+    "currentPublicMusicBrainzArtist": "Lamomali feat. Patrick Wilson",
+    "isrc": "FR11Y2500120",
+    "candidateArtist": "Lamomali, -M-, Patrick Watson, Fatoumata Diawara, Toumani Diabaté, Balla Diabaté",
+    "candidateId": "monochrome:176810687111110656",
+    "assessment": {
+      "action": "reject",
+      "relationship": "unresolved",
+      "dimensions": {
+        "artists": "conflict",
+        "guests": "unknown",
+        "isrc": "agree",
+        "runtime": "agree",
+        "title": "agree",
+        "version": "unknown",
+        "work": "unknown"
+      }
+    },
+    "officialSources": [
+      {
+        "url": "https://lamomali.lnk.to/totemalbum",
+        "finding": "Secret Garden credits Patrick Watson."
+      },
+      {
+        "url": "https://lamomali.shop/products/cd-digibook-album-lamomali-totem-lamomali",
+        "finding": "Official CD tracklisting credits Patrick Watson."
+      },
+      {
+        "url": "https://music.apple.com/us/song/1800797196",
+        "finding": "Title explicitly features Patrick Watson."
+      }
+    ],
+    "proposedCorrection": {
+      "field": "artist",
+      "from": "Lamomali feat. Patrick Wilson",
+      "to": "Lamomali feat. Patrick Watson",
+      "scope": "one existing saved recording only",
+      "status": "awaiting user choice to preserve existing library metadata"
+    },
+    "savedMetadataChanged": false,
+    "globalAliasCreated": false
+  },
+  "limits": [
+    "The queued partial Soulseek transfer is not a completed download.",
+    "Matching acceptance does not establish provider availability.",
+    "Extended Monochrome lossless authorization/provider work remains paused."
+  ]
+}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { call, desktop } from "./lib/api";
-  interface LyricsTranslationConfig { enabled: boolean; baseUrl: string; model: string; targetLanguage: string }
+  interface LyricsTranslationConfig { provider?: "openaiCompatible" | "googleFree"; enabled: boolean; baseUrl: string; model: string; targetLanguage: string }
   interface Config { slskd: { enabled: boolean; baseUrl: string; downloadsPath: string }; discogsEnabled: boolean; lastfmEnabled: boolean; acoustidEnabled?: boolean; lyricsTranslation?: LyricsTranslationConfig }
   interface Credential { present: boolean; sessionOnly: boolean; error?: string | null }
   interface Status { settings: Config; slskdCredential: Credential; discogsCredential: Credential; lastfmCredential: Credential; acoustidCredential?: Credential; lyricsTranslationCredential?: Credential }
@@ -199,15 +199,17 @@
     <label class="check"><input type="checkbox" bind:checked={clear.acoustid} /> Remove saved AcoustID key</label>
     <button onclick={()=>void guide("https://acoustid.org/webservice")}>AcoustID setup ↗</button>
   </details>
-  <details id="lyrics-translation-connection"><summary>Lyrics translation · {credentialLabel(status?.lyricsTranslationCredential)}</summary>
-    <p>Optional OpenAI-compatible translation for synchronized lyrics. The original stays visible, and translation runs only after you click Translate in Now Playing. Timed and plain lyrics are supported; source timestamps are kept unchanged. Your provider may charge for use.</p>
+  <details id="lyrics-translation-connection"><summary>Lyrics translation · {config.lyricsTranslation?.provider === "googleFree" ? "Google Translate" : credentialLabel(status?.lyricsTranslationCredential)}</summary>
+    <p>Translate timed or plain lyrics side by side with the original. Translation runs only when you click Translate; source timestamps stay unchanged.</p>
+    <label>Service<select aria-label="Lyrics translation service" value={config.lyricsTranslation!.provider ?? "openaiCompatible"} onchange={(event) => { config.lyricsTranslation!.provider = event.currentTarget.value as "openaiCompatible" | "googleFree"; }}><option value="googleFree">Google Translate · free</option><option value="openaiCompatible">AI · your API key</option></select></label>
     <label class="check"><input type="checkbox" bind:checked={config.lyricsTranslation!.enabled} /> Enable lyrics translation</label>
-    <label>API endpoint<input aria-label="Lyrics translation endpoint" type="url" autocomplete="url" bind:value={config.lyricsTranslation!.baseUrl} placeholder="https://api.openai.com/v1" /></label>
+    {#if config.lyricsTranslation!.provider !== "googleFree"}<label>API endpoint<input aria-label="Lyrics translation endpoint" type="url" autocomplete="url" bind:value={config.lyricsTranslation!.baseUrl} placeholder="https://api.openai.com/v1" /></label>
     <label>Model<input aria-label="Lyrics translation model" type="text" autocomplete="off" bind:value={config.lyricsTranslation!.model} placeholder="Model name from your provider" /></label>
-    <label>Target language<input aria-label="Lyrics translation target language" type="text" autocomplete="language" bind:value={config.lyricsTranslation!.targetLanguage} placeholder="e.g. Spanish or es" /></label>
     <label>API key<input aria-label="Lyrics translation API key" type="password" autocomplete="new-password" bind:value={lyricsTranslationKey} placeholder={status?.lyricsTranslationCredential?.present ? "Leave blank to keep saved key" : "Provider API key"} /></label>
     <label class="check"><input type="checkbox" bind:checked={clear.lyricsTranslation} /> Remove saved translation key</label>
-    <small>Endpoint, model, and language are saved as connection settings. The API key is kept in the secure credential store or in memory for this session; it is never returned to the UI.</small>
+    <small>Your AI provider may charge for use. Its API key stays in the secure credential store or in memory for this session.</small>
+    {:else}<small>No API key required. The free Google service may be temporarily rate limited.</small>{/if}
+    <label>Target language<input aria-label="Lyrics translation target language" type="text" autocomplete="language" bind:value={config.lyricsTranslation!.targetLanguage} placeholder={config.lyricsTranslation!.provider === "googleFree" ? "e.g. en, fr, es, pt-BR" : "e.g. Spanish or es"} /></label>
   </details>
   <label class="check"><input type="checkbox" bind:checked={sessionOnly} /> Keep new credentials only for this session</label>
   <small>Credentials use your operating system’s secure store. Choose session-only if it is unavailable; keys are never saved in the library database.</small>

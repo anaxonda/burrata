@@ -87,6 +87,17 @@ export function isExplicitSoulseekFolderSource(
 }
 
 /** Resolve one track through an ordered set of sources without opening a chooser. */
+function recordingRejection(assessment: BatchMatchAssessment): string {
+  const dimensions = assessment.dimensions ?? {};
+  const conflicts = Object.entries(dimensions).filter(([, value]) => value === "conflict")
+    .map(([name]) => ({ artists: "performer credits", guests: "guest credits", isrc: "recording identifier", runtime: "duration" }[name] ?? name));
+  const sameRecording = dimensions.isrc === "agree" && dimensions.title === "agree" && dimensions.runtime === "agree";
+  if (sameRecording && (dimensions.artists === "conflict" || dimensions.guests === "conflict")) {
+    return "recording identifier, title and duration agree, but performer credits conflict; review catalog and source credits before retrying";
+  }
+  return conflicts.length ? `conflicting ${conflicts.join(", ")}` : "insufficient recording evidence";
+}
+
 export async function resolveBatchSource(
   providers: string[],
   linked: Candidate | undefined,
@@ -113,7 +124,9 @@ export async function resolveBatchSource(
       const assessment = await assess(result);
       if (cancelled()) return undefined;
       if (assessment.action === "accept" && assessment.relationship !== "unresolved") return result;
-      return isLinked && acceptExplicitLinked?.(result, assessment) ? result : undefined;
+      if (isLinked && acceptExplicitLinked?.(result, assessment)) return result;
+      failures.push(`${candidate.provider}: ${candidate.title || "candidate"} was not accepted by recording match policy: ${recordingRejection(assessment)}`);
+      return undefined;
     } catch (error) {
       failures.push(`${candidate.provider}: ${String(error)}`);
       return undefined;
@@ -121,9 +134,10 @@ export async function resolveBatchSource(
   };
 
   if (linked && providers.includes(linked.provider)) {
+    const failuresBefore = failures.length;
     const verified = await verify(linked, true);
     if (verified) return { candidate: verified, failures };
-    if (!cancelled()) failures.push(`${linked.provider}: linked source was not accepted by recording match policy`);
+    if (!cancelled() && failures.length === failuresBefore) failures.push(`${linked.provider}: linked source was not accepted by recording match policy`);
   }
 
   for (const provider of providers) {
@@ -162,9 +176,10 @@ export async function resolveBatchSource(
       continue;
     }
     for (const candidate of ordered) {
+      const failuresBefore = failures.length;
       const verified = await verify(candidate);
       if (verified) return { candidate: verified, failures };
-      if (!cancelled()) failures.push(`${provider}: ${candidate.title || "candidate"} was not accepted by recording match policy`);
+      if (!cancelled() && failures.length === failuresBefore) failures.push(`${provider}: ${candidate.title || "candidate"} was not accepted by recording match policy`);
     }
   }
   return { failures };

@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-23",
+  "scope": "Unreleased worktree; not native installer qualification",
+  "verifiedAliases": {
+    "source": "Revalidated MusicBrainz occurrence and same-ID aliases; cached verified performer aliases",
+    "limits": {
+      "titles": 4,
+      "artistRenderings": 8,
+      "fallbackDeadlineSeconds": 10
+    },
+    "protections": [
+      "recording identity",
+      "complete ordered artist IDs",
+      "runtime within two seconds",
+      "ISRC where present",
+      "no guessed transliteration",
+      "guests retained"
+    ],
+    "tests": {
+      "aliasUnitTestsPassed": 2,
+      "lyricsUnitTestsPassed": 15,
+      "lyricsLiveTestIgnored": 1,
+      "frontendRequestTestsPassed": 2
+    }
+  },
+  "translation": {
+    "localNativeTestsPassed": 5,
+    "realProviderTestIgnored": true,
+    "frontendFocusedTestsPassed": 23,
+    "typecheck": "0 errors, 0 warnings",
+    "googleFreeLiveStatus": "HTTP 429 from both tested endpoints; successful live translation unproven",
+    "openRouterLiveStatus": "Not sent. Automatic approval review requires explicit authorization for the OpenRouter destination; question pending.",
+    "htmlLineBreakRegression": "Passed: preserve br elements and decode entities; reject collapsed, ambiguous and missing translation containers."
+  },
+  "limitations": [
+    "Choir lyric availability remains unverified in LRCLIB; Cyrillic queries returned HTTP 503.",
+    "Shazam metadata identifies correct recording but no LYRICS section; raw page identity mismatch remains rejected.",
+    "No normal GUI restart or library metadata edits."
+  ],
+  "regression": {
+    "frontend": {
+      "filesPassed": 107,
+      "testsPassed": 1278
+    },
+    "native": {
+      "testsPassed": 1791,
+      "testsIgnored": 40,
+      "failures": 0
+    },
+    "typecheck": "0 errors, 0 warnings",
+    "diffWhitespaceCheck": "passed",
+    "batchConflictTestsPassed": 19,
+    "scopeNote": "Full suites passed before the subsequent isolated HTML br parser change; its affected parser test was rerun and passed."
+  }
+}

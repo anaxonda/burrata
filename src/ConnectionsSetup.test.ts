@@ -61,6 +61,26 @@ describe("ConnectionsSetup Soulseek shares", () => {
     expect(saveUpdate.sessionOnly).toBe(true);
   });
 
+  it("saves keyless Google translation without requiring or sending an API key", async () => {
+    let saveUpdate: any;
+    callMock.mockImplementation(async (command: string, args?: any) => {
+      if (command === "get_connections") return { ...status, settings: { ...status.settings, lyricsTranslation: { enabled: false, targetLanguage: "en", baseUrl: "", model: "" } } };
+      if (command === "get_slskd_shares") return { managed: false, canEdit: false, shares: [], guidance: "Separate service" };
+      if (command === "get_managed_slskd_download_settings") return { managed: false, canEdit: false, settings: null, guidance: "Separate service" };
+      if (command === "save_connections") { saveUpdate = args.update; return { ...status, settings: saveUpdate.settings, lyricsTranslationCredential: { present: false, sessionOnly: false } }; }
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(); await settle();
+    const service = target.querySelector<HTMLSelectElement>('[aria-label="Lyrics translation service"]')!;
+    service.value = "googleFree"; service.dispatchEvent(new Event("change", { bubbles: true })); await tick();
+    expect(target.querySelector('[aria-label="Lyrics translation API key"]')).toBeNull();
+    expect(target.querySelector('[aria-label="Lyrics translation endpoint"]')).toBeNull();
+    target.querySelector<HTMLInputElement>('#lyrics-translation-connection input[type="checkbox"]')!.click();
+    target.querySelector<HTMLButtonElement>(".detail-actions button.primary")!.click(); await settle();
+    expect(saveUpdate.settings.lyricsTranslation).toMatchObject({ provider: "googleFree", enabled: true, targetLanguage: "en" });
+    expect(saveUpdate.lyricsTranslationApiKey).toBeUndefined();
+  });
+
   it("shows managed shares and warns before explicit add/remove actions", async () => {
     const managed = { managed: true, canEdit: true, guidance: "Managed service", shares: [{ id: "0123456789abcdef", directory: "/music/public", localPath: "/music/public", remotePath: "/burrata-shares/0123456789abcdef", alias: "Public music", files: 42, directories: 3, excluded: false }] };
     callMock.mockImplementation(async (command: string) => {

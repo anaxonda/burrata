@@ -32,6 +32,8 @@ pub struct LyricsRequest {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricsRequestInput {
+    #[serde(default)]
+    pub track_id: Option<String>,
     pub track_name: String,
     pub artist_name: String,
     pub album_name: Option<String>,
@@ -334,6 +336,153 @@ pub async fn get_current_track_lyrics_from_snapshot(
         Some(request) => get_current_track_lyrics(request).await,
         None => response("noCurrentTrack"),
     }
+}
+
+/// Only saved, metadata-consistent player identity can supply catalog aliases.
+pub async fn get_current_track_lyrics_with_catalog(
+    snapshot: &Value,
+    visible: Option<LyricsRequestInput>,
+    store: &crate::Store,
+    artists: &crate::artists::ArtistService,
+) -> LyricsResponse {
+    let native = snapshot["engine"] == "native"
+        && matches!(
+            snapshot["status"].as_str(),
+            Some("playing" | "paused" | "buffering")
+        );
+    let track_id = if native {
+        snapshot["track"]["id"].as_str().map(str::to_owned)
+    } else {
+        visible.as_ref().and_then(|input| input.track_id.clone())
+    };
+    let Some(request) = request_for_current_track(snapshot, visible) else {
+        return response("noCurrentTrack");
+    };
+    let primary = get_current_track_lyrics(request.clone()).await;
+    if !matches!(
+        primary.status.as_str(),
+        "notFound" | "unmatched" | "providerUnavailable" | "unavailable"
+    ) {
+        return primary;
+    }
+    let Some(track) = track_id
+        .filter(|id| id.len() <= 300)
+        .and_then(|id| store.get_track(&id).ok().flatten())
+    else {
+        return primary;
+    };
+    if normalized(&track.title) != normalized(&request.track_name)
+        || normalized(&track.artist) != normalized(&request.artist_name)
+        || track.playback_range.is_some()
+        || track
+            .duration_seconds
+            .is_none_or(|duration| (duration - request.duration_seconds).abs() > 2.0)
+    {
+        return primary;
+    }
+    let lookup = async {
+        let requests = crate::lyrics_aliases::requests(store, artists, &track, &request).await;
+        if requests.len() <= 1 {
+            return None;
+        }
+        let result = search_verified_variants(&requests).await;
+        matches!(
+            result.status.as_str(),
+            "synced" | "unsynced" | "instrumental"
+        )
+        .then_some(result)
+    };
+    match tokio::time::timeout(Duration::from_secs(10), lookup).await {
+        Ok(Some(result)) => result,
+        _ => primary,
+    }
+}
+
+fn matching_variant_record(
+    requests: &[LyricsRequest],
+    record: ApiRecord,
+) -> Option<LyricsResponse> {
+    let request = requests
+        .iter()
+        .find(|request| record_matches(request, &record))?;
+    Some(classify_record(request, record))
+}
+
+async fn search_verified_variants(requests: &[LyricsRequest]) -> LyricsResponse {
+    let key = format!(
+        "verified-aliases\0{}",
+        requests
+            .iter()
+            .map(request_key)
+            .collect::<Vec<_>>()
+            .join("\0")
+    );
+    if let Ok(entries) = cache().lock() {
+        if let Some(entry) = entries
+            .get(&key)
+            .filter(|entry| entry.inserted.elapsed() < CACHE_TTL)
+        {
+            return entry.value.clone();
+        }
+    }
+    let Ok(client) = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("Burrata/", env!("CARGO_PKG_VERSION")))
+        .build()
+    else {
+        return response("providerUnavailable");
+    };
+    let mut seen = std::collections::HashSet::new();
+    for request in requests
+        .iter()
+        .filter(|request| seen.insert(normalized(&request.track_name)))
+        .take(4)
+    {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let mut url = Url::parse(SEARCH_ENDPOINT).expect("static LRCLIB search endpoint");
+        url.query_pairs_mut()
+            .append_pair("track_name", &request.track_name);
+        let Ok(mut reply) = client.get(url).send().await else {
+            continue;
+        };
+        if !reply.status().is_success() {
+            continue;
+        }
+        let Some(bytes) = read_bounded_body(&mut reply).await else {
+            continue;
+        };
+        let Ok(mut records) = serde_json::from_slice::<Vec<ApiRecord>>(&bytes) else {
+            continue;
+        };
+        records.truncate(100);
+        records.sort_by(|a, b| {
+            record_score(&requests[0], a).total_cmp(&record_score(&requests[0], b))
+        });
+        if let Some(result) = records
+            .into_iter()
+            .find_map(|record| matching_variant_record(requests, record))
+        {
+            if let Ok(mut entries) = cache().lock() {
+                entries.retain(|_, entry| entry.inserted.elapsed() < CACHE_TTL);
+                if entries.len() >= CACHE_LIMIT {
+                    if let Some(old) = entries.keys().next().cloned() {
+                        entries.remove(&old);
+                    }
+                }
+                entries.insert(
+                    key,
+                    Cached {
+                        inserted: Instant::now(),
+                        value: result.clone(),
+                    },
+                );
+            }
+            return result;
+        }
+    }
+    response("notFound")
 }
 
 fn request_for_current_track(
@@ -877,6 +1026,23 @@ mod tests {
         eprintln!("Live reported lyrics: synced, matching performers, duration delta {:.3}s, {} timed lines; text omitted", matched.duration_delta_seconds, result.lines.as_ref().unwrap().len());
     }
 
+    #[test]
+    fn verified_cyrillic_variant_still_requires_artist_and_duration_match() {
+        let mut alias = request();
+        alias.track_name = "Калиманку Денку".into();
+        alias.artist_name = "Хор".into();
+        let mut candidate = record();
+        candidate.track_name = alias.track_name.clone();
+        candidate.artist_name = alias.artist_name.clone();
+        assert!(matching_variant_record(&[request()], candidate.clone()).is_none());
+        assert!(matching_variant_record(&[alias.clone()], candidate.clone()).is_some());
+        candidate.artist_name = "Other choir".into();
+        assert!(matching_variant_record(&[alias.clone()], candidate.clone()).is_none());
+        candidate.artist_name = alias.artist_name.clone();
+        candidate.duration = 240.0;
+        assert!(matching_variant_record(&[alias], candidate).is_none());
+    }
+
     fn request() -> LyricsRequest {
         LyricsRequest {
             track_name: "Example Song".into(),
@@ -1115,6 +1281,7 @@ mod tests {
 
     fn visible_input() -> LyricsRequestInput {
         LyricsRequestInput {
+            track_id: None,
             track_name: "Visible Song".into(),
             artist_name: "Visible Artist".into(),
             album_name: None,

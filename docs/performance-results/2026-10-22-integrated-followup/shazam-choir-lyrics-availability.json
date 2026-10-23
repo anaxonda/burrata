@@ -21,5 +21,44 @@
     "genericPageFetchFallbackEnabled": false,
     "newRecognitionRequestSent": false
   },
-  "qualification": "Public page availability is established. This does not prove the recognition endpoint includes lyrics or that this song currently shows lyrics in Burrata."
+  "qualification": "Public browsing/search availability is established. Metadata-only track details identify the exact choir recording but contain no LYRICS section; direct HTTP page variants return unrelated identities and must be rejected. No new recognition or audio upload occurred.",
+  "metadataOnlyProbe": {
+    "appleSongId": "151627043",
+    "mappedShazamKey": "10032861",
+    "returnedKey": "10032861",
+    "titleMatches": true,
+    "artistMatches": true,
+    "sectionTypes": [
+      "SONG",
+      "RELATED"
+    ],
+    "lyricLinesReturned": 0,
+    "audioOrFingerprintsSent": false,
+    "upstreamReference": "https://github.com/shazamio/ShazamIO/blob/master/shazamio/misc.py"
+  },
+  "directHttpPageProbe": {
+    "requestedChoirPage": "https://www.shazam.com/song/151627043/kalimankou-denkou-the-evening-gathering",
+    "returnedCanonical": "https://www.shazam.com/song/6783768916/freaked-out",
+    "structuredRecordingName": "FREAKED OUT",
+    "identityMatches": false,
+    "providerTrackLinkVariant": {
+      "variant": 0,
+      "finalUrl": "https://www.shazam.com/track/10032861/%D0%BA%D0%B0%D0%BB%D0%B8%D0%BC%D0%B0%D0%BD%D0%BA%D1%83-%D0%B4%D0%B5%D0%BD%D0%BA%D1%83-kalimanku-denku",
+      "canonical": "https://www.shazam.com/song/1787023936/dtmf",
+      "structuredNames": [
+        "DtMF"
+      ],
+      "bytes": 1003880
+    },
+    "englishLocaleVariant": {
+      "variant": 1,
+      "finalUrl": "https://www.shazam.com/en-us/song/151627043/kalimankou-denkou-the-evening-gathering",
+      "canonical": "https://www.shazam.com/song/6768755477/movin-to-the-sun",
+      "structuredNames": [
+        "Movin' To The Sun"
+      ],
+      "bytes": 858501
+    },
+    "interpretation": "This host received unrelated canonical metadata through direct HTTP despite the browsing/search representation showing choir lyrics. A generic page fallback cannot be qualified from this evidence."
+  }
 }

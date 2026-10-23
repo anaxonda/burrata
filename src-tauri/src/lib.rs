@@ -37,6 +37,7 @@ pub mod linux_webview_output;
 pub mod live_bpm;
 pub mod local_audio;
 pub mod lyrics;
+mod lyrics_aliases;
 pub mod lyrics_translation;
 mod main_ui_capture;
 pub mod managed_provider_session;
@@ -5320,7 +5321,13 @@ async fn get_current_track_lyrics(
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics::LyricsResponse> {
     let snapshot = state.playback.snapshot_page(0, 1);
-    Ok(lyrics::get_current_track_lyrics_from_snapshot(&snapshot, visible_track).await)
+    Ok(lyrics::get_current_track_lyrics_with_catalog(
+        &snapshot,
+        visible_track,
+        &state.store,
+        &state.artists,
+    )
+    .await)
 }
 #[tauri::command]
 async fn translate_current_track_lyrics(
@@ -5330,7 +5337,13 @@ async fn translate_current_track_lyrics(
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics_translation::LyricsTranslationResponse> {
     let snapshot = state.playback.snapshot_page(0, 1);
-    let current = lyrics::get_current_track_lyrics_from_snapshot(&snapshot, visible_track).await;
+    let current = lyrics::get_current_track_lyrics_with_catalog(
+        &snapshot,
+        visible_track,
+        &state.store,
+        &state.artists,
+    )
+    .await;
     if !matches!(current.status.as_str(), "synced" | "unsynced") {
         return Err("Current playback does not have available lyrics to translate".into());
     }
