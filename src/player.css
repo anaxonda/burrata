@@ -82,7 +82,7 @@ footer.player .playback-quality .quality-summary {
   overflow: hidden;
 }
 
-footer.player .playback-quality .quality-summary > * {
+footer.player .playback-quality .quality-summary > strong {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -466,3 +466,6 @@ footer.player .player-transport .repeat-one-badge {
   font-weight:800;
   line-height:1;
 }
+
+/* Keep the quality icon intact and truncate the concise summary as one unit. */
+footer.player .playback-quality .quality-icon { flex: 0 0 auto; }

@@ -150,6 +150,21 @@ describe("LyricsPanel", () => {
     }
   });
 
+  it("pairs bilingual source lines only when requested and keeps a final unpaired line", async () => {
+    const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Original one\nTranslation one\nOriginal two\nTranslation two\nFinal original" });
+    await settle(); target.querySelector<HTMLButtonElement>(".lyrics-open")!.click(); await settle();
+    expect(target.querySelector(".lyrics-unsynced")).not.toBeNull();
+    const toggle = target.querySelector<HTMLButtonElement>(".lyrics-pair-lines")!;
+    toggle.click(); await settle();
+    const rows = [...target.querySelectorAll(".lyrics-line-row")];
+    expect(rows).toHaveLength(3);
+    expect([...rows[0]!.querySelectorAll("p")].map(p => p.textContent)).toEqual(["Original one", "Translation one"]);
+    expect(rows[2]!.querySelector("p")?.textContent).toBe("Final original");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    toggle.click(); await settle();
+    expect(target.querySelector(".lyrics-unsynced")?.textContent).toContain("Translation two");
+  });
+
   it("translates only after click and preserves each original timestamp and line", async () => {
     const lines = [
       { id: "source-line-1", timeSeconds: 4.25, text: "Synthetic original one" },

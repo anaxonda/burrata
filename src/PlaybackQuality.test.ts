@@ -94,12 +94,21 @@ describe("PlaybackQuality", () => {
     expect(quality.classList.contains("compact")).toBe(true);
     expect(quality.style.padding).toBe("0px");
     expect(quality.style.border).toBe("0px");
-    expect(summary.style.fontSize).toBe("10px");
+    expect(summary.style.fontSize).toBe("11px");
     expect(summary.style.fontWeight).toBe("400");
-    expect(summary.style.gap).toBe("3px");
-    expect(target.querySelector<HTMLElement>(".quality-icon")?.style.fontSize).toBe("10px");
+    expect(summary.style.gap).toBe("4px");
+    expect(target.querySelector<HTMLElement>(".quality-icon")?.style.fontSize).toBe("11px");
     expect(target.querySelector<HTMLElement>(".quality-summary strong")?.style.fontWeight).toBe("400");
     expect(target.querySelector("h3")).toBeNull();
+  });
+
+  it("keeps compact lossless details in one readable resolution label", async () => {
+    const target = render({ track, asset: { ...asset, sourceCodec: "FLAC", finalCodec: "FLAC", finalBitrate: 804, sampleRate: 44100, channels: 2, bitDepth: 16 }, compact: true }); await tick();
+    const summary = target.querySelector<HTMLElement>(".quality-summary")!;
+    expect(summary.querySelector("strong")?.textContent).toBe("FLAC · 16-bit / 44.1 kHz");
+    expect(summary.title).toContain("804 kbps");
+    expect(summary.title).toContain("stereo");
+    expect(summary.querySelectorAll("span")).toHaveLength(1);
   });
 
   it("keeps quality unknown when no downloaded file details are available", async () => {

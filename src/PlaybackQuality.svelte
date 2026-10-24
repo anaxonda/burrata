@@ -21,11 +21,27 @@
   const approximateBitrate = $derived(Boolean(bitrateOrigin && /(?:average|approx|estim)/i.test(bitrateOrigin)));
   const hasFacts = $derived(Boolean(codec || (bitrate != null && bitrate > 0)));
   const summaryLabel = $derived(lossySource ? `${codec!.toUpperCase()} · lossy source` : showLossless ? `${codec?.toUpperCase()} · lossless` : codec?.toUpperCase() ?? "Audio");
+  const compactLabel = $derived.by(() => {
+    if (!hasFacts) return "Quality unknown";
+    const parts = [codec?.toUpperCase() ?? "Audio"];
+    if (lossySource) parts.push("lossy source");
+    if (showLossless) {
+      const resolution = [bitDepth ? `${bitDepth}-bit` : "", sampleRate ? `${sampleRate / 1000} kHz` : ""].filter(Boolean).join(" / ");
+      parts.push(resolution || "lossless");
+    } else if (bitrate != null && bitrate > 0) parts.push(`${approximateBitrate ? "~" : ""}${Math.round(bitrate)} kbps`);
+    else if (sampleRate) parts.push(`${sampleRate / 1000} kHz`);
+    return parts.join(" · ");
+  });
+  const detailedLabel = $derived([summaryLabel, bitrate && `${approximateBitrate ? "~" : ""}${Math.round(bitrate)} kbps`, sampleRate && `${sampleRate / 1000} kHz`, channels && (channels === 2 ? "stereo" : `${channels} ch`), bitDepth && `${bitDepth}-bit`].filter(Boolean).join(" · "));
 </script>
 
 <section class="playback-quality" class:compact style:padding={compact ? "0" : undefined} style:border={compact ? "0" : undefined} style:border-radius={compact ? "0" : undefined} style:background={compact ? "transparent" : undefined} aria-label="Playback quality">
   {#if !compact}<h3>Playback quality</h3>{/if}
-  {#if streaming}
+  {#if compact}
+    <p class="quality-summary" style:font-size="11px" style:font-weight="400" style:gap="4px" title={hasFacts ? detailedLabel : "Audio quality details are unavailable."}>
+      <span class="quality-icon" style:font-size="11px" aria-hidden="true">{showLossless ? "◆" : "♫"}</span><strong style:font-size="11px" style:font-weight="400">{compactLabel}</strong>
+    </p>
+  {:else if streaming}
     <p class="quality-summary" style:font-size={compact ? "10px" : undefined} style:font-weight={compact ? "400" : undefined} style:gap={compact ? "3px" : undefined}>
       <span class="quality-icon" style:font-size={compact ? "10px" : undefined} aria-hidden="true">♫</span>
       {#if hasFacts}

@@ -36,3 +36,6 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Discover several LRCLIB lyric candidates using structured titles, broader title queries and verified artist names. Choose related performances explicitly; those display as plain text with source credits and timing disabled. The reported choir lookup returns seven selectable results.
 - Add the OpenRouter GPT-6 Luna preset and actual translation-provider attribution, preserving line IDs and blank paragraphs. Existing provider choices remain intact.
 - Explain live BPM availability in Track info and keep routine position updates from restarting its polling. Native audio remains required; uncertain rhythm produces no fabricated estimate.
+
+- Display compact playback quality as one readable codec/resolution or codec/bitrate label, with full details in a tooltip. Avoid shrinking every field into separate ellipses.
+- Let listeners pair alternating bilingual source lines into aligned columns without changing the source or invoking translation. Generated translations retain one original/translated pair per row.
