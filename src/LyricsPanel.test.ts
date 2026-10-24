@@ -45,7 +45,7 @@ describe("LyricsPanel", () => {
     await settle();target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();
     expect(target.textContent).not.toContain("loaded only");
     expect(target.textContent).not.toContain("enable a provider");
-    expect(target.querySelector('[aria-label="Translate lyrics"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Show translation"]')).not.toBeNull();
     target.querySelector<HTMLButtonElement>('[aria-label="Maximize lyrics"]')!.click();await settle();
     const dialog=document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Fullscreen lyrics"]')!;
     expect(dialog).not.toBeNull();expect(dialog.parentElement).toBe(document.body);
@@ -117,7 +117,7 @@ describe("LyricsPanel", () => {
     const plain = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Synthetic unsynced verse\nAnother synthetic line" });
     await settle();
     plain.target.querySelector<HTMLButtonElement>(".lyrics-open")!.click(); await settle();
-    expect(plain.target.querySelector(".lyrics-unsynced")?.textContent).toContain("Another synthetic line");
+    expect(plain.target.querySelector(".lyrics-plain-rows")?.textContent).toContain("Another synthetic line");
     destroy?.(); destroy = undefined; document.body.innerHTML = "";
 
     const mismatch = render({ status: "synced", provider: "lrclib", match: { trackName: "Synthetic Song", artistName: "Synthetic Artist", albumName: "Synthetic Album", durationSeconds: 220, durationDeltaSeconds: 40 }, lines: [{ timeSeconds: 0, text: "Do not display mismatched lyrics" }] }, 100);
@@ -150,12 +150,11 @@ describe("LyricsPanel", () => {
     }
   });
 
-  it("pairs bilingual source lines only when requested and keeps a final unpaired line", async () => {
+  it("pairs source lines side by side by default and keeps a final unpaired line", async () => {
     const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Original one\nTranslation one\nOriginal two\nTranslation two\nFinal original" });
     await settle(); target.querySelector<HTMLButtonElement>(".lyrics-open")!.click(); await settle();
-    expect(target.querySelector(".lyrics-unsynced")).not.toBeNull();
+    expect(target.querySelector(".lyrics-unsynced")).toBeNull();
     const toggle = target.querySelector<HTMLButtonElement>(".lyrics-pair-lines")!;
-    toggle.click(); await settle();
     const rows = [...target.querySelectorAll(".lyrics-line-row")];
     expect(rows).toHaveLength(3);
     expect([...rows[0]!.querySelectorAll("p")].map(p => p.textContent)).toEqual(["Original one", "Translation one"]);
@@ -188,6 +187,14 @@ describe("LyricsPanel", () => {
     expect(target.textContent).toContain("Traducción source-line-1");
     expect(target.querySelector(".lyrics-scroll p.active")?.textContent).toBe("Synthetic original two");
     expect(lines.map(line => line.timeSeconds)).toEqual([4.25, 9.5]);
+    const toggle = target.querySelector<HTMLButtonElement>('[aria-label="Show translation"]')!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    toggle.click(); await settle();
+    expect(target.querySelectorAll(".translated-line")).toHaveLength(0);
+    expect(target.textContent).toContain("Synthetic original one");
+    toggle.click(); await settle();
+    expect(target.querySelectorAll(".translated-line")).toHaveLength(2);
+    expect(translateLyrics).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a translation response for a different lyric source", async () => {

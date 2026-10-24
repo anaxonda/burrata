@@ -60,7 +60,8 @@
   let translating = $state(false);
   let translationMessage = $state("");
   let translationEpoch = 0;
-  let pairAlternatingLines = $state(false);
+  let pairAlternatingLines = $state(true);
+  let showTranslation = $state(true);
   const sourcePlainLines = $derived((lyrics?.plainLyrics || lyrics?.lines?.map(line => line.text).join("\n") || "").split("\n"));
   let lyricScroll = $state<HTMLDivElement | null>(null);
   let lineNodes = $state<(HTMLParagraphElement | undefined)[]>([]);
@@ -104,7 +105,7 @@
     timingOffset = 0;
     loading = false;
     lyrics = null;
-    pairAlternatingLines = false;
+    pairAlternatingLines = true; showTranslation = true;
     candidatePage = null; candidatesOpen = false; candidatesBusy = false; candidateMessage = "";
     failure = "";
     timingOffset = 0;
@@ -170,7 +171,7 @@
     const page = candidatePage ?? (lyrics?.scopeId ? { scopeId: lyrics.scopeId, candidates: lyrics.candidates ?? [], status: "ok" } : null);
     if (!chooseLyrics || !page || candidatesBusy) return;
     const expected = scope, epoch = ++requestEpoch;
-    pairAlternatingLines = false;
+    pairAlternatingLines = true; showTranslation = true;
     translationEpoch++; translation = null; translating = false; translationMessage = "";
     candidatesBusy = true;
     try {
@@ -238,7 +239,7 @@
   <div class="lyrics-heading"><h2 title={lyrics?.provider === "shazam" ? "Lyrics from Shazam identification" : undefined}>Lyrics</h2><div class="lyrics-actions">
     {#if open}
       {#if lyrics?.status === "synced" || lyrics?.status === "unsynced"}
-        <span class="lyrics-translation-controls"><button type="button" aria-label="Translate lyrics" title={!translationEnabled || !translationCredentialPresent ? "Configure lyric translation in Settings → Connections" : "Translate lyrics"} disabled={translating || Boolean(translation) || !translationEnabled || !translationCredentialPresent || !translateLyrics || !lyrics.sourceHash || !translationSourceLines(lyrics)} onclick={() => void translateLoadedLyrics()}>{translating ? "Translating…" : "Translate"}</button></span>
+        <span class="lyrics-translation-controls"><button type="button" aria-label="Show translation" aria-pressed={Boolean(translation) && showTranslation} title={!translation && (!translationEnabled || !translationCredentialPresent) ? "Configure lyric translation in Settings → Connections" : "Show or hide translation"} disabled={translating || (!translation && (!translationEnabled || !translationCredentialPresent || !translateLyrics || !lyrics.sourceHash || !translationSourceLines(lyrics)))} onclick={() => { if (translation) showTranslation = !showTranslation; else { showTranslation = true; void translateLoadedLyrics(); } }}>{translating ? "Translating…" : "Show translation"}</button></span>
       {/if}
       <button bind:this={expandButton} type="button" aria-label={fullscreen ? "Exit fullscreen lyrics" : "Maximize lyrics"} title={fullscreen ? "Exit fullscreen (Escape)" : "Maximize lyrics"} onclick={() => { if (fullscreen) closeFullscreen(); else fullscreen = true; }}>{fullscreen ? "⤢" : "⛶"}</button>
       <button type="button" aria-label="Hide lyrics" title="Hide lyrics" onclick={hideLyrics}>×</button>
@@ -271,7 +272,7 @@
     {:else if lyrics?.status === "providerUnavailable"}<p class="lyrics-status" role="status">LRCLIB could not be reached. Check your internet connection. <button type="button" onclick={retry}>Retry</button></p>
     {:else if lyrics?.status === "unavailable"}<p class="lyrics-status" role="status">Lyrics are currently unavailable.</p>
     {:else if lyrics?.status === "unsynced"}
-      {#if translation}
+      {#if translation && showTranslation}
         {@render translationHeadings(translation.targetLanguage)}
         <div class="lyrics-scroll lyrics-plain-rows" aria-label="Original and translated lyrics">
           {#each translationSourceLines(lyrics) ?? [] as line, index (line.id)}
@@ -280,9 +281,8 @@
           {/each}
         </div>
       {:else}
-        {#if sourcePlainLines.length > 1}<button class="lyrics-pair-lines" type="button" aria-pressed={pairAlternatingLines} title="For source text that alternates an original line and its translation" onclick={() => pairAlternatingLines = !pairAlternatingLines}>{pairAlternatingLines ? "Show source order" : "Pair alternating lines"}</button>{/if}
-        {#if pairAlternatingLines}
-          <div class="lyrics-column-headings" aria-hidden="true"><span>Source · first line</span><span>Source · next line</span></div>
+        {#if sourcePlainLines.length > 1 && !translation}<button class="lyrics-pair-lines" type="button" aria-pressed={pairAlternatingLines} title="For source text that alternates an original line and its translation" onclick={() => pairAlternatingLines = !pairAlternatingLines}>{pairAlternatingLines ? "Show source order" : "Side by side"}</button>{/if}
+        {#if pairAlternatingLines && !translation}
           <div class="lyrics-scroll lyrics-plain-rows" aria-label="Paired source lyrics">
             {#each sourcePlainLines.filter((_, index) => index % 2 === 0) as line, index}
               <div class="lyrics-line-row translated-row"><p>{line || " "}</p><p>{sourcePlainLines[index * 2 + 1] || " "}</p></div>
@@ -291,13 +291,13 @@
         {:else}<p class="lyrics-unsynced">{sourcePlainLines.join("\n") || "No plain lyrics text is available."}</p>{/if}
       {/if}
     {:else if lyrics?.status === "synced"}
-      {#if translation}{@render translationHeadings(translation.targetLanguage)}{/if}
+      {#if translation && showTranslation}{@render translationHeadings(translation.targetLanguage)}{/if}
       <div class="lyrics-scroll" bind:this={lyricScroll} aria-label="Synchronized lyrics">
         {#each lyrics.lines ?? [] as line, index (line.id ?? line.timeSeconds + ":" + index)}
           {@const translatedLine = translation?.lines.find(item => item.id === line.id)}
-          <div class:translated-row={Boolean(translation)} class="lyrics-line-row">
+          <div class:translated-row={Boolean(translation) && showTranslation} class="lyrics-line-row">
             <p bind:this={lineNodes[index]} class:active={index === activeLine} aria-current={index === activeLine ? "true" : undefined}>{line.text}</p>
-            {#if translation}<p class="translated-line" aria-label={`Translated line ${index + 1}${translatedLine ? "" : ", unavailable"}`}>{translatedLine?.text || "Translation unavailable for this line."}</p>{/if}
+            {#if translation && showTranslation}<p class="translated-line" aria-label={`Translated line ${index + 1}${translatedLine ? "" : ", unavailable"}`}>{translatedLine?.text || "Translation unavailable for this line."}</p>{/if}
           </div>
         {/each}
       </div>
@@ -338,7 +338,7 @@
   .lyrics-open{flex:none}.lyrics-scroll{max-height:min(42vh,420px);overflow:auto;overscroll-behavior:contain;scroll-behavior:smooth;padding:.25rem .45rem}
   .lyrics-scroll p{margin:0;padding:.5rem .3rem;color:#9ca69f;line-height:1.5;font-size:1rem;transition:color .15s ease,transform .15s ease}
   .lyrics-scroll p.active{color:var(--text,#f0f4f1);font-weight:650;transform:scale(1.015);transform-origin:left center}
-  .lyrics-translation-controls{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;padding:.65rem .15rem 0}.lyrics-line-row{min-width:0}.lyrics-line-row.translated-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;padding:.2rem 0;border-bottom:1px solid #ffffff0b}.lyrics-line-row.translated-row p{margin:0;min-width:0;overflow-wrap:anywhere}.lyrics-line-row .translated-line{color:var(--text,#f0f4f1)}
+  .lyrics-translation-controls{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;padding:.65rem .15rem 0}.lyrics-line-row{min-width:0}.lyrics-line-row.translated-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;padding:0}.lyrics-line-row.translated-row p{margin:0;min-width:0;overflow-wrap:anywhere}.lyrics-line-row .translated-line{color:var(--text,#f0f4f1)}
   .lyrics-column-headings{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;padding:0 .75rem;color:#8f9c94;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}
   .lyrics-unsynced{max-height:min(42vh,420px);overflow:auto;white-space:pre-wrap;line-height:1.65;color:var(--text,#f0f4f1)}
   .lyrics-sync{display:grid;justify-items:start;gap:.35rem;padding:.7rem .15rem 0}.lyrics-sync small{max-width:42rem;color:#8f9c94;line-height:1.4}.lyrics-sync p{margin:0;color:#b5beb8;font-size:.85rem}

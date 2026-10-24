@@ -49,6 +49,7 @@ describe("ConnectionsSetup Soulseek shares", () => {
     endpoint.value = "https://translator.example/v1"; endpoint.dispatchEvent(new Event("input", { bubbles: true }));
     const model = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation model"]')!;
     model.value = "synthetic-model"; model.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLButtonElement>('[aria-label="Translation language"]')!.click(); await settle();
     const language = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation target language"]')!;
     language.value = "Spanish"; language.dispatchEvent(new Event("input", { bubbles: true }));
     const key = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation API key"]')!;

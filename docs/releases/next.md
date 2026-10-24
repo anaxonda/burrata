@@ -39,3 +39,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 
 - Display compact playback quality as one readable codec/resolution or codec/bitrate label, with full details in a tooltip. Avoid shrinking every field into separate ellipses.
 - Let listeners pair alternating bilingual source lines into aligned columns without changing the source or invoking translation. Generated translations retain one original/translated pair per row.
+
+- Default paired source lyrics to side-by-side presentation without row dividers. Rename Translate to Show translation and allow cached generated translations to be hidden and restored without another provider request. Add a translation-language button with language presets and custom entry in Settings → Connections.
