@@ -65,5 +65,19 @@
   },
   "externalAudioOrFingerprintSubmissions": 0,
   "normalLibraryChanges": 0,
-  "desktopVisualQualification": "pending rebuilt candidate"
+  "desktopVisualQualification": {
+    "sourceCommit": "eaf8e98",
+    "binarySha256": "549b95fd754a5abda41f37c05ca6e05013c3cb9a99990cc308b80796acefb3d0",
+    "platform": "Linux X11; native engine; marked disposable profile",
+    "actualChoirFile": "registered read-only; original hash unchanged",
+    "candidateList": "multiple actual LRCLIB results visible; explicit selection prompt and credits inspected",
+    "bpm": "Disabled state inspected; toggle refused by default manage permission, so this null result is not a confidence measurement",
+    "normalRestoration": {
+      "queueEntries": 13,
+      "allOccurrenceIds": true,
+      "sameTrackAndIndex": true,
+      "samePausedPosition": true
+    },
+    "visualFollowup": "Full-height fullscreen result list and source-link contrast fixed; final visual check pending"
+  }
 }

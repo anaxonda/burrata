@@ -244,7 +244,7 @@
   {#if open}
     {#if findLyrics}<button class="lyrics-other-results" type="button" aria-expanded={candidatesOpen} onclick={() => void showCandidates()}>Other lyric results</button>{/if}
     {#if candidatesOpen || (lyrics?.candidates?.length && !lyrics?.lines?.length)}
-      <div class="lyric-candidates" aria-label="Lyric results">
+      <div class="lyric-candidates" class:results-only={!lyrics?.lines?.length} aria-label="Lyric results">
         {#if candidatesBusy}<p role="status">Looking up lyric results…</p>{/if}
         {#if candidateMessage}<p role="status">{candidateMessage}</p>{/if}
         {#each candidatePage?.candidates ?? lyrics?.candidates ?? [] as candidate (candidate.id)}
@@ -307,6 +307,8 @@
 <style>
   .lyrics-other-results { margin:.5rem 0; }
   .lyric-candidates { max-height:20rem; overflow:auto; margin:.5rem 0; }
+  .fullscreen .lyric-candidates.results-only { flex:1; min-height:0; max-height:none; }
+  .lyric-candidates a, .lyrics-external-source a { color:var(--text); text-decoration-color:var(--muted); }
   .lyric-candidates article { padding:.7rem; border-bottom:1px solid var(--line); }
   .lyric-candidates p { margin:.3rem 0; }
   .lyric-candidates small { display:block; color:var(--muted); margin-bottom:.4rem; }
