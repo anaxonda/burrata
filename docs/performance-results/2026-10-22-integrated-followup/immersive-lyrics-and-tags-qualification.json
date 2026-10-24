@@ -1,8 +1,8 @@
 {
   "frontendTests": 1294,
   "frontendFiles": 108,
-  "nativePassed": 1827,
-  "nativeIgnored": 43,
+  "nativePassed": 1829,
+  "nativeIgnored": 44,
   "nativeFailed": 0,
   "focusedUiLatest": 25,
   "typecheck": "zero errors/warnings",
@@ -28,7 +28,12 @@
     ]
   },
   "manualChoices": "SQLite selection survives memory eviction and Store reopen; recording-scoped; no assets or Library entries created",
-  "desktop": "rebuild pending",
+  "desktop": {
+    "build": "running",
+    "binarySha256": "81312578a7c22e9b2b9f1cc696cfac7ca86c164262a030e10d4c40ee763520c9",
+    "session": "all 64 original occurrence IDs, selected item and exact paused position 0 preserved",
+    "screenshot": "private app-only capture; not included in repository"
+  },
   "automaticEmbeddingDefault": false,
   "externalAudioUploads": 0
 }

@@ -151,19 +151,19 @@ describe("LyricsPanel", () => {
   });
 
   it("pairs bilingual source lines and the icon hides and restores the second column", async () => {
-    const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Zora svetla\nThe morning shines\nMore tiho\nThe sea is calm" });
+    const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Zora svetla\nThe morning shines\nMore tiho\nThe sea is calm\nRano leto\nThe summer is warm\nNebo sine\nThe sky is blue" });
     await settle(); target.querySelector<HTMLButtonElement>(".lyrics-open")!.click(); await settle();
     expect(target.querySelector(".lyrics-unsynced")).toBeNull();
     const toggle = target.querySelector<HTMLButtonElement>('[aria-label="Show translation"]')!;
     const rows = [...target.querySelectorAll(".lyrics-line-row")];
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(4);
     expect([...rows[0]!.querySelectorAll("p")].map(p => p.textContent)).toEqual(["Zora svetla", "The morning shines"]);
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     toggle.click(); await settle();
     expect(target.querySelectorAll(".translated-line")).toHaveLength(0);
     expect(target.querySelectorAll(".translated-row")).toHaveLength(0);
     toggle.click(); await settle();
-    expect(target.querySelectorAll(".translated-line")).toHaveLength(2);
+    expect(target.querySelectorAll(".translated-line")).toHaveLength(4);
   });
 
   it("translates only after click and preserves each original timestamp and line", async () => {

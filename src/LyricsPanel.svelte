@@ -63,6 +63,7 @@
   let translationMessage = $state("");
   let translationEpoch = 0;
   let pairAlternatingLines = $state(false);
+  let sourceTranslationEnabled = $state(true);
   let showTranslation = $state(false);
   let savingLyrics = $state(false);
   let saveMessage = $state("");
@@ -84,13 +85,17 @@
     const english = (text: string) => /^(?:the |a |an |and |but |so |it |she |he |i |you |we |they |underneath |unwanted |then |when |there |that |this )/i.test(text.trim()) || /\b(?:was|were|did|does|don't|didn't)\b/i.test(text);
     const cyrillic = (text: string) => /[\u0400-\u04ff]/.test(text);
     const left=lines.filter((_,i)=>i%2===0), right=lines.filter((_,i)=>i%2===1);
-    return [english,cyrillic].some(matches => (left.filter(matches).length/left.length >= .75 && right.filter(matches).length/right.length <= .25) || (right.filter(matches).length/right.length >= .75 && left.filter(matches).length/left.length <= .25));
+    return [english,cyrillic].some(matches => (matches !== english || lines.length >= 8) && ((left.filter(matches).length/left.length >= .75 && right.filter(matches).length/right.length <= .25) || (right.filter(matches).length/right.length >= .75 && left.filter(matches).length/left.length <= .25)));
   }
   function displayedLyricsText(): string {
     if (!lyrics) return "";
-    if (translation && showTranslation) return (lyrics.lines ?? []).map(line => [line.text,translation!.lines.find(item=>item.id===line.id)?.text ?? ""].join("\t")).join("\n");
+    if (translation && showTranslation) return displaySourceLines(lyrics).map(line => [line.text,translation!.lines.find(item=>item.id===line.id)?.text ?? ""].join("\t")).join("\n");
     if (pairAlternatingLines) return pairedSourceLines.filter((_,index)=>index%2===0).map((text,index)=>showTranslation ? `${text}\t${pairedSourceLines[index*2+1] ?? ""}` : text).join("\n");
     return lyrics.plainLyrics || lyrics.lines?.map(line=>line.text).join("\n") || "";
+  }
+  function displaySourceLines(document: CurrentTrackLyrics) {
+    const lines = document.lines ?? [];
+    return pairAlternatingLines ? lines.filter(line=>line.text.trim()).filter((_,index)=>index%2===0) : lines;
   }
   function translationSourceLines(document: CurrentTrackLyrics): TranslationLine[] | null {
     if ((document.status !== "synced" && document.status !== "unsynced") || !Array.isArray(document.lines) || !document.lines.length) return null;
@@ -126,7 +131,7 @@
     timingOffset = 0;
     loading = false;
     lyrics = null;
-    pairAlternatingLines = false; showTranslation = false; saveMessage = "";
+    pairAlternatingLines = false; sourceTranslationEnabled = true; showTranslation = false; saveMessage = "";
     candidatePage = null; candidatesOpen = false; candidatesBusy = false; candidateMessage = "";
     failure = "";
     timingOffset = 0;
@@ -169,7 +174,7 @@
         const lines = (Array.isArray(result.lines) ? result.lines : []).filter((line): line is { id?: string; timeSeconds: number; text: string } => line != null && typeof line.timeSeconds === "number" && Number.isFinite(line.timeSeconds) && line.timeSeconds >= 0 && typeof line.text === "string" && Boolean(line.text.trim())).slice().sort((a, b) => a.timeSeconds - b.timeSeconds);
         lyrics = lines.length ? { ...result, lines } : { status: "unavailable", provider: "lrclib" };
       } else lyrics = result;
-      pairAlternatingLines = lyrics?.status === "unsynced" && sourceHasAlternatingLanguages(lyrics); showTranslation = pairAlternatingLines;
+      pairAlternatingLines = lyrics?.status === "unsynced" && sourceHasAlternatingLanguages(lyrics); sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled;
     } catch (error) {
       if (epoch === requestEpoch) failure = error instanceof Error ? error.message : String(error);
     } finally {
@@ -193,13 +198,13 @@
     const page = candidatePage ?? (lyrics?.scopeId ? { scopeId: lyrics.scopeId, candidates: lyrics.candidates ?? [], status: "ok" } : null);
     if (!chooseLyrics || !page || candidatesBusy) return;
     const expected = scope, epoch = ++requestEpoch;
-    pairAlternatingLines = false; showTranslation = false; saveMessage = "";
+    pairAlternatingLines = false; sourceTranslationEnabled = true; showTranslation = false; saveMessage = "";
     translationEpoch++; translation = null; translating = false; translationMessage = "";
     candidatesBusy = true;
     try {
       const result = await chooseLyrics(page.scopeId, id);
       if (expected !== scope || epoch !== requestEpoch) return;
-      lyrics = result; candidatesOpen = false; pairAlternatingLines = result.status === "unsynced" && sourceHasAlternatingLanguages(result); showTranslation = pairAlternatingLines; timingOffset = 0; anchorOffset = null; syncMessage = "";
+      lyrics = result; candidatesOpen = false; pairAlternatingLines = result.status === "unsynced" && sourceHasAlternatingLanguages(result); sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled; timingOffset = 0; anchorOffset = null; syncMessage = "";
     } catch (error) { if (expected === scope) candidateMessage = String(error); }
     finally { if (expected === scope) candidatesBusy = false; }
   }
@@ -264,7 +269,7 @@
       {#if lyrics?.status === "synced" || lyrics?.status === "unsynced"}
         <span class="lyrics-translation-controls"><button type="button" class:enabled={showTranslation} aria-label="Show translation" aria-pressed={showTranslation} title={showTranslation ? "Hide translation" : "Show translation"} onclick={() => {
           showTranslation = !showTranslation;
-          if (showTranslation && !translation && !(lyrics?.status === "unsynced" && pairAlternatingLines)) void translateLoadedLyrics();
+          if (showTranslation && !translation && !(lyrics?.status === "unsynced" && pairAlternatingLines && sourceTranslationEnabled)) void translateLoadedLyrics();
         }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 5h12M9 2v3M5 5c1 5 4 8 8 10M13 5c-1 5-4 8-9 11M13 21l4-10 4 10M14.5 18h5"/></svg></button></span>
       {/if}
       <details class="lyrics-menu" bind:this={optionsMenu}><summary aria-label="Lyrics options" title="Lyrics options">⋯</summary><div class="lyrics-menu-content">
@@ -272,15 +277,15 @@
     {#if lyrics?.match?.artistName}<small class="lyrics-source">Lyrics credit: {lyrics.match.artistName}{#if lyrics.match.albumName} · {lyrics.match.albumName}{/if} · {lyrics.provider === "lrclib" ? "LRCLIB" : lyrics.provider}</small>{/if}
     {#if lyrics?.selectionNotice}<p class="lyrics-status" role="status">{lyrics.selectionNotice}</p>{/if}
     {#if candidatesOpen}<small class="lyrics-external-source">Other transcriptions: <a href={`https://www.google.com/search?q=${encodeURIComponent(`site:lyricstranslate.com ${track.title} lyrics`)}`} target="_blank" rel="noreferrer">Search LyricsTranslate ↗</a>. Performances and repetitions may differ.</small>{/if}
-        {#if lyrics?.status === "unsynced" && !translation}<button class="lyrics-pair-lines" type="button" aria-pressed={pairAlternatingLines} onclick={() => {pairAlternatingLines = !pairAlternatingLines; showTranslation = pairAlternatingLines;}}>Source has alternating bilingual lines</button>{/if}
+        {#if lyrics?.status === "unsynced" && !translation}<button class="lyrics-pair-lines" type="button" aria-pressed={pairAlternatingLines} onclick={() => {pairAlternatingLines = !pairAlternatingLines; sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled;}}>Source has alternating bilingual lines</button>{/if}
         {#if translationMessage}<p class="lyrics-status" role="status">{translationMessage}</p>{/if}
-        {#if !translation && showTranslation && !(lyrics?.status === "unsynced" && pairAlternatingLines)}<button type="button" onclick={() => void translateLoadedLyrics()} disabled={translating}>Retry translation</button>{/if}
-        {#if saveLyrics && lyrics?.sourceHash}<button type="button" disabled={savingLyrics || !track.localPath} title={!track.localPath ? "Download this song first" : "Save displayed lyrics into this downloaded audio file"} onclick={async () => {savingLyrics = true; saveMessage = ""; try {await saveLyrics!(lyrics!.sourceHash!); saveMessage = "Lyrics saved to audio file.";} catch(error) {saveMessage = String(error);} finally {savingLyrics = false;}}}>{savingLyrics ? "Saving…" : "Embed lyrics in audio file"}</button>{/if}
+        {#if !translation && showTranslation && !(lyrics?.status === "unsynced" && pairAlternatingLines && sourceTranslationEnabled)}<button type="button" onclick={() => void translateLoadedLyrics()} disabled={translating}>Retry translation</button>{/if}
+        {#if saveLyrics && lyrics?.sourceHash}<button type="button" disabled={savingLyrics || !track.localPath} title={!track.localPath ? "Download this song first" : "Embed original source lyrics in this downloaded audio file"} onclick={async () => {savingLyrics = true; saveMessage = ""; try {await saveLyrics!(lyrics!.sourceHash!); saveMessage = "Lyrics saved to audio file.";} catch(error) {saveMessage = String(error);} finally {savingLyrics = false;}}}>{savingLyrics ? "Saving…" : "Embed lyrics in audio file"}</button>{/if}
         {#if lyrics?.sourceHash}
           <button type="button" onclick={async () => {try {await navigator.clipboard.writeText(displayedLyricsText());saveMessage="Lyrics copied.";} catch {saveMessage="Could not copy lyrics to the clipboard.";}}}>Copy lyrics</button>
           {#if exportLyrics}<button type="button" onclick={async () => {try {const result=await exportLyrics!(lyrics!.sourceHash!,displayedLyricsText());saveMessage=result.cancelled ? "" : "Lyrics saved as text.";} catch(error){saveMessage=String(error);}}}>Save lyrics as text file</button>{/if}
         {/if}
-        {#if changeTranslationLanguage}<LanguagePicker value={translationLanguage} onChange={async language => {const visible=showTranslation;await changeTranslationLanguage!(language);translationEpoch++;translation=null;translationMessage="";translating=false;pairAlternatingLines=false;showTranslation=visible;if(visible)void translateLoadedLyrics();}} />{/if}
+        {#if changeTranslationLanguage}<LanguagePicker value={translationLanguage} onChange={async language => {const visible=showTranslation;await changeTranslationLanguage!(language);translationEpoch++;translation=null;translationMessage="";translating=false;sourceTranslationEnabled=false;showTranslation=visible;if(visible)void translateLoadedLyrics();}} />{/if}
         {#if saveMessage}<p role="status">{saveMessage}</p>{/if}
         {#if lyrics?.status === "synced"}
       {#if syncLyrics}<div class="lyrics-sync">
@@ -323,19 +328,19 @@
     {:else if lyrics?.status === "providerUnavailable"}<p class="lyrics-status" role="status">LRCLIB could not be reached. Check your internet connection. <button type="button" onclick={retry}>Retry</button></p>
     {:else if lyrics?.status === "unavailable"}<p class="lyrics-status" role="status">Lyrics are currently unavailable.</p>
     {:else if lyrics?.status === "unsynced"}
-      {#if showTranslation && (translation || !pairAlternatingLines)}
+      {#if showTranslation && (translation || !pairAlternatingLines || !sourceTranslationEnabled)}
         {@render translationHeadings(translation?.targetLanguage ?? translationLanguage)}
         <div class="lyrics-scroll lyrics-plain-rows" aria-label="Original and translated lyrics">
-          {#each translationSourceLines(lyrics) ?? [] as line, index (line.id)}
+          {#each displaySourceLines(lyrics) as line, index (line.id)}
             {@const translatedLine = translation?.lines.find(item => item.id === line.id)}
             <div class="lyrics-line-row translated-row"><p>{line.text || " "}</p><p class="translated-line" aria-label={`Translated paragraph ${index + 1}${translatedLine ? "" : ", unavailable"}`}>{translatedLine ? translatedLine.text || " " : translating ? "…" : "Translation unavailable for this line."}</p></div>
           {/each}
         </div>
       {:else}
-        {#if pairAlternatingLines && !translation}
+        {#if pairAlternatingLines}
           <div class="lyrics-scroll lyrics-plain-rows" aria-label="Paired source lyrics">
             {#each pairedSourceLines.filter((_, index) => index % 2 === 0) as line, index}
-              <div class="lyrics-line-row" class:translated-row={showTranslation}><p>{line || " "}</p>{#if showTranslation}<p class="translated-line">{pairedSourceLines[index * 2 + 1] || " "}</p>{/if}</div>
+              <div class="lyrics-line-row" class:translated-row={showTranslation && sourceTranslationEnabled}><p>{line || " "}</p>{#if showTranslation && sourceTranslationEnabled}<p class="translated-line">{pairedSourceLines[index * 2 + 1] || " "}</p>{/if}</div>
             {/each}
           </div>
         {:else}<p class="lyrics-unsynced">{sourcePlainLines.join("\n") || "No plain lyrics text is available."}</p>{/if}
