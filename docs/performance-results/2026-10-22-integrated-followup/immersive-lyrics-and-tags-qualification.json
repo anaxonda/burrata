@@ -1,0 +1,34 @@
+{
+  "frontendTests": 1294,
+  "frontendFiles": 108,
+  "nativePassed": 1827,
+  "nativeIgnored": 43,
+  "nativeFailed": 0,
+  "focusedUiLatest": 25,
+  "typecheck": "zero errors/warnings",
+  "contracts": 8,
+  "lyricTags": {
+    "formats": [
+      "flac",
+      "mp3",
+      "m4a",
+      "ogg",
+      "opus",
+      "wav"
+    ],
+    "checks": [
+      "existing metadata retained",
+      "decoded audio hash unchanged",
+      "lyrics round trip",
+      "readonly and stale assets rejected",
+      "atomic retag journal and hash recovery",
+      "automatic embedding off/on before publication",
+      "MP3 export retains embedded lyrics",
+      "offline embedded reader verified"
+    ]
+  },
+  "manualChoices": "SQLite selection survives memory eviction and Store reopen; recording-scoped; no assets or Library entries created",
+  "desktop": "rebuild pending",
+  "automaticEmbeddingDefault": false,
+  "externalAudioUploads": 0
+}

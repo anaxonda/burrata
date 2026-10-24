@@ -5352,12 +5352,118 @@ fn select_current_track_lyric_candidate(
     scope_id: String,
     candidate_id: String,
 ) -> Result<lyrics_discovery::Document> {
-    lyrics_discovery::choose(
+    let result = lyrics_discovery::choose(
         &state.playback.snapshot_page(0, 1),
         visible_track,
         &scope_id,
         &candidate_id,
+    )?;
+    lyrics_discovery::remember(&state.store, &scope_id, &candidate_id)?;
+    Ok(result)
+}
+#[tauri::command]
+async fn export_current_track_lyrics_text(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    visible_track: Option<lyrics::LyricsRequestInput>,
+    source_hash: String,
+    text: String,
+) -> Result<serde_json::Value> {
+    use tauri_plugin_dialog::DialogExt;
+    if text.trim().is_empty() || text.len() > 131072 || text.contains('\0') {
+        return Err("Lyrics text is empty or too large".into());
+    }
+    let current = lyrics_discovery::current(
+        &state.playback.snapshot_page(0, 1),
+        visible_track,
+        &state.store,
+        &state.artists,
     )
+    .await;
+    if current.document.source_hash.as_deref() != Some(source_hash.as_str()) {
+        return Err("Displayed lyrics changed; reload before exporting".into());
+    }
+    tokio::task::spawn_blocking(move || {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .add_filter("Text", &["txt"])
+            .set_file_name("lyrics.txt")
+            .blocking_save_file()
+        else {
+            return Ok(serde_json::json!({"cancelled":true}));
+        };
+        let path = file
+            .into_path()
+            .map_err(|_| "Selected text path is unavailable".to_owned())?;
+        std::fs::write(&path, text).map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({"cancelled":false}))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn save_current_track_lyrics_to_file(
+    state: State<'_, AppState>,
+    visible_track: Option<lyrics::LyricsRequestInput>,
+    source_hash: String,
+) -> Result<serde_json::Value> {
+    let snapshot = state.playback.snapshot_page(0, 1);
+    let (scope, _, id) = lyrics_discovery::context(&snapshot, visible_track.clone())
+        .ok_or("No current lyrics scope")?;
+    let visible_path = visible_track.as_ref().and_then(|t| t.local_path.clone());
+    let current = lyrics_discovery::current(
+        &snapshot,
+        visible_track.clone(),
+        &state.store,
+        &state.artists,
+    )
+    .await;
+    if lyrics_discovery::context(&state.playback.snapshot_page(0, 1), visible_track)
+        .map(|v| v.0)
+        .as_deref()
+        != Some(scope.as_str())
+    {
+        return Err("Playback changed before saving lyrics".into());
+    }
+    if current.document.source_hash.as_deref() != Some(source_hash.as_str())
+        || !matches!(current.document.status.as_str(), "synced" | "unsynced")
+    {
+        return Err("Displayed lyrics changed; reload before saving".into());
+    }
+    let id = id.ok_or("No current track")?;
+    let track = state
+        .store
+        .get_track(&id)?
+        .ok_or("Current track unavailable")?;
+    let path = snapshot["track"]["localPath"]
+        .as_str()
+        .filter(|_| {
+            snapshot["engine"] == "native"
+                && matches!(
+                    snapshot["status"].as_str(),
+                    Some("playing" | "paused" | "buffering")
+                )
+        })
+        .or(visible_path.as_deref())
+        .or(track.local_path.as_deref())
+        .ok_or("Download this song before saving lyrics")?;
+    let asset = state
+        .store
+        .get_asset_by_path(path)?
+        .ok_or("Registered local file unavailable")?;
+    if asset.recording_id != id || track.playback_range.is_some() {
+        return Err("Lyrics must belong to the full selected audio file".into());
+    }
+    let text =
+        lyrics::embedding_text(&current.document).ok_or("No source lyrics available to embed")?;
+    let settings = state.store.settings()?;
+    let updated=media::embed_lyrics(&asset,&settings,&text,serde_json::json!({"sourceHash":source_hash,"provider":current.document.provider,"credit":current.document.matched,"selectionNotice":current.selection_notice})).await?;
+    state.store.save_lyric_asset(&updated, &asset.hash)?;
+    if let Some(id) = updated.track.provenance["retagJournalId"].as_str() {
+        media::acknowledge_retag_journal(&settings, id)?;
+    }
+    Ok(serde_json::json!({"saved":true,"assetId":updated.id}))
 }
 #[tauri::command]
 async fn translate_current_track_lyrics(
@@ -5367,7 +5473,8 @@ async fn translate_current_track_lyrics(
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics_translation::LyricsTranslationResponse> {
     let snapshot = state.playback.snapshot_page(0, 1);
-    let selected = lyrics_discovery::selected(&snapshot, visible_track.clone());
+    let selected = lyrics_discovery::selected(&snapshot, visible_track.clone())
+        .or_else(|| lyrics_discovery::remembered(&state.store, &snapshot, visible_track.clone()));
     let current = if let Some(selected) = selected {
         selected.document
     } else {
@@ -6271,7 +6378,7 @@ pub fn run() {
                             let mut recovered_job=store.list_autotag_records()?.into_iter().find(|row|row["assetId"]==asset.id && row["inputHash"]==previous.hash).map(|row|row["payload"].clone()).unwrap_or_else(||serde_json::json!({"assetId":asset.id,"version":autotag::VERSION,"attempts":0,"nextAttemptAt":null,"message":"Recovered tag write","candidates":[],"chosen":null,"approvedFields":[],"excerptOnly":false}));
                             recovered_job["inputHash"]=serde_json::json!(asset.hash);recovered_job["status"]=serde_json::json!("applied");recovered_job["updatedAt"]=serde_json::json!(chrono::Utc::now().to_rfc3339());
                             store.save_autotagged_asset(&asset, &previous.hash, autotag::VERSION, &recovered_job)?;
-                        } else { store.save_analyzed_asset(&asset, &previous.hash, analysis::VERSION, &payload)?; }
+                        } else if asset.track.provenance["retagKind"] == "lyrics" {store.save_lyric_asset(&asset,&previous.hash)?;} else { store.save_analyzed_asset(&asset, &previous.hash, analysis::VERSION, &payload)?; }
                         media::acknowledge_retag_journal(&settings, &id)
                     })();
                     if let Err(error) = result { diagnostics.push(format!("Tag recovery needs review: {error}")); }
@@ -6554,7 +6661,7 @@ pub fn run() {
             get_playback_diagnostics_status,
             set_playback_diagnostics_enabled,
             clear_playback_diagnostics,
-            get_current_track_lyrics, search_current_track_lyric_candidates, select_current_track_lyric_candidate,
+            get_current_track_lyrics, search_current_track_lyric_candidates, select_current_track_lyric_candidate, save_current_track_lyrics_to_file, export_current_track_lyrics_text,
             export_playback_diagnostics,
 
             get_diagnostics,

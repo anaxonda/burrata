@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-current-track-lyrics-text"
+description = "Enables the export_current_track_lyrics_text command without any pre-configured scope."
+commands.allow = ["export_current_track_lyrics_text"]
+
+[[permission]]
+identifier = "deny-export-current-track-lyrics-text"
+description = "Denies the export_current_track_lyrics_text command without any pre-configured scope."
+commands.deny = ["export_current_track_lyrics_text"]

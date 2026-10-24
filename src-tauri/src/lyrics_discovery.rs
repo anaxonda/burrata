@@ -3,7 +3,7 @@ use crate::{
     lyrics::{self, ApiRecord, LyricsRequest, LyricsRequestInput, LyricsResponse},
     Store,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Candidate {
     pub id: String,
@@ -52,7 +52,7 @@ static CACHE: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
 fn cache() -> &'static Mutex<HashMap<String, Entry>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
-fn context(
+pub(crate) fn context(
     snapshot: &Value,
     visible: Option<LyricsRequestInput>,
 ) -> Option<(String, LyricsRequest, Option<String>)> {
@@ -86,6 +86,55 @@ pub(crate) fn selected(snapshot: &Value, visible: Option<LyricsRequestInput>) ->
         .filter(|entry| entry.inserted.elapsed() < Duration::from_secs(600))?
         .selected
         .clone()
+}
+/// Persist only an explicit choice, bound to the same recording metadata scope.
+pub(crate) fn remember(store: &Store, scope: &str, id: &str) -> Result<(), String> {
+    let entries = cache().lock().map_err(|_| "Lyrics unavailable")?;
+    let entry = entries.get(scope).ok_or("Lyrics choice expired")?;
+    let candidate = entry
+        .page
+        .candidates
+        .iter()
+        .find(|c| c.id == id)
+        .ok_or("Unknown lyric choice")?;
+    let record = entry.records.get(id).ok_or("Unknown lyric choice")?;
+    store.set_json_preference(
+        &format!("lyrics.choice.v1.{scope}"),
+        &serde_json::json!({"candidate":candidate,"record":record}),
+    )
+}
+pub(crate) fn remembered(
+    store: &Store,
+    snapshot: &Value,
+    visible: Option<LyricsRequestInput>,
+) -> Option<Document> {
+    let (key, request, _) = context(snapshot, visible.clone())?;
+    let raw = store
+        .get_json_preference(&format!("lyrics.choice.v1.{key}"))
+        .ok()??;
+    let candidate: Candidate = serde_json::from_value(raw["candidate"].clone()).ok()?;
+    let record: ApiRecord = serde_json::from_value(raw["record"].clone()).ok()?;
+    if !plausible(&[request], &record)
+        || candidate.id.len() > 32
+        || !candidate.id.bytes().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let id = candidate.id.clone();
+    cache().lock().ok()?.insert(
+        key.clone(),
+        Entry {
+            inserted: Instant::now(),
+            page: Page {
+                scope_id: key.clone(),
+                status: "ok".into(),
+                candidates: vec![candidate],
+            },
+            records: HashMap::from([(id.clone(), record)]),
+            selected: None,
+        },
+    );
+    choose(snapshot, visible, &key, &id).ok()
 }
 fn title_key(value: &str) -> String {
     let parsed = crate::recording_identity::parse_title(value);
@@ -481,13 +530,37 @@ pub(crate) fn choose(
     entry.selected = Some(result.clone());
     Ok(result)
 }
+pub(crate) async fn for_download(
+    store: &Store,
+    track: &crate::models::Track,
+) -> Option<LyricsResponse> {
+    if track.playback_range.is_some()
+        || track.provenance["identity"] == "unverified chapter-derived recording"
+    {
+        return None;
+    }
+    let snapshot = serde_json::json!({"engine":"native","status":"paused","track":track});
+    if let Some(saved) = remembered(store, &snapshot, None) {
+        return Some(saved.document);
+    }
+    let (_, request, _) = context(&snapshot, None)?;
+    let document = tokio::time::timeout(
+        Duration::from_secs(6),
+        lyrics::get_current_track_lyrics(request),
+    )
+    .await
+    .ok()?;
+    matches!(document.status.as_str(), "synced" | "unsynced").then_some(document)
+}
 pub(crate) async fn current(
     snapshot: &Value,
     visible: Option<LyricsRequestInput>,
     store: &Store,
     artists: &crate::artists::ArtistService,
 ) -> Document {
-    if let Some(selected) = selected(snapshot, visible.clone()) {
+    if let Some(selected) =
+        selected(snapshot, visible.clone()).or_else(|| remembered(store, snapshot, visible.clone()))
+    {
         return selected;
     }
     let primary =
@@ -572,6 +645,20 @@ mod tests {
             .iter()
             .all(|line| line.time_seconds.is_none()));
         assert!(selected(&snapshot, None).is_some());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lyrics.sqlite");
+        {
+            let store = Store::open(&path).unwrap();
+            remember(&store, &scope, "1").unwrap();
+        }
+        cache().lock().unwrap().remove(&scope);
+        assert!(selected(&snapshot, None).is_none());
+        let store = Store::open(&path).unwrap();
+        let restored = remembered(&store, &snapshot, None).unwrap();
+        assert_eq!(result.document, restored.document);
+        assert_eq!(result.selection_notice, restored.selection_notice);
+        assert!(remembered(&store, &self::snapshot(), None).is_none());
+        assert_eq!(store.count_assets().unwrap(), 0);
         assert!(choose(&self::snapshot(), None, &scope, "1").is_err());
         assert!(choose(&snapshot, None, &scope, "fabricated").is_err());
     }

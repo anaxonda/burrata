@@ -50,13 +50,14 @@ describe("ConnectionsSetup Soulseek shares", () => {
     const model = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation model"]')!;
     model.value = "synthetic-model"; model.dispatchEvent(new Event("input", { bubbles: true }));
     target.querySelector<HTMLButtonElement>('[aria-label="Translation language"]')!.click(); await settle();
-    const language = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation target language"]')!;
-    language.value = "Spanish"; language.dispatchEvent(new Event("input", { bubbles: true }));
+    const language = target.querySelector<HTMLInputElement>('[aria-label="Search translation languages"]')!;
+    language.value = "Spanish"; language.dispatchEvent(new Event("input", { bubbles: true }));await settle();
+    target.querySelector<HTMLButtonElement>('[role="option"]')!.click();await settle();
     const key = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation API key"]')!;
     key.value = "synthetic-secret"; key.dispatchEvent(new Event("input", { bubbles: true }));
     [...target.querySelectorAll<HTMLLabelElement>("label.check")].find(label => label.textContent?.includes("Keep new credentials only for this session"))?.querySelector<HTMLInputElement>("input")?.click();
     target.querySelector<HTMLButtonElement>(".detail-actions button.primary")!.click(); await settle();
-    expect(saveUpdate.settings.lyricsTranslation).toEqual({ enabled: true, baseUrl: "https://translator.example/v1", model: "synthetic-model", targetLanguage: "Spanish" });
+    expect(saveUpdate.settings.lyricsTranslation).toEqual({ enabled: true, baseUrl: "https://translator.example/v1", model: "synthetic-model", targetLanguage: "es" });
     expect(saveUpdate.lyricsTranslationApiKey).toBe("synthetic-secret");
     expect(JSON.stringify(saveUpdate.settings)).not.toContain("synthetic-secret");
     expect(saveUpdate.sessionOnly).toBe(true);

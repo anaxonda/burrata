@@ -2115,6 +2115,421 @@ pub async fn autotag_asset(
     }
     result
 }
+#[cfg(test)]
+mod lyric_tag_tests {
+    use super::*;
+    #[tokio::test]
+    async fn automatic_embedding_setting_uses_remembered_choice_before_publication() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let path = root.join("input.flac");
+        assert!(std::process::Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-nostdin",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=mono",
+                "-t",
+                "1"
+            ])
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let library = root.join("music");
+        fs::create_dir(&library).unwrap();
+        let mut settings = Settings::default();
+        settings.music_directory = library.to_string_lossy().into_owned();
+        settings.download_layout = DownloadLayout::Flat;
+        let track = Track {
+            id: "local:auto-lyric-fixture".into(),
+            provider: "local".into(),
+            provider_id: "auto-lyric-fixture".into(),
+            source_url: path.to_string_lossy().into_owned(),
+            title: "Synthetic Song".into(),
+            artist: "Synthetic Artist".into(),
+            duration_seconds: Some(1.0),
+            bpm: Some(120.0),
+            key: Some("C".into()),
+            ..Track::default()
+        };
+        let store = crate::Store::open(&root.join("store.sqlite")).unwrap();
+        let snapshot = serde_json::json!({"engine":"native","status":"paused","track":track});
+        let (scope, _, _) = crate::lyrics_discovery::context(&snapshot, None).unwrap();
+        store.set_json_preference(&format!("lyrics.choice.v1.{scope}"),&serde_json::json!({"candidate":{"id":"1","trackName":"Synthetic Song","artistName":"Related artist","durationSeconds":1.0,"hasSynced":false,"automaticMatch":false,"explanation":"User choice","sourceUrl":"https://lrclib.net/api/get/1"},"record":{"trackName":"Synthetic Song","artistName":"Related artist","duration":1.0,"instrumental":false,"plainLyrics":"Synthetic saved lyrics"}})).unwrap();
+        let candidate = Candidate {
+            provider: "local".into(),
+            duration_seconds: Some(1.0),
+            ..Candidate::default()
+        };
+        let plain = finalize_download_with_lyrics(
+            &path,
+            &track,
+            &candidate,
+            &settings,
+            "source",
+            "auto-off",
+            DownloadLayout::Flat,
+            None,
+            &store,
+        )
+        .await
+        .unwrap();
+        assert!(crate::local_lyrics::read(&plain).await.is_none());
+        settings.embed_lyrics_on_download = true;
+        let embedded = finalize_download_with_lyrics(
+            &path,
+            &track,
+            &candidate,
+            &settings,
+            "source",
+            "auto-on",
+            DownloadLayout::Flat,
+            None,
+            &store,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            crate::local_lyrics::read(&embedded).await.unwrap().text,
+            "Synthetic saved lyrics"
+        );
+        assert_eq!(store.count_assets().unwrap(), 0);
+        let mp3 = export_mp3(&embedded, &settings).await.unwrap();
+        assert_eq!(
+            crate::local_lyrics::read(&mp3).await.unwrap().text,
+            "Synthetic saved lyrics"
+        );
+    }
+    #[tokio::test]
+    async fn managed_lyric_write_updates_hash_and_recovers_without_changing_recording_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let path = root.join("managed.flac");
+        assert!(std::process::Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-nostdin",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=mono",
+                "-t",
+                "0.15"
+            ])
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let mut track = Track::default();
+        track.id = "local:lyric-fixture".into();
+        track.provider = "local".into();
+        track.provider_id = "lyric-fixture".into();
+        track.source_url = path.to_string_lossy().into_owned();
+        track.title = "Preserved title".into();
+        track.artist = "Preserved artist".into();
+        track.local_path = Some(path.to_string_lossy().into_owned());
+        track.duration_seconds = Some(0.15);
+        let asset = LocalAsset {
+            id: "lyric-fixture".into(),
+            recording_id: track.id.clone(),
+            path: path.to_string_lossy().into_owned(),
+            hash: hash_file(&path).unwrap(),
+            source_codec: "flac".into(),
+            final_codec: "flac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: Some(44100),
+            channels: Some(1),
+            bit_depth: Some(16),
+            duration_seconds: Some(0.15),
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "preserved".into(),
+            track,
+        };
+        let mut settings = Settings::default();
+        settings.music_directory = root.to_string_lossy().into_owned();
+        let store = crate::Store::open(&root.join("library.sqlite")).unwrap();
+        store.save_asset(&asset).unwrap();
+        let mut readonly = asset.clone();
+        readonly.processing = "external-readonly".into();
+        assert!(
+            embed_lyrics(&readonly, &settings, "Do not write", serde_json::json!({}))
+                .await
+                .is_err()
+        );
+        assert_eq!(hash_file(&path).unwrap(), asset.hash);
+        let mut stale = asset.clone();
+        stale.hash = "0".repeat(64);
+        assert!(
+            embed_lyrics(&stale, &settings, "Do not write", serde_json::json!({}))
+                .await
+                .is_err()
+        );
+        let text = "[00:00.10]Synthetic lyric";
+        let updated = embed_lyrics(
+            &asset,
+            &settings,
+            text,
+            serde_json::json!({"provider":"synthetic"}),
+        )
+        .await
+        .unwrap();
+        assert_ne!(updated.hash, asset.hash);
+        assert_eq!(updated.track.title, asset.track.title);
+        assert_eq!(updated.track.artist, asset.track.artist);
+        assert!(crate::local_lyrics::read(&asset).await.is_none());
+        assert_eq!(
+            crate::local_lyrics::read(&updated).await.unwrap().text,
+            text
+        );
+        let recovered = recover_retag_journals(&settings).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].1.hash, updated.hash);
+        assert!(store.save_lyric_asset(&updated, &"0".repeat(64)).is_err());
+        store.save_lyric_asset(&updated, &asset.hash).unwrap();
+        acknowledge_retag_journal(&settings, &recovered[0].0).unwrap();
+        assert!(recover_retag_journals(&settings).unwrap().is_empty());
+        assert_eq!(
+            store.get_asset_by_id(&asset.id).unwrap().unwrap().hash,
+            updated.hash
+        );
+        assert_eq!(
+            store.get_track(&asset.track.id).unwrap().unwrap().title,
+            asset.track.title
+        );
+    }
+    #[tokio::test]
+    async fn lyric_tags_round_trip_without_losing_existing_metadata_in_supported_formats() {
+        let dir = tempfile::tempdir().unwrap();
+        for extension in ["flac", "mp3", "m4a", "ogg", "opus", "wav"] {
+            let path = dir.path().join(format!("fixture.{extension}"));
+            assert!(std::process::Command::new("ffmpeg")
+                .args([
+                    "-v",
+                    "error",
+                    "-nostdin",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "anullsrc=r=44100:cl=mono",
+                    "-t",
+                    "0.15",
+                    "-metadata",
+                    "title=Keep original title",
+                    "-metadata",
+                    "comment=Keep comment"
+                ])
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success());
+            let pcm_before = std::process::Command::new("ffmpeg")
+                .args(["-v", "error", "-nostdin", "-i"])
+                .arg(&path)
+                .args(["-map", "0:a:0", "-f", "hash", "-hash", "md5", "-"])
+                .output()
+                .unwrap();
+            assert!(pcm_before.status.success());
+            let prior = Probe::open(&path)
+                .unwrap()
+                .guess_file_type()
+                .unwrap()
+                .read()
+                .unwrap();
+            let retained = prior
+                .tags()
+                .iter()
+                .flat_map(|tag| tag.items().cloned())
+                .collect::<Vec<_>>();
+            let text = "[00:01.25]Synthetic Cyrillic текст\n[00:03.50]Second line";
+            merge_lyric_tag(&path, text).unwrap_or_else(|e| panic!("{extension}: {e}"));
+            let tagged = Probe::open(&path)
+                .unwrap()
+                .guess_file_type()
+                .unwrap()
+                .read()
+                .unwrap();
+            assert!(
+                tagged
+                    .tags()
+                    .iter()
+                    .any(|tag| tag.title().as_deref() == Some("Keep original title")),
+                "{extension}"
+            );
+            for item in retained {
+                assert!(
+                    tagged
+                        .tags()
+                        .iter()
+                        .any(|tag| tag.items().any(|stored| stored == &item)),
+                    "Existing tag lost for {extension}: {item:?}"
+                );
+            }
+            assert!(
+                tagged
+                    .tags()
+                    .iter()
+                    .any(|tag| tag.get_string(&ItemKey::Lyrics) == Some(text)),
+                "{extension}"
+            );
+            assert!(merge_lyric_tag(&path, "invalid\0text").is_err());
+            let pcm_after = std::process::Command::new("ffmpeg")
+                .args(["-v", "error", "-nostdin", "-i"])
+                .arg(&path)
+                .args(["-map", "0:a:0", "-f", "hash", "-hash", "md5", "-"])
+                .output()
+                .unwrap();
+            assert!(pcm_after.status.success());
+            assert_eq!(
+                pcm_before.stdout, pcm_after.stdout,
+                "Audio changed for {extension}"
+            );
+        }
+    }
+}
+
+/// Merge only a format-native lyrics tag into a registered managed audio file.
+fn merge_lyric_tag(path: &Path, text: &str) -> Result<(), String> {
+    if text.trim().is_empty() || text.len() > 65536 || text.contains('\0') {
+        return Err("Lyrics must contain at most 64 KB of text".into());
+    }
+    let mut tagged = Probe::open(path)
+        .map_err(|e| e.to_string())?
+        .guess_file_type()
+        .map_err(|e| e.to_string())?
+        .read()
+        .map_err(|e| e.to_string())?;
+    let tag_type = match tagged.file_type() {
+        FileType::Wav | FileType::Aiff => TagType::Id3v2,
+        _ => tagged.primary_tag_type(),
+    };
+    if !matches!(
+        tag_type,
+        TagType::Id3v2 | TagType::VorbisComments | TagType::Mp4Ilst | TagType::Ape
+    ) {
+        return Err("This audio format does not support embedded lyrics".into());
+    }
+    if tagged.tag(tag_type).is_none() {
+        tagged.insert_tag(Tag::new(tag_type));
+    }
+    let tag = tagged.tag_mut(tag_type).ok_or("Audio tag unavailable")?;
+    tag.insert_text(ItemKey::Lyrics, text.to_owned());
+    tagged
+        .save_to_path(path, WriteOptions::default())
+        .map_err(|e| e.to_string())?;
+    let checked = Probe::open(path)
+        .map_err(|e| e.to_string())?
+        .guess_file_type()
+        .map_err(|e| e.to_string())?
+        .read()
+        .map_err(|e| e.to_string())?;
+    if !checked
+        .tags()
+        .iter()
+        .any(|tag| tag.get_string(&ItemKey::Lyrics) == Some(text))
+    {
+        return Err("Embedded lyrics did not round-trip".into());
+    }
+    Ok(())
+}
+pub(crate) async fn embed_lyrics(
+    asset: &LocalAsset,
+    settings: &Settings,
+    text: &str,
+    source: serde_json::Value,
+) -> Result<LocalAsset, String> {
+    let _guard = lock_asset_retag(&asset.id).await;
+    if asset.processing == "external-readonly" {
+        return Err(
+            "External files are read-only; download a managed copy before saving lyrics".into(),
+        );
+    }
+    let target = PathBuf::from(&asset.path);
+    let root = fs::canonicalize(&settings.music_directory).map_err(|e| e.to_string())?;
+    if !target.is_absolute()
+        || fs::symlink_metadata(&target)
+            .map_err(|e| e.to_string())?
+            .file_type()
+            .is_symlink()
+        || fs::canonicalize(&target).map_err(|e| e.to_string())? != target
+        || !target.starts_with(root)
+        || asset.track.id != asset.recording_id
+    {
+        return Err("Lyrics require a registered managed audio file".into());
+    }
+    if hash_file(&target)? != asset.hash {
+        return Err("Audio changed; reload it before saving lyrics".into());
+    }
+    let temporary = target.with_file_name(format!(
+        ".burrata-retag-{}.{}",
+        uuid::Uuid::new_v4(),
+        target
+            .extension()
+            .and_then(|v| v.to_str())
+            .ok_or("Audio extension missing")?
+    ));
+    tokio::fs::copy(&target, &temporary)
+        .await
+        .map_err(|e| e.to_string())?;
+    let result = async {
+        if hash_file(&temporary)? != asset.hash {
+            return Err("Audio changed while saving lyrics".into());
+        }
+        let stage = temporary.clone();
+        let text = text.to_owned();
+        tokio::task::spawn_blocking(move || merge_lyric_tag(&stage, &text))
+            .await
+            .map_err(|e| e.to_string())??;
+        let (before, after) =
+            tokio::try_join!(probe(&target, settings), probe(&temporary, settings))?;
+        if before.codec != after.codec || (before.duration - after.duration).abs() > 0.05 {
+            return Err("Lyrics write changed audio properties".into());
+        }
+        if hash_file(&target)? != asset.hash {
+            return Err("Audio changed before lyrics could be saved".into());
+        }
+        let mut updated = asset.clone();
+        updated.hash = hash_file(&temporary)?;
+        updated.size_bytes = Some(fs::metadata(&temporary).map_err(|e| e.to_string())?.len());
+        updated.track.local_path = Some(asset.path.clone());
+        if !updated.track.provenance.is_object() {
+            updated.track.provenance = serde_json::json!({});
+        }
+        updated.track.provenance["embeddedLyrics"] = source;
+        updated.track.provenance["retagKind"] = serde_json::json!("lyrics");
+        let id = uuid::Uuid::new_v4().to_string();
+        updated.track.provenance["retagJournalId"] = serde_json::json!(id);
+        write_retag_journal(
+            &Path::new(&settings.music_directory)
+                .join(".burrata-staging")
+                .join("analysis"),
+            &RetagJournal {
+                id,
+                previous_hash: asset.hash.clone(),
+                temporary_path: temporary.to_string_lossy().into_owned(),
+                asset: updated.clone(),
+            },
+        )?;
+        fs::rename(&temporary, &target).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        File::open(target.parent().ok_or("Audio parent missing")?)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| e.to_string())?;
+        Ok(updated)
+    }
+    .await;
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
 pub fn hash_file(path: &Path) -> Result<String, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut digest = Sha256::new();
@@ -2444,7 +2859,7 @@ pub(crate) async fn finalize_download_with_layout(
     playlist: Option<&DownloadPlaylistContext>,
 ) -> Result<LocalAsset, String> {
     finalize_download_inner(
-        path, track, candidate, settings, profile, job_id, None, layout, playlist,
+        path, track, candidate, settings, profile, job_id, None, layout, playlist, None,
     )
     .await
 }
@@ -2468,6 +2883,7 @@ pub(crate) async fn finalize_download_with_diagnostic(
         Some(failure_stage),
         settings.download_layout,
         None,
+        None,
     )
     .await
 }
@@ -2481,6 +2897,37 @@ fn set_finalize_diagnostic_stage(
     }
 }
 
+pub(crate) async fn finalize_download_with_lyrics(
+    path: &Path,
+    track: &Track,
+    candidate: &Candidate,
+    settings: &Settings,
+    profile: &str,
+    job_id: &str,
+    layout: DownloadLayout,
+    playlist: Option<&DownloadPlaylistContext>,
+    store: &crate::Store,
+) -> Result<LocalAsset, String> {
+    let lyrics = if settings.embed_lyrics_on_download {
+        Box::pin(crate::lyrics_discovery::for_download(store, track)).await
+    } else {
+        None
+    };
+    finalize_download_inner(
+        path,
+        track,
+        candidate,
+        settings,
+        profile,
+        job_id,
+        None,
+        layout,
+        playlist,
+        lyrics.as_ref(),
+    )
+    .await
+}
+
 async fn finalize_download_inner(
     path: &Path,
     track: &Track,
@@ -2491,6 +2938,7 @@ async fn finalize_download_inner(
     mut failure_stage: Option<&mut &'static str>,
     layout: DownloadLayout,
     playlist: Option<&DownloadPlaylistContext>,
+    lyrics: Option<&crate::lyrics::LyricsResponse>,
 ) -> Result<LocalAsset, String> {
     set_finalize_diagnostic_stage(&mut failure_stage, "finalize_validate_profile");
     if !matches!(profile, "source" | "mp3") {
@@ -2568,6 +3016,14 @@ async fn finalize_download_inner(
         tokio::task::spawn_blocking(move || tag_media(&p, &t, cover))
             .await
             .map_err(|e| e.to_string())??;
+        if let Some(document) = lyrics {
+            if let Some(text) = crate::lyrics::embedding_text(document) {
+                let path = staged.clone();
+                tokio::task::spawn_blocking(move || merge_lyric_tag(&path, &text))
+                    .await
+                    .map_err(|e| e.to_string())??;
+            }
+        }
         set_finalize_diagnostic_stage(&mut failure_stage, "finalize_probe_output");
         let final_info = probe(&staged, settings).await?;
         if final_info.codec != original.codec
@@ -3111,9 +3567,25 @@ pub(crate) async fn export_mp3_with_layout(
         );
         let p = output.clone();
         let t = asset.track.clone();
-        tokio::task::spawn_blocking(move || tag_media(&p, &t, cover))
-            .await
-            .map_err(|e| e.to_string())??;
+        let source = asset.path.clone();
+        tokio::task::spawn_blocking(move || {
+            tag_media(&p, &t, cover)?;
+            if let Ok(tagged) = Probe::open(source)
+                .and_then(|p| Ok(p.guess_file_type()?))
+                .and_then(|p| p.read())
+            {
+                if let Some(text) = tagged
+                    .tags()
+                    .iter()
+                    .find_map(|tag| tag.get_string(&ItemKey::Lyrics))
+                {
+                    merge_lyric_tag(&p, text)?;
+                }
+            }
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
         let info = probe(&output, settings).await?;
         if info.codec != "mp3" {
             return Err("Compatibility export is not MP3".into());

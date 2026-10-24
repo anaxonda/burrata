@@ -63,6 +63,8 @@
     "allow-get-settings",
     "allow-get-playback-diagnostics-status",
     "allow-get-current-track-lyrics",
+    "allow-save-current-track-lyrics-to-file",
+    "allow-export-current-track-lyrics-text",
     "allow-search-current-track-lyric-candidates",
     "allow-select-current-track-lyric-candidate",
     "allow-translate-current-track-lyrics",

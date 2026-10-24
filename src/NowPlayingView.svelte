@@ -8,8 +8,9 @@
   import type { Track } from "./lib/types";
   import { fullscreenArtworkUpgradeCandidates } from "./lib/fullscreen-artwork";
   import type { ArtistProfile, ArtistRef } from "./lib/artist-types";
-  let { track, lyricsTrack = track, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, nextTrack = null, title, artworkUrl, sourceArtworkUrl, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, onFavorite }: {
+  let { track, lyricsTrack = track, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, saveLyrics, exportLyrics, translationLanguage, changeTranslationLanguage, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, nextTrack = null, title, artworkUrl, sourceArtworkUrl, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, onFavorite }: {
     track: Track; nextTrack?: Track | null; title: string; artworkUrl?: string | null; sourceArtworkUrl?: string | null; bottom?: number; context?: string;
+    saveLyrics?: (sourceHash: string) => Promise<unknown>; exportLyrics?: (sourceHash: string,text:string) => Promise<{cancelled?:boolean}>; translationLanguage?:string; changeTranslationLanguage?: (language:string)=>Promise<unknown>;
     lyricsTrack?: Track; absolutePosition?: number; loadLyrics?: () => Promise<CurrentTrackLyrics>; findLyrics?: () => Promise<LyricCandidates>; chooseLyrics?: (scopeId: string, id: string) => Promise<CurrentTrackLyrics>; syncLyrics?: () => Promise<LyricsSyncResult | null>; syncScope?: string;
     translationEnabled?: boolean; translationCredentialPresent?: boolean; translateLyrics?: (sourceHash: string, lines: {id:string;timeSeconds:number|null;text:string}[]) => Promise<import("./lib/lyrics-translation").LyricsTranslationResult>;
     loadArtist: (track: Track) => Promise<ArtistProfile | null>;
@@ -44,7 +45,7 @@
       <article class="artist-card"><ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} />{#if loadRecording}<RecordingInformation {track} {loadRecording} onRelease={onRecordingRelease} onArtist={onArtistRef} />{/if}</article>
       <div class="right-cards"><article><h2>Credits</h2>{#if credits.length}{#each credits as credit}<p class="credit-name">{credit.name}</p><small>{credit.role}</small>{/each}{:else}<p class="credit-name">{track.artist || "Artist unknown"}</p><small>Credited performers</small>{/if}{#if track.remixers?.length}<p class="credit-name">{track.remixers.join(", ")}</p><small>Remix</small>{/if}{#if track.label}<p class="credit-name">{track.label}</p><small>Label</small>{/if}</article>
       <article><div class="card-heading"><h2>Next in queue</h2><button class="subtle" onclick={onQueue}>Open queue</button></div>{#if nextTrack}<div class="next-track"><div class="next-art"><ArtworkImage urls={[nextTrack.artworkUrl]} /></div><div><strong>{nextTrack.title}</strong><p>{nextTrack.artist}</p></div></div>{:else}<p>No more tracks queued.</p>{/if}</article></div>
-      {#if loadLyrics}<article class="lyrics-card"><LyricsPanel track={lyricsTrack} {absolutePosition} {loadLyrics} {findLyrics} {chooseLyrics} {syncLyrics} {syncScope} {translationEnabled} {translationCredentialPresent} {translateLyrics} /></article>{/if}
+      {#if loadLyrics}<article class="lyrics-card"><LyricsPanel track={lyricsTrack} {absolutePosition} {loadLyrics} {findLyrics} {chooseLyrics} {saveLyrics} {exportLyrics} {translationLanguage} {changeTranslationLanguage} {syncLyrics} {syncScope} {translationEnabled} {translationCredentialPresent} {translateLyrics} /></article>{/if}
     </div>
   </div>
 </section>

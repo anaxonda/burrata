@@ -10,7 +10,7 @@ let destroy: (() => void) | undefined;
 afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); await tick(); await new Promise(resolve => setTimeout(resolve, 0)); await tick(); }
 const track = { id: "synthetic-song", provider: "youtube", providerId: "synthetic", sourceUrl: "https://youtube.test/watch?v=synthetic", title: "Synthetic Song", artist: "Synthetic Artist", album: "Synthetic Album", durationSeconds: 180, favorite: false, provenance: {} };
-function render(result: CurrentTrackLyrics, absolutePosition = 0, extra: Record<string, unknown> = {}, trackValue: typeof track = track) {
+function render(result: CurrentTrackLyrics, absolutePosition = 0, extra: Record<string, unknown> = {}, trackValue: typeof track & {localPath?:string} = track) {
   const target = document.createElement("div"); document.body.append(target);
   const loadLyrics = vi.fn(async () => result);
   const instance = mount(LyricsPanel, { target, props: { track: trackValue, absolutePosition, loadLyrics, ...extra } as never });
@@ -117,7 +117,7 @@ describe("LyricsPanel", () => {
     const plain = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Synthetic unsynced verse\nAnother synthetic line" });
     await settle();
     plain.target.querySelector<HTMLButtonElement>(".lyrics-open")!.click(); await settle();
-    expect(plain.target.querySelector(".lyrics-plain-rows")?.textContent).toContain("Another synthetic line");
+    expect(plain.target.querySelector(".lyrics-unsynced")?.textContent).toContain("Another synthetic line");
     destroy?.(); destroy = undefined; document.body.innerHTML = "";
 
     const mismatch = render({ status: "synced", provider: "lrclib", match: { trackName: "Synthetic Song", artistName: "Synthetic Artist", albumName: "Synthetic Album", durationSeconds: 220, durationDeltaSeconds: 40 }, lines: [{ timeSeconds: 0, text: "Do not display mismatched lyrics" }] }, 100);
@@ -150,18 +150,20 @@ describe("LyricsPanel", () => {
     }
   });
 
-  it("pairs source lines side by side by default and keeps a final unpaired line", async () => {
-    const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Original one\nTranslation one\nOriginal two\nTranslation two\nFinal original" });
+  it("pairs bilingual source lines and the icon hides and restores the second column", async () => {
+    const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Zora svetla\nThe morning shines\nMore tiho\nThe sea is calm" });
     await settle(); target.querySelector<HTMLButtonElement>(".lyrics-open")!.click(); await settle();
     expect(target.querySelector(".lyrics-unsynced")).toBeNull();
-    const toggle = target.querySelector<HTMLButtonElement>(".lyrics-pair-lines")!;
+    const toggle = target.querySelector<HTMLButtonElement>('[aria-label="Show translation"]')!;
     const rows = [...target.querySelectorAll(".lyrics-line-row")];
-    expect(rows).toHaveLength(3);
-    expect([...rows[0]!.querySelectorAll("p")].map(p => p.textContent)).toEqual(["Original one", "Translation one"]);
-    expect(rows[2]!.querySelector("p")?.textContent).toBe("Final original");
+    expect(rows).toHaveLength(2);
+    expect([...rows[0]!.querySelectorAll("p")].map(p => p.textContent)).toEqual(["Zora svetla", "The morning shines"]);
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     toggle.click(); await settle();
-    expect(target.querySelector(".lyrics-unsynced")?.textContent).toContain("Translation two");
+    expect(target.querySelectorAll(".translated-line")).toHaveLength(0);
+    expect(target.querySelectorAll(".translated-row")).toHaveLength(0);
+    toggle.click(); await settle();
+    expect(target.querySelectorAll(".translated-line")).toHaveLength(2);
   });
 
   it("translates only after click and preserves each original timestamp and line", async () => {
@@ -206,7 +208,7 @@ describe("LyricsPanel", () => {
     target.querySelector<HTMLButtonElement>(".lyrics-translation-controls button")!.click(); await settle();
     expect(target.textContent).toContain("translation did not match these lyrics");
     expect(target.textContent).not.toContain("Stale synthetic text");
-    expect(target.querySelectorAll(".lyrics-line-row.translated-row")).toHaveLength(0);
+    expect(target.querySelectorAll(".translated-line")?.[0]?.textContent).not.toContain("Stale synthetic text");
   });
 
   it("translates unsynchronized paragraphs without adding timestamps or dropping blank lines", async () => {
@@ -240,6 +242,20 @@ describe("LyricsPanel", () => {
     expect(target.textContent).toContain("Check your internet connection");
     expect(target.querySelector<HTMLButtonElement>('[role="status"] button')?.textContent).toBe("Retry");
   });
+  it("keeps extras inside the closed menu and copies or exports the displayed lyrics", async () => {
+    const writeText=vi.fn(async()=>{}), exportLyrics=vi.fn(async()=>({cancelled:false})), saveLyrics=vi.fn(async()=>({saved:true}));
+    const descriptor=Object.getOwnPropertyDescriptor(navigator,"clipboard");Object.defineProperty(navigator,"clipboard",{value:{writeText},configurable:true});
+    try {
+      const {target}=render({status:"unsynced",provider:"localLrc",sourceHash:"source-copy",plainLyrics:"A synthetic verse",lines:[{id:"copy-1",timeSeconds:null,text:"A synthetic verse"}],match:{artistName:"Synthetic credit",trackName:"Synthetic Song"}},0,{exportLyrics,saveLyrics},{...track,localPath:"/tmp/test-managed.flac"});
+      await settle();target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();
+      const menu=target.querySelector<HTMLDetailsElement>(".lyrics-menu")!;expect(menu.open).toBe(false);expect(menu.textContent).toContain("Lyrics credit");expect(target.querySelector(".lyrics-translation-controls button")?.textContent).toBe("");expect(target.textContent).not.toContain("Display sync only");
+      const button=(text:string)=>[...menu.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent===text)!;
+      button("Copy lyrics").click();await settle();expect(writeText).toHaveBeenCalledWith("A synthetic verse");
+      button("Save lyrics as text file").click();await settle();expect(exportLyrics).toHaveBeenCalledWith("source-copy","A synthetic verse");
+      button("Embed lyrics in audio file").click();await settle();expect(saveLyrics).toHaveBeenCalledWith("source-copy");
+    } finally {if(descriptor)Object.defineProperty(navigator,"clipboard",descriptor);else delete (navigator as unknown as {clipboard?:unknown}).clipboard;}
+  });
+
   it("offers several candidates and displays a selected related performance without timing", async () => {
     const candidates = [1,2].map(id => ({ id:String(id),trackName:"Synthetic Song",artistName:`Performer ${id}`,albumName:`Album ${id}`,durationSeconds:200,hasSynced:true,automaticMatch:false,explanation:"Related performance",sourceUrl:`https://lrclib.net/api/get/${id}` }));
     const find=vi.fn(async()=>({scopeId:"scope",status:"ok",candidates}));

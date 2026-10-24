@@ -4241,6 +4241,15 @@ impl Store {
             .map_err(err)?;
         raw.map(decode).transpose()
     }
+    /// Lyrics-only publication updates the file hash without changing recording metadata or membership.
+    pub(crate) fn save_lyric_asset(&self, asset: &LocalAsset, prior_hash: &str) -> Result<()> {
+        let conn = self.lock_connection()?;
+        let changed=conn.execute("UPDATE local_assets SET hash=?1,payload=?2 WHERE id=?3 AND hash=?4 AND path=?5 AND recording_id=(SELECT recording_id FROM catalog_listings WHERE id=?6)",params![asset.hash,encode(asset)?,asset.id,prior_hash,asset.path,asset.recording_id]).map_err(err)?;
+        if changed != 1 {
+            return Err("Audio asset changed before lyrics publication".into());
+        }
+        Ok(())
+    }
     pub fn save_autotagged_asset(
         &self,
         asset: &LocalAsset,

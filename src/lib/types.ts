@@ -241,6 +241,7 @@ export interface Settings {
   liveBpmEnabled?: boolean;
   matchingLevel?: "exact" | "balanced" | "flexible";
   downloadAudioVerificationEnabled?: boolean;
+  embedLyricsOnDownload?: boolean;
   downloadLayout?: DownloadLayout;
   pauseOnSourceOpen?: boolean;
   sourceOpenAtPosition?: boolean;

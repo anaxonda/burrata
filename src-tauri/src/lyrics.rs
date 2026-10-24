@@ -91,7 +91,7 @@ pub struct LyricsResponse {
     pub source_offset_seconds: Option<f64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ApiRecord {
     // LRCLIB sends both `name` and `trackName`. `name` must remain an
@@ -149,6 +149,47 @@ pub(crate) fn response(status: &str) -> LyricsResponse {
         plain_lyrics: None,
         source_offset_seconds: None,
     }
+}
+
+/// Encode source lyrics as UTF-8 text in the format-native lyrics tag. Timed
+/// sources retain LRC timestamps and offset; related choices remain plain text.
+pub(crate) fn embedding_text(document: &LyricsResponse) -> Option<String> {
+    if !matches!(document.status.as_str(), "synced" | "unsynced") {
+        return None;
+    }
+    let lines = document.lines.as_ref()?;
+    let mut text = if document.status == "synced" {
+        lines
+            .iter()
+            .map(|line| {
+                let centis = (line.time_seconds.unwrap_or(0.0) * 100.0).round() as u64;
+                format!(
+                    "[{:02}:{:02}.{:02}]{}",
+                    centis / 6000,
+                    (centis / 100) % 60,
+                    centis % 100,
+                    line.text
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        document.plain_lyrics.clone().unwrap_or_else(|| {
+            lines
+                .iter()
+                .map(|l| l.text.clone())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    };
+    if document.status == "synced" {
+        if let Some(offset) = document.source_offset_seconds {
+            if offset.is_finite() && offset.abs() <= 300.0 && offset != 0.0 {
+                text = format!("[offset:{:+}]\n{text}", (offset * 1000.0).round() as i64);
+            }
+        }
+    }
+    (!text.trim().is_empty() && text.len() <= 65536 && !text.contains('\0')).then_some(text)
 }
 
 /// Reuse lyrics already returned by an explicit SongRec identification. This

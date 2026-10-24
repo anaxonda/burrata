@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LanguagePicker from "./LanguagePicker.svelte";
   import { onMount } from "svelte";
   import { call, desktop } from "./lib/api";
   interface LyricsTranslationConfig { provider?: "openaiCompatible" | "googleFree" | "auto"; enabled: boolean; baseUrl: string; model: string; targetLanguage: string }
@@ -10,7 +11,6 @@
   interface ManagedDownloadSettings { slots: number; speedLimitKib: number | null; retryAttempts: number; retryDelayMs: number; retryMaxDelayMs: number; partialPolicy: "resume" | "overwrite" }
   interface ManagedDownloadState { managed: boolean; canEdit: boolean; settings: ManagedDownloadSettings | null; guidance: string }
   let { onChanged = (_status: Status) => {} }: { onChanged?: (status: Status) => void } = $props();
-  let choosingTranslationLanguage = $state(false);
   let config = $state<Config>({ slskd: { enabled: false, baseUrl: "http://localhost:5030", downloadsPath: "" }, discogsEnabled: false, lastfmEnabled: false, lyricsTranslation: { enabled: false, baseUrl: "https://api.openai.com/v1", model: "", targetLanguage: "en" } });
   let status = $state<Status | null>(null), slskdKey = $state(""), discogsToken = $state(""), lastfmKey = $state(""), acoustidKey = $state(""), lyricsTranslationKey = $state(""), sessionOnly = $state(false);
   let clear = $state<Record<string, boolean>>({}), busy = $state(false), message = $state("");
@@ -210,15 +210,7 @@
     <label class="check"><input type="checkbox" bind:checked={clear.lyricsTranslation} /> Remove saved translation key</label>
     <small>Your AI provider may charge for use. Its API key stays in the secure credential store or in memory for this session.</small>
     {:else}<small>No API key required. The free Google service may be temporarily rate limited.</small>{/if}
-    <button type="button" aria-label="Translation language" aria-expanded={choosingTranslationLanguage} onclick={() => choosingTranslationLanguage = !choosingTranslationLanguage}>Translation language · {config.lyricsTranslation!.targetLanguage || "en"}</button>
-    {#if choosingTranslationLanguage}
-      <div class="translation-language-options">
-        {#each [["en","English"],["fr","French"],["es","Spanish"],["de","German"],["it","Italian"],["pt","Portuguese"],["bg","Bulgarian"]] as [code,name]}
-          <button type="button" aria-pressed={config.lyricsTranslation!.targetLanguage === code} onclick={() => {config.lyricsTranslation!.targetLanguage = code;}}>{name}</button>
-        {/each}
-    <label>Target language<input aria-label="Lyrics translation target language" type="text" autocomplete="language" bind:value={config.lyricsTranslation!.targetLanguage} placeholder={config.lyricsTranslation!.provider !== "openaiCompatible" ? "e.g. en, fr, es, pt-BR" : "e.g. Spanish or es"} /></label>
-      </div>
-    {/if}
+    <LanguagePicker value={config.lyricsTranslation!.targetLanguage} onChange={language=>{config.lyricsTranslation!.targetLanguage=language;}} />
   </details>
   <label class="check"><input type="checkbox" bind:checked={sessionOnly} /> Keep new credentials only for this session</label>
   <small>Credentials use your operating system’s secure store. Choose session-only if it is unavailable; keys are never saved in the library database.</small>

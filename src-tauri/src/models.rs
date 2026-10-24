@@ -157,6 +157,14 @@ mod download_layout_compatibility_tests {
 
     #[test]
     fn fresh_settings_are_organized_but_legacy_settings_remain_flat() {
+        assert!(!Settings::default().embed_lyrics_on_download);
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("embedLyricsOnDownload");
+        assert!(
+            !serde_json::from_value::<Settings>(old)
+                .unwrap()
+                .embed_lyrics_on_download
+        );
         assert_eq!(
             Settings::default().download_layout,
             DownloadLayout::ArtistAlbum
@@ -402,6 +410,8 @@ pub struct Settings {
     pub music_directory: String,
     #[serde(default)]
     pub download_layout: DownloadLayout,
+    #[serde(default)]
+    pub embed_lyrics_on_download: bool,
     pub auto_preview: bool,
     #[serde(default)]
     pub playback_diagnostics_enabled: bool,
@@ -500,6 +510,7 @@ impl Default for Settings {
         Self {
             music_directory: String::new(),
             download_layout: DownloadLayout::ArtistAlbum,
+            embed_lyrics_on_download: false,
             auto_preview: false,
             playback_diagnostics_enabled: false,
             live_bpm_enabled: false,

@@ -41,3 +41,8 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Let listeners pair alternating bilingual source lines into aligned columns without changing the source or invoking translation. Generated translations retain one original/translated pair per row.
 
 - Default paired source lyrics to side-by-side presentation without row dividers. Rename Translate to Show translation and allow cached generated translations to be hidden and restored without another provider request. Add a translation-language button with language presets and custom entry in Settings → Connections.
+
+- Make lyrics controls immersive: a translation icon toggles the second column; timing offsets, source choices and credits live in a compact options menu. Persist manually chosen lyric sources across restarts, scoped to the same recording metadata.
+- Add Copy lyrics and Save lyrics as text file, plus a searchable standard-language picker in the lyrics menu and Settings. Keep explicit embedding for managed downloaded tracks; external indexed audio remains read-only.
+- Add the opt-in Embed lyrics in downloads setting. Use remembered choices or verified matching lyrics before publication; retain plain or LRC text in format-native lyric tags and read those offline. Preserve lyric tags when exporting MP3 copies.
+- Display MusicBrainz release territory XW as Worldwide.

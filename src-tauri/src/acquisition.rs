@@ -8485,7 +8485,7 @@ impl AcquisitionManager {
                     job.progress = 92.0;
                     self.update(job)?;
                 }
-                let mut source = media::finalize_download_with_layout(
+                let mut source = media::finalize_download_with_lyrics(
                     Path::new(&existing.path),
                     &artifact_track,
                     &candidate,
@@ -8494,6 +8494,7 @@ impl AcquisitionManager {
                     &job.id,
                     job.download_layout,
                     job.playlist_context.as_ref(),
+                    &self.inner.store,
                 )
                 .await?;
                 let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
@@ -9087,7 +9088,7 @@ impl AcquisitionManager {
                 let mut chapter_candidate = job.candidate.clone();
                 chapter_candidate.duration_seconds = chapter_track.duration_seconds;
                 let publication_id = format!("{}-chapter-{}", job.id, position);
-                let mut asset = media::finalize_download_with_layout(
+                let mut asset = media::finalize_download_with_lyrics(
                     &segment,
                     &chapter_track,
                     &chapter_candidate,
@@ -9096,6 +9097,7 @@ impl AcquisitionManager {
                     &publication_id,
                     job.download_layout,
                     job.playlist_context.as_ref(),
+                    &self.inner.store,
                 )
                 .await?;
                 let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
@@ -9179,7 +9181,7 @@ impl AcquisitionManager {
             selected_assessment.relationship,
             separate_source_identity,
         )?;
-        let mut source = media::finalize_download_with_layout(
+        let mut source = media::finalize_download_with_lyrics(
             &path,
             &artifact_track,
             &job.candidate,
@@ -9188,6 +9190,7 @@ impl AcquisitionManager {
             &job.id,
             job.download_layout,
             job.playlist_context.as_ref(),
+            &self.inner.store,
         )
         .await?;
         if matches!(job.disposition, crate::models::ReplacementDisposition::Keep) {
