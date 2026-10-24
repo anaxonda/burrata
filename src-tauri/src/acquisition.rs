@@ -8759,6 +8759,7 @@ impl AcquisitionManager {
             }
             let same_candidate = job.candidate.clone();
             let selected_format_id = job.format_id.clone();
+            let verification_owner_id = owned_verification_staging.as_ref().map(|_| job.id.clone());
             let (raw, resolved_format_id) =
                 crate::youtube_download_recovery::download_with_403_recovery(
                     &same_candidate,
@@ -8773,6 +8774,7 @@ impl AcquisitionManager {
                     },
                     || {
                         let staging = staging.clone();
+                        let verification_owner_id = verification_owner_id.clone();
                         Box::pin(async move {
                             match tokio::fs::remove_dir_all(&staging).await {
                                 Ok(()) => {}
@@ -8785,7 +8787,11 @@ impl AcquisitionManager {
                             }
                             tokio::fs::create_dir_all(&staging).await.map_err(|error| {
                                 format!("Cannot recreate failed-format staging: {error}")
-                            })
+                            })?;
+                            if let Some(job_id) = verification_owner_id.as_deref() {
+                                crate::verification_staging::mark(&staging, job_id)?;
+                            }
+                            Ok(())
                         })
                     },
                     |attempt_job, format_id, cancel| {
@@ -8913,7 +8919,7 @@ impl AcquisitionManager {
             job.track.provenance["downloadAudioVerificationAttempted"] = serde_json::json!(true);
             self.update(job)?;
             Some(
-                crate::staged_recognition::verify_staged_file(
+                Box::pin(crate::staged_recognition::verify_staged_file(
                     &self.inner.store,
                     &job.track,
                     &job.track,
@@ -8922,7 +8928,7 @@ impl AcquisitionManager {
                     true,
                     download_matching_level(&job.track),
                     &rx,
-                )
+                ))
                 .await?,
             )
         } else {
@@ -15599,6 +15605,176 @@ mod tests {
             ..Default::default()
         };
         (directory, settings)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn uncertain_acquisition_publishes_only_verified_bytes_and_cleans_failed_transfers() {
+        for scenario in [
+            "success",
+            "strong",
+            "disabled",
+            "queued-disabled",
+            "wrong-isrc",
+            "inconsistent",
+            "live-version",
+            "unrecognized",
+            "revoked",
+            "cancelled",
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let source = directory.path().join("synthetic.wav");
+            let samples = 60u32 * 8000;
+            let mut wave = Vec::with_capacity((44 + samples * 2) as usize);
+            wave.extend_from_slice(b"RIFF");
+            wave.extend_from_slice(&(36 + samples * 2).to_le_bytes());
+            wave.extend_from_slice(b"WAVEfmt ");
+            wave.extend_from_slice(&16u32.to_le_bytes());
+            wave.extend_from_slice(&1u16.to_le_bytes());
+            wave.extend_from_slice(&1u16.to_le_bytes());
+            wave.extend_from_slice(&8000u32.to_le_bytes());
+            wave.extend_from_slice(&16000u32.to_le_bytes());
+            wave.extend_from_slice(&2u16.to_le_bytes());
+            wave.extend_from_slice(&16u16.to_le_bytes());
+            wave.extend_from_slice(b"data");
+            wave.extend_from_slice(&(samples * 2).to_le_bytes());
+            for n in 0..samples {
+                wave.extend_from_slice(&(((n % 200) as i16 * 100) - 10_000).to_le_bytes());
+            }
+            std::fs::write(&source, wave).unwrap();
+            let metadata = serde_json::json!({"id":"12345","webpage_url":"https://soundcloud.com/synthetic/verification",
+                "title":"Synthetic Song","artist":if scenario == "strong" {Some("Synthetic Artist")} else {None},
+                "duration":60,"ext":"wav","formats":[{"format_id":"audio","ext":"wav","acodec":"pcm_s16le","vcodec":"none","abr":128,"asr":8000,"url":"https://soundcloud.com/synthetic/audio.wav"}]});
+            let quoted_source = format!("'{}'", source.to_string_lossy().replace('\'', "'\\''"));
+            let script = format!(
+                r#"case "$*" in *--dump-single-json*) cat <<'JSON'
+{metadata}
+JSON
+exit 0;; esac
+output=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) shift; output="$1";; esac
+  shift
+done
+destination="${{output%/*}}/source.wav"
+cp {quoted_source} "$destination"
+printf 'BURRATA_FILE "%s"\n' "$destination"
+"#
+            );
+            let (_tool, mut settings) = fake_tool(&script);
+            settings.music_directory = directory
+                .path()
+                .join("music")
+                .to_string_lossy()
+                .into_owned();
+            settings.download_audio_verification_enabled = scenario != "disabled";
+            std::fs::create_dir(&settings.music_directory).unwrap();
+            let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
+            store.save_settings(&settings).unwrap();
+            let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+            let manager = AcquisitionManager::new_for_playback_test(store.clone(), connections);
+            let track = Track {
+                id: format!("catalog:synthetic:{}", uuid::Uuid::new_v4()),
+                provider: "catalog".into(),
+                title: "Synthetic Song".into(),
+                artist: "Synthetic Artist".into(),
+                duration_seconds: Some(60.0),
+                isrc: Some("USABC2600001".into()),
+                provenance: serde_json::json!({"downloadMatchingLevel":"balanced","downloadAudioVerificationEnabled":scenario != "queued-disabled"}),
+                ..Default::default()
+            };
+            let mut track = track;
+            track.provider_id = track.id.strip_prefix("catalog:").unwrap().to_owned();
+            let track = store.cache_track(&track).unwrap();
+            let candidate = candidate_from_json(&metadata, "soundcloud");
+            let mut job: DownloadJob = serde_json::from_value(serde_json::json!({"id":uuid::Uuid::new_v4().to_string(),
+                "track":track,"candidate":candidate,"state":"queued","progress":0,"error":null,"outputPath":null,"createdAt":"","outputProfile":"source"})).unwrap();
+            let (stop, cancel) = idle_cancel();
+            let callback_store = store.clone();
+            let callback_stop = stop.clone();
+            let mode = scenario.to_owned();
+            let (result, calls) = crate::staged_recognition::with_synthetic_recognition(
+                move |index| {
+                    assert!(
+                        callback_store.list_assets().unwrap().is_empty(),
+                        "publication preceded recognition"
+                    );
+                    if mode == "revoked" {
+                        let mut settings = callback_store.settings().unwrap();
+                        settings.download_audio_verification_enabled = false;
+                        callback_store.save_settings(&settings).unwrap();
+                    }
+                    if mode == "cancelled" {
+                        callback_stop.send(true).unwrap();
+                    }
+                    if mode == "unrecognized" {
+                        return Ok(None);
+                    }
+                    let isrc = if mode == "wrong-isrc" || (mode == "inconsistent" && index == 1) {
+                        "USABC2600002"
+                    } else {
+                        "USABC2600001"
+                    };
+                    Ok(Some(crate::radio::RadioTrackMetadata {
+                        station_id: "synthetic".into(),
+                        artist: "Synthetic Artist".into(),
+                        title: if mode == "live-version" {
+                            "Synthetic Song (Live)"
+                        } else {
+                            "Synthetic Song"
+                        }
+                        .into(),
+                        identifiers: Some(crate::recording_identity::RecognitionIdentifiers {
+                            isrc: Some(isrc.into()),
+                            ..Default::default()
+                        }),
+                        album: None,
+                        year: None,
+                        artwork_url: None,
+                        source_url: String::new(),
+                        observed_at: None,
+                        metadata_confidence: "synthetic test response".into(),
+                    }))
+                },
+                Box::pin(with_playback_test_public_addresses(Box::pin(
+                    manager.acquire(&mut job, &settings, cancel),
+                ))),
+            )
+            .await;
+            let success = ["success", "strong"].contains(&scenario);
+            assert_eq!(result.is_ok(), success, "{scenario}: {result:?}");
+            assert_eq!(
+                store.list_assets().unwrap().len(),
+                usize::from(success),
+                "{scenario}"
+            );
+            let expected_calls = if ["strong", "disabled", "queued-disabled"].contains(&scenario) {
+                0
+            } else if ["unrecognized", "revoked", "cancelled"].contains(&scenario) {
+                1
+            } else {
+                2
+            };
+            assert_eq!(calls, expected_calls, "{scenario}");
+            if let Ok(asset) = result {
+                assert_eq!(
+                    crate::media::hash_file(Path::new(&asset.path)).unwrap(),
+                    asset.hash
+                );
+            }
+            let staging = PathBuf::from(&settings.music_directory).join(".burrata-staging");
+            if staging.exists() {
+                assert!(
+                    std::fs::read_dir(staging).unwrap().all(|entry| !entry
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("verification-")),
+                    "{scenario}"
+                );
+            }
+            drop(stop);
+        }
     }
 
     #[cfg(target_os = "linux")]

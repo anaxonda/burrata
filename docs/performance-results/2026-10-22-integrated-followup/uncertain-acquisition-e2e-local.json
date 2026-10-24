@@ -1,0 +1,43 @@
+{
+  "scope": "Synthetic acquisition-to-publication Linux/Unix fixture; real media validation/publication, fake extractor and task-scoped test-only recognition responses",
+  "scenarios": [
+    "verified success",
+    "strong metadata bypasses recognition",
+    "live setting disabled",
+    "queued consent absent",
+    "wrong ISRC",
+    "inconsistent excerpt identifiers",
+    "conflicting live version",
+    "unrecognized first excerpt",
+    "consent revoked",
+    "cancelled"
+  ],
+  "result": "all ten scenarios pass",
+  "assertions": [
+    "No library asset exists during recognition callbacks",
+    "Only success and strong-metadata cases publish an asset",
+    "Expected zero, one or two recognition calls",
+    "Published asset hash matches actual bytes",
+    "Owned verification transfer directories removed after every outcome"
+  ],
+  "logs": [
+    "/tmp/burrata-uncertain-acquisition-cached-fixture.log",
+    "/tmp/burrata-lyrics-plan-complete-native.log"
+  ],
+  "fullNative": {
+    "passed": 1823,
+    "failed": 0,
+    "ignored": 43
+  },
+  "externalAudioSubmissions": 0,
+  "normalProfileChanges": 0,
+  "implementationNotes": [
+    "Heap-box nested acquisition/verification futures to fit ordinary debug-test thread stack",
+    "Preserve ownership marker when failed-format recovery recreates staging",
+    "Fixture caches requested recording exactly as normal catalog selection does"
+  ],
+  "limits": [
+    "Real provider matching/recognition accuracy not established by canned responses",
+    "Not physical macOS/Windows acquisition qualification"
+  ]
+}

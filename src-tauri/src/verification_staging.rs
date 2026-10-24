@@ -13,22 +13,33 @@ pub(crate) fn create(parent: &Path, job_id: &str) -> Result<tempfile::TempDir, S
         .prefix(&format!("verification-{job_id}-"))
         .tempdir_in(parent)
         .map_err(|_| "Cannot create verification staging directory")?;
-    let folder = owned
-        .path()
+    mark(owned.path(), job_id)?;
+    Ok(owned)
+}
+
+pub(crate) fn mark(path: &Path, job_id: &str) -> Result<(), String> {
+    let id = uuid::Uuid::parse_str(job_id).map_err(|_| "Invalid verification job identity")?;
+    if id.to_string() != job_id {
+        return Err("Invalid verification job identity".into());
+    }
+    let folder = path
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or("Invalid verification staging directory")?;
+    if !folder.starts_with(&format!("verification-{job_id}-")) {
+        return Err("Verification directory does not match job identity".into());
+    }
     let marker = serde_json::json!({"owner":OWNER,"jobId":job_id,"directory":folder});
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(owned.path().join(MARKER))
+        .open(path.join(MARKER))
         .map_err(|_| "Cannot mark verification staging ownership")?;
     file.write_all(marker.to_string().as_bytes())
         .map_err(|_| "Cannot mark verification staging ownership")?;
     file.sync_all()
         .map_err(|_| "Cannot persist verification staging ownership")?;
-    Ok(owned)
+    Ok(())
 }
 
 pub(crate) fn cleanup_interrupted(music: &Path, jobs: &[DownloadJob]) -> Result<usize, String> {

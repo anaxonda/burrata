@@ -47,6 +47,65 @@ async fn checked_wait<T>(
     }
 }
 
+#[cfg(test)]
+struct SyntheticRecognizer {
+    callback: Box<
+        dyn Fn(usize) -> Result<Option<crate::radio::RadioTrackMetadata>, String> + Send + Sync,
+    >,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+#[cfg(test)]
+tokio::task_local! { static SYNTHETIC_RECOGNIZER: SyntheticRecognizer; }
+
+/// Test-only task-scoped backend: production builds cannot substitute responses.
+#[cfg(test)]
+pub(crate) async fn with_synthetic_recognition<F: Future>(
+    callback: impl Fn(usize) -> Result<Option<crate::radio::RadioTrackMetadata>, String>
+        + Send
+        + Sync
+        + 'static,
+    future: F,
+) -> (F::Output, usize) {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let result = SYNTHETIC_RECOGNIZER
+        .scope(
+            SyntheticRecognizer {
+                callback: Box::new(callback),
+                calls: calls.clone(),
+            },
+            future,
+        )
+        .await;
+    (result, calls.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+async fn recognize_excerpt(
+    path: &str,
+    start: f64,
+    ffmpeg: &str,
+    check: impl Fn() -> Result<(), String>,
+) -> Result<Option<crate::radio::RadioTrackMetadata>, String> {
+    check()?;
+    #[cfg(test)]
+    if let Ok(result) = SYNTHETIC_RECOGNIZER.try_with(|backend| {
+        let index = backend
+            .calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        (backend.callback)(index)
+    }) {
+        return result;
+    }
+    crate::autotag::songrec_excerpt_guarded(path, start, ffmpeg, check).await
+}
+
+fn excerpt_spacing() -> Duration {
+    #[cfg(test)]
+    if SYNTHETIC_RECOGNIZER.try_with(|_| ()).is_ok() {
+        return Duration::ZERO;
+    }
+    Duration::from_secs(10)
+}
+
 pub(crate) struct StagedRecognition {
     binding: crate::recognition_input::RecognitionInputBinding,
     recognition: crate::autotag::AudioRecognition,
@@ -114,22 +173,18 @@ pub(crate) async fn verify_staged_file(
             .duration_seconds
             .filter(|duration| duration.is_finite() && (50.0..=86_400.0).contains(duration))
             .ok_or("Staged audio cannot provide two non-overlapping recognition excerpts")?;
-        let first =
-            crate::autotag::songrec_excerpt_guarded(path_text, 5.0, &settings.ffmpeg_path, || {
-                check(store, queued_consent, level, cancel)
-            })
-            .await?;
+        let first = recognize_excerpt(path_text, 5.0, &settings.ffmpeg_path, || {
+            check(store, queued_consent, level, cancel)
+        })
+        .await?;
         if first.is_none() {
             return Err("First audio excerpt was not identified".into());
         }
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        tokio::time::sleep(excerpt_spacing()).await;
         binding.recheck(requested, source, path, level).await?;
-        let second = crate::autotag::songrec_excerpt_guarded(
-            path_text,
-            duration - 25.0,
-            &settings.ffmpeg_path,
-            || check(store, queued_consent, level, cancel),
-        )
+        let second = recognize_excerpt(path_text, duration - 25.0, &settings.ffmpeg_path, || {
+            check(store, queued_consent, level, cancel)
+        })
         .await?;
         let recognition = crate::autotag::consistent_songrec_excerpts(first, second)
             .ok_or("Audio excerpts did not identify one consistent recording")?;
@@ -154,7 +209,7 @@ pub(crate) async fn verify_staged_file(
     };
     tokio::time::timeout(
         Duration::from_secs(180),
-        checked_wait(store, queued_consent, level, cancel, operation),
+        checked_wait(store, queued_consent, level, cancel, Box::pin(operation)),
     )
     .await
     .map_err(|_| "Audio verification timed out".to_owned())?
