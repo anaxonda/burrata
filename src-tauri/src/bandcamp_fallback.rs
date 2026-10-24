@@ -15,6 +15,8 @@ use tokio::{io::AsyncReadExt, sync::watch};
 
 #[path = "bandcamp_album_crosswalk.rs"]
 mod album_crosswalk;
+#[path = "bandcamp_linked_album.rs"]
+mod linked_album;
 
 const CACHE: &str = "playback.bandcamp-reference.v1";
 const MAX_JSON: usize = 512 * 1024;
@@ -65,14 +67,25 @@ fn eligible_with_policy(
         && track.local_path.is_none()
         && track.asset_id.is_none()
         && track.playback_range.is_none()
-        && track.version.as_deref().is_none_or(|v| v.trim().is_empty())
+        && (track.version.as_deref().is_none_or(|v| v.trim().is_empty())
+            || linked_album::release_id(track).is_some())
         && !track.title.trim().is_empty()
         && !track.artist.trim().is_empty()
         && track.title.len() <= 512
         && track.artist.len() <= 512
-        && track
-            .duration_seconds
-            .is_none_or(|d| d.is_finite() && (25.0..=600.0).contains(&d))
+        && track.duration_seconds.is_none_or(|d| {
+            d.is_finite()
+                && ((if linked_album::release_id(track).is_some() {
+                    1.0
+                } else {
+                    25.0
+                })..=if linked_album::release_id(track).is_some() {
+                    21600.0
+                } else {
+                    600.0
+                })
+                    .contains(&d)
+        })
         && track.provenance["chapters"]
             .as_array()
             .is_none_or(Vec::is_empty)
@@ -461,18 +474,36 @@ fn cached_binding_matches(
     candidate: &Candidate,
     audio: &crate::acquisition::PreviewAudio,
 ) -> bool {
-    ((proof["method"] == "waveform-v1"
-        && proof["score"]
-            .as_f64()
-            .is_some_and(|n| n.is_finite() && n >= 0.96))
-        || (proof["method"] == "album-crosswalk-v1"
-            && proof["albumTrackCount"]
-                .as_u64()
-                .is_some_and(|n| (8..=50).contains(&n))
-            && proof["albumFingerprint"]
-                .as_str()
-                .is_some_and(|s| s.len() == 64)))
-        && proof["referenceId"].as_u64().is_some()
+    let linked = proof["method"] == "catalog-linked-album-v1"
+        && proof["referenceId"]
+            .as_str()
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+        && proof["releaseId"]
+            .as_str()
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+        && proof["albumTrackCount"]
+            .as_u64()
+            .is_some_and(|n| (2..=500).contains(&n))
+        && proof["albumFingerprint"]
+            .as_str()
+            .is_some_and(|s| s.len() == 64)
+        && audio.source_metadata.as_ref().is_some_and(|metadata| {
+            metadata["albumUrl"] == proof["linkedAlbumUrl"]
+                && metadata["albumId"] == proof["bandcampAlbumId"]
+        });
+    (linked
+        || (((proof["method"] == "waveform-v1"
+            && proof["score"]
+                .as_f64()
+                .is_some_and(|n| n.is_finite() && n >= 0.96))
+            || (proof["method"] == "album-crosswalk-v1"
+                && proof["albumTrackCount"]
+                    .as_u64()
+                    .is_some_and(|n| (8..=50).contains(&n))
+                && proof["albumFingerprint"]
+                    .as_str()
+                    .is_some_and(|s| s.len() == 64)))
+            && proof["referenceId"].as_u64().is_some()))
         && proof["sourceId"] == candidate.id
         && proof["sourceUrl"] == candidate.url
         && proof["resolvedTitle"].as_str() == audio.resolved_title.as_deref()
@@ -531,7 +562,55 @@ fn policy_artists(credit: &str) -> Vec<String> {
         .collect()
 }
 
+fn recording_policy_artists(track: &Track, credit: &str) -> Vec<String> {
+    // A verified catalog can credit a group whose name contains '&'. Keep
+    // those explicit identities when the complete source credit is identical.
+    if same_credit(&track.artist, credit) {
+        let names = track.provenance["artistCredits"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| row["name"].as_str().or_else(|| row["creditedAs"].as_str()))
+            .filter(|name| !name.trim().is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let joined = track.provenance["artistCredits"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|row| {
+                format!(
+                    "{}{}",
+                    row["name"]
+                        .as_str()
+                        .or_else(|| row["creditedAs"].as_str())
+                        .unwrap_or_default(),
+                    row["joinPhrase"]
+                        .as_str()
+                        .or_else(|| row["joinphrase"].as_str())
+                        .unwrap_or_default()
+                )
+            })
+            .collect::<String>();
+        if !names.is_empty() && names.len() <= 32 && same_credit(credit, &joined) {
+            return names;
+        }
+    }
+    policy_artists(credit)
+}
 fn proof_identity(proof: &Value, fallback_title: &str, fallback_artist: &str) -> (String, String) {
+    if proof["method"] == "catalog-linked-album-v1" {
+        return (
+            proof["catalogTitle"]
+                .as_str()
+                .unwrap_or(fallback_title)
+                .to_owned(),
+            proof["catalogArtist"]
+                .as_str()
+                .unwrap_or(fallback_artist)
+                .to_owned(),
+        );
+    }
     if proof["method"] == "waveform-v1" {
         return (
             proof["referenceTitle"]
@@ -585,8 +664,8 @@ fn shared_policy_assessment(
         "track": title,
         "catalogTitle": title,
         "artist": artist,
-        "artists": policy_artists(artist),
-        "artistCount": policy_artists(artist).len(),
+        "artists": recording_policy_artists(track,artist),
+        "artistCount": recording_policy_artists(track,artist).len(),
         "duration": duration,
     });
     if let Some(binding) = binding {
@@ -622,12 +701,30 @@ pub(crate) async fn resolve(
     let key = fingerprint(track);
     let cached = store.get_provider_cache(CACHE, &key)?;
     let mut candidates = vec![];
+    let mut linked_proof = None;
+    let linked_started = std::time::Instant::now();
+    // Refresh the linked album when available; a stale proof must not pin a
+    // recording forever after legitimate source metadata changes.
+    let linked = Box::pin(linked_album::discover(
+        store,
+        track,
+        cancel.clone(),
+        deadline,
+    ))
+    .await;
+    trace.event("bandcamp_linked_album_lookup_end","bandcamp",json!({"accepted":linked.as_ref().ok().is_some_and(|value|value.is_some()),"elapsedMs":linked_started.elapsed().as_millis(),"releaseId":linked_album::release_id(track)}));
+    if let Ok(Some((candidate, proof))) = linked {
+        linked_proof = Some((candidate.id.clone(), proof));
+        candidates.push(candidate);
+    }
     if let Some(row) = cached
         .as_ref()
         .and_then(|p| p.get("candidate"))
         .and_then(|c| serde_json::from_value::<Candidate>(c.clone()).ok())
     {
-        if row.provider == "bandcamp" && crate::bandcamp::validate_track_page_url(&row.url).is_ok()
+        if row.provider == "bandcamp"
+            && crate::bandcamp::validate_track_page_url(&row.url).is_ok()
+            && !candidates.iter().any(|c| c.id == row.id)
         {
             candidates.push(row);
         }
@@ -668,7 +765,18 @@ pub(crate) async fn resolve(
             .unwrap_or_default();
         let title = audio.resolved_title.as_deref().unwrap_or_default();
         let fresh_title = title.strip_prefix(artist).unwrap_or(title).trim();
-        if !plausible(track, fresh_title, artist) {
+        let mut fresh_linked = linked_proof
+            .as_ref()
+            .filter(|(id, _)| id == &candidate.id)
+            .map(|(_, proof)| proof.clone());
+        let linked_ok = fresh_linked
+            .as_mut()
+            .is_some_and(|proof| linked_album::bind_audio(proof, &candidate, &audio));
+        let cached_linked = cached.as_ref().is_some_and(|proof| {
+            proof["method"] == "catalog-linked-album-v1"
+                && cached_binding_matches(proof, &candidate, &audio)
+        });
+        if !linked_ok && !cached_linked && !plausible(track, fresh_title, artist) {
             continue;
         }
         let strict = same_credit(&track.artist, artist)
@@ -680,8 +788,12 @@ pub(crate) async fn resolve(
         let cached_audio = cached
             .as_ref()
             .is_some_and(|p| cached_binding_matches(p, &candidate, &audio));
-        let mut proof = cached.clone().unwrap_or(Value::Null);
-        if !strict && !cached_audio {
+        let mut proof = if linked_ok {
+            fresh_linked.unwrap_or(Value::Null)
+        } else {
+            cached.clone().unwrap_or(Value::Null)
+        };
+        if !strict && !cached_audio && !linked_ok {
             store.set_provider_cache(
                 CACHE,
                 &key,
@@ -715,8 +827,12 @@ pub(crate) async fn resolve(
                 Err(_) if !reference_verification && !*cancel.borrow() => continue,
                 Err(error) => return Err(error),
             };
-            let reference = catalog_reference(track, &raw)
-                .ok_or("No unambiguous full-credit public catalog reference")?;
+            let Some(reference) = catalog_reference(track, &raw) else {
+                if reference_verification {
+                    return Err("No unambiguous full-credit public catalog reference".into());
+                }
+                continue;
+            };
             if reference["duration"]
                 .as_f64()
                 .zip(audio.duration_seconds)
@@ -810,8 +926,9 @@ pub(crate) async fn resolve(
         resolved_metadata["track"] = json!(policy_title);
         resolved_metadata["catalogTitle"] = json!(policy_title);
         resolved_metadata["artist"] = json!(policy_artist);
-        resolved_metadata["artists"] = json!(policy_artists(&policy_artist));
-        resolved_metadata["artistCount"] = json!(policy_artists(&policy_artist).len());
+        resolved_metadata["artists"] = json!(recording_policy_artists(track, &policy_artist));
+        resolved_metadata["artistCount"] =
+            json!(recording_policy_artists(track, &policy_artist).len());
         resolved_metadata["duration"] = json!(audio.duration_seconds);
         resolved_metadata["recordingMatch"] = json!(assessment);
         resolved_metadata["matching"] = json!({

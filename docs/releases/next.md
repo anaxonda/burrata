@@ -46,3 +46,5 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Add Copy lyrics and Save lyrics as text file, plus a searchable standard-language picker in the lyrics menu and Settings. Keep explicit embedding for managed downloaded tracks; external indexed audio remains read-only.
 - Add the opt-in Embed lyrics in downloads setting. Use remembered choices or verified matching lyrics before publication; retain plain or LRC text in format-native lyric tags and read those offline. Preserve lyric tags when exporting MP3 copies.
 - Display MusicBrainz release territory XW as Worldwide.
+
+- Resolve exact MusicBrainz-linked Bandcamp albums for live recordings without requiring an Apple studio-catalog reference. Verify the entire album sequence and recording runtimes, preserve explicit group credits containing ampersands, and keep shared matching checks. The reported Gizzard live recording passes source resolution and native PCM qualification.

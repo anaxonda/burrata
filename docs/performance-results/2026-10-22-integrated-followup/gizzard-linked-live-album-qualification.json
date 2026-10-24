@@ -1,0 +1,55 @@
+{
+  "reportedTrack": {
+    "title": "Self-Immolate",
+    "artist": "King Gizzard & the Lizard Wizard",
+    "release": "Live at Field of Vision II '26",
+    "releaseId": "de4c4c4f-5605-4c94-bf2f-2c0136a96a61",
+    "recordingId": "f25dcddc-bd6f-41e2-b034-bdbc3756d389",
+    "catalogSeconds": 470
+  },
+  "rootCauses": [
+    "Generic fallback cached another Bandcamp upload instead of following the exact release link",
+    "Full band credit containing & was split into separate performers despite explicit MusicBrainz group credit"
+  ],
+  "source": {
+    "albumUrl": "https://bootleggizzard.bandcamp.com/album/live-at-field-of-vision-ii-26",
+    "trackUrl": "https://bootleggizzard.bandcamp.com/track/self-immolate-live-at-field-of-vision-ii-26",
+    "trackId": "4270074567",
+    "seconds": 469.647,
+    "completeAlbumTracks": 64
+  },
+  "verification": [
+    "Explicit independently fetched MusicBrainz release-to-Bandcamp album relation",
+    "Complete ordered album titles, credits and runtimes",
+    "Only that album title suffix may be removed",
+    "Whole-second catalog rounding tolerance; tighter checks for millisecond references",
+    "Fresh stream ID, album, title, credit and runtime binding",
+    "Shared exact, balanced and flexible policies retain acceptance rules",
+    "Known metadata changes refresh proof rather than remaining permanently pinned"
+  ],
+  "liveNativeDecoder": "passed; three seconds of native PCM; fresh and refreshed source resolutions succeeded",
+  "liveSourceLog": "/tmp/burrata-gizzard-live-final.log",
+  "finalSourceResolutionMs": 2819,
+  "finalRefreshedResolutionMs": 1635,
+  "regression": {
+    "passed": 1829,
+    "failed": 0,
+    "ignored": 44
+  },
+  "desktopPlayback": {
+    "result": "passed in normal native GUI",
+    "candidateId": "bandcamp:4270074567",
+    "durationSeconds": 469.646666666,
+    "firstAudioMs": 5798,
+    "observedProgressSeconds": 184.92371882086167,
+    "decoder": "rodio",
+    "failure": null,
+    "binarySha256": "81312578a7c22e9b2b9f1cc696cfac7ca86c164262a030e10d4c40ee763520c9",
+    "queueOccurrencesPreserved": 64,
+    "pausedPositionRestored": 0,
+    "platform": "Linux X11",
+    "physicalMac": "not qualified"
+  },
+  "audioOrFingerprintUploads": 0,
+  "buildContext": "Local candidate includes unrelated existing collection_sources.rs working changes; those remain uncommitted by this task."
+}
