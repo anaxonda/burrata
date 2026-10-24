@@ -61,23 +61,48 @@
   "bpm": {
     "algorithm": "Existing known-tempo and low-confidence native tests pass",
     "display": "Primitive playback-owner dependencies keep routine position snapshots from resetting polling; disabled/unsupported/paused/warming/low-confidence/error states visible",
-    "physicalMacAccuracy": "not established"
+    "physicalMacAccuracy": "not established",
+    "actualChoirRuntime": {
+      "engine": "native",
+      "decoder": "rodio",
+      "windowSeconds": 10,
+      "observations": [
+        {
+          "bpm": 117.9,
+          "confidence": 0.3497032558324901
+        },
+        {
+          "bpm": 146.4,
+          "confidence": 0.36433919800932063
+        }
+      ],
+      "ui": "115.2 BPM approx.; 35% rhythm strength",
+      "limitation": "Variable estimates on this choir performance demonstrate analysis activity, not a verified musical tempo"
+    }
   },
   "externalAudioOrFingerprintSubmissions": 0,
   "normalLibraryChanges": 0,
   "desktopVisualQualification": {
-    "sourceCommit": "eaf8e98",
-    "binarySha256": "549b95fd754a5abda41f37c05ca6e05013c3cb9a99990cc308b80796acefb3d0",
+    "sourceCommit": "d9d4789",
+    "binarySha256": "17cc87aa5461eaacc26d00a26506ec19efb070b381bba9fecfced0ab7f953690",
     "platform": "Linux X11; native engine; marked disposable profile",
     "actualChoirFile": "registered read-only; original hash unchanged",
-    "candidateList": "multiple actual LRCLIB results visible; explicit selection prompt and credits inspected",
-    "bpm": "Disabled state inspected; toggle refused by default manage permission, so this null result is not a confidence measurement",
+    "candidateList": "Actual choir LRCLIB alternatives fill the fullscreen results area; credits, selection buttons and source links visually inspected",
+    "bpm": "Enabled in isolated profile; native rodio playback returned live estimates and Track info displayed BPM and rhythm strength",
     "normalRestoration": {
       "queueEntries": 13,
       "allOccurrenceIds": true,
       "sameTrackAndIndex": true,
       "samePausedPosition": true
     },
-    "visualFollowup": "Full-height fullscreen result list and source-link contrast fixed; final visual check pending"
+    "visualFollowup": "passed; full-height result list and readable source links visually confirmed"
+  },
+  "crossPlatformCi": {
+    "run": 40048705350,
+    "sourceCommit": "eaf8e98",
+    "macOS": "passed",
+    "Linux": "passed",
+    "Windows": "retry running after transient Chocolatey HTTP 503; FFmpeg installation passed on retry",
+    "followupCss": "local frontend checks and rebuilt desktop visual passed"
   }
 }
