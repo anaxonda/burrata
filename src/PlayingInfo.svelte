@@ -58,6 +58,7 @@
     onPanelWidthChange,
     stationName = "",
     liveBpm = null,
+    liveBpmStatus,
   }: {
     track: Track;
     candidate?: Candidate | null;
@@ -91,6 +92,7 @@
     onPanelWidthChange?: (width: number) => void;
     stationName?: string;
     liveBpm?: LiveBpmEstimate | null;
+    liveBpmStatus?: "disabled" | "unsupported" | "paused" | "warming" | "insufficient" | "unavailable";
   } = $props();
 
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
@@ -217,7 +219,7 @@
       {#if candidate?.title}<div><dt>Audio source</dt><dd>{candidate.title}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd>{candidate.uploader}</dd></div>{/if}
       {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{estimateNote(track, "bpm")}</dd></div>{/if}
-      {#if liveBpm}<div class="live-bpm" title={`Approximate tempo estimated from ${liveBpm.windowSeconds.toFixed(1)} seconds of current playback`}><dt>Live BPM</dt><dd>{liveBpm.bpm.toFixed(1)} BPM <small>approx. · {Math.round(liveBpm.confidence * 100)}% rhythm strength · half/double-time readings can vary{#if liveBpm.relatedTempoAlternativeBpm} · related {liveBpm.relatedTempoAlternativeBpm.toFixed(1)} BPM{/if}</small></dd></div>{/if}
+      {#if liveBpm}<div class="live-bpm" title={`Approximate tempo estimated from ${liveBpm.windowSeconds.toFixed(1)} seconds of current playback`}><dt>Live BPM</dt><dd>{liveBpm.bpm.toFixed(1)} BPM <small>approx. · {Math.round(liveBpm.confidence * 100)}% rhythm strength · half/double-time readings can vary{#if liveBpm.relatedTempoAlternativeBpm} · related {liveBpm.relatedTempoAlternativeBpm.toFixed(1)} BPM{/if}</small></dd></div>{:else if liveBpmStatus}<div class="live-bpm"><dt>Live BPM</dt><dd>{{disabled:"Disabled · enable in Settings → Playback",unsupported:"Requires Native audio in Settings → Playback",paused:"Paused",warming:"Listening · collecting a ten-second audio window",insufficient:"No confident rhythm estimate",unavailable:"Estimate temporarily unavailable"}[liveBpmStatus]}</dd></div>{/if}
       {#if track.key}<div><dt>Key</dt><dd>{track.key}{estimateNote(track, "key")}</dd></div>{/if}
       {#if track.label}<div><dt>Label</dt><dd>{track.label}</dd></div>{/if}
       {#if track.releaseDate}<div><dt>Released</dt><dd>{track.releaseDate}</dd></div>{/if}

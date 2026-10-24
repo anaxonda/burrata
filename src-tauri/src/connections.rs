@@ -61,9 +61,10 @@ pub enum LyricsTranslationProvider {
     #[default]
     OpenaiCompatible,
     GoogleFree,
+    Auto,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricsTranslationSettings {
     #[serde(default)]
@@ -76,6 +77,18 @@ pub struct LyricsTranslationSettings {
     pub model: String,
     #[serde(default)]
     pub target_language: String,
+}
+
+impl Default for LyricsTranslationSettings {
+    fn default() -> Self {
+        Self {
+            provider: LyricsTranslationProvider::Auto,
+            enabled: true,
+            base_url: "https://openrouter.ai/api/v1".into(),
+            model: "openai/gpt-6-luna".into(),
+            target_language: "en".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -186,7 +199,7 @@ impl ConnectionManager {
                 "lyrics_translation",
                 settings.lyrics_translation.enabled
                     && settings.lyrics_translation.provider
-                        == LyricsTranslationProvider::OpenaiCompatible,
+                        != LyricsTranslationProvider::GoogleFree,
             ),
             settings,
         })
@@ -386,8 +399,16 @@ impl ConnectionManager {
         let api_key = if settings.provider == LyricsTranslationProvider::GoogleFree {
             String::new()
         } else {
-            self.credential("lyrics_translation")?
-                .ok_or("Enter a translation API key in Connections")?
+            if settings.provider == LyricsTranslationProvider::Auto {
+                // An unavailable optional keyring must not prevent free translation.
+                self.credential("lyrics_translation")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+            } else {
+                self.credential("lyrics_translation")?
+                    .ok_or("Enter a translation API key in Connections")?
+            }
         };
         Ok(Some(LyricsTranslationConnection {
             provider: settings.provider,
@@ -428,7 +449,10 @@ impl LyricsTranslationSettings {
         {
             return Err("Lyrics translation settings exceed their limits".into());
         }
-        if self.provider == LyricsTranslationProvider::GoogleFree {
+        if matches!(
+            self.provider,
+            LyricsTranslationProvider::GoogleFree | LyricsTranslationProvider::Auto
+        ) {
             let mut parts = language.split('-');
             let first = parts.next().unwrap_or_default();
             let valid = (2..=3).contains(&first.len())
@@ -441,7 +465,9 @@ impl LyricsTranslationSettings {
                     "For Google Translate, use a language code such as en, fr, es, or pt-BR".into(),
                 );
             }
-            return Ok(());
+            if self.provider == LyricsTranslationProvider::GoogleFree {
+                return Ok(());
+            }
         }
         if !base_url.is_empty() {
             let parsed = url::Url::parse(base_url).map_err(|_| {
@@ -461,7 +487,10 @@ impl LyricsTranslationSettings {
                 return Err("Translation base URL must use HTTPS, or HTTP on loopback, without credentials or query parameters".into());
             }
         }
-        if self.enabled && (base_url.is_empty() || model.is_empty() || language.is_empty()) {
+        if self.enabled
+            && self.provider == LyricsTranslationProvider::OpenaiCompatible
+            && (base_url.is_empty() || model.is_empty() || language.is_empty())
+        {
             return Err(
                 "Set a translation API URL, model, and target language before enabling translation"
                     .into(),

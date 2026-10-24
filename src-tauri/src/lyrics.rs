@@ -93,16 +93,16 @@ pub struct LyricsResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ApiRecord {
+pub(crate) struct ApiRecord {
     // LRCLIB sends both `name` and `trackName`. `name` must remain an
     // ignored extra field, not an alias that makes serde reject duplicates.
-    track_name: String,
-    artist_name: String,
-    album_name: Option<String>,
-    duration: f64,
-    instrumental: bool,
-    synced_lyrics: Option<String>,
-    plain_lyrics: Option<String>,
+    pub(crate) track_name: String,
+    pub(crate) artist_name: String,
+    pub(crate) album_name: Option<String>,
+    pub(crate) duration: f64,
+    pub(crate) instrumental: bool,
+    pub(crate) synced_lyrics: Option<String>,
+    pub(crate) plain_lyrics: Option<String>,
 }
 
 #[derive(Clone)]
@@ -125,7 +125,7 @@ fn valid_text(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
 }
 
-fn request_key(request: &LyricsRequest) -> String {
+pub(crate) fn request_key(request: &LyricsRequest) -> String {
     format!(
         "{}\0{}\0{}\0{:.3}",
         normalized(&request.track_name),
@@ -139,7 +139,7 @@ fn request_key(request: &LyricsRequest) -> String {
     )
 }
 
-fn response(status: &str) -> LyricsResponse {
+pub(crate) fn response(status: &str) -> LyricsResponse {
     LyricsResponse {
         status: status.into(),
         provider: "lrclib",
@@ -253,7 +253,7 @@ fn shazam_fallback(request: &LyricsRequest, primary: LyricsResponse) -> LyricsRe
         .unwrap_or(primary)
 }
 
-fn valid_request(request: &LyricsRequest) -> bool {
+pub(crate) fn valid_request(request: &LyricsRequest) -> bool {
     valid_text(&request.track_name)
         && valid_text(&request.artist_name)
         && request.album_name.as_deref().is_none_or(valid_text)
@@ -559,7 +559,7 @@ async fn search_verified_variants(requests: &[LyricsRequest]) -> LyricsResponse 
     response("notFound")
 }
 
-fn request_for_current_track(
+pub(crate) fn request_for_current_track(
     snapshot: &Value,
     visible_track: Option<LyricsRequestInput>,
 ) -> Option<LyricsRequest> {
@@ -761,7 +761,7 @@ fn artist_matches(request_artist: &str, record_artist: &str) -> bool {
             .is_some_and(|component| normalized(component) == returned)
 }
 
-fn record_matches(request: &LyricsRequest, record: &ApiRecord) -> bool {
+pub(crate) fn record_matches(request: &LyricsRequest, record: &ApiRecord) -> bool {
     record.duration.is_finite()
         && (record.duration - request.duration_seconds).abs() <= 2.0
         && normalized(&record.track_name) == normalized(&request.track_name)
@@ -795,7 +795,7 @@ fn record_score(request: &LyricsRequest, record: &ApiRecord) -> f64 {
     album_penalty + artist_penalty + (record.duration - request.duration_seconds).abs()
 }
 
-fn classify_record(request: &LyricsRequest, record: ApiRecord) -> LyricsResponse {
+pub(crate) fn classify_record(request: &LyricsRequest, record: ApiRecord) -> LyricsResponse {
     if !record_matches(request, &record) {
         return response("unmatched");
     }
@@ -883,7 +883,7 @@ fn lrc_offset(raw: &str) -> Result<Option<f64>, ()> {
     Ok(offset.map(|milliseconds| milliseconds as f64 / 1000.0))
 }
 
-fn parse_lrc(raw: &str) -> Vec<LyricsLine> {
+pub(crate) fn parse_lrc(raw: &str) -> Vec<LyricsLine> {
     if raw.len() > MAX_LYRICS_BYTES {
         return Vec::new();
     }

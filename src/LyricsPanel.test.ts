@@ -218,4 +218,20 @@ describe("LyricsPanel", () => {
     expect(target.textContent).toContain("Check your internet connection");
     expect(target.querySelector<HTMLButtonElement>('[role="status"] button')?.textContent).toBe("Retry");
   });
+  it("offers several candidates and displays a selected related performance without timing", async () => {
+    const candidates = [1,2].map(id => ({ id:String(id),trackName:"Synthetic Song",artistName:`Performer ${id}`,albumName:`Album ${id}`,durationSeconds:200,hasSynced:true,automaticMatch:false,explanation:"Related performance",sourceUrl:`https://lrclib.net/api/get/${id}` }));
+    const find=vi.fn(async()=>({scopeId:"scope",status:"ok",candidates}));
+    const choose=vi.fn(async()=>({status:"unsynced",provider:"lrclib",sourceHash:"selected",selectionNotice:"Related performance; timing disabled",match:{trackName:"Synthetic Song",artistName:"Performer 1",durationDeltaSeconds:20},lines:[{id:"line",timeSeconds:null,text:"Selected synthetic text"}]}));
+    const {target}=render({status:"notFound",provider:"lrclib"},0,{findLyrics:find,chooseLyrics:choose});
+    await settle();
+    target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();
+    target.querySelector<HTMLButtonElement>(".lyrics-other-results")!.click();await settle();
+    expect(target.querySelectorAll(".lyric-candidates article")).toHaveLength(2);
+    target.querySelector<HTMLButtonElement>(".lyric-candidates article button")!.click();await settle();
+    expect(choose).toHaveBeenCalledWith("scope","1");
+    expect(target.textContent).toContain("Selected synthetic text");
+    expect(target.textContent).toContain("timing disabled");
+    expect(target.textContent).not.toContain("It is not displayed");
+  });
+
 });

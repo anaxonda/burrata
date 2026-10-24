@@ -3,7 +3,10 @@
   import type { Track } from "./lib/types";
   import { validateLyricsTranslation, type LyricsTranslationResult } from "./lib/lyrics-translation";
 
+  export type LyricCandidate = { id: string; trackName: string; artistName: string; albumName?: string | null; durationSeconds: number; hasSynced: boolean; automaticMatch: boolean; explanation: string; sourceUrl: string };
+  export type LyricCandidates = { scopeId: string; status: string; candidates: LyricCandidate[] };
   export type CurrentTrackLyrics = {
+    scopeId?: string; candidates?: LyricCandidate[]; selectionNotice?: string;
     status: "synced" | "unsynced" | "instrumental" | "notFound" | "unmatched" | "unavailable" | "noCurrentTrack" | "invalidRequest" | "providerUnavailable";
     provider: "lrclib" | "shazam" | "localLrc" | "embeddedLyrics";
     sourceHash?: string;
@@ -16,7 +19,7 @@
   type Loader = () => Promise<CurrentTrackLyrics>;
   type TranslationLine = { id: string; timeSeconds: number | null; text: string };
   type Translator = (sourceHash: string, lines: TranslationLine[]) => Promise<LyricsTranslationResult>;
-  let { fullscreenRequested = false, onFullscreenClose, track, absolutePosition, loadLyrics, syncLyrics, syncScope = "", translationEnabled = false, translationCredentialPresent = false, translateLyrics }: { fullscreenRequested?: boolean; onFullscreenClose?: () => void; track: Track; absolutePosition: number; loadLyrics: Loader; syncLyrics?: () => Promise<LyricsSyncResult | null>; syncScope?: string; translationEnabled?: boolean; translationCredentialPresent?: boolean; translateLyrics?: Translator } = $props();
+  let { fullscreenRequested = false, onFullscreenClose, track, absolutePosition, loadLyrics, findLyrics, chooseLyrics, syncLyrics, syncScope = "", translationEnabled = false, translationCredentialPresent = false, translateLyrics }: { fullscreenRequested?: boolean; onFullscreenClose?: () => void; track: Track; absolutePosition: number; loadLyrics: Loader; findLyrics?: () => Promise<LyricCandidates>; chooseLyrics?: (scopeId: string, candidateId: string) => Promise<CurrentTrackLyrics>; syncLyrics?: () => Promise<LyricsSyncResult | null>; syncScope?: string; translationEnabled?: boolean; translationCredentialPresent?: boolean; translateLyrics?: Translator } = $props();
 
   let open = $state(false);
   let fullscreen = $state(false);
@@ -43,6 +46,10 @@
     }
   }
   let loading = $state(false);
+  let candidatePage = $state<LyricCandidates | null>(null);
+  let candidatesOpen = $state(false);
+  let candidatesBusy = $state(false);
+  let candidateMessage = $state("");
   let failure = $state("");
   let lyrics = $state<CurrentTrackLyrics | null>(null);
   let timingOffset = $state(0);
@@ -60,7 +67,7 @@
   let syncEpoch = 0;
   let requestedSyncScope = "";
   const scope = $derived([track.id, track.provider, track.providerId, track.sourceUrl, track.title, track.version ?? "", track.album ?? "", track.durationSeconds ?? ""].join(String.fromCharCode(0)));
-  const timingMismatch = $derived(lyrics?.match?.durationDeltaSeconds != null && Number.isFinite(lyrics.match.durationDeltaSeconds) && Math.abs(lyrics.match.durationDeltaSeconds) > 2);
+  const timingMismatch = $derived(lyrics?.status === "synced" && lyrics?.match?.durationDeltaSeconds != null && Number.isFinite(lyrics.match.durationDeltaSeconds) && Math.abs(lyrics.match.durationDeltaSeconds) > 2);
   function translationSourceLines(document: CurrentTrackLyrics): TranslationLine[] | null {
     if ((document.status !== "synced" && document.status !== "unsynced") || !Array.isArray(document.lines) || !document.lines.length) return null;
     const lines: TranslationLine[] = [];
@@ -95,6 +102,7 @@
     timingOffset = 0;
     loading = false;
     lyrics = null;
+    candidatePage = null; candidatesOpen = false; candidatesBusy = false; candidateMessage = "";
     failure = "";
     timingOffset = 0;
     anchorOffset = null;
@@ -142,14 +150,41 @@
       if (epoch === requestEpoch) loading = false;
     }
   }
+  async function showCandidates() {
+    candidatesOpen = !candidatesOpen;
+    if (!candidatesOpen || !findLyrics || candidatesBusy) return;
+    const expected = scope, epoch = requestEpoch;
+    candidatesBusy = true; candidateMessage = "";
+    try {
+      const result = await findLyrics();
+      if (scope !== expected || epoch !== requestEpoch) return;
+      candidatePage = result;
+      if (!result.candidates.length) candidateMessage = result.status === "providerUnavailable" ? "Lyric search is temporarily unavailable. Try again." : "No other lyric results found.";
+    } catch (error) { if (scope === expected) candidateMessage = String(error); }
+    finally { if (scope === expected) candidatesBusy = false; }
+  }
+  async function selectCandidate(id: string) {
+    const page = candidatePage ?? (lyrics?.scopeId ? { scopeId: lyrics.scopeId, candidates: lyrics.candidates ?? [], status: "ok" } : null);
+    if (!chooseLyrics || !page || candidatesBusy) return;
+    const expected = scope, epoch = ++requestEpoch;
+    translationEpoch++; translation = null; translating = false; translationMessage = "";
+    candidatesBusy = true;
+    try {
+      const result = await chooseLyrics(page.scopeId, id);
+      if (expected !== scope || epoch !== requestEpoch) return;
+      lyrics = result; timingOffset = 0; anchorOffset = null; syncMessage = "";
+    } catch (error) { if (expected === scope) candidateMessage = String(error); }
+    finally { if (expected === scope) candidatesBusy = false; }
+  }
   function closeFullscreen() { fullscreen = false; onFullscreenClose?.(); }
   $effect(() => {
     const requested = fullscreenRequested, currentScope = scope;
     if (requested && currentScope) untrack(() => { void showLyrics(); fullscreen = true; });
   });
   function hideLyrics() { closeFullscreen(); open = false; }
-  function retry() { lyrics = null; translationEpoch++; translation = null; translating = false; translationMessage = ""; failure = ""; void showLyrics(); }
+  function retry() { candidatePage = null; candidatesOpen = false; candidateMessage = ""; lyrics = null; translationEpoch++; translation = null; translating = false; translationMessage = ""; failure = ""; void showLyrics(); }
   async function syncToAudio() {
+    if (lyrics?.selectionNotice) return;
     if (!syncLyrics || syncing) return;
     const epoch = ++syncEpoch;
     syncing = true; syncMessage = "";
@@ -181,7 +216,7 @@
       const checked = validateLyricsTranslation(sourceHash, lines, result);
       if (!checked) { translationMessage = "The translation did not match these lyrics. The original is unchanged."; return; }
       translation = checked;
-      translationMessage = `Translated to ${checked.targetLanguage}. Original timestamps are unchanged.`;
+      translationMessage = `Translated to ${checked.targetLanguage}${checked.model ? ` · ${checked.provider === "openRouter" ? "OpenRouter · " : ""}${checked.model}` : checked.provider === "googleFree" ? " · Google Translate" : ""}${checked.fallbackUsed ? " · API fallback" : ""}.`;
     } catch {
       if (epoch === translationEpoch && expectedScope === scope) translationMessage = "Translation failed. Check the translation provider settings and try again.";
     } finally {
@@ -207,8 +242,23 @@
   </div></div>
   {#if translationMessage && !translation}<p class="lyrics-status" role="status">{translationMessage}</p>{/if}
   {#if open}
+    {#if findLyrics}<button class="lyrics-other-results" type="button" aria-expanded={candidatesOpen} onclick={() => void showCandidates()}>Other lyric results</button>{/if}
+    {#if candidatesOpen || (lyrics?.candidates?.length && !lyrics?.lines?.length)}
+      <div class="lyric-candidates" aria-label="Lyric results">
+        {#if candidatesBusy}<p role="status">Looking up lyric results…</p>{/if}
+        {#if candidateMessage}<p role="status">{candidateMessage}</p>{/if}
+        {#each candidatePage?.candidates ?? lyrics?.candidates ?? [] as candidate (candidate.id)}
+          <article><strong>{candidate.trackName}</strong><p>{candidate.artistName}{#if candidate.albumName} · {candidate.albumName}{/if} · {Math.round(candidate.durationSeconds)} s · {candidate.hasSynced ? candidate.automaticMatch ? "Timed lyrics" : "Timed source · displayed as plain text" : "Plain lyrics"}</p><small>{candidate.explanation}</small>
+          <div><button type="button" disabled={candidatesBusy} onclick={() => void selectCandidate(candidate.id)}>Show these lyrics</button> <a href={candidate.sourceUrl} target="_blank" rel="noreferrer">LRCLIB source ↗</a></div></article>
+        {/each}
+      </div>
+    {/if}
+    {#if lyrics?.match?.artistName}<small class="lyrics-source">Lyrics credit: {lyrics.match.artistName}{#if lyrics.match.albumName} · {lyrics.match.albumName}{/if} · {lyrics.provider === "lrclib" ? "LRCLIB" : lyrics.provider}</small>{/if}
+    {#if lyrics?.selectionNotice}<p class="lyrics-status" role="status">{lyrics.selectionNotice}</p>{/if}
+    {#if candidatesOpen}<small class="lyrics-external-source">Other transcriptions: <a href={`https://www.google.com/search?q=${encodeURIComponent(`site:lyricstranslate.com ${track.title} lyrics`)}`} target="_blank" rel="noreferrer">Search LyricsTranslate ↗</a>. Performances and repetitions may differ.</small>{/if}
     {#if loading}<p class="lyrics-status" role="status">Looking up lyrics for this track…</p>
     {:else if failure}<p class="lyrics-error" role="alert">Could not load lyrics: {failure} <button type="button" onclick={retry}>Retry</button></p>
+    {:else if (candidatePage?.candidates.length ?? lyrics?.candidates?.length ?? 0) > 0 && !lyrics?.lines?.length}<p class="lyrics-status" role="status">Choose a lyric result above. The exact recording has not been confirmed.</p>
     {:else if timingMismatch || lyrics?.status === "unmatched"}<p class="lyrics-status" role="status">A lyrics result did not match this recording's title, performers, or duration. It is not displayed.</p>
     {:else if lyrics?.status === "instrumental"}<p class="lyrics-status" role="status">This recording is marked instrumental.</p>
     {:else if lyrics?.status === "notFound"}<p class="lyrics-status" role="status">No lyrics were found for this track.</p>
@@ -255,6 +305,12 @@
 </article>
 
 <style>
+  .lyrics-other-results { margin:.5rem 0; }
+  .lyric-candidates { max-height:20rem; overflow:auto; margin:.5rem 0; }
+  .lyric-candidates article { padding:.7rem; border-bottom:1px solid var(--line); }
+  .lyric-candidates p { margin:.3rem 0; }
+  .lyric-candidates small { display:block; color:var(--muted); margin-bottom:.4rem; }
+
   .lyrics-panel{min-width:0}
   .lyrics-panel.fullscreen{position:fixed;inset:0;z-index:2000;box-sizing:border-box;padding:clamp(20px,4vw,60px);background:var(--surface,#18221d);color:var(--text,#e5ebe7);display:flex;flex-direction:column;gap:12px;overflow:hidden;border-radius:0}
   .fullscreen .lyrics-scroll,.fullscreen .lyrics-unsynced{flex:1;min-height:0;max-height:none;font-size:clamp(18px,2.5vw,32px)}

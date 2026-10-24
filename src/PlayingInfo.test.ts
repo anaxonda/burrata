@@ -192,4 +192,14 @@ describe("PlayingInfo cached asset artwork recovery", () => {
     await settle();
     expect(onArtworkError).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    ["disabled", "Disabled · enable"], ["unsupported", "Requires Native audio"],
+    ["paused", "Paused"], ["warming", "collecting a ten-second"],
+    ["insufficient", "No confident rhythm"], ["unavailable", "temporarily unavailable"],
+  ])("explains live BPM state %s without inventing an estimate", async (status, message) => {
+    const target = render({...radioTrack, bpm:96}, {liveBpmStatus:status}); await settle();
+    expect(target.querySelector(".live-bpm")?.textContent).toContain(message);
+    expect(target.querySelector(".live-bpm")?.textContent).not.toContain("96 BPM");
+  });
+
 });

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-select-current-track-lyric-candidate"
+description = "Enables the select_current_track_lyric_candidate command without any pre-configured scope."
+commands.allow = ["select_current_track_lyric_candidate"]
+
+[[permission]]
+identifier = "deny-select-current-track-lyric-candidate"
+description = "Denies the select_current_track_lyric_candidate command without any pre-configured scope."
+commands.deny = ["select_current_track_lyric_candidate"]

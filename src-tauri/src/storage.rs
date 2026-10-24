@@ -8683,6 +8683,18 @@ mod tests {
 
         store.cache_track(&ascii).unwrap();
         store.cache_track(&unicode).unwrap();
+        // Remembering the source that played must not promote cached metadata.
+        store
+            .save_audio_match(
+                &ascii,
+                &Candidate {
+                    provider: "youtube".into(),
+                    id: "youtube:synthetic-played-source".into(),
+                    title: ascii.title.clone(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert!(store.get_track(&ascii.id).unwrap().is_some());
         assert_eq!(store.list_tracks("all", None).unwrap().len(), 2);
         assert!(store.list_tracks("library", None).unwrap().is_empty());

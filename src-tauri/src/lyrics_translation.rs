@@ -37,6 +37,12 @@ pub struct LyricsTranslationResponse {
     pub source_hash: String,
     pub target_language: String,
     pub lines: Vec<TranslatedLine>,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub fallback_used: bool,
 }
 
 #[derive(Clone)]
@@ -77,6 +83,7 @@ fn cache_key(connection: &LyricsTranslationConnection, source_hash: &str) -> Str
     hash.update(match connection.provider {
         LyricsTranslationProvider::OpenaiCompatible => b"openai".as_slice(),
         LyricsTranslationProvider::GoogleFree => b"google-free".as_slice(),
+        LyricsTranslationProvider::Auto => b"auto-google-openai".as_slice(),
     });
     for part in [
         source_hash,
@@ -111,6 +118,17 @@ fn validate_source(source_hash: &str, lines: &[lyrics::LyricsLine]) -> Result<()
 
 /// Translate exactly the supplied timed or plain line document. Any missing, reordered,
 /// duplicated, or fabricated response ID rejects the whole translation.
+async fn free_first_translation(
+    free: impl std::future::Future<Output = Result<Vec<TranslatedLine>, String>>,
+    fallback: impl std::future::Future<Output = Result<Vec<TranslatedLine>, String>>,
+    key_available: bool,
+) -> Result<(Vec<TranslatedLine>, bool), String> {
+    match tokio::time::timeout(Duration::from_secs(10),free).await {
+        Ok(Ok(lines)) => Ok((lines,false)),
+        _ if key_available => Ok((fallback.await?,true)),
+        _ => Err("Free translation is unavailable. Configure an API key in Connections to use automatic fallback".into()),
+    }
+}
 pub async fn translate_current_document(
     connection: LyricsTranslationConnection,
     source_hash: String,
@@ -134,7 +152,22 @@ pub async fn translate_current_document(
         }
     }
 
+    let mut used_api = connection.provider == LyricsTranslationProvider::OpenaiCompatible;
+    let mut fallback_used = false;
     let translated = match connection.provider {
+        LyricsTranslationProvider::Auto => {
+            let (translated, used_fallback) = free_first_translation(
+                translate_google(&connection.target_language, &lines),
+                translate_openai(&connection, &source_hash, &lines),
+                !connection.api_key.is_empty()
+                    && !connection.base_url.trim().is_empty()
+                    && !connection.model.trim().is_empty(),
+            )
+            .await?;
+            used_api = used_fallback;
+            fallback_used = used_fallback;
+            translated
+        }
         LyricsTranslationProvider::OpenaiCompatible => {
             translate_openai(&connection, &source_hash, &lines).await?
         }
@@ -149,6 +182,23 @@ pub async fn translate_current_document(
         source_hash,
         target_language: connection.target_language,
         lines: translated,
+        provider: if used_api {
+            if url::Url::parse(&connection.base_url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_owned))
+                .as_deref()
+                == Some("openrouter.ai")
+            {
+                "openRouter"
+            } else {
+                "openaiCompatible"
+            }
+        } else {
+            "googleFree"
+        }
+        .into(),
+        model: used_api.then(|| connection.model.clone()),
+        fallback_used,
     };
     if let Ok(mut entries) = cache().lock() {
         if entries.len() >= CACHE_LIMIT {
@@ -181,7 +231,7 @@ async fn translate_openai(
         .iter()
         .map(|line| json!({"id":line.id,"text":line.text}))
         .collect::<Vec<_>>();
-    let body = json!({
+    let mut body = json!({
         "model": connection.model,
         "max_completion_tokens": 6000,
         "response_format": {"type":"json_object"},
@@ -190,6 +240,9 @@ async fn translate_openai(
             {"role":"user","content":serde_json::to_string(&json!({"sourceHash":source_hash,"lines":source})).map_err(|_| "Could not prepare translation request")?}
         ]
     });
+    if url.host_str() == Some("openrouter.ai") && connection.model == "openai/gpt-6-luna" {
+        body["reasoning"] = json!({"effort":"none"});
+    }
     let body_bytes =
         serde_json::to_vec(&body).map_err(|_| "Could not prepare translation request")?;
     if body_bytes.len() > MAX_REQUEST_BYTES {
@@ -406,6 +459,47 @@ fn validate_translations(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn free_first_does_not_poll_api_until_free_fails_and_key_is_configured() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = AtomicUsize::new(0);
+        let result = super::free_first_translation(
+            async { Ok(vec![]) },
+            async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(!result.1);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(super::free_first_translation(
+            async { Err("429".into()) },
+            async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            },
+            false
+        )
+        .await
+        .is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let result = super::free_first_translation(
+            async { Err("429".into()) },
+            async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(result.1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
     use super::*;
     use std::{
         io::{Read, Write},
@@ -463,10 +557,17 @@ mod tests {
         let hash = lyrics::source_hash_for_lines(&lines);
         let result = translate_current_document(
             LyricsTranslationConnection {
-                provider: LyricsTranslationProvider::OpenaiCompatible,
+                provider: if std::env::var("BURRATA_TRANSLATION_QUALIFICATION_AUTO").as_deref()
+                    == Ok("1")
+                {
+                    LyricsTranslationProvider::Auto
+                } else {
+                    LyricsTranslationProvider::OpenaiCompatible
+                },
                 base_url: "https://openrouter.ai/api/v1".into(),
-                model: field("LLM_MODEL"),
-                target_language: "English".into(),
+                model: std::env::var("BURRATA_TRANSLATION_QUALIFICATION_MODEL")
+                    .unwrap_or_else(|_| "openai/gpt-6-luna".into()),
+                target_language: "en".into(),
                 api_key: field("OPENROUTER_API_KEY"),
             },
             hash.clone(),
@@ -474,6 +575,13 @@ mod tests {
         )
         .await
         .unwrap();
+        eprintln!(
+            "Live translation provider={}, model={:?}, fallback={}, lines={}",
+            result.provider,
+            result.model,
+            result.fallback_used,
+            result.lines.len()
+        );
         assert_eq!(result.source_hash, hash);
         assert_eq!(result.lines.len(), lines.len());
         for (translated, original) in result.lines.iter().zip(&lines) {

@@ -14,7 +14,7 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Show short download-layout choices with accurate folder-path previews. Real-file checks cover Flat, Artist/Album, Playlist and playlist fallback, source-tag retention and preservation of already published files.
 
 - Add bounded LRCLIB fallbacks using verified title and performer aliases, including non-Latin scripts supplied by the catalog. Keep recording, credit and duration checks; preserve guest credits.
-- Offer a keyless Google Translate adapter alongside an OpenAI-compatible provider. Local response/line-identity checks pass, but live Google requests returned HTTP 429 and real API qualification remains pending; do not treat this as verified live availability.
+- Offer a keyless Google Translate adapter alongside an OpenAI-compatible provider. Free-first mode falls back once to a configured API key. Live OpenRouter GPT-6 Luna translation passes, including the reported choir lyric document; keyless Google remains best effort after rate limiting.
 - Explain download recording-credit conflicts and keep inspection/connection errors distinct from recording-policy rejections.
 
 - Read same-name `.lrc` sidecars and embedded lyric text from the selected registered local audio file before online lookup, retaining source hashes and rejecting changed audio or unrelated recording bindings.
@@ -32,3 +32,7 @@ Continue the open requirements in [todo.md](../../todo.md), including remote Mac
 - Retain which recording identifiers agree in both recognized excerpts. Show explicit ISRC agreement in tag review without inferring it for older recognition records.
 
 - Expose fullscreen lyrics through the finite player-panel API. Live isolated Linux UI checks cover `.lrc` timing offsets and embedded plain lyrics; the normal 200-entry queue and paused position were restored exactly.
+
+- Discover several LRCLIB lyric candidates using structured titles, broader title queries and verified artist names. Choose related performances explicitly; those display as plain text with source credits and timing disabled. The reported choir lookup returns seven selectable results.
+- Add the OpenRouter GPT-6 Luna preset and actual translation-provider attribution, preserving line IDs and blank paragraphs. Existing provider choices remain intact.
+- Explain live BPM availability in Track info and keep routine position updates from restarting its polling. Native audio remains required; uncertain rhythm produces no fabricated estimate.

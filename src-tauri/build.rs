@@ -169,6 +169,8 @@ const COMMANDS: &[&str] = &[
     "get_settings",
     "get_playback_diagnostics_status",
     "get_current_track_lyrics",
+    "search_current_track_lyric_candidates",
+    "select_current_track_lyric_candidate",
     "translate_current_track_lyrics",
     "set_playback_diagnostics_enabled",
     "clear_playback_diagnostics",

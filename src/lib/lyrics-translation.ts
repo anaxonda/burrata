@@ -7,6 +7,9 @@ export interface LyricsSourceLine {
 export interface LyricsTranslationResult {
   sourceHash: string;
   targetLanguage: string;
+  provider?: string;
+  model?: string;
+  fallbackUsed?: boolean;
   lines: { id: string; text: string }[];
 }
 

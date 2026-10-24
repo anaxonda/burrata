@@ -1,0 +1,69 @@
+{
+  "scope": "Lyrics discovery, explicit related-performance selection, free-first translation, playback-cache membership and live BPM display",
+  "nativeRegression": {
+    "passed": 1823,
+    "failed": 0,
+    "ignored": 43,
+    "log": "/tmp/burrata-lyrics-plan-complete-native.log"
+  },
+  "frontendRegression": {
+    "passed": 1290,
+    "files": 107,
+    "failed": 0,
+    "log": "/tmp/burrata-lyrics-plan-complete-frontend.log"
+  },
+  "focusedFrontend": {
+    "passed": 45,
+    "failed": 0,
+    "includes": [
+      "Several lyric candidates and explicit selection",
+      "Related performance displays plain text despite runtime mismatch",
+      "Six live BPM availability labels",
+      "Translation response/line identity validation"
+    ]
+  },
+  "typecheck": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "liveChoir": {
+    "discoveredCandidates": 7,
+    "automaticArtistMatches": 0,
+    "selectedLrclibRecord": "18769911",
+    "plainLyrics": true,
+    "syncedLyrics": false,
+    "result": "successful selectable lyric document",
+    "log": "/tmp/burrata-choir-discovery-structured-live.log"
+  },
+  "liveTranslation": {
+    "credential": "Explicitly authorized existing project OpenRouter key; not embedded or committed",
+    "model": "openai/gpt-6-luna",
+    "directAdapter": "passed with two synthetic French sentences",
+    "freeFirst": "passed; Google failed and configured API fallback succeeded",
+    "reportedChoirDocument": {
+      "result": "passed",
+      "documentLinesIncludingBlankSeparators": 7,
+      "stableLineIdsPreserved": true,
+      "provider": "OpenRouter",
+      "fallbackUsed": true,
+      "log": "/tmp/burrata-choir-lyrics-luna-final-live.log"
+    },
+    "keylessGoogle": "Best effort; rate-limited in qualification, not claimed reliable"
+  },
+  "matchingSafety": [
+    "Only metadata/verified-alias matches automatically selected",
+    "Other performances require explicit selection and lose timestamps",
+    "Selected documents are playback-scope-bound and expire",
+    "Unknown candidate IDs and stale playback scopes rejected",
+    "Selections do not modify track metadata or Library membership"
+  ],
+  "libraryMembership": "Existing cache-membership regression now also checks saving the source that played does not promote cached tracks",
+  "bpm": {
+    "algorithm": "Existing known-tempo and low-confidence native tests pass",
+    "display": "Primitive playback-owner dependencies keep routine position snapshots from resetting polling; disabled/unsupported/paused/warming/low-confidence/error states visible",
+    "physicalMacAccuracy": "not established"
+  },
+  "externalAudioOrFingerprintSubmissions": 0,
+  "normalLibraryChanges": 0,
+  "desktopVisualQualification": "pending rebuilt candidate"
+}

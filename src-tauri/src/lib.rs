@@ -40,6 +40,7 @@ pub mod local_audio;
 mod local_lyrics;
 pub mod lyrics;
 mod lyrics_aliases;
+mod lyrics_discovery;
 pub mod lyrics_translation;
 mod main_ui_capture;
 pub mod managed_provider_session;
@@ -5327,15 +5328,36 @@ fn clear_playback_diagnostics() -> playback_diagnostics::DiagnosticsStatus {
 async fn get_current_track_lyrics(
     state: State<'_, AppState>,
     visible_track: Option<lyrics::LyricsRequestInput>,
-) -> Result<lyrics::LyricsResponse> {
+) -> Result<lyrics_discovery::Document> {
     let snapshot = state.playback.snapshot_page(0, 1);
-    Ok(lyrics::get_current_track_lyrics_with_catalog(
-        &snapshot,
+    Ok(lyrics_discovery::current(&snapshot, visible_track, &state.store, &state.artists).await)
+}
+#[tauri::command]
+async fn search_current_track_lyric_candidates(
+    state: State<'_, AppState>,
+    visible_track: Option<lyrics::LyricsRequestInput>,
+) -> Result<lyrics_discovery::Page> {
+    Ok(lyrics_discovery::search(
+        &state.playback.snapshot_page(0, 1),
         visible_track,
         &state.store,
         &state.artists,
     )
     .await)
+}
+#[tauri::command]
+fn select_current_track_lyric_candidate(
+    state: State<'_, AppState>,
+    visible_track: Option<lyrics::LyricsRequestInput>,
+    scope_id: String,
+    candidate_id: String,
+) -> Result<lyrics_discovery::Document> {
+    lyrics_discovery::choose(
+        &state.playback.snapshot_page(0, 1),
+        visible_track,
+        &scope_id,
+        &candidate_id,
+    )
 }
 #[tauri::command]
 async fn translate_current_track_lyrics(
@@ -5345,13 +5367,18 @@ async fn translate_current_track_lyrics(
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics_translation::LyricsTranslationResponse> {
     let snapshot = state.playback.snapshot_page(0, 1);
-    let current = lyrics::get_current_track_lyrics_with_catalog(
-        &snapshot,
-        visible_track,
-        &state.store,
-        &state.artists,
-    )
-    .await;
+    let selected = lyrics_discovery::selected(&snapshot, visible_track.clone());
+    let current = if let Some(selected) = selected {
+        selected.document
+    } else {
+        lyrics::get_current_track_lyrics_with_catalog(
+            &snapshot,
+            visible_track,
+            &state.store,
+            &state.artists,
+        )
+        .await
+    };
     if !matches!(current.status.as_str(), "synced" | "unsynced") {
         return Err("Current playback does not have available lyrics to translate".into());
     }
@@ -6527,7 +6554,7 @@ pub fn run() {
             get_playback_diagnostics_status,
             set_playback_diagnostics_enabled,
             clear_playback_diagnostics,
-            get_current_track_lyrics,
+            get_current_track_lyrics, search_current_track_lyric_candidates, select_current_track_lyric_candidate,
             export_playback_diagnostics,
 
             get_diagnostics,

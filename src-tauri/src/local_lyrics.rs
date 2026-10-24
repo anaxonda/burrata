@@ -195,6 +195,16 @@ mod tests {
             store.save_asset(&asset).unwrap();
             records.push(serde_json::json!({"trackId":id,"kind":kind}));
         }
+        if let Ok(import) = std::env::var("BURRATA_LYRICS_RUNTIME_IMPORT_ASSET") {
+            let mut asset: LocalAsset =
+                serde_json::from_slice(&std::fs::read(import).unwrap()).unwrap();
+            let path = Path::new(&asset.path);
+            assert!(path.is_absolute() && path.is_file());
+            assert_eq!(crate::media::hash_file(path).unwrap(), asset.hash);
+            asset.processing = "external-readonly".into();
+            store.save_asset(&asset).unwrap();
+            records.push(serde_json::json!({"trackId":asset.track.id,"kind":"imported-readonly","hash":asset.hash}));
+        }
         std::fs::write(
             root.join("lyrics-runtime-fixtures.json"),
             serde_json::to_vec_pretty(&records).unwrap(),
