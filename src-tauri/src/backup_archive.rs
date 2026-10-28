@@ -696,7 +696,7 @@ pub fn inspect_archive_in<'a>(
     let mut control = BackupControl { canceled, progress };
     for (index, component) in manifest.components.iter().enumerate() {
         control.check()?;
-        let output_path = staging.path().join(&component.path);
+        let output_path = extracted_component_path(staging.path(), component);
         let parent = output_path
             .parent()
             .ok_or_else(|| ArchiveError::Invalid("invalid staged path".into()))?;
@@ -786,6 +786,22 @@ fn component_path_encoding(id: &str) -> Result<(&'static str, &'static str), Arc
         "playback" => Ok(("data/playback.json", "json")),
         _ => Err(ArchiveError::Invalid(format!("unsupported component {id}"))),
     }
+}
+
+/// Map the archive's virtual component path to a safe native extraction path.
+/// `aux` is a reserved DOS device name on Windows, even when used as a
+/// directory. Keep the ZIP protocol path unchanged, but extract the validated
+/// auxiliary component below a non-reserved local directory. The component
+/// ID token is manifest-validated before this helper is called.
+fn extracted_component_path(staging: &Path, component: &BackupComponent) -> PathBuf {
+    let Some(token) = component.id.strip_prefix("aux-lyrics:") else {
+        return staging.join(&component.path);
+    };
+
+    staging
+        .join("auxiliary")
+        .join("lyrics")
+        .join(format!("{token}.lrc"))
 }
 
 fn component_summary(component: &BackupComponent) -> BackupComponentSummary {
@@ -1089,8 +1105,18 @@ mod tests {
         assert_eq!(validated.manifest.schema_version, 2);
         assert_eq!(validated.manifest.auxiliary_assets.len(), 1);
         let aux_id = &validated.manifest.auxiliary_assets[0].component_id;
+        let aux_token = aux_id.strip_prefix("aux-lyrics:").unwrap();
+        let extracted_auxiliary = validated.component_path(aux_id).unwrap();
         assert_eq!(
-            fs::read(validated.component_path(aux_id).unwrap()).unwrap(),
+            extracted_auxiliary,
+            validated
+                .staging_path()
+                .join("auxiliary")
+                .join("lyrics")
+                .join(format!("{aux_token}.lrc"))
+        );
+        assert_eq!(
+            fs::read(extracted_auxiliary).unwrap(),
             b"[00:01.00] lyric line\n"
         );
         drop(validated);
